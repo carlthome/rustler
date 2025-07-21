@@ -113,6 +113,28 @@ fn calculate_layer_color(layer: f32, num_layers: f32) -> vec3<f32> {
     return min_color + (max_color - min_color) * t;
 }
 
+// Calculate edge vignetting effect
+fn calculate_edge_vignetting(screen_pos: vec2<f32>) -> f32 {
+    let angle_to_pos = angle_to_point(screen_pos);
+    let angle_diff = abs(angle_to_pos - flashlight.angle);
+    
+    // Handle angle wrapping around 2π
+    let wrapped_diff = min(angle_diff, 2.0 * 3.14159 - angle_diff);
+    
+    // Calculate how close we are to the edge of the cone
+    let edge_factor = wrapped_diff / (flashlight.spread * 0.5);
+    
+    // Apply smooth falloff at the edges
+    let vignette_strength = 0.6; // Controls how strong the vignetting is
+    let vignette_softness = 0.3; // Controls how soft the transition is
+    
+    // Create smooth falloff using smoothstep
+    let falloff_start = 1.0 - vignette_softness;
+    let vignette = 1.0 - smoothstep(falloff_start, 1.0, edge_factor) * vignette_strength;
+    
+    return vignette;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let screen_pos = uv_to_screen(in.uv);
@@ -131,15 +153,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var final_color = vec3<f32>(0.0);
     var final_alpha = 0.0;
     
+    // Calculate edge vignetting
+    let vignette = calculate_edge_vignetting(screen_pos);
+    
     // Blend all layers
     for (var i = 0.0; i < num_layers; i += 1.0) {
         let layer_alpha = calculate_gradient_alpha(screen_pos, i, num_layers);
         if (layer_alpha > 0.0) {
             let layer_color = calculate_layer_color(i, num_layers);
             
+            // Apply vignetting to the layer alpha
+            let vignetted_alpha = layer_alpha * vignette;
+            
             // Additive blending
-            final_color += layer_color * layer_alpha;
-            final_alpha += layer_alpha;
+            final_color += layer_color * vignetted_alpha;
+            final_alpha += vignetted_alpha;
         }
     }
     
@@ -150,7 +178,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         for (var i = 0.0; i < num_lasers; i += 1.0) {
             let t = i / num_lasers;
-            let laser_angle = flashlight.angle - flashlight.spread * 0.5 + flashlight.spread * t;
+            // Reduce the spread multiplier to keep lasers more inward from the edges
+            let laser_spread_factor = 0.75; // Use 75% of the cone spread instead of 100%
+            let laser_angle = flashlight.angle - flashlight.spread * laser_spread_factor * 0.5 + flashlight.spread * laser_spread_factor * t;
             
             // Calculate distance to laser line
             let laser_dir = vec2<f32>(cos(laser_angle), sin(laser_angle));
@@ -179,8 +209,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     
                     let laser_falloff = 1.0 - (perp_dist / (laser_width * 0.5));
                     
-                    final_color += laser_color * laser_falloff * 0.8;
-                    final_alpha += laser_falloff * 0.8;
+                    // Create pulsating rave effect for lasers
+                    let pulse_freq = 3.0 + i * 1.5; // Different frequency for each laser
+                    let pulse_phase = i * 0.8; // Phase offset for each laser
+                    let pulse_base = sin(flashlight.time * pulse_freq + pulse_phase);
+                    let pulse_secondary = sin(flashlight.time * pulse_freq * 2.3 + pulse_phase * 1.7);
+                    
+                    // Combine multiple sine waves for complex pulsing
+                    let pulse_intensity = 0.7 + 0.3 * (pulse_base * 0.6 + pulse_secondary * 0.4);
+                    
+                    // Add quick strobe effect occasionally
+                    let strobe_freq = 8.0 + i * 2.0;
+                    let strobe = step(0.85, sin(flashlight.time * strobe_freq + pulse_phase));
+                    let strobe_intensity = 1.0 + strobe * 0.8;
+                    
+                    // Combine all effects
+                    let total_intensity = pulse_intensity * strobe_intensity;
+                    
+                    // Apply vignetting and pulsing effects
+                    let vignetted_laser_falloff = laser_falloff * vignette * total_intensity;
+                    
+                    final_color += laser_color * vignetted_laser_falloff * 0.8;
+                    final_alpha += vignetted_laser_falloff * 0.8;
                 }
             }
         }
