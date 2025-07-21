@@ -4,7 +4,7 @@ use crevice::std140::AsStd140;
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{
-    BlendMode, Canvas, Color, DrawMode, DrawParam, FilterMode, Image, Mesh, Rect, Sampler, Shader,
+    BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader,
     ShaderParamsBuilder,
 };
 
@@ -13,6 +13,20 @@ pub struct ResolutionUniform {
     pub width: f32,
     pub height: f32,
     pub time: f32,
+}
+
+#[derive(Copy, Clone, Debug, AsStd140)]
+pub struct FlashlightUniform {
+    pub center_x: f32,
+    pub center_y: f32,
+    pub angle: f32,
+    pub spread: f32,
+    pub range: f32,
+    pub time: f32,
+    pub time_since_catch: f32,
+    pub laser_level: f32,
+    pub screen_width: f32,
+    pub screen_height: f32,
 }
 
 pub fn draw_grass(
@@ -210,26 +224,19 @@ pub fn draw_flashlight(
     dir: Vec2,
     time_since_catch: f32,
     flashlight: &Flashlight,
+    shader: &Shader,
+    screen_width: f32,
+    screen_height: f32,
 ) -> ggez::GameResult {
-    // Flicker logic
+    // Flicker logic (calculations are done in the shader)
     let time = ctx.time.time_since_start().as_secs_f32();
-    let base_freq = 4.0;
-    let max_freq = 18.0;
-    let freq = base_freq + (max_freq - base_freq) * (time_since_catch / 12.0).min(1.0);
-    let base_alpha = 24.0;
-    let max_alpha = 90.0;
-    let flicker_strength = (time_since_catch / 3.0).min(2.0);
-    let flicker = (time * freq + (player_pos.x + player_pos.y) * 0.01)
-        .sin()
-        .abs();
-    let alpha = base_alpha + (max_alpha - base_alpha) * flicker * flicker_strength;
 
     // Flashlight parameters
     let laser_level = flashlight.laser_level;
     let cone_angle = flashlight.cone_upgrade;
     let range = flashlight.range_upgrade;
 
-    // Draw a cone-shaped flashlight (sector) with bloom/gradient
+    // Calculate flashlight properties
     let flashlight_len = range.max(80.0);
     let spread = cone_angle.max(0.15);
     let center = Vec2::new(
@@ -238,58 +245,42 @@ pub fn draw_flashlight(
     );
     let angle = dir.y.atan2(dir.x);
 
-    // Parameterized bloom/gradient flashlight
-    let min_layers = 1;
-    let max_layers = 10;
-    let t_catch = (time_since_catch / 5.0).clamp(0.0, 1.0);
-    let num_layers =
-        (max_layers as f32 - (max_layers as f32 - min_layers as f32) * t_catch).round() as usize;
-    let min_scale = 0.7;
-    let max_scale = 1.4;
-    let min_alpha = 180.0;
-    let max_alpha = (alpha * 0.18).max(10.0);
-    let min_color = [255.0, 255.0, 255.0];
-    let max_color = [255.0, 255.0, 200.0];
-    for i in 0..num_layers {
-        let t = i as f32 / (num_layers - 1).max(1) as f32;
-        let scale = min_scale + (max_scale - min_scale) * t;
-        let segs = if i < 2 { 24 } else { 32 };
+    // Create uniform data for the shader
+    let uniform_data = FlashlightUniform {
+        center_x: center.x,
+        center_y: center.y,
+        angle,
+        spread,
+        range: flashlight_len,
+        time,
+        time_since_catch,
+        laser_level: laser_level as f32,
+        screen_width,
+        screen_height,
+    };
 
-        // Interpolate color and alpha.
-        let r = min_color[0] + (max_color[0] - min_color[0]) * t;
-        let g = min_color[1] + (max_color[1] - min_color[1]) * t;
-        let b = min_color[2] + (max_color[2] - min_color[2]) * t;
-        let a = min_alpha + (max_alpha - min_alpha) * t;
-        let color = Color::from_rgba(r as u8, g as u8, b as u8, a as u8);
-        let mut points = vec![center];
-        for j in 0..=segs {
-            let theta = angle - spread / 2.0 + spread * (j as f32 / segs as f32);
-            let x = center.x + flashlight_len * scale * theta.cos();
-            let y = center.y + flashlight_len * scale * theta.sin();
-            points.push(Vec2::new(x, y));
-        }
-        let flashlight = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color)?;
-        canvas.draw(&flashlight, DrawParam::default());
-    }
-    // Crab Techno Rave: draw laser beams if upgraded
-    if laser_level > 0 {
-        let laser_colors = [
-            Color::from_rgb(255, 0, 255),
-            Color::from_rgb(0, 255, 255),
-            Color::from_rgb(255, 255, 0),
-            Color::from_rgb(0, 255, 0),
-            Color::from_rgb(255, 0, 0),
-        ];
-        let num_lasers = 2 + laser_level * 2;
-        let laser_len = flashlight_len * (1.2 + 0.2 * laser_level as f32);
-        for i in 0..num_lasers {
-            let t = i as f32 / num_lasers as f32;
-            let laser_angle = angle - spread / 2.0 + spread * t;
-            let color = laser_colors[(i as usize) % laser_colors.len()];
-            let end = center + Vec2::new(laser_angle.cos(), laser_angle.sin()) * laser_len;
-            let laser = Mesh::new_line(ctx, &[center, end], 6.0 + 2.0 * laser_level as f32, color)?;
-            canvas.draw(&laser, DrawParam::default());
-        }
-    }
+    // Set up shader parameters
+    let params = ShaderParamsBuilder::new(&uniform_data).build(ctx);
+    canvas.set_shader_params(&params);
+    canvas.set_shader(shader);
+
+    // Draw a full-screen quad that the shader will render the flashlight onto
+    // Use the same pattern as the grass shader
+    let flashlight_quad = Mesh::new_rectangle(
+        ctx,
+        DrawMode::fill(),
+        Rect::new(-screen_width / 2.0, -screen_height / 2.0, screen_width, screen_height),
+        Color::WHITE,
+    )?;
+    
+    // Set additive blend mode for the flashlight effect
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    
+    canvas.draw(&flashlight_quad, DrawParam::default());
+    
+    // Restore original blend mode and shader
+    canvas.set_blend_mode(original_blend);
+    canvas.set_default_shader();
     Ok(())
 }

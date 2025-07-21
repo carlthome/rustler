@@ -71,6 +71,7 @@ struct MainState {
     width: f32,                     // Virtual width of the game
     height: f32,                    // Virtual height of the game
     shader: ggez::graphics::Shader, // Shader for grass rendering
+    flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
     level_title: String,            // Title of the current level
     level_title_timer: f32,         // Timer for displaying level title
     texture: Image,                 // Grass texture for background
@@ -115,6 +116,11 @@ impl MainState {
             .fragment_path("/grass.wgsl")
             .build(&ctx.gfx)?;
 
+        let flashlight_shader = ShaderBuilder::new()
+            .vertex_path("/flashlight.wgsl")
+            .fragment_path("/flashlight.wgsl")
+            .build(&ctx.gfx)?;
+
         let flashlight = Flashlight {
             on: true,
             cone_upgrade: 0.0,
@@ -149,6 +155,7 @@ impl MainState {
             width,
             height,
             shader,
+            flashlight_shader,
             level_title: String::new(),
             level_title_timer: 0.0,
             texture,
@@ -424,6 +431,9 @@ impl MainState {
                 flashlight_dir,
                 self.time_since_catch,
                 &self.flashlight,
+                &self.flashlight_shader,
+                self.width,
+                self.height,
             )?;
         }
         draw_rustler(ctx, canvas, self.player_pos)?;
