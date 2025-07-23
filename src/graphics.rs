@@ -1,4 +1,4 @@
-use crate::enemies::EnemyCrab;
+use crate::enemies::{CrabType, EnemyCrab};
 use crate::{CRAB_SIZE, Flashlight, PLAYER_SIZE};
 use crevice::std140::AsStd140;
 use ggez::Context;
@@ -7,6 +7,7 @@ use ggez::graphics::{
     BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader,
     ShaderParamsBuilder,
 };
+use rand::Rng;
 
 #[derive(Copy, Clone, Debug, AsStd140)]
 pub struct ResolutionUniform {
@@ -27,6 +28,201 @@ pub struct FlashlightUniform {
     pub laser_level: f32,
     pub screen_width: f32,
     pub screen_height: f32,
+}
+
+#[derive(Copy, Clone, Debug, AsStd140)]
+pub struct ParticleUniform {
+    pub screen_width: f32,
+    pub screen_height: f32,
+    pub time: f32,
+    pub _padding: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct Particle {
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub life: f32,
+    pub max_life: f32,
+    pub size: f32,
+    pub color: [f32; 3],
+}
+
+#[derive(Clone, Debug)]
+pub struct ParticleSystem {
+    pub particles: Vec<Particle>,
+}
+
+impl ParticleSystem {
+    pub fn new() -> Self {
+        Self {
+            particles: Vec::new(),
+        }
+    }
+
+    pub fn spawn_catch_effect(&mut self, pos: Vec2, crab_color: [f32; 3], crab_type: CrabType, rng: &mut impl Rng) {
+        let (particle_count, speed_range, size_range, special_effect) = match crab_type {
+            CrabType::Normal => (20, 80.0..180.0, 3.0..6.0, false),
+            CrabType::Fast => (35, 120.0..300.0, 2.0..5.0, true), // More particles, faster
+            CrabType::Big => (40, 60.0..150.0, 4.0..10.0, false), // Larger particles
+            CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
+        };
+        
+        // Create main particles
+        for _ in 0..particle_count {
+            let angle = rng.random_range(0.0..std::f32::consts::TAU);
+            let speed = rng.random_range(speed_range.clone());
+            let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+            let life = rng.random_range(0.8..1.8);
+            let size = rng.random_range(size_range.clone());
+            
+            // Add some color variation and make particles brighter
+            let color_variation = rng.random_range(-0.2..0.2);
+            let brightness_boost = rng.random_range(0.3..0.7);
+            let particle_color = [
+                (crab_color[0] + color_variation + brightness_boost).clamp(0.0, 1.0),
+                (crab_color[1] + color_variation + brightness_boost).clamp(0.0, 1.0),
+                (crab_color[2] + color_variation + brightness_boost).clamp(0.0, 1.0),
+            ];
+            
+            self.particles.push(Particle {
+                pos,
+                vel,
+                life,
+                max_life: life,
+                size,
+                color: particle_color,
+            });
+        }
+        
+        // Add special sparkly particles for Fast and Sneaky crabs
+        if special_effect {
+            let sparkle_count = match crab_type {
+                CrabType::Fast => 15,
+                CrabType::Sneaky => 8,
+                _ => 0,
+            };
+            
+            for _ in 0..sparkle_count {
+                let angle = rng.random_range(0.0..std::f32::consts::TAU);
+                let speed = rng.random_range(150.0..400.0);
+                let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+                let life = rng.random_range(0.4..1.0);
+                let size = rng.random_range(1.0..3.0);
+                
+                let sparkle_color = match crab_type {
+                    CrabType::Fast => [1.0, 0.8, 0.2], // Golden sparkles for fast crabs
+                    CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
+                    _ => [1.0, 1.0, 0.9],
+                };
+                
+                self.particles.push(Particle {
+                    pos,
+                    vel,
+                    life,
+                    max_life: life,
+                    size,
+                    color: sparkle_color,
+                });
+            }
+        } else {
+            // Regular sparkles for Normal and Big crabs
+            for _ in 0..8 {
+                let angle = rng.random_range(0.0..std::f32::consts::TAU);
+                let speed = rng.random_range(120.0..300.0);
+                let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
+                let life = rng.random_range(0.4..0.8);
+                let size = rng.random_range(1.5..4.0);
+                
+                self.particles.push(Particle {
+                    pos,
+                    vel,
+                    life,
+                    max_life: life,
+                    size,
+                    color: [1.0, 1.0, 0.9], // Bright white/yellow sparkles
+                });
+            }
+        }
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        self.particles.retain_mut(|particle| {
+            particle.life -= dt;
+            particle.pos += particle.vel * dt;
+            
+            // Add gravity effect
+            particle.vel.y += 200.0 * dt;
+            
+            // Add air resistance
+            particle.vel *= 0.96;
+            
+            // Shrink particles over time
+            let life_ratio = particle.life / particle.max_life;
+            particle.size = particle.size * (0.95 + 0.05 * life_ratio);
+            
+            particle.life > 0.0
+        });
+    }
+}
+
+pub fn draw_particles(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    particle_system: &ParticleSystem,
+) -> ggez::GameResult {
+    // Set additive blend mode for glowing effect
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    
+    for particle in &particle_system.particles {
+        let life_ratio = particle.life / particle.max_life;
+        let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
+        
+        // Main particle
+        let color = Color::new(
+            particle.color[0],
+            particle.color[1], 
+            particle.color[2],
+            alpha,
+        );
+        
+        let particle_mesh = Mesh::new_circle(
+            ctx,
+            DrawMode::fill(),
+            [0.0, 0.0],
+            particle.size,
+            0.1,
+            color,
+        )?;
+        
+        canvas.draw(&particle_mesh, DrawParam::default().dest(particle.pos));
+        
+        // Add a subtle glow effect for larger particles
+        if particle.size > 4.0 {
+            let glow_color = Color::new(
+                particle.color[0],
+                particle.color[1], 
+                particle.color[2],
+                alpha * 0.3,
+            );
+            
+            let glow_mesh = Mesh::new_circle(
+                ctx,
+                DrawMode::fill(),
+                [0.0, 0.0],
+                particle.size * 1.5,
+                0.1,
+                glow_color,
+            )?;
+            
+            canvas.draw(&glow_mesh, DrawParam::default().dest(particle.pos));
+        }
+    }
+    
+    // Restore original blend mode
+    canvas.set_blend_mode(original_blend);
+    Ok(())
 }
 
 pub fn draw_grass(
