@@ -22,7 +22,7 @@ use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{CrabType, EnemyCrab};
-use crate::graphics::{draw_crab, draw_flashlight, draw_grass, draw_rustler};
+use crate::graphics::{draw_crab, draw_flashlight, draw_grass, draw_rustler, draw_particles, ParticleSystem};
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
 
@@ -72,6 +72,7 @@ struct MainState {
     height: f32,                    // Virtual height of the game
     shader: ggez::graphics::Shader, // Shader for grass rendering
     flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
+    particle_system: ParticleSystem,        // Particle effects system
     level_title: String,            // Title of the current level
     level_title_timer: f32,         // Timer for displaying level title
     texture: Image,                 // Grass texture for background
@@ -156,6 +157,7 @@ impl MainState {
             height,
             shader,
             flashlight_shader,
+            particle_system: ParticleSystem::new(),
             level_title: String::new(),
             level_title_timer: 0.0,
             texture,
@@ -168,11 +170,27 @@ impl MainState {
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
                 && (self.player_pos.y - crab.pos.y).abs() < (PLAYER_SIZE + crab.scale) / 2.0
             {
+                // Get crab color before marking as caught
+                let t = (crab.spawn_time / 10.0).min(1.0);
+                let crab_color = match crab.crab_type {
+                    CrabType::Normal => [
+                        (255.0 * (0.6 + 0.4 * t)) / 255.0,
+                        (100.0 * (1.0 - t)) / 255.0,
+                        (100.0 * (1.0 - t)) / 255.0,
+                    ],
+                    CrabType::Fast => [1.0, (180.0 * (1.0 - t)) / 255.0, 40.0 / 255.0],
+                    CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, (180.0 * (1.0 - t)) / 255.0],
+                    CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
+                };
+                
+                // Spawn particle effect
+                let mut rng = rand::rng();
+                self.particle_system.spawn_catch_effect(crab.pos, crab_color, crab.crab_type, &mut rng);
+                
                 crab.caught = true;
                 self.score += 1;
                 self.shake_timer = 0.4;
                 self.time_since_catch = 0.0;
-                let mut rng = rand::rng();
                 if rng.random_range(0..5) == 0 {
                     let _ = self.sounds.success2.play_detached(ctx);
                 } else {
@@ -438,6 +456,9 @@ impl MainState {
         }
         draw_rustler(ctx, canvas, self.player_pos)?;
         self.draw_crabs_with_shake(ctx, canvas)?;
+        
+        // Draw particle effects
+        draw_particles(ctx, canvas, &self.particle_system)?;
         let text = Text::new(format!("Crabs caught: {}", self.score));
         canvas.draw(
             &text,
@@ -714,6 +735,9 @@ impl EventHandler for MainState {
         handle_player_movement(self, ctx, dt, SPEED, width, height);
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
+        
+        // Update particle system
+        self.particle_system.update(dt);
 
         // Game over if number of crabs reaches 100.
         if self.crabs.len() >= 100 {
