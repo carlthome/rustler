@@ -529,8 +529,15 @@ impl MainState {
 
         // Show current level at the bottom center.
         if self.level_title_timer == 0.0 {
-            let mut level_label = Text::new(&self.level_title);
-            level_label.set_scale(32.0);
+            let mut level_label = Text::new(format!(
+                "Level {}: {}\n{} | Difficulty: {}",
+                self.current_level + 1,
+                self.levels[self.current_level].title,
+                self.levels[self.current_level].description,
+                self.levels[self.current_level].difficulty
+            ));
+
+            level_label.set_scale(18.0);
             let label_width = level_label.measure(ctx)?.x;
             let label_height = level_label.measure(ctx)?.y;
             canvas.draw(
