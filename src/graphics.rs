@@ -4,8 +4,7 @@ use crevice::std140::AsStd140;
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{
-    BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader,
-    ShaderParamsBuilder,
+    BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader, ShaderParamsBuilder,
 };
 use rand::Rng;
 
@@ -277,59 +276,23 @@ pub fn draw_grass(
     Ok(())
 }
 
-pub fn draw_rustler(ctx: &mut Context, canvas: &mut Canvas, pos: Vec2) -> ggez::GameResult {
-    // Head
-    let head = Mesh::new_circle(
-        ctx,
-        DrawMode::fill(),
-        [PLAYER_SIZE / 2.0, PLAYER_SIZE / 3.0],
-        PLAYER_SIZE / 4.0,
-        0.5,
-        Color::from_rgb(160, 82, 45),
-    )?;
-    canvas.draw(&head, DrawParam::default().dest(pos));
+pub fn draw_rustler(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    sprite: &Image,
+) -> ggez::GameResult {
+    let color = Color::from_rgba(255, 255, 255, 255);
 
-    // Body
-    let body = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(
-            PLAYER_SIZE / 2.5,
-            PLAYER_SIZE / 2.0,
-            PLAYER_SIZE / 5.0,
-            PLAYER_SIZE / 2.0,
-        ),
-        Color::from_rgb(139, 69, 19),
-    )?;
-    canvas.draw(&body, DrawParam::default().dest(pos));
-
-    // Hat brim
-    let hat_brim = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(
-            PLAYER_SIZE / 2.0 - PLAYER_SIZE / 4.0,
-            PLAYER_SIZE / 4.5,
-            PLAYER_SIZE / 2.0,
-            PLAYER_SIZE / 10.0,
-        ),
-        Color::from_rgb(80, 40, 20),
-    )?;
-    canvas.draw(&hat_brim, DrawParam::default().dest(pos));
-
-    // Hat top
-    let hat_top = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(
-            PLAYER_SIZE / 2.0 - PLAYER_SIZE / 8.0,
-            PLAYER_SIZE / 7.0,
-            PLAYER_SIZE / 4.0,
-            PLAYER_SIZE / 6.0,
-        ),
-        Color::from_rgb(80, 40, 20),
-    )?;
-    canvas.draw(&hat_top, DrawParam::default().dest(pos));
+    // Offset the sprite a little bit.
+    let offset = Vec2 { x: 15.0, y: 15.0 };
+    canvas.draw(
+        sprite,
+        DrawParam::default()
+            .dest(pos + offset)
+            .color(color)
+            .scale(Vec2 { x: 0.05, y: 0.05 }),
+    );
 
     Ok(())
 }
@@ -424,7 +387,10 @@ pub fn draw_flashlight(
     screen_width: f32,
     screen_height: f32,
 ) -> ggez::GameResult {
-    // Flicker logic (calculations are done in the shader)
+    // To position the flashlight in the player sprite hand.
+    let offset = Vec2 { x: -50.0, y: -5.0 };
+
+    // Flicker logic
     let time = ctx.time.time_since_start().as_secs_f32();
 
     // Flashlight parameters
@@ -465,16 +431,34 @@ pub fn draw_flashlight(
     let flashlight_quad = Mesh::new_rectangle(
         ctx,
         DrawMode::fill(),
-        Rect::new(-screen_width / 2.0, -screen_height / 2.0, screen_width, screen_height),
+        Rect::new(
+            -screen_width / 2.0,
+            -screen_height / 2.0,
+            screen_width,
+            screen_height,
+        ),
         Color::WHITE,
     )?;
-    
+
     // Set additive blend mode for the flashlight effect
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
-    
     canvas.draw(&flashlight_quad, DrawParam::default());
-    
+
+    let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
+
+    // Draw flashlight body.
+    let flashlight_body = Mesh::new_rectangle(
+        ctx,
+        DrawMode::fill(),
+        Rect::new(-5.0, 0.0, 10.0, 24.0),
+        Color::BLACK,
+    )?;
+    canvas.draw(
+        &flashlight_body,
+        DrawParam::default().dest(center).rotation(rotation),
+    );
+
     // Restore original blend mode and shader
     canvas.set_blend_mode(original_blend);
     canvas.set_default_shader();

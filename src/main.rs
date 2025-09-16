@@ -3,7 +3,7 @@ mod enemies;
 mod graphics;
 mod levels;
 mod spawnings;
-use std::default;
+
 use std::{env, fs, path};
 
 use ggez::audio::SoundSource;
@@ -12,7 +12,7 @@ use ggez::conf::WindowMode;
 use ggez::event::{self, EventHandler};
 use ggez::glam::Vec2;
 use ggez::graphics::{
-    BlendMode, Canvas, ClampMode, Color, DrawParam, Image, Mesh, Rect, Sampler, ShaderBuilder, Text,
+    BlendMode, Canvas, Color, DrawParam, Image, Mesh, Rect, Sampler, ShaderBuilder, Text,
 };
 use ggez::input::keyboard::{KeyCode, KeyInput};
 use ggez::{Context, ContextBuilder, GameResult};
@@ -22,7 +22,9 @@ use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{CrabType, EnemyCrab};
-use crate::graphics::{draw_crab, draw_flashlight, draw_grass, draw_rustler, draw_particles, ParticleSystem};
+use crate::graphics::{
+    ParticleSystem, draw_crab, draw_flashlight, draw_grass, draw_particles, draw_rustler,
+};
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
 
@@ -31,6 +33,9 @@ const CRAB_SIZE: f32 = 36.0;
 const SPEED: f32 = 200.0;
 
 struct GameSounds {
+    intro_music: Source,
+    action_music: Source,
+    outro_music: Source,
     upgrade: Source,
     success: Source,
     success2: Source,
@@ -57,33 +62,37 @@ struct GameTextures {
 }
 
 struct MainState {
-    player_pos: Vec2,               // Player position
-    player_vel: Vec2,               // Player velocity (for smooth movement)
-    mouse_pos: Vec2,                // Mouse position for flashlight aiming
-    crabs: Vec<EnemyCrab>,          // List of crabs in the game
-    score: usize,                   // Current score
-    spawn_timer: f32,               // Timer for spawning new crabs
-    time_elapsed: f32,              // Time since game start
-    game_over: bool,                // Game over flag
-    sounds: GameSounds,             // All game sound effects
-    flashlight: Flashlight,         // Flashlight settings and upgrades
-    show_instructions: bool,        // Show instructions screen
-    last_dir: Vec2,                 // Last movement direction for flashlight
-    shake_timer: f32,               // Timer for crab shake effect
-    time_since_catch: f32,          // Time since last crab was caught
-    boost_timer: f32,               // Timer for speed boost
-    boost_cooldown: f32,            // Cooldown to prevent holding space
-    levels: Vec<Level>,             // List of levels with patterns
-    current_level: usize,           // Current level index
-    current_pattern: usize,         // Current pattern index within the level
-    pattern_timer: f32,             // Timer for current pattern duration
-    debug_mode: bool,               // Debug mode flag
-    pending_upgrade: bool,          // Whether upgrade screen should be shown
-    best_time: f32,                 // Fastest time to catch all crabs
-    width: f32,                     // Virtual width of the game
-    height: f32,                    // Virtual height of the game
-    shader: ggez::graphics::Shader, // Shader for grass rendering
+    player_pos: Vec2,                          // Player position
+    player_vel: Vec2,                          // Player velocity (for smooth movement)
+    mouse_pos: Vec2,                           // Mouse position for flashlight aiming
+    crabs: Vec<EnemyCrab>,                     // List of crabs in the game
+    score: usize,                              // Current score
+    spawn_timer: f32,                          // Timer for spawning new crabs
+    time_elapsed: f32,                         // Time since game start
+    game_over: bool,                           // Game over flag
+    sounds: GameSounds,                        // All game sound effects
+    flashlight: Flashlight,                    // Flashlight settings and upgrades
+    show_instructions: bool,                   // Show instructions screen
+    last_dir: Vec2,                            // Last movement direction for flashlight
+    shake_timer: f32,                          // Timer for crab shake effect
+    time_since_catch: f32,                     // Time since last crab was caught
+    boost_timer: f32,                          // Timer for speed boost
+    boost_cooldown: f32,                       // Cooldown to prevent holding space
+    levels: Vec<Level>,                        // List of levels with patterns
+    current_level: usize,                      // Current level index
+    current_pattern: usize,                    // Current pattern index within the level
+    pattern_timer: f32,                        // Timer for current pattern duration
+    debug_mode: bool,                          // Debug mode flag
+    pending_upgrade: bool,                     // Whether upgrade screen should be shown
+    best_time: f32,                            // Fastest time to catch all crabs
+    width: f32,                                // Virtual width of the game
+    height: f32,                               // Virtual height of the game
+    shader: ggez::graphics::Shader,            // Shader for grass rendering
     flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
+    particle_system: ParticleSystem,           // Particle effects system
+    level_title: String,                       // Title of the current level
+    level_title_timer: f32,                    // Timer for displaying level title
+    subtitle: String,                          // Random subtitle for instructions screen
     textures: GameTextures,                    // Textures for grass, sand, and player
     level_textures: Vec<LevelTexture>,         // Textures for each level
 }
@@ -101,6 +110,9 @@ impl MainState {
 
         // TODO Load all sound effects.
         let sounds = GameSounds {
+            intro_music: Source::new(ctx, "/intro.ogg")?,
+            action_music: Source::new(ctx, "/action.ogg")?,
+            outro_music: Source::new(ctx, "/outro.ogg")?,
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
@@ -154,6 +166,24 @@ impl MainState {
             laser_level: 0,
         };
 
+        // Select a random subtitle for instructions screen
+        let candidate_subtitles = [
+            "Even the smallest claw can make big waves when we dance together.",
+            "A lone crab scuttles, but many crabs make a rave.",
+            "When crabs move as one, the ocean listens.",
+            "Shiny lights bring crabs together, but the beat keeps them close.",
+            "Follow your light, and you’ll find your clawsome crew.",
+            "No crab too small, no groove too deep.",
+            "One claw can’t clap, but two can drop the beat.",
+            "The tide brings change, but crabs rave on.",
+            "It takes many shells to build a real party.",
+            "Crabs that groove together, grow together.",
+        ];
+        let subtitle = candidate_subtitles
+            .choose(&mut rand::rng())
+            .unwrap()
+            .to_string();
+
         Ok(MainState {
             player_pos,
             player_vel: Vec2::ZERO,
@@ -185,7 +215,9 @@ impl MainState {
             particle_system: ParticleSystem::new(),
             level_title: String::new(),
             level_title_timer: 0.0,
-            texture,
+            textures,
+            level_textures,
+            subtitle,
         })
     }
 
@@ -207,11 +239,16 @@ impl MainState {
                     CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, (180.0 * (1.0 - t)) / 255.0],
                     CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
                 };
-                
+
                 // Spawn particle effect
                 let mut rng = rand::rng();
-                self.particle_system.spawn_catch_effect(crab.pos, crab_color, crab.crab_type, &mut rng);
-                
+                self.particle_system.spawn_catch_effect(
+                    crab.pos,
+                    crab_color,
+                    crab.crab_type,
+                    &mut rng,
+                );
+
                 crab.caught = true;
                 self.score += 1;
                 self.shake_timer = 0.4;
@@ -301,9 +338,14 @@ impl MainState {
 
     fn start_current_pattern(&mut self, area: (f32, f32)) {
         let mut rng = rand::rng();
+        if self.current_level >= self.levels.len() {
+            // No levels left, finish game.
+            self.game_over = true;
+            return;
+        }
         let level = &self.levels[self.current_level];
         let p = &level.patterns[self.current_pattern];
-        let crabs = spawn_enemies(p.pattern.clone(), p.count, area, &mut rng);
+        let crabs = spawn_enemies(p.pattern.clone(), p.count, area, p.centroid, &mut rng);
         self.crabs.extend(crabs);
         self.pattern_timer = p.duration;
     }
@@ -346,7 +388,7 @@ impl MainState {
     }
 
     fn draw_instructions_screen(
-        &self,
+        &mut self,
         ctx: &mut Context,
         canvas: &mut Canvas,
         width: f32,
@@ -367,24 +409,9 @@ impl MainState {
         let main_title_width = main_title.measure(ctx)?.x;
         let main_title_height = main_title.measure(ctx)?.y;
 
-        let candidate_subtitles = [
-            "Even the smallest claw can make big waves when we dance together.",
-            "A lone crab scuttles, but many crabs make a rave.",
-            "When crabs move as one, the ocean listens.",
-            "Shiny lights bring crabs together, but the beat keeps them close.",
-            "Follow your light, and you’ll find your clawsome crew.",
-            "No crab too small, no groove too deep.",
-            "One claw can’t clap, but two can drop the beat.",
-            "The tide brings change, but crabs rave on.",
-            "It takes many shells to build a real party.",
-            "Crabs that groove together, grow together.",
-        ];
-        let fragment = candidate_subtitles
-            .choose(&mut rand::rng())
-            .unwrap()
-            .to_string();
-        let mut subtitle = Text::new(fragment);
-        subtitle.set_scale(38.0);
+        // Use the stored subtitle
+        let mut subtitle = Text::new(&self.subtitle);
+        subtitle.set_scale(20.0);
         let subtitle_width = subtitle.measure(ctx)?.x;
         let _subtitle_height = subtitle.measure(ctx)?.y;
 
@@ -421,7 +448,7 @@ impl MainState {
             );
         }
 
-        // Draw subtitle centered below the main title
+        // Draw subtitle centered below the main title.
         canvas.draw(
             &subtitle,
             DrawParam::default()
@@ -432,7 +459,7 @@ impl MainState {
                 .color(Color::from_rgb(255, 255, 255)),
         );
 
-        // Draw instructions text centered
+        // Draw instructions text centered.
         let text = Text::new(
             "Catch all the crabs quickly!\n\nUse the arrow keys to move.\n\nPress Space or Enter to start.",
         );
@@ -474,6 +501,9 @@ impl MainState {
             self.time_elapsed,
         )?;
 
+        // Draw player character.
+        draw_rustler(ctx, canvas, self.player_pos, &self.textures.player)?;
+
         // Calculate flashlight direction from player to mouse.
         if self.flashlight.on {
             let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
@@ -489,11 +519,14 @@ impl MainState {
                 self.height,
             )?;
         }
-        draw_rustler(ctx, canvas, self.player_pos)?;
+
+        // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
-        
+
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
+
+        // Show stats.
         let text = Text::new(format!("Crabs caught: {}", self.score));
         canvas.draw(
             &text,
@@ -509,7 +542,6 @@ impl MainState {
         let bar_height = 18.0;
         let max_boost = 0.18;
         let max_cooldown = 0.08;
-        let boost_ratio = (self.boost_timer / max_boost).clamp(0.0, 1.0);
         let cooldown_ratio = (self.boost_cooldown / max_cooldown).clamp(0.0, 1.0);
 
         // Draw background bar
@@ -522,12 +554,12 @@ impl MainState {
         canvas.draw(&bg_bar, DrawParam::default());
 
         // Draw boost timer (yellow)
-        let r = ((max_boost - self.boost_timer) / max_boost).clamp(0.0, 1.0);
-        if r > 0.0 {
+        let ratio = ((max_boost - self.boost_timer) / max_boost).clamp(0.0, 1.0);
+        if ratio > 0.0 {
             let boost_bar = Mesh::new_rectangle(
                 ctx,
                 ggez::graphics::DrawMode::fill(),
-                Rect::new(bar_x, bar_y, bar_width * r, bar_height),
+                Rect::new(bar_x, bar_y, bar_width * ratio, bar_height),
                 Color::from_rgb(255, 220, 40),
             )?;
             canvas.draw(&boost_bar, DrawParam::default());
@@ -586,6 +618,11 @@ impl MainState {
             );
         }
 
+        // Draw level title if timer is active.
+        if self.level_title_timer > 0.0 {
+            self.draw_level_title(ctx, canvas, width, height)?;
+        }
+
         if self.debug_mode {
             let level = &self.levels[self.current_level];
             let pat = &level.patterns[self.current_pattern];
@@ -607,48 +644,46 @@ impl MainState {
                     .color(Color::from_rgb(255, 100, 100)),
             );
         }
-
-        if self.level_title_timer > 0.0 {
-            // Draw a simple geometric monochromatic level title
-            let mut title = Text::new(&self.level_title);
-            title.set_scale(96.0);
-            let title_width = title.measure(ctx)?.x;
-            let title_height = title.measure(ctx)?.y;
-
-            // Draw a centered rectangle background for the title
-            let rect_x = (width - title_width) / 2.0 - 32.0;
-            let rect_y = (height - title_height) / 2.0 - 16.0;
-            let rect_w = title_width + 64.0;
-            let rect_h = title_height + 32.0;
-            let bg_rect = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(rect_x, rect_y, rect_w, rect_h),
-                Color::from_rgb(30, 30, 30),
-            )?;
-            canvas.draw(&bg_rect, DrawParam::default());
-
-            // Draw a white border around the rectangle
-            let border_rect = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::stroke(3.0),
-                Rect::new(rect_x, rect_y, rect_w, rect_h),
-                Color::from_rgb(220, 220, 220),
-            )?;
-            canvas.draw(&border_rect, DrawParam::default());
-
-            // Draw the title text centered in the rectangle, monochrome white
-            canvas.draw(
-                &title,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - title_width) / 2.0,
-                        (height - title_height) / 2.0,
-                    ))
-                    .color(Color::from_rgb(240, 240, 240)),
-            );
-        }
         return Ok(());
+    }
+
+    fn draw_level_title(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        width: f32,
+        height: f32,
+    ) -> Result<(), ggez::GameError> {
+        let mut title = Text::new(&self.level_title);
+        title.set_scale(96.0);
+        let title_width = title.measure(ctx)?.x;
+        let title_height = title.measure(ctx)?.y;
+        let rect_x = (width - title_width) / 2.0 - 32.0;
+        let rect_y = (height - title_height) / 2.0 - 16.0;
+        let rect_w = title_width + 64.0;
+        let rect_h = title_height + 32.0;
+        let bg_rect = Mesh::new_rectangle(
+            ctx,
+            ggez::graphics::DrawMode::fill(),
+            Rect::new(rect_x, rect_y, rect_w, rect_h),
+            Color::from_rgb(30, 30, 30),
+        )?;
+        canvas.draw(&bg_rect, DrawParam::default());
+        let border_rect = Mesh::new_rectangle(
+            ctx,
+            ggez::graphics::DrawMode::stroke(3.0),
+            Rect::new(rect_x, rect_y, rect_w, rect_h),
+            Color::from_rgb(220, 220, 220),
+        )?;
+        canvas.draw(&border_rect, DrawParam::default());
+        let destination = Vec2::new((width - title_width) / 2.0, (height - title_height) / 2.0);
+        canvas.draw(
+            &title,
+            DrawParam::default()
+                .dest(destination)
+                .color(Color::from_rgb(240, 240, 240)),
+        );
+        Ok(())
     }
 
     fn draw_crabs_with_shake(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
@@ -726,9 +761,9 @@ impl MainState {
 
     fn apply_upgrade(&mut self, choice: u8) {
         match choice {
-            1 => self.flashlight.cone_upgrade += 0.25,  // Wider cone
-            2 => self.flashlight.range_upgrade += 60.0, // Longer range
-            3 => self.flashlight.laser_level += 1,      // Laser level up
+            1 => self.flashlight.cone_upgrade += 0.25,
+            2 => self.flashlight.range_upgrade += 60.0,
+            3 => self.flashlight.laser_level += 1,
             _ => {}
         }
         self.pending_upgrade = false;
@@ -775,7 +810,7 @@ impl EventHandler for MainState {
         handle_player_movement(self, ctx, dt, SPEED, area);
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
-        
+
         // Update particle system
         self.particle_system.update(dt);
 
@@ -795,29 +830,42 @@ impl EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         let width = self.width;
         let height = self.height;
-
-        // Render to a virtual-resolution canvas
         let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(100, 200, 100));
         canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
-
         canvas.set_blend_mode(BlendMode::ALPHA);
         canvas.set_sampler(Sampler::nearest_clamp());
 
         if self.show_instructions {
+            if self.sounds.outro_music.playing() {
+                self.sounds.outro_music.pause();
+            }
+            if !self.sounds.intro_music.playing() {
+                self.sounds.intro_music.play(ctx)?;
+            }
             self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
             canvas.finish(ctx)?;
             return Ok(());
-        }
-
-        if self.pending_upgrade {
+        } else if self.pending_upgrade {
+            self.sounds.action_music.pause();
             self.draw_upgrade_screen(ctx, &mut canvas)?;
             canvas.finish(ctx)?;
             return Ok(());
-        }
-        if !self.game_over {
-            self.draw_game(ctx, &mut canvas, width, height)?;
-        } else {
+        } else if self.game_over {
+            self.sounds.action_music.pause();
+            if !self.sounds.outro_music.playing() {
+                self.sounds.outro_music.play(ctx)?;
+            }
             self.draw_game_over_screen(ctx, &mut canvas)?;
+        } else {
+            if self.sounds.intro_music.playing() {
+                self.sounds.intro_music.pause();
+            }
+            if !self.sounds.action_music.playing() {
+                self.sounds.action_music.play(ctx)?;
+            } else {
+                self.sounds.action_music.resume();
+            }
+            self.draw_game(ctx, &mut canvas, width, height)?;
         }
         canvas.finish(ctx)?;
         Ok(())
