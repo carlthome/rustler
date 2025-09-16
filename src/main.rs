@@ -44,6 +44,18 @@ struct Flashlight {
     laser_level: u32,
 }
 
+#[derive(Clone)]
+enum LevelTexture {
+    Grass,
+    Sand,
+}
+
+struct GameTextures {
+    grass: Image,
+    sand: Image,
+    player: Image,
+}
+
 struct MainState {
     player_pos: Vec2,               // Player position
     player_vel: Vec2,               // Player velocity (for smooth movement)
@@ -72,10 +84,8 @@ struct MainState {
     height: f32,                    // Virtual height of the game
     shader: ggez::graphics::Shader, // Shader for grass rendering
     flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
-    particle_system: ParticleSystem,        // Particle effects system
-    level_title: String,            // Title of the current level
-    level_title_timer: f32,         // Timer for displaying level title
-    texture: Image,                 // Grass texture for background
+    textures: GameTextures,                    // Textures for grass, sand, and player
+    level_textures: Vec<LevelTexture>,         // Textures for each level
 }
 
 impl MainState {
@@ -97,19 +107,34 @@ impl MainState {
             // Add more sounds here as needed
         };
 
-        // Load grass texture.
-        let texture = Image::from_path(ctx, "/grass.png")?;
+        // Load both grass and sand textures.
+        let textures = GameTextures {
+            grass: Image::from_path(ctx, "/grass.png")?,
+            sand: Image::from_path(ctx, "/sand.png")?,
+            player: Image::from_path(ctx, "/rustler.png")?,
+        };
 
         // Get levels.
         let levels = get_levels();
 
-        // Load best time from file
+        // Randomly select a texture for each level
+        let mut rng = rand::rng();
+        let level_textures: Vec<LevelTexture> = (0..levels.len())
+            .map(|_| {
+                if rng.random_range(0..2) == 0 {
+                    LevelTexture::Grass
+                } else {
+                    LevelTexture::Sand
+                }
+            })
+            .collect();
+
+        // Load best time from file.
         let best_time = fs::read_to_string("best_time.txt")
             .ok()
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(f32::MAX);
 
-        // Initialize list of crabs.
         let crabs: Vec<EnemyCrab> = [].to_vec();
 
         let shader = ShaderBuilder::new()
@@ -428,13 +453,19 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> GameResult {
-        // Draw grass background using the shader.
+        // Select texture for current level.
+        let texture = match self.level_textures[self.current_level] {
+            LevelTexture::Grass => &self.textures.grass,
+            LevelTexture::Sand => &self.textures.sand,
+        };
+
+        // Draw level background.
         draw_grass(
             ctx,
             canvas,
             width,
             height,
-            &self.texture,
+            texture,
             &self.shader,
             self.time_elapsed,
         )?;
