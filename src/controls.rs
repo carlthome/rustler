@@ -37,11 +37,11 @@ pub fn handle_player_movement(
 
     // Handle player movement direction and velocity.
     let acceleration = if state.boost_timer > 0.0 {
-        6000.0
+        4000.0
     } else {
         1000.0
     };
-    let friction = if state.boost_timer > 0.0 { 0.95 } else { 0.8 };
+    let friction = if state.boost_timer > 0.0 { 0.9 } else { 0.9 };
     if dir != Vec2::ZERO {
         let dir = dir.normalize();
         // Apply strong acceleration when boosting, like a rocket
