@@ -10,10 +10,15 @@ pkgs.rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ./Cargo.lock;
   };
-  nativeBuildInputs = [ pkgs.pkg-config ];
+
+  nativeBuildInputs = with pkgs; [
+    pkg-config
+    lldb
+  ];
+
   buildInputs =
     with pkgs;
-    pkgs.lib.optionals pkgs.stdenv.isLinux [
+    lib.optionals stdenv.isLinux [
       glib
       gtk3
       cairo
