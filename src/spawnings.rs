@@ -15,13 +15,19 @@ pub fn spawn_enemies(
     pattern: SpawnPattern,
     count: usize,
     area: (f32, f32),
+    centroid: (f32, f32),
     rng: &mut impl Rng,
 ) -> Vec<EnemyCrab> {
     let (width, height) = area;
+    let centroid_vec = Vec2::from(centroid) * Vec2::from(area);
     match pattern {
         SpawnPattern::UniformRandom => (0..count)
             .map(|_| {
-                let pos = Vec2::new(rng.random_range(0.0..width), rng.random_range(0.0..height));
+                let pos = centroid_vec
+                    + Vec2::new(
+                        rng.random_range(-width * 0.3..width * 0.3),
+                        rng.random_range(-height * 0.3..height * 0.3),
+                    );
                 let angle = rng.random_range(0.0..std::f32::consts::TAU);
                 let vel = Vec2::new(angle.cos(), angle.sin());
                 let crab_type = CrabType::random(rng);
@@ -44,10 +50,10 @@ pub fn spawn_enemies(
             let freq = 2.0 * std::f32::consts::PI / width;
             (0..count)
                 .map(|i| {
-                    let x = width * (i as f32 + 0.5) / count as f32;
-                    let y = height / 2.0 + amplitude * (freq * x).sin();
+                    let x = centroid_vec.x + width * (i as f32 + 0.5) / count as f32 * 0.5;
+                    let y = centroid_vec.y + amplitude * (freq * x).sin();
                     let pos = Vec2::new(x, y);
-                    let angle = std::f32::consts::FRAC_PI_2; // Downwards
+                    let angle = std::f32::consts::FRAC_PI_2;
                     let vel = Vec2::new(angle.cos(), angle.sin());
                     let crab_type = CrabType::random(rng);
                     let speed = rng.random_range(crab_type.speed_range());
@@ -66,7 +72,7 @@ pub fn spawn_enemies(
                 .collect()
         }
         SpawnPattern::Circle => {
-            let center = Vec2::new(width / 2.0, height / 2.0);
+            let center = centroid_vec;
             let radius = width.min(height) * 0.35;
             (0..count)
                 .map(|i| {
@@ -90,10 +96,7 @@ pub fn spawn_enemies(
                 .collect()
         }
         SpawnPattern::Cluster => {
-            let cluster_center = Vec2::new(
-                rng.random_range(width * 0.2..width * 0.8),
-                rng.random_range(height * 0.2..height * 0.8),
-            );
+            let cluster_center = centroid_vec;
             (0..count)
                 .map(|_| {
                     let angle = rng.random_range(0.0..std::f32::consts::TAU);
@@ -126,11 +129,8 @@ pub fn spawn_enemies(
                     let crab_type = CrabType::random(rng);
                     let speed = rng.random_range(crab_type.speed_range());
                     let scale = rng.random_range(crab_type.scale_range());
-                    let (width, height) = area;
-                    let pos = Vec2::new(
-                        rng.random_range(50.0..(width - 50.0)),
-                        rng.random_range(50.0..(height - 50.0)),
-                    );
+                    let pos = centroid_vec
+                        + Vec2::new(rng.random_range(-50.0..50.0), rng.random_range(-50.0..50.0));
                     EnemyCrab {
                         pos,
                         vel,
