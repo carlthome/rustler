@@ -312,10 +312,14 @@ impl MainState {
         self.current_pattern += 1;
         let level = &self.levels[self.current_level];
         if self.current_pattern >= level.patterns.len() {
-            self.current_level = (self.current_level + 1) % self.levels.len();
+            self.current_level += 1;
             self.current_pattern = 0;
             self.level_title = level.title.clone();
             self.level_title_timer = 1.0;
+        }
+        if self.current_level >= self.levels.len() {
+            // Game completed, show game over screen.
+            self.game_over = true;
         }
         let area = (self.width, self.height);
         self.start_current_pattern(area);
