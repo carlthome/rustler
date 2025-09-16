@@ -729,10 +729,8 @@ impl EventHandler for MainState {
             }
         }
 
-        let width = ctx.gfx.window().inner_size().width as f32;
-        let height = ctx.gfx.window().inner_size().height as f32;
-        let area = (width, height);
-        handle_player_movement(self, ctx, dt, SPEED, width, height);
+        let area = (self.width, self.height);
+        handle_player_movement(self, ctx, dt, SPEED, area);
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
         

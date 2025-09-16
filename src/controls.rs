@@ -8,9 +8,9 @@ pub fn handle_player_movement(
     ctx: &mut Context,
     dt: f32,
     speed: f32,
-    width: f32,
-    height: f32,
+    area: (f32, f32),
 ) {
+    let (width, height) = area;
     let mut dir = Vec2::ZERO;
     if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) {
         dir.y -= 1.0;
