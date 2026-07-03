@@ -4,7 +4,7 @@ mod graphics;
 mod levels;
 mod spawnings;
 
-use std::{env, fs, path};
+use std::{collections::VecDeque, env, fs, path};
 
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
@@ -23,7 +23,8 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{
-    ParticleSystem, draw_crab, draw_flashlight, draw_grass, draw_particles, draw_rustler,
+    ParticleSystem, draw_beat_indicator, draw_conga_rope, draw_crab, draw_flashlight, draw_grass,
+    draw_particles, draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -31,6 +32,9 @@ use crate::spawnings::spawn_enemies;
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
 const SPEED: f32 = 200.0;
+const CHAIN_LINK_FRAMES: usize = 12;
+const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
+const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 
 struct GameSounds {
     intro_music: Source,
@@ -93,6 +97,13 @@ struct MainState {
     level_title: String,                       // Title of the current level
     level_title_timer: f32,                    // Timer for displaying level title
     subtitle: String,                          // Random subtitle for instructions screen
+    position_history: VecDeque<Vec2>,
+    chain_count: usize,
+    beat_timer: f32,
+    beat_intensity: f32,
+    music_intensity: f32,
+    on_beat_flash: f32,
+    music_layers: Vec<Source>,
     textures: GameTextures,                    // Textures for grass, sand, and player
     level_textures: Vec<LevelTexture>,         // Textures for each level
 }
@@ -148,6 +159,23 @@ impl MainState {
             .unwrap_or(f32::MAX);
 
         let crabs: Vec<EnemyCrab> = [].to_vec();
+
+        // Pre-fill position history with initial player position
+        let mut position_history: VecDeque<Vec2> = VecDeque::new();
+        for _ in 0..2000 {
+            position_history.push_back(player_pos);
+        }
+
+        // Try to load optional music layers (graceful — game works without them)
+        // Place layer1.ogg, layer2.ogg, layer3.ogg in resources/ for layered crab rave
+        let mut music_layers: Vec<Source> = Vec::new();
+        for i in 1..=3usize {
+            if let Ok(mut src) = Source::new(ctx, &format!("/layer{}.ogg", i)) {
+                src.set_repeat(true);
+                src.set_volume(0.0);
+                music_layers.push(src);
+            }
+        }
 
         let shader = ShaderBuilder::new()
             .vertex_path("/grass.wgsl")
@@ -218,6 +246,13 @@ impl MainState {
             textures,
             level_textures,
             subtitle,
+            position_history,
+            chain_count: 0,
+            beat_timer: BEAT_INTERVAL,
+            beat_intensity: 0.0,
+            music_intensity: 0.0,
+            on_beat_flash: 0.0,
+            music_layers,
         })
     }
 
@@ -250,6 +285,15 @@ impl MainState {
                 );
 
                 crab.caught = true;
+                crab.chain_index = Some(self.chain_count);
+                self.chain_count += 1;
+                // On-beat bonus
+                let on_beat = self.beat_timer < BEAT_WINDOW
+                    || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW;
+                if on_beat {
+                    self.score += 1; // bonus point for catching on beat
+                    self.on_beat_flash = 0.25;
+                }
                 self.score += 1;
                 self.shake_timer = 0.4;
                 self.time_since_catch = 0.0;
@@ -262,6 +306,63 @@ impl MainState {
                     let _ = self.sounds.upgrade.play_detached(ctx);
                     self.pending_upgrade = true;
                 }
+            }
+        }
+    }
+
+    fn catch_by_chain(&mut self, ctx: &mut Context) {
+        let catch_radius = 45.0;
+        let chain_positions: Vec<Vec2> = self.crabs.iter()
+            .filter(|c| c.caught)
+            .map(|c| c.pos)
+            .collect();
+        if chain_positions.is_empty() {
+            return;
+        }
+        let to_catch: Vec<usize> = self.crabs.iter().enumerate()
+            .filter(|(_, c)| {
+                !c.caught
+                    && chain_positions
+                        .iter()
+                        .any(|cp| cp.distance(c.pos) < catch_radius)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        let mut rng = rand::rng();
+        for i in to_catch {
+            let t = (self.crabs[i].spawn_time / 10.0).min(1.0);
+            let pos = self.crabs[i].pos;
+            let crab_type = self.crabs[i].crab_type;
+            let crab_color = match crab_type {
+                CrabType::Normal => [
+                    (255.0 * (0.6 + 0.4 * t)) / 255.0,
+                    (100.0 * (1.0 - t)) / 255.0,
+                    (100.0 * (1.0 - t)) / 255.0,
+                ],
+                CrabType::Fast => [1.0, (180.0 * (1.0 - t)) / 255.0, 40.0 / 255.0],
+                CrabType::Big => [
+                    180.0 / 255.0,
+                    60.0 / 255.0,
+                    (180.0 * (1.0 - t)) / 255.0,
+                ],
+                CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
+            };
+            self.particle_system
+                .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+            self.crabs[i].caught = true;
+            self.crabs[i].chain_index = Some(self.chain_count);
+            self.chain_count += 1;
+            self.score += 1;
+            self.shake_timer = 0.15;
+            self.time_since_catch = 0.0;
+            if rng.random_range(0..5) == 0 {
+                let _ = self.sounds.success2.play_detached(ctx);
+            } else {
+                let _ = self.sounds.success.play_detached(ctx);
+            }
+            if self.score > 0 && self.score % 10 == 0 {
+                let _ = self.sounds.upgrade.play_detached(ctx);
+                self.pending_upgrade = true;
             }
         }
     }
@@ -334,6 +435,21 @@ impl MainState {
                 }
             }
         }
+
+        // Move chain crabs to their historical positions (conga train)
+        let targets: Vec<(usize, Vec2)> = self.crabs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                c.chain_index.and_then(|ci| {
+                    let history_idx = (ci + 1) * CHAIN_LINK_FRAMES;
+                    self.position_history.get(history_idx).map(|&p| (i, p))
+                })
+            })
+            .collect();
+        for (i, target) in targets {
+            self.crabs[i].pos = self.crabs[i].pos.lerp(target, 0.4);
+        }
     }
 
     fn start_current_pattern(&mut self, area: (f32, f32)) {
@@ -375,6 +491,19 @@ impl MainState {
             height / 2.0 - PLAYER_SIZE / 2.0,
         );
         self.crabs = Vec::default();
+        self.position_history.clear();
+        let center = Vec2::new(
+            width / 2.0 - PLAYER_SIZE / 2.0,
+            height / 2.0 - PLAYER_SIZE / 2.0,
+        );
+        for _ in 0..2000 {
+            self.position_history.push_back(center);
+        }
+        self.chain_count = 0;
+        self.beat_timer = BEAT_INTERVAL;
+        self.beat_intensity = 0.0;
+        self.music_intensity = 0.0;
+        self.on_beat_flash = 0.0;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -501,6 +630,14 @@ impl MainState {
             self.time_elapsed,
         )?;
 
+        // Collect chain crabs sorted by chain index
+        let mut chain_crabs: Vec<&EnemyCrab> = self.crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.is_some())
+            .collect();
+        chain_crabs.sort_by_key(|c| c.chain_index.unwrap_or(0));
+        draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed)?;
+
         // Draw player character.
         draw_rustler(ctx, canvas, self.player_pos, &self.textures.player)?;
 
@@ -527,7 +664,11 @@ impl MainState {
         draw_particles(ctx, canvas, &self.particle_system)?;
 
         // Show stats.
-        let text = Text::new(format!("Crabs caught: {}", self.score));
+        let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+        let text = Text::new(format!(
+            "Score: {}  |  Train: {}",
+            self.score, chain_len
+        ));
         canvas.draw(
             &text,
             DrawParam::default()
@@ -644,6 +785,31 @@ impl MainState {
                     .color(Color::from_rgb(255, 100, 100)),
             );
         }
+        // Beat indicator (top right)
+        let beat_center = Vec2::new(width - 50.0, 50.0);
+        draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
+
+        // On-beat catch flash
+        if self.on_beat_flash > 0.0 {
+            let fa = (self.on_beat_flash * 180.0) as u8;
+            let flash = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(0.0, 0.0, width, height),
+                Color::from_rgba(255, 220, 80, fa),
+            )?;
+            canvas.draw(&flash, DrawParam::default());
+            let mut bonus_text = Text::new("ON BEAT! +1");
+            bonus_text.set_scale(36.0);
+            let btw = bonus_text.measure(ctx)?.x;
+            canvas.draw(
+                &bonus_text,
+                DrawParam::default()
+                    .dest(Vec2::new((width - btw) / 2.0, height / 2.0 - 60.0))
+                    .color(Color::from_rgba(255, 220, 50, fa)),
+            );
+        }
+
         return Ok(());
     }
 
@@ -704,6 +870,12 @@ impl MainState {
                     pos.y += (t * 1.3).cos() * shake_strength
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
+                draw_crab(ctx, canvas, crab)?;
+            }
+        }
+        // Draw chain crabs (caught, following player)
+        for crab in self.crabs.iter() {
+            if crab.caught {
                 draw_crab(ctx, canvas, crab)?;
             }
         }
@@ -780,6 +952,27 @@ impl EventHandler for MainState {
         self.time_elapsed += dt;
         self.time_since_catch += dt;
 
+        // Track player position history for conga chain
+        self.position_history.push_front(self.player_pos);
+        if self.position_history.len() > 2000 {
+            self.position_history.pop_back();
+        }
+
+        // Beat timer (120 BPM)
+        self.beat_timer -= dt;
+        if self.beat_timer <= 0.0 {
+            self.beat_timer += BEAT_INTERVAL;
+            self.beat_intensity = 1.0;
+        }
+        self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
+        if self.on_beat_flash > 0.0 {
+            self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
+        }
+
+        // Music intensity increases with score
+        let target_intensity = (self.score as f32 / 30.0).min(1.0);
+        self.music_intensity += (target_intensity - self.music_intensity) * dt * 0.3;
+
         if self.shake_timer > 0.0 {
             self.shake_timer -= dt;
             if self.shake_timer < 0.0 {
@@ -814,8 +1007,29 @@ impl EventHandler for MainState {
         // Update particle system
         self.particle_system.update(dt);
 
-        // Game over if number of crabs reaches 100.
-        if self.crabs.len() >= 100 {
+        // Chain tail can catch nearby free crabs
+        self.catch_by_chain(ctx);
+
+        // Scale music volume with intensity
+        // (action_music gets louder, layers fade in)
+        let base_vol = 0.25 + self.music_intensity * 0.75;
+        self.sounds.action_music.set_volume(base_vol);
+        let layer_count = self.music_layers.len();
+        for (i, layer) in self.music_layers.iter_mut().enumerate() {
+            let threshold = (i + 1) as f32 / (layer_count + 1) as f32;
+            let vol = if self.music_intensity > threshold {
+                ((self.music_intensity - threshold) * 2.0).min(1.0)
+            } else {
+                0.0
+            };
+            layer.set_volume(vol);
+            if !layer.playing() && vol > 0.01 {
+                let _ = layer.play(ctx);
+            }
+        }
+
+        // Game over if too many free crabs accumulate (overwhelmed).
+        if self.crabs.iter().filter(|c| !c.caught).count() >= 80 {
             self.game_over = true;
             return Ok(());
         }
