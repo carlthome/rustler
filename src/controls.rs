@@ -86,6 +86,12 @@ pub fn handle_key_down_event(
                     state.boost_cooldown = 0.08;
                 }
             }
+            if key == KeyCode::Q {
+                if !state.beat_wave_active {
+                    state.beat_wave_active = true;
+                    state.beat_wave_radius = 0.0;
+                }
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }

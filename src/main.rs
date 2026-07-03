@@ -15,6 +15,7 @@ use ggez::graphics::{
     BlendMode, Canvas, Color, DrawParam, Image, Mesh, Rect, Sampler, ShaderBuilder, Text,
 };
 use ggez::input::keyboard::{KeyCode, KeyInput};
+use ggez::input::mouse::MouseButton;
 use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
@@ -107,6 +108,14 @@ struct MainState {
     catch_radius_upgrade: f32,
     textures: GameTextures,                    // Textures for grass, sand, and player
     level_textures: Vec<LevelTexture>,         // Textures for each level
+    // Beat Wave ability
+    beat_count: u32,                           // Counts beats fired, every 4th triggers wave
+    beat_wave_active: bool,                    // Whether beat wave is expanding
+    beat_wave_radius: f32,                     // Current radius of expanding wave
+    // Lasso Throw ability
+    lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
+    lasso_timer: f32,                          // Time remaining on lasso flight
+    lasso_target: Vec2,                        // Target position for lasso
 }
 
 impl MainState {
@@ -255,6 +264,12 @@ impl MainState {
             on_beat_flash: 0.0,
             music_layers,
             catch_radius_upgrade: 0.0,
+            beat_count: 0,
+            beat_wave_active: false,
+            beat_wave_radius: 0.0,
+            lasso_pos: None,
+            lasso_timer: 0.0,
+            lasso_target: Vec2::ZERO,
         })
     }
 
@@ -483,6 +498,12 @@ impl MainState {
         self.music_intensity = 0.0;
         self.on_beat_flash = 0.0;
         self.catch_radius_upgrade = 0.0;
+        self.beat_count = 0;
+        self.beat_wave_active = false;
+        self.beat_wave_radius = 0.0;
+        self.lasso_pos = None;
+        self.lasso_timer = 0.0;
+        self.lasso_target = Vec2::ZERO;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -641,6 +662,44 @@ impl MainState {
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
+
+        // Draw beat wave circle outline
+        if self.beat_wave_active && self.beat_wave_radius > 0.0 {
+            let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            let alpha = ((1.0 - self.beat_wave_radius / 300.0) * 150.0) as u8;
+            let wave_circle = Mesh::new_circle(
+                ctx,
+                ggez::graphics::DrawMode::stroke(3.0),
+                [0.0, 0.0],
+                self.beat_wave_radius,
+                1.0,
+                Color::from_rgba(255, 200, 100, alpha),
+            )?;
+            canvas.draw(&wave_circle, DrawParam::default().dest(player_center));
+        }
+
+        // Draw lasso line and tip
+        if let Some(tip) = self.lasso_pos {
+            let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            if player_center.distance(tip) > 1.0 {
+                let rope = Mesh::new_line(
+                    ctx,
+                    &[player_center, tip],
+                    2.0,
+                    Color::from_rgba(200, 140, 50, 200),
+                )?;
+                canvas.draw(&rope, DrawParam::default());
+            }
+            let tip_circle = Mesh::new_circle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                [0.0, 0.0],
+                18.0,
+                0.5,
+                Color::from_rgba(255, 200, 80, 180),
+            )?;
+            canvas.draw(&tip_circle, DrawParam::default().dest(tip));
+        }
 
         // Show stats.
         let chain_len = self.crabs.iter().filter(|c| c.caught).count();
@@ -952,6 +1011,12 @@ impl EventHandler for MainState {
         if self.beat_timer <= 0.0 {
             self.beat_timer += BEAT_INTERVAL;
             self.beat_intensity = 1.0;
+            self.beat_count = self.beat_count.wrapping_add(1);
+            // Every 4th beat, auto-fire beat wave when score >= 20
+            if self.beat_count % 4 == 0 && self.score >= 20 && !self.beat_wave_active {
+                self.beat_wave_active = true;
+                self.beat_wave_radius = 0.0;
+            }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
         if self.on_beat_flash > 0.0 {
@@ -995,6 +1060,79 @@ impl EventHandler for MainState {
 
         // Update particle system
         self.particle_system.update(dt);
+
+        // Beat Wave: expand outward, attract crabs toward player
+        if self.beat_wave_active {
+            self.beat_wave_radius += 600.0 * dt;
+            if self.beat_wave_radius > 300.0 {
+                self.beat_wave_active = false;
+                self.beat_wave_radius = 0.0;
+            } else {
+                let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+                for crab in &mut self.crabs {
+                    if !crab.caught {
+                        let dist = player_center.distance(crab.pos);
+                        if dist < self.beat_wave_radius {
+                            crab.spooked_timer = 1.0;
+                            let toward = (player_center - crab.pos).normalize_or_zero();
+                            let speed = crab.speed.max(60.0);
+                            crab.vel = toward * speed;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Lasso Throw: advance lasso along path, catch crabs near tip
+        if self.lasso_timer > 0.0 && self.lasso_pos.is_some() {
+            self.lasso_timer -= dt;
+            let elapsed = 0.5 - self.lasso_timer;
+            let progress = elapsed / 0.3;
+            let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            let new_pos = if progress <= 1.0 {
+                player_center.lerp(self.lasso_target, progress)
+            } else {
+                // Return trip: map progress from (1..=5/3) back to (0..=1)
+                let return_progress = (progress - 1.0) / (0.2 / 0.3);
+                self.lasso_target.lerp(player_center, return_progress.min(1.0))
+            };
+            self.lasso_pos = Some(new_pos);
+
+            if self.lasso_timer <= 0.0 {
+                self.lasso_pos = None;
+            } else {
+                // Catch crabs while lasso is traveling outward (timer > 0.2 means elapsed < 0.3)
+                if elapsed < 0.3 {
+                    let tip = new_pos;
+                    let to_catch: Vec<usize> = self.crabs.iter().enumerate()
+                        .filter(|(_, c)| !c.caught && tip.distance(c.pos) < 60.0)
+                        .map(|(i, _)| i)
+                        .collect();
+                    let mut rng = rand::rng();
+                    for i in to_catch {
+                        let pos = self.crabs[i].pos;
+                        let crab_type = self.crabs[i].crab_type;
+                        let crab_color = self.crabs[i].crab_color();
+                        self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+                        self.crabs[i].caught = true;
+                        self.crabs[i].chain_index = Some(self.chain_count);
+                        self.chain_count += 1;
+                        self.score += 1;
+                        self.shake_timer = 0.15;
+                        self.time_since_catch = 0.0;
+                        if rng.random_range(0..5) == 0 {
+                            let _ = self.sounds.success2.play_detached(ctx);
+                        } else {
+                            let _ = self.sounds.success.play_detached(ctx);
+                        }
+                        if self.score > 0 && self.score % 10 == 0 {
+                            let _ = self.sounds.upgrade.play_detached(ctx);
+                            self.pending_upgrade = true;
+                        }
+                    }
+                }
+            }
+        }
 
         // Chain tail can catch nearby free crabs
         self.catch_by_chain(ctx);
@@ -1111,6 +1249,28 @@ impl EventHandler for MainState {
         let scale_x = window_size.width as f32 / self.width;
         let scale_y = window_size.height as f32 / self.height;
         self.mouse_pos = Vec2::new(x / scale_x, y / scale_y);
+        Ok(())
+    }
+
+    fn mouse_button_down_event(
+        &mut self,
+        ctx: &mut Context,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    ) -> GameResult {
+        if self.game_over || self.show_instructions || self.pending_upgrade {
+            return Ok(());
+        }
+        if button == MouseButton::Left && self.lasso_pos.is_none() {
+            let window_size = ctx.gfx.window().inner_size();
+            let scale_x = window_size.width as f32 / self.width;
+            let scale_y = window_size.height as f32 / self.height;
+            let target = Vec2::new(x / scale_x, y / scale_y);
+            self.lasso_target = target;
+            self.lasso_timer = 0.5;
+            self.lasso_pos = Some(self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0));
+        }
         Ok(())
     }
 }
