@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to create GitHub Releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Re-uses cached Nix store paths from previous runs — only rebuilds
+      # what actually changed (Cargo deps, game source, shaders).
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build
+        run: nix build .#packages.x86_64-linux.default
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp result/bin/rustler dist/
+          cp -r result/bin/resources dist/
+          tar -czf rustler-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: rustler-${{ github.ref_name }}-linux-x86_64.tar.gz
+          generate_release_notes: true
+          body: |
+            ## Crab Rustler ${{ github.ref_name }}
+
+            ### Install
+            ```sh
+            tar -xzf rustler-${{ github.ref_name }}-linux-x86_64.tar.gz
+            ./rustler
+            ```
+
+            ### Controls
+            | Key | Action |
+            |-----|--------|
+            | WASD / Arrow keys | Move |
+            | Mouse | Aim flashlight |
+            | Left click | Throw lasso |
+            | Q | Beat wave burst |
+            | Space | Dash |
+            | F | Toggle flashlight |
+            | 1–4 | Pick upgrade |
+            | Esc | Quit |
