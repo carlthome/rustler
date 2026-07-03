@@ -48,3 +48,19 @@ pub struct EnemyCrab {
     pub crab_type: CrabType,
     pub spooked_timer: f32,
 }
+
+impl EnemyCrab {
+    pub fn crab_color(&self) -> [f32; 3] {
+        let t = (self.spawn_time / 10.0).min(1.0);
+        match self.crab_type {
+            CrabType::Normal => [
+                0.6 + 0.4 * t,
+                100.0 / 255.0 * (1.0 - t),
+                100.0 / 255.0 * (1.0 - t),
+            ],
+            CrabType::Fast => [1.0, 180.0 / 255.0 * (1.0 - t), 40.0 / 255.0],
+            CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, 180.0 / 255.0 * (1.0 - t)],
+            CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
+        }
+    }
+}
