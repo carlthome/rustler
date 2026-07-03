@@ -104,6 +104,7 @@ struct MainState {
     music_intensity: f32,
     on_beat_flash: f32,
     music_layers: Vec<Source>,
+    catch_radius_upgrade: f32,
     textures: GameTextures,                    // Textures for grass, sand, and player
     level_textures: Vec<LevelTexture>,         // Textures for each level
 }
@@ -253,6 +254,7 @@ impl MainState {
             music_intensity: 0.0,
             on_beat_flash: 0.0,
             music_layers,
+            catch_radius_upgrade: 0.0,
         })
     }
 
@@ -311,7 +313,7 @@ impl MainState {
     }
 
     fn catch_by_chain(&mut self, ctx: &mut Context) {
-        let catch_radius = 45.0;
+        let catch_radius = 45.0 + self.catch_radius_upgrade;
         let chain_positions: Vec<Vec2> = self.crabs.iter()
             .filter(|c| c.caught)
             .map(|c| c.pos)
@@ -504,6 +506,7 @@ impl MainState {
         self.beat_intensity = 0.0;
         self.music_intensity = 0.0;
         self.on_beat_flash = 0.0;
+        self.catch_radius_upgrade = 0.0;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -636,7 +639,7 @@ impl MainState {
             .filter(|c| c.caught && c.chain_index.is_some())
             .collect();
         chain_crabs.sort_by_key(|c| c.chain_index.unwrap_or(0));
-        draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed)?;
+        draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed, self.beat_intensity)?;
 
         // Draw player character.
         draw_rustler(ctx, canvas, self.player_pos, &self.textures.player)?;
@@ -870,13 +873,18 @@ impl MainState {
                     pos.y += (t * 1.3).cos() * shake_strength
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
-                draw_crab(ctx, canvas, crab)?;
+                draw_crab(ctx, canvas, crab, pos)?;
             }
         }
-        // Draw chain crabs (caught, following player)
+        // Draw chain crabs with a bob that waves through the train
         for crab in self.crabs.iter() {
             if crab.caught {
-                draw_crab(ctx, canvas, crab)?;
+                let bob = if let Some(ci) = crab.chain_index {
+                    (self.time_elapsed * 5.0 + ci as f32 * 0.7).sin() * 6.0
+                } else {
+                    0.0
+                };
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob))?;
             }
         }
         Ok(())
@@ -915,12 +923,12 @@ impl MainState {
         let bg_box = Mesh::new_rectangle(
             ctx,
             ggez::graphics::DrawMode::fill(),
-            Rect::new(box_x, box_y, box_width, box_height),
+            Rect::new(box_x, box_y, box_width, box_height + 30.0),
             Color::from_rgba(40, 80, 40, 220),
         )?;
         canvas.draw(&bg_box, DrawParam::default());
         let text = Text::new(
-            "Upgrade Time!\nChoose an upgrade:\n1. Wider flashlight cone\n2. Longer flashlight range\n3. Laser level up\nPress 1, 2, or 3 to select.",
+            "Upgrade Time!\nChoose an upgrade:\n1. Wider flashlight cone\n2. Longer flashlight range\n3. Disco laser level up\n4. Bigger chain catch radius\nPress 1, 2, 3, or 4 to select.",
         );
         canvas.draw(
             &text,
@@ -936,6 +944,7 @@ impl MainState {
             1 => self.flashlight.cone_upgrade += 0.25,
             2 => self.flashlight.range_upgrade += 60.0,
             3 => self.flashlight.laser_level += 1,
+            4 => self.catch_radius_upgrade += 25.0,
             _ => {}
         }
         self.pending_upgrade = false;
@@ -1092,6 +1101,7 @@ impl EventHandler for MainState {
                     KeyCode::Key1 => self.apply_upgrade(1),
                     KeyCode::Key2 => self.apply_upgrade(2),
                     KeyCode::Key3 => self.apply_upgrade(3),
+                    KeyCode::Key4 => self.apply_upgrade(4),
                     _ => {}
                 }
             }

@@ -297,7 +297,7 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2) -> ggez::GameResult {
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
     let size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
@@ -366,12 +366,12 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab) -> gg
     )?;
 
     // Draw all parts at crab.pos
-    canvas.draw(&crab_body, DrawParam::default().dest(crab.pos));
+    canvas.draw(&crab_body, DrawParam::default().dest(draw_pos));
     for leg in &leg_meshes {
-        canvas.draw(leg, DrawParam::default().dest(crab.pos));
+        canvas.draw(leg, DrawParam::default().dest(draw_pos));
     }
-    canvas.draw(&left_claw, DrawParam::default().dest(crab.pos));
-    canvas.draw(&right_claw, DrawParam::default().dest(crab.pos));
+    canvas.draw(&left_claw, DrawParam::default().dest(draw_pos));
+    canvas.draw(&right_claw, DrawParam::default().dest(draw_pos));
 
     // Eyes
     let eye_radius = size * 0.13;
@@ -392,10 +392,10 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab) -> gg
     let rw = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
     let lp = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
     let rp = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
-    canvas.draw(&lw, DrawParam::default().dest(crab.pos));
-    canvas.draw(&rw, DrawParam::default().dest(crab.pos));
-    canvas.draw(&lp, DrawParam::default().dest(crab.pos));
-    canvas.draw(&rp, DrawParam::default().dest(crab.pos));
+    canvas.draw(&lw, DrawParam::default().dest(draw_pos));
+    canvas.draw(&rw, DrawParam::default().dest(draw_pos));
+    canvas.draw(&lp, DrawParam::default().dest(draw_pos));
+    canvas.draw(&rp, DrawParam::default().dest(draw_pos));
 
     Ok(())
 }
@@ -495,17 +495,20 @@ pub fn draw_conga_rope(
     player_pos: Vec2,
     chain_crabs: &[&EnemyCrab],
     _time: f32,
+    beat_intensity: f32,
 ) -> ggez::GameResult {
     if chain_crabs.is_empty() {
         return Ok(());
     }
-    let rope_color = Color::from_rgba(255, 140, 50, 160);
+    let thickness = 2.5 + beat_intensity * 4.0;
+    let alpha = (120 + (beat_intensity * 135.0) as u8).min(255);
+    let rope_color = Color::from_rgba(255, 140, 50, alpha);
     let player_center = player_pos + Vec2::new(24.0, 24.0);
     let mut prev = player_center;
     for crab in chain_crabs {
         let next = crab.pos;
         if prev.distance(next) > 1.0 {
-            let rope = Mesh::new_line(ctx, &[prev, next], 3.0, rope_color)?;
+            let rope = Mesh::new_line(ctx, &[prev, next], thickness, rope_color)?;
             canvas.draw(&rope, DrawParam::default());
         }
         prev = next;

@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/carl/Repos/carlthome/rustler && if command -v cargo &>/dev/null; then cargo check --message-format short 2>&1 | tail -20; else echo '⚠️  cargo not on PATH — enter: nix develop /home/carl/Repos/carlthome/dotfiles#rustler'; fi"
+          },
+          {
+            "type": "command",
+            "command": "if [[ \"${CLAUDE_TOOL_INPUT_FILE_PATH:-}\" == *.rs ]] && command -v rustfmt &>/dev/null; then rustfmt \"${CLAUDE_TOOL_INPUT_FILE_PATH}\" 2>/dev/null || true; fi"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys, json, os; d = json.loads(os.environ.get('CLAUDE_TOOL_INPUT', '{}')); cmd = d.get('command', ''); exit(2 if ('rm' in cmd and 'resources/' in cmd) else 0)\" && true || (echo 'Blocked: do not delete files from resources/ — game assets must be preserved'; exit 1)"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "paplay /home/carl/Repos/carlthome/rustler/resources/success.ogg 2>/dev/null || aplay /home/carl/Repos/carlthome/rustler/resources/success.ogg 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
