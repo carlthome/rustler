@@ -373,6 +373,30 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab) -> gg
     canvas.draw(&left_claw, DrawParam::default().dest(crab.pos));
     canvas.draw(&right_claw, DrawParam::default().dest(crab.pos));
 
+    // Eyes
+    let eye_radius = size * 0.13;
+    let eye_x = size * 0.22;
+    let eye_y = -size * 0.18;
+    let pupil_r = eye_radius * 0.55;
+    let (pdx, pdy) = if !crab.caught {
+        let vl = crab.vel.length();
+        if vl > 1.0 {
+            (crab.vel.x / vl * eye_radius * 0.4, crab.vel.y / vl * eye_radius * 0.4)
+        } else {
+            (0.0, 0.0)
+        }
+    } else {
+        (0.0, 0.0)
+    };
+    let lw = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
+    let rw = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
+    let lp = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
+    let rp = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
+    canvas.draw(&lw, DrawParam::default().dest(crab.pos));
+    canvas.draw(&rw, DrawParam::default().dest(crab.pos));
+    canvas.draw(&lp, DrawParam::default().dest(crab.pos));
+    canvas.draw(&rp, DrawParam::default().dest(crab.pos));
+
     Ok(())
 }
 
@@ -462,5 +486,52 @@ pub fn draw_flashlight(
     // Restore original blend mode and shader
     canvas.set_blend_mode(original_blend);
     canvas.set_default_shader();
+    Ok(())
+}
+
+pub fn draw_conga_rope(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    player_pos: Vec2,
+    chain_crabs: &[&EnemyCrab],
+    _time: f32,
+) -> ggez::GameResult {
+    if chain_crabs.is_empty() {
+        return Ok(());
+    }
+    let rope_color = Color::from_rgba(255, 140, 50, 160);
+    let player_center = player_pos + Vec2::new(24.0, 24.0);
+    let mut prev = player_center;
+    for crab in chain_crabs {
+        let next = crab.pos;
+        if prev.distance(next) > 1.0 {
+            let rope = Mesh::new_line(ctx, &[prev, next], 3.0, rope_color)?;
+            canvas.draw(&rope, DrawParam::default());
+        }
+        prev = next;
+    }
+    Ok(())
+}
+
+pub fn draw_beat_indicator(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    beat_intensity: f32,
+    _time: f32,
+) -> ggez::GameResult {
+    let base_r = 20.0;
+    let pulse_r = base_r + beat_intensity * 14.0;
+    let alpha = ((80.0 + beat_intensity * 175.0) as u8).min(255);
+    let outer = Mesh::new_circle(
+        ctx, DrawMode::fill(), [0.0, 0.0], pulse_r, 0.5,
+        Color::from_rgba(255, 200, 50, alpha),
+    )?;
+    canvas.draw(&outer, DrawParam::default().dest(center));
+    let inner = Mesh::new_circle(
+        ctx, DrawMode::fill(), [0.0, 0.0], base_r * 0.55, 0.5,
+        Color::from_rgba(255, 140, 50, 220),
+    )?;
+    canvas.draw(&inner, DrawParam::default().dest(center));
     Ok(())
 }
