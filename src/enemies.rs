@@ -42,6 +42,7 @@ pub struct EnemyCrab {
     pub vel: Vec2,
     pub speed: f32,
     pub caught: bool,
+    pub chain_index: Option<usize>,
     pub scale: f32,
     pub spawn_time: f32,
     pub crab_type: CrabType,
