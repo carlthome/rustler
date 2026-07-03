@@ -590,7 +590,7 @@ impl MainState {
 
         // Draw instructions text centered.
         let text = Text::new(
-            "Catch all the crabs quickly!\n\nUse the arrow keys to move.\n\nPress Space or Enter to start.",
+            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\n\nPress Space or Enter to start.",
         );
         let text_width = text.measure(ctx)?.x;
         let text_height = text.measure(ctx)?.y;
@@ -629,6 +629,18 @@ impl MainState {
             &self.shader,
             self.time_elapsed,
         )?;
+
+        // Subtle beat pulse: a green flash on every downbeat
+        if self.beat_intensity > 0.0 {
+            let pulse_alpha = (self.beat_intensity * 28.0) as u8;
+            let pulse = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(0.0, 0.0, width, height),
+                Color::from_rgba(80, 255, 80, pulse_alpha),
+            )?;
+            canvas.draw(&pulse, DrawParam::default());
+        }
 
         // Collect chain crabs sorted by chain index
         let mut chain_crabs: Vec<&EnemyCrab> = self.crabs
