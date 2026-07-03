@@ -109,5 +109,36 @@ pub fn get_levels() -> Vec<Level> {
                 },
             ],
         },
+        Level {
+            title: "Crab Rave".to_string(),
+            description: "The dance floor is packed. Catch them all!".to_string(),
+            difficulty: 4,
+            patterns: vec![
+                LevelPattern {
+                    pattern: SpawnPattern::BeatGrid,
+                    count: 9,
+                    duration: 12.0,
+                    centroid: (0.5, 0.5),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::Spiral,
+                    count: 12,
+                    duration: 14.0,
+                    centroid: (0.5, 0.5),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::BeatGrid,
+                    count: 16,
+                    duration: 14.0,
+                    centroid: (0.5, 0.5),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::Spiral,
+                    count: 20,
+                    duration: 16.0,
+                    centroid: (0.5, 0.5),
+                },
+            ],
+        },
     ]
 }

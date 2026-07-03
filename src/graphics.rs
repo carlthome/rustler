@@ -297,24 +297,14 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32) -> ggez::GameResult {
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
     let size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
 
     // Color: more red as crab ages, and different color for type
-    let t = (crab.spawn_time / 10.0).min(1.0);
-    let (r, g, b) = match crab.crab_type {
-        crate::enemies::CrabType::Normal => (
-            (255.0 * (0.6 + 0.4 * t)),
-            (100.0 * (1.0 - t)),
-            (100.0 * (1.0 - t)),
-        ),
-        crate::enemies::CrabType::Fast => (255.0, 180.0 * (1.0 - t), 40.0),
-        crate::enemies::CrabType::Big => (180.0, 60.0, 180.0 * (1.0 - t)),
-        crate::enemies::CrabType::Sneaky => (120.0, 220.0, 220.0),
-    };
-    let crab_color = Color::from_rgb(r as u8, g as u8, b as u8);
+    let [r, g, b] = crab.crab_color();
+    let crab_color = Color::new(r, g, b, 1.0);
 
     // Crab body
     let crab_body = Mesh::new_circle(
@@ -335,7 +325,8 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
         let time = ctx.time.time_since_start().as_secs_f32();
         let phase = (crab.pos.x + crab.pos.y) * 0.05;
         let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
-        let wiggle = (time * wiggle_speed + phase + i as f32).sin() * 0.18;
+        let wiggle_amp = 0.18 + beat_phase * 0.12;
+        let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
         let angle = base_angle + wiggle;
         let x1 = (size / 2.0) * angle.cos();
         let y1 = (size / 2.0) * angle.sin();
@@ -377,7 +368,7 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let eye_radius = size * 0.13;
     let eye_x = size * 0.22;
     let eye_y = -size * 0.18;
-    let pupil_r = eye_radius * 0.55;
+    let pupil_r = eye_radius * (0.50 + beat_phase * 0.15);
     let (pdx, pdy) = if !crab.caught {
         let vl = crab.vel.length();
         if vl > 1.0 {

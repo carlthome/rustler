@@ -21,7 +21,7 @@ use rand::prelude::IndexedRandom;
 use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
-use crate::enemies::{CrabType, EnemyCrab};
+use crate::enemies::EnemyCrab;
 use crate::graphics::{
     ParticleSystem, draw_beat_indicator, draw_conga_rope, draw_crab, draw_flashlight, draw_grass,
     draw_particles, draw_rustler,
@@ -265,17 +265,7 @@ impl MainState {
                 && (self.player_pos.y - crab.pos.y).abs() < (PLAYER_SIZE + crab.scale) / 2.0
             {
                 // Get crab color before marking as caught
-                let t = (crab.spawn_time / 10.0).min(1.0);
-                let crab_color = match crab.crab_type {
-                    CrabType::Normal => [
-                        (255.0 * (0.6 + 0.4 * t)) / 255.0,
-                        (100.0 * (1.0 - t)) / 255.0,
-                        (100.0 * (1.0 - t)) / 255.0,
-                    ],
-                    CrabType::Fast => [1.0, (180.0 * (1.0 - t)) / 255.0, 40.0 / 255.0],
-                    CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, (180.0 * (1.0 - t)) / 255.0],
-                    CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
-                };
+                let crab_color = crab.crab_color();
 
                 // Spawn particle effect
                 let mut rng = rand::rng();
@@ -332,23 +322,9 @@ impl MainState {
             .collect();
         let mut rng = rand::rng();
         for i in to_catch {
-            let t = (self.crabs[i].spawn_time / 10.0).min(1.0);
             let pos = self.crabs[i].pos;
             let crab_type = self.crabs[i].crab_type;
-            let crab_color = match crab_type {
-                CrabType::Normal => [
-                    (255.0 * (0.6 + 0.4 * t)) / 255.0,
-                    (100.0 * (1.0 - t)) / 255.0,
-                    (100.0 * (1.0 - t)) / 255.0,
-                ],
-                CrabType::Fast => [1.0, (180.0 * (1.0 - t)) / 255.0, 40.0 / 255.0],
-                CrabType::Big => [
-                    180.0 / 255.0,
-                    60.0 / 255.0,
-                    (180.0 * (1.0 - t)) / 255.0,
-                ],
-                CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
-            };
+            let crab_color = self.crabs[i].crab_color();
             self.particle_system
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             self.crabs[i].caught = true;
@@ -776,6 +752,8 @@ impl MainState {
                 SpawnPattern::Circle => "Circle",
                 SpawnPattern::Cluster => "Cluster",
                 SpawnPattern::SingleRandom => "SingleRandom",
+                SpawnPattern::BeatGrid => "BeatGrid",
+                SpawnPattern::Spiral => "Spiral",
             };
             let debug_text = Text::new(format!(
                 "[DEBUG] Pattern: {} | Time left: {:.2}s",
@@ -873,7 +851,8 @@ impl MainState {
                     pos.y += (t * 1.3).cos() * shake_strength
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
-                draw_crab(ctx, canvas, crab, pos)?;
+                let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
+                draw_crab(ctx, canvas, crab, pos, crab_beat)?;
             }
         }
         // Draw chain crabs with a bob that waves through the train
@@ -884,7 +863,8 @@ impl MainState {
                 } else {
                     0.0
                 };
-                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob))?;
+                let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob), chain_beat)?;
             }
         }
         Ok(())
