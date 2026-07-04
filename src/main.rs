@@ -1024,26 +1024,93 @@ impl MainState {
     }
 
     fn draw_upgrade_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
-        let box_width = 600.0;
-        let box_height = 260.0;
-        let box_x = 340.0;
-        let box_y = 340.0;
-        let bg_box = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(box_x, box_y, box_width, box_height + 30.0),
-            Color::from_rgba(40, 80, 40, 220),
+        let w = self.width;
+        let h = self.height;
+
+        // Dark overlay
+        let bg = Mesh::new_rectangle(
+            ctx, ggez::graphics::DrawMode::fill(),
+            Rect::new(0.0, 0.0, w, h), Color::from_rgba(8, 4, 22, 210),
         )?;
-        canvas.draw(&bg_box, DrawParam::default());
-        let text = Text::new(
-            "Upgrade Time!\nChoose an upgrade:\n1. Wider flashlight cone\n2. Longer flashlight range\n3. Disco laser level up\n4. Bigger chain catch radius\nPress 1, 2, 3, or 4 to select.",
-        );
-        canvas.draw(
-            &text,
-            DrawParam::default()
-                .dest(Vec2::new(370.0, 370.0))
-                .color(Color::from_rgb(255, 255, 255)),
-        );
+        canvas.draw(&bg, DrawParam::default());
+
+        // Title
+        let mut title = Text::new("CHOOSE AN UPGRADE");
+        title.set_scale(46.0);
+        let tw = title.measure(ctx)?.x;
+        canvas.draw(&title, DrawParam::default()
+            .dest(Vec2::new((w - tw) / 2.0, 58.0))
+            .color(Color::from_rgb(255, 215, 50)));
+
+        // (key, icon, name, description, r, g, b)
+        let cards: &[(&str, &str, &str, &str, u8, u8, u8)] = &[
+            ("1", ">",  "Wider Cone",   "Flashlight sweeps\na broader arc",       255, 200,  40),
+            ("2", "~",  "Longer Range", "Flashlight reaches\nfurther ahead",       80, 160, 255),
+            ("3", "*",  "Disco Laser",  "Add another\nrainbow beam",              200,  60, 255),
+            ("4", "O",  "Chain Reach",  "Catch crabs from\nfurther with chain",    60, 220, 100),
+        ];
+
+        let card_w = 242.0_f32;
+        let card_h = 310.0_f32;
+        let gap    = 18.0_f32;
+        let total_w = cards.len() as f32 * card_w + (cards.len() - 1) as f32 * gap;
+        let x0 = (w - total_w) / 2.0;
+        let y0 = (h - card_h) / 2.0 + 15.0;
+
+        for (i, &(key, icon, name, desc, r, g, b)) in cards.iter().enumerate() {
+            let cx = x0 + i as f32 * (card_w + gap);
+            let hovered = self.mouse_pos.x >= cx && self.mouse_pos.x <= cx + card_w
+                && self.mouse_pos.y >= y0 && self.mouse_pos.y <= y0 + card_h;
+
+            let accent = Color::from_rgb(r, g, b);
+            let bg_a   = if hovered { 190u8 } else { 115u8 };
+            let bdr_w  = if hovered { 4.0_f32 } else { 2.0_f32 };
+
+            // Card background
+            canvas.draw(
+                &Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
+                    Rect::new(cx, y0, card_w, card_h), Color::from_rgba(18, 12, 38, bg_a))?,
+                DrawParam::default(),
+            );
+            // Coloured border
+            canvas.draw(
+                &Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::stroke(bdr_w),
+                    Rect::new(cx, y0, card_w, card_h), accent)?,
+                DrawParam::default(),
+            );
+
+            // Icon
+            let mut ico = Text::new(icon);
+            ico.set_scale(82.0);
+            let iw = ico.measure(ctx)?.x;
+            canvas.draw(&ico, DrawParam::default()
+                .dest(Vec2::new(cx + (card_w - iw) / 2.0, y0 + 18.0))
+                .color(accent));
+
+            // Name
+            let mut nm = Text::new(name);
+            nm.set_scale(26.0);
+            let nw = nm.measure(ctx)?.x;
+            canvas.draw(&nm, DrawParam::default()
+                .dest(Vec2::new(cx + (card_w - nw) / 2.0, y0 + 118.0))
+                .color(Color::WHITE));
+
+            // Description
+            let mut dsc = Text::new(desc);
+            dsc.set_scale(18.0);
+            let dw = dsc.measure(ctx)?.x;
+            canvas.draw(&dsc, DrawParam::default()
+                .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 156.0))
+                .color(Color::from_rgba(205, 205, 205, 215)));
+
+            // Key hint
+            let mut kh = Text::new(format!("[ {} ]", key));
+            kh.set_scale(24.0);
+            let kw = kh.measure(ctx)?.x;
+            canvas.draw(&kh, DrawParam::default()
+                .dest(Vec2::new(cx + (card_w - kw) / 2.0, y0 + card_h - 46.0))
+                .color(accent));
+        }
         Ok(())
     }
 
