@@ -485,6 +485,9 @@ impl MainState {
         let flashlight_cone_angle = base_cone_angle + self.flashlight.cone_upgrade;
         let flashlight_range = base_range + self.flashlight.range_upgrade;
 
+        // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
+        let mut flee_pops: Vec<Vec2> = Vec::new();
+
         for crab in &mut self.crabs {
             if !crab.caught {
                 crab.spawn_time += dt;
@@ -499,6 +502,10 @@ impl MainState {
                     && distance < flashlight_range
                     && angle_to_crab < flashlight_cone_angle;
 
+                // Panic flee: crabs that are close but outside the flashlight beam scatter away.
+                const FLEE_RADIUS: f32 = 220.0;
+                let now_fleeing = !crab_in_light && distance < FLEE_RADIUS;
+
                 if crab_in_light {
                     // Crab is gently attracted to the player's position (sauntering, not rocketing)
                     let toward_dir = (self.player_pos - crab.pos).normalize_or_zero();
@@ -510,6 +517,22 @@ impl MainState {
                     crab.vel = crab.vel.lerp(toward_dir * gentle_speed, 0.01);
                     crab.speed = gentle_speed;
                     crab.spooked_timer = 0.7;
+                    crab.fleeing = false;
+                } else if now_fleeing {
+                    // Track first-flee frame so we can emit a "!" pop after the loop
+                    if !crab.fleeing {
+                        flee_pops.push(crab.pos);
+                    }
+                    crab.fleeing = true;
+                    // Panic: steer sharply away from the player at full type speed.
+                    let max_speed = crab.crab_type.speed_range().end;
+                    // Proximity factor: full flee speed when very close, tapering off toward FLEE_RADIUS
+                    let flee_factor = 1.0 - (distance / FLEE_RADIUS);
+                    let flee_speed = max_speed * (1.0 + flee_factor * 1.5);
+                    crab.vel = crab.vel.lerp(to_crab * flee_speed, 0.06);
+                    crab.speed = 1.0; // vel already encodes speed, keep multiplier neutral
+                } else {
+                    crab.fleeing = false;
                 }
 
                 // Calm down after timer
@@ -520,9 +543,9 @@ impl MainState {
                     }
                 }
 
-                // If player is within 150 pixels, increase crab speed up to 2x
+                // If player is within 150 pixels and crab is in the light, add a small extra speed boost
                 let mut speed_multiplier = 1.0;
-                if distance < 150.0 {
+                if crab_in_light && distance < 150.0 {
                     speed_multiplier = 2.0 - (distance / 150.0);
                     speed_multiplier = speed_multiplier.clamp(1.0, 2.0);
                 }
@@ -551,6 +574,16 @@ impl MainState {
                     crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
                 }
             }
+        }
+
+        // Emit "!" floating texts for crabs that just started fleeing this frame
+        for pos in flee_pops {
+            self.floating_texts.spawn(
+                "!".to_string(),
+                pos - Vec2::new(0.0, 24.0),
+                28.0,
+                [1.0, 0.9, 0.1, 1.0],
+            );
         }
 
         // Move chain crabs to their historical positions (conga train)
