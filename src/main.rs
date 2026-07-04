@@ -1141,19 +1141,24 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse)?;
+                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0)?;
             }
         }
-        // Draw chain crabs with a bob that waves through the train
+        // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
             if crab.caught {
-                let bob = if let Some(ci) = crab.chain_index {
-                    (self.time_elapsed * 5.0 + ci as f32 * 0.7).sin() * 6.0
+                let (bob, sway) = if let Some(ci) = crab.chain_index {
+                    let amplitude = 10.0 + self.beat_intensity * 16.0;
+                    let wave_phase = self.time_elapsed * 6.0 - ci as f32 * 0.55;
+                    let b = wave_phase.sin() * amplitude;
+                    let s = (wave_phase + std::f32::consts::FRAC_PI_2).sin() * amplitude * 0.5;
+                    (b, s)
                 } else {
-                    0.0
+                    (0.0, 0.0)
                 };
                 let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob), chain_beat, crab.join_pulse)?;
+                let lift = bob.min(0.0).abs(); // lift = how much the crab is up (bob is negative = up)
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift)?;
             }
         }
         Ok(())

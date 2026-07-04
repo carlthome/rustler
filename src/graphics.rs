@@ -431,7 +431,7 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32) -> ggez::GameResult {
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
     let base_size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
@@ -442,6 +442,23 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
         1.0
     };
     let size = base_size * pulse_scale;
+
+    // Drop shadow: shrinks and moves away as the crab lifts off the ground
+    let shadow_scale_x = (1.0 - y_lift / 60.0).clamp(0.4, 1.0);
+    let shadow_scale_y = shadow_scale_x * 0.45;
+    let shadow_offset_y = size * 0.35 + y_lift * 0.6;
+    let shadow_offset_x = y_lift * 0.25;
+    let shadow_alpha = ((1.0 - y_lift / 55.0) * 100.0).clamp(20.0, 100.0) as u8;
+    let shadow = Mesh::new_ellipse(
+        ctx,
+        DrawMode::fill(),
+        [shadow_offset_x, shadow_offset_y],
+        size * shadow_scale_x * 0.55,
+        size * shadow_scale_y * 0.55,
+        0.5,
+        Color::from_rgba(0, 0, 0, shadow_alpha),
+    )?;
+    canvas.draw(&shadow, DrawParam::default().dest(draw_pos));
 
     // Color: more red as crab ages, and different color for type
     let [r, g, b] = crab.crab_color();
