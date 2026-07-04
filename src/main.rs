@@ -126,6 +126,7 @@ struct MainState {
     screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     screen_shake_vel: Vec2,     // current shake offset velocity
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
+    chain_join_ripple: bool,       // set true when any crab is caught this frame
 }
 
 impl MainState {
@@ -288,6 +289,7 @@ impl MainState {
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
+            chain_join_ripple: false,
         })
     }
 
@@ -341,6 +343,7 @@ impl MainState {
                 );
 
                 crab.caught = true;
+                self.chain_join_ripple = true;
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
@@ -405,6 +408,7 @@ impl MainState {
             self.particle_system
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             self.crabs[i].caught = true;
+            self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
             let pos = self.crabs[i].pos;
@@ -584,6 +588,7 @@ impl MainState {
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
+        self.chain_join_ripple = false;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -1037,7 +1042,7 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, pos, crab_beat)?;
+                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse)?;
             }
         }
         // Draw chain crabs with a bob that waves through the train
@@ -1049,7 +1054,7 @@ impl MainState {
                     0.0
                 };
                 let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob), chain_beat)?;
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(0.0, bob), chain_beat, crab.join_pulse)?;
             }
         }
         Ok(())
@@ -1299,6 +1304,13 @@ impl EventHandler for MainState {
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
 
+        // Decay join_pulse ripple timers
+        for crab in &mut self.crabs {
+            if crab.join_pulse > 0.0 {
+                crab.join_pulse = (crab.join_pulse - dt * 3.5).max(0.0);
+            }
+        }
+
         // Rainbow trail behind player when moving
         if self.player_vel.length() > 15.0 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
@@ -1368,6 +1380,7 @@ impl EventHandler for MainState {
                         let crab_color = self.crabs[i].crab_color();
                         self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
                         self.crabs[i].caught = true;
+                        self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
                         self.chain_count += 1;
                         self.score += 1;
@@ -1389,6 +1402,18 @@ impl EventHandler for MainState {
 
         // Chain tail can catch nearby free crabs
         self.catch_by_chain(ctx);
+
+        // Fire join-pulse ripple through the conga train on every new catch
+        if self.chain_join_ripple {
+            self.chain_join_ripple = false;
+            for crab in &mut self.crabs {
+                if crab.caught {
+                    if let Some(ci) = crab.chain_index {
+                        crab.join_pulse = 1.0 + ci as f32 * 0.21;
+                    }
+                }
+            }
+        }
 
         // Scale music volume with intensity
         // (action_music gets louder, layers fade in)

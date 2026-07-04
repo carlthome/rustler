@@ -380,14 +380,26 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32) -> ggez::GameResult {
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
-    let size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
+    let base_size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
+    // Scale pop when joining the chain (bell-curve: peak at join_pulse=0.5)
+    let pulse_scale = if join_pulse <= 1.0 {
+        1.0 + 0.45 * join_pulse * (1.0 - join_pulse) * 4.0
+    } else {
+        1.0
+    };
+    let size = base_size * pulse_scale;
 
     // Color: more red as crab ages, and different color for type
     let [r, g, b] = crab.crab_color();
-    let crab_color = Color::new(r, g, b, 1.0);
+    let flash = if join_pulse > 0.0 && join_pulse <= 1.0 {
+        join_pulse * (1.0 - join_pulse) * 4.0 * 0.5  // peak 0.5 at pulse=0.5
+    } else {
+        0.0
+    };
+    let crab_color = Color::new((r + flash).min(1.0), (g + flash).min(1.0), (b + flash).min(1.0), 1.0);
 
     // Crab body
     let crab_body = Mesh::new_circle(
