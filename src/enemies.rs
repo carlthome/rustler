@@ -47,6 +47,7 @@ pub struct EnemyCrab {
     pub spawn_time: f32,
     pub crab_type: CrabType,
     pub spooked_timer: f32,
+    pub beat_phase_offset: f32,
 }
 
 impl EnemyCrab {

@@ -27,6 +27,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         spawn_time,
         crab_type,
         spooked_timer: 0.0,
+        beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
     }
 }
 

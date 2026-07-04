@@ -472,6 +472,15 @@ impl MainState {
                 let age_boost = 1.0 + (crab.spawn_time / 10.0).min(1.5);
                 crab.pos += crab.vel * crab.speed * speed_multiplier * age_boost * dt;
 
+                // Beat-synced positional wobble for idle (non-spooked) crabs.
+                if crab.spooked_timer == 0.0 {
+                    let beat_phase = (1.0 - self.beat_timer / BEAT_INTERVAL)
+                        * std::f32::consts::TAU
+                        + crab.beat_phase_offset;
+                    let perp = Vec2::new(-crab.vel.y, crab.vel.x).normalize_or_zero();
+                    crab.pos += perp * 10.0 * beat_phase.sin() * dt;
+                }
+
                 // Bounce off walls.
                 let (width, height) = area;
                 if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
