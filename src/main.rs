@@ -119,6 +119,9 @@ struct MainState {
     lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     lasso_timer: f32,                          // Time remaining on lasso flight
     lasso_target: Vec2,                        // Target position for lasso
+    // Dash effect
+    dash_just_fired: bool,
+    dash_flash: f32,
 }
 
 impl MainState {
@@ -276,6 +279,8 @@ impl MainState {
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
+            dash_just_fired: false,
+            dash_flash: 0.0,
         })
     }
 
@@ -558,6 +563,8 @@ impl MainState {
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
+        self.dash_just_fired = false;
+        self.dash_flash = 0.0;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -1189,6 +1196,9 @@ impl EventHandler for MainState {
             if self.boost_cooldown < 0.0 {
                 self.boost_cooldown = 0.0;
             }
+        }
+        if self.dash_flash > 0.0 {
+            self.dash_flash = (self.dash_flash - dt * 3.0).max(0.0);
         }
 
         if self.level_title_timer > 0.0 {
