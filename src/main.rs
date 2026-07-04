@@ -714,6 +714,25 @@ impl MainState {
         // Draw player character.
         draw_rustler(ctx, canvas, self.player_pos, &self.textures.player)?;
 
+        // Speed lines trailing behind player while dashing
+        if self.boost_timer > 0.0 && self.last_dir.length() > 0.01 {
+            let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            let wake = -self.last_dir.normalize();
+            let perp = Vec2::new(-wake.y, wake.x);
+            let intensity = self.boost_timer / 0.18;
+            for i in 0i32..7 {
+                let t = (i as f32 - 3.0) / 3.0;
+                let origin = center + perp * (t * 14.0);
+                let length = 20.0 + (3.0 - (i as f32 - 3.0).abs()) * 8.0;
+                let end = origin + wake * length;
+                let alpha = (intensity * 110.0) as u8;
+                let line = Mesh::new_line(ctx,
+                    &[[origin.x, origin.y], [end.x, end.y]],
+                    1.5, Color::from_rgba(190, 215, 255, alpha))?;
+                canvas.draw(&line, DrawParam::default());
+            }
+        }
+
         // Calculate flashlight direction from player to mouse.
         if self.flashlight.on {
             let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
@@ -904,6 +923,18 @@ impl MainState {
         // Beat indicator (top right)
         let beat_center = Vec2::new(width - 50.0, 50.0);
         draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
+
+        // Dash flash — white burst when Space is pressed
+        if self.dash_flash > 0.0 {
+            let alpha = (self.dash_flash / 0.14 * 140.0) as u8;
+            let flash = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(0.0, 0.0, width, height),
+                Color::from_rgba(220, 240, 255, alpha),
+            )?;
+            canvas.draw(&flash, DrawParam::default());
+        }
 
         // On-beat catch flash
         if self.on_beat_flash > 0.0 {
@@ -1210,6 +1241,13 @@ impl EventHandler for MainState {
 
         let area = (self.width, self.height);
         handle_player_movement(self, ctx, dt, SPEED, area);
+
+        // Dash particle burst — fires once when dash_flash is freshly set
+        if self.dash_flash > 0.13 {
+            let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            self.particle_system.spawn_dash_burst(center, self.last_dir, &mut rand::rng());
+        }
+
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
 
