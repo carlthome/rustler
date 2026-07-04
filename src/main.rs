@@ -24,9 +24,9 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
-    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_chain_rings, draw_combo_meter,
-    draw_conga_rope, draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass,
-    draw_particles, draw_rustler,
+    FloatingTextSystem, ParticleSystem, draw_attracted_crab_glow, draw_beat_indicator,
+    draw_chain_rings, draw_combo_meter, draw_conga_rope, draw_crab, draw_crab_radar,
+    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -490,6 +490,8 @@ impl MainState {
 
         // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
         let mut flee_pops: Vec<Vec2> = Vec::new();
+        // Sparkle particles for attracted crabs (collected to avoid borrow conflict)
+        let mut attraction_particles: Vec<(Vec2, Vec2, f32, [f32; 3])> = Vec::new();
 
         for crab in &mut self.crabs {
             if !crab.caught {
@@ -504,6 +506,9 @@ impl MainState {
                 let crab_in_light = self.flashlight.on
                     && distance < flashlight_range
                     && angle_to_crab < flashlight_cone_angle;
+
+                // Track flashlight state on the crab for rendering
+                crab.in_flashlight = crab_in_light;
 
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
                 const FLEE_RADIUS: f32 = 220.0;
@@ -586,7 +591,35 @@ impl MainState {
                     while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
                     crab.facing_angle += delta * (dt * 8.0).min(1.0);
                 }
+
+                // Collect sparkle particles drifting toward player for attracted crabs
+                if crab_in_light {
+                    let mut rng = rand::rng();
+                    // ~2 sparkles per second (probabilistic)
+                    if rng.random_range(0.0_f32..1.0_f32) < dt * 2.0 {
+                        let toward_player = (self.player_pos - crab.pos).normalize_or_zero();
+                        let perp = Vec2::new(-toward_player.y, toward_player.x);
+                        let spread = rng.random_range(-0.6_f32..0.6_f32);
+                        let dir = (toward_player + perp * spread).normalize();
+                        let speed = rng.random_range(40.0_f32..90.0_f32);
+                        let life = rng.random_range(0.4_f32..0.8_f32);
+                        let color = crab.crab_color();
+                        attraction_particles.push((crab.pos, dir * speed, life, color));
+                    }
+                }
             }
+        }
+
+        // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
+        for (pos, vel, life, [cr, cg, cb]) in attraction_particles {
+            self.particle_system.particles.push(crate::graphics::Particle {
+                pos,
+                vel,
+                life,
+                max_life: life,
+                size: rand::rng().random_range(1.5_f32..3.5_f32),
+                color: [(cr * 0.6 + 0.4).min(1.0), (cg * 0.6 + 0.4).min(1.0), (cb * 0.6 + 0.4).min(1.0)],
+            });
         }
 
         // Emit "!" floating texts for crabs that just started fleeing this frame
@@ -1225,6 +1258,11 @@ impl MainState {
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
                 draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0, crab.facing_angle)?;
+                // Attraction halo for crabs currently being pulled by the flashlight beam
+                if crab.in_flashlight {
+                    let size = crab.scale * CRAB_SIZE;
+                    draw_attracted_crab_glow(ctx, canvas, pos, size, crab.crab_color(), self.time_elapsed, self.beat_intensity)?;
+                }
             }
         }
         // Draw chain crabs with a groovy wave bob that travels through the train

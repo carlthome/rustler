@@ -31,6 +31,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         join_pulse: 0.0,
         fleeing: false,
         facing_angle: 0.0,
+        in_flashlight: false,
     }
 }
 

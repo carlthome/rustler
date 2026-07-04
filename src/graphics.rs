@@ -1060,3 +1060,59 @@ pub fn draw_chain_rings(
     canvas.set_blend_mode(original_blend);
     Ok(())
 }
+
+/// Draw a pulsing attraction halo around a crab that is inside the flashlight beam.
+/// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
+pub fn draw_attracted_crab_glow(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    crab_color: [f32; 3],
+    time: f32,
+    beat_intensity: f32,
+) -> ggez::GameResult {
+    // Pulse: fast sine wave (3 Hz) scaled up on beat
+    let pulse = (time * 3.0 * std::f32::consts::TAU).sin() * 0.5 + 0.5; // 0..1
+    let pulse = pulse * (0.7 + beat_intensity * 0.3);
+
+    let base_radius = size * 0.9;
+    let outer_radius = base_radius + 6.0 + pulse * 9.0;
+
+    let [r, g, b] = crab_color;
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Outer soft glow ring
+    let glow_alpha = (0.18 + pulse * 0.22).clamp(0.0, 1.0);
+    let glow = Mesh::new_circle(
+        ctx,
+        DrawMode::stroke(outer_radius * 0.35),
+        [0.0, 0.0],
+        outer_radius + outer_radius * 0.18,
+        1.5,
+        Color::new(r, g, b, glow_alpha),
+    )?;
+    canvas.draw(&glow, DrawParam::default().dest(pos));
+
+    // Bright inner ring
+    let ring_alpha = (0.45 + pulse * 0.45).clamp(0.0, 1.0);
+    let ring = Mesh::new_circle(
+        ctx,
+        DrawMode::stroke(2.5),
+        [0.0, 0.0],
+        outer_radius,
+        1.2,
+        Color::new(
+            (r * 0.5 + 0.5).min(1.0),
+            (g * 0.5 + 0.5).min(1.0),
+            (b * 0.5 + 0.5).min(1.0),
+            ring_alpha,
+        ),
+    )?;
+    canvas.draw(&ring, DrawParam::default().dest(pos));
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
