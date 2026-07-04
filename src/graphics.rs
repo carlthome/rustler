@@ -176,6 +176,28 @@ impl ParticleSystem {
         }
     }
 
+    pub fn spawn_dash_burst(&mut self, pos: Vec2, move_dir: Vec2, rng: &mut impl Rng) {
+        // shoot particles mostly backward from the movement direction, spread into a fan
+        let back = if move_dir.length() > 0.1 { -move_dir.normalize() } else { Vec2::new(0.0, 1.0) };
+        for _ in 0..30 {
+            let spread = rng.random_range(-0.9_f32..0.9_f32);
+            let perp = Vec2::new(-back.y, back.x);
+            let dir = (back + perp * spread).normalize();
+            let speed = rng.random_range(160.0_f32..480.0_f32);
+            let life = rng.random_range(0.18_f32..0.40_f32);
+            // Cyan-white colour with slight variation
+            let g = rng.random_range(0.85_f32..1.0_f32);
+            self.particles.push(Particle {
+                pos: pos + Vec2::new(rng.random_range(-6.0_f32..6.0_f32), rng.random_range(-6.0_f32..6.0_f32)),
+                vel: dir * speed,
+                life,
+                max_life: life,
+                size: rng.random_range(3.0_f32..7.5_f32),
+                color: [0.7, g, 1.0],
+            });
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.particles.retain_mut(|particle| {
             particle.life -= dt;
