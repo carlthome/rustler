@@ -15,6 +15,15 @@ use std::sync::OnceLock;
 // previously allocating two brand-new GPU mesh buffers every single frame.
 static UNIT_CIRCLE: OnceLock<Mesh> = OnceLock::new();
 
+// A single unit-length horizontal segment (a 1x1 rect centered on the x-axis),
+// built once and reused for every rope/line segment by scaling it via `DrawParam`
+// (scale.x = segment length, scale.y = thickness) and rotating it to match the
+// segment's direction, instead of baking each segment's two endpoints into a
+// fresh `Mesh::new_line` GPU buffer. The conga rope draws ~2 line segments per
+// micro-subdivision per chain link (SEGS=14), so a long conga train — the whole
+// point of this game — was allocating hundreds of GPU meshes every frame.
+static UNIT_LINE: OnceLock<Mesh> = OnceLock::new();
+
 #[derive(Copy, Clone, Debug, AsStd140)]
 pub struct ResolutionUniform {
     pub width: f32,
@@ -664,6 +673,19 @@ pub fn draw_conga_rope(
         return Ok(());
     }
 
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
+
     // Number of sub-segments per chain link — more = smoother curve
     const SEGS: usize = 14;
     // Amplitude of the sine-wave wiggle (pixels perpendicular to the link)
@@ -724,25 +746,26 @@ pub fn draw_conga_rope(
                 let bb = (b + boost).min(1.0);
                 let color = Color::new(rr, gg, bb, alpha_base);
 
-                if prev_point.distance(point) > 0.5 {
-                    let seg_line = Mesh::new_line(
-                        ctx,
-                        &[[prev_point.x, prev_point.y], [point.x, point.y]],
-                        thickness,
-                        color,
-                    )?;
-                    canvas.draw(&seg_line, DrawParam::default());
+                let seg_delta = point - prev_point;
+                let seg_len = seg_delta.length();
+                if seg_len > 0.5 {
+                    let seg_angle = seg_delta.y.atan2(seg_delta.x);
+                    let seg_param = DrawParam::default()
+                        .dest(prev_point)
+                        .rotation(seg_angle)
+                        .scale(Vec2::new(seg_len, thickness))
+                        .color(color);
+                    canvas.draw(unit_line, seg_param);
 
                     // Thinner glow pass with additive blend for a neon look
                     let glow_color = Color::new(rr, gg, bb, alpha_base * 0.35);
-                    let glow_line = Mesh::new_line(
-                        ctx,
-                        &[[prev_point.x, prev_point.y], [point.x, point.y]],
-                        thickness * 2.2,
-                        glow_color,
-                    )?;
+                    let glow_param = DrawParam::default()
+                        .dest(prev_point)
+                        .rotation(seg_angle)
+                        .scale(Vec2::new(seg_len, thickness * 2.2))
+                        .color(glow_color);
                     canvas.set_blend_mode(BlendMode::ADD);
-                    canvas.draw(&glow_line, DrawParam::default());
+                    canvas.draw(unit_line, glow_param);
                     canvas.set_blend_mode(BlendMode::ALPHA);
                 }
             }
