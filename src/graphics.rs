@@ -1009,3 +1009,54 @@ pub fn draw_crab_radar(
     canvas.set_blend_mode(original_blend);
     Ok(())
 }
+
+/// Draw expanding ghost rings for each crab in the conga chain.
+/// Each ring is (center_pos, age 0..1, rgb color).
+/// age=0 means just spawned (small, bright), age=1 means about to disappear (large, transparent).
+pub fn draw_chain_rings(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    rings: &[(Vec2, f32, [f32; 3])],
+) -> ggez::GameResult {
+    if rings.is_empty() {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for &(pos, age, color) in rings {
+        // age 0..1: radius grows from 8 to 70, alpha fades from bright to zero
+        let radius = 8.0 + age * 62.0;
+        let alpha = ((1.0 - age) * 0.65).clamp(0.0, 1.0);
+        // Stroke thickness tapers as ring expands
+        let thickness = 3.5 * (1.0 - age * 0.7);
+
+        // Main ring
+        let ring = Mesh::new_circle(
+            ctx,
+            DrawMode::stroke(thickness),
+            [0.0, 0.0],
+            radius,
+            1.2,
+            Color::new(color[0], color[1], color[2], alpha),
+        )?;
+        canvas.draw(&ring, DrawParam::default().dest(pos));
+
+        // Soft outer glow ring (larger radius, lower alpha)
+        if age < 0.7 {
+            let glow_alpha = alpha * 0.3;
+            let glow = Mesh::new_circle(
+                ctx,
+                DrawMode::stroke(thickness * 2.0),
+                [0.0, 0.0],
+                radius + 4.0,
+                1.5,
+                Color::new(color[0], color[1], color[2], glow_alpha),
+            )?;
+            canvas.draw(&glow, DrawParam::default().dest(pos));
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}

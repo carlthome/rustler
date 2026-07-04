@@ -24,9 +24,9 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
-    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_combo_meter, draw_conga_rope,
-    draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass, draw_particles,
-    draw_rustler,
+    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_chain_rings, draw_combo_meter,
+    draw_conga_rope, draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass,
+    draw_particles, draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -129,6 +129,7 @@ struct MainState {
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     next_milestone: usize,               // Next train-length milestone to celebrate
+    chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
 }
 
 impl MainState {
@@ -293,6 +294,7 @@ impl MainState {
             screen_shake_offset: Vec2::ZERO,
             chain_join_ripple: false,
             next_milestone: 5,
+            chain_rings: Vec::new(),
         })
     }
 
@@ -692,6 +694,7 @@ impl MainState {
         self.screen_shake_offset = Vec2::ZERO;
         self.chain_join_ripple = false;
         self.next_milestone = 5;
+        self.chain_rings.clear();
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -836,6 +839,8 @@ impl MainState {
             .filter(|c| c.caught && c.chain_index.is_some())
             .collect();
         chain_crabs.sort_by_key(|c| c.chain_index.unwrap_or(0));
+        // Draw beat ghost rings under the rope and crabs
+        draw_chain_rings(ctx, canvas, &self.chain_rings)?;
         draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed, self.beat_intensity)?;
 
         // Draw player character.
@@ -1412,6 +1417,11 @@ impl EventHandler for MainState {
                 let positions: Vec<Vec2> = self.crabs.iter().filter(|c| c.caught).map(|c| c.pos).collect();
                 self.particle_system.spawn_beat_pulse(&positions, 1.0, chain_len, &mut rand::rng());
             }
+            // Spawn ghost rings at each chain crab position
+            for crab in self.crabs.iter().filter(|c| c.caught) {
+                let color = crab.crab_color();
+                self.chain_rings.push((crab.pos, 0.0, color));
+            }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
 
@@ -1503,6 +1513,13 @@ impl EventHandler for MainState {
                 &mut rand::rng(),
             );
         }
+
+        // Advance ghost ring ages; remove fully faded rings
+        let ring_speed = 1.4; // age 0..1 in ~0.71 seconds (fast enough to clear before next beat)
+        self.chain_rings.retain_mut(|(_, age, _)| {
+            *age += dt * ring_speed;
+            *age < 1.0
+        });
 
         // Update particle system
         self.particle_system.update(dt);
