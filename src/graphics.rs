@@ -901,3 +901,94 @@ pub fn draw_combo_meter(
 
     Ok(())
 }
+
+/// Draw screen-edge radar arrows pointing to free (uncaught) crabs.
+/// Each arrow is a filled triangle sitting just inside the screen border,
+/// rotated to point toward the crab. Color matches the crab type.
+/// Arrows pulse in scale with `beat_intensity`.
+pub fn draw_crab_radar(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    crabs: &[EnemyCrab],
+    width: f32,
+    height: f32,
+    beat_intensity: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let margin = 22.0_f32;
+    let base_size = 12.0_f32;
+    let pulse = 1.0 + beat_intensity * 0.35 + (time * 6.0).sin() * 0.08;
+    let arrow_size = base_size * pulse;
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for crab in crabs {
+        if crab.caught {
+            continue;
+        }
+        // Only show arrow if crab is near an edge (within margin*5) or fully off-screen
+        let cx = crab.pos.x;
+        let cy = crab.pos.y;
+        let near_edge = cx < margin * 5.0
+            || cx > width - margin * 5.0
+            || cy < margin * 5.0
+            || cy > height - margin * 5.0;
+        if !near_edge {
+            continue;
+        }
+
+        // Clamp the indicator to the screen edge
+        let edge_x = cx.clamp(margin, width - margin);
+        let edge_y = cy.clamp(margin, height - margin);
+
+        // Direction from indicator position to actual crab position (points inward)
+        let dir = Vec2::new(cx - edge_x, cy - edge_y);
+        let angle = if dir.length() > 0.1 {
+            dir.y.atan2(dir.x)
+        } else {
+            // crab is right at edge, just point inward from nearest edge
+            let dx = cx - width / 2.0;
+            let dy = cy - height / 2.0;
+            dy.atan2(dx)
+        };
+
+        // Build a small equilateral triangle pointing in `angle` direction
+        // tip is at (arrow_size, 0) in local space, base at (-arrow_size/2, ±arrow_size*0.75)
+        let tip   = Vec2::new(angle.cos(), angle.sin()) * arrow_size;
+        let left  = Vec2::new((angle + 2.2).cos(), (angle + 2.2).sin()) * arrow_size * 0.75;
+        let right = Vec2::new((angle - 2.2).cos(), (angle - 2.2).sin()) * arrow_size * 0.75;
+        let origin = Vec2::new(edge_x, edge_y);
+
+        let [r, g, b] = crab.crab_color();
+        // Add brightness boost so arrow reads even when washed out
+        let brightness = 0.4 + beat_intensity * 0.3;
+        let color = Color::new(
+            (r + brightness).min(1.0),
+            (g + brightness).min(1.0),
+            (b + brightness).min(1.0),
+            0.75 + beat_intensity * 0.2,
+        );
+
+        let pts = [
+            [origin.x + tip.x,   origin.y + tip.y],
+            [origin.x + left.x,  origin.y + left.y],
+            [origin.x + right.x, origin.y + right.y],
+        ];
+        let triangle = Mesh::new_polygon(ctx, DrawMode::fill(), &pts, color)?;
+        canvas.draw(&triangle, DrawParam::default());
+
+        // Glow outline
+        let glow_color = Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 0.35 + beat_intensity * 0.15);
+        let glow_pts = [
+            [origin.x + tip.x   * 1.5, origin.y + tip.y   * 1.5],
+            [origin.x + left.x  * 1.5, origin.y + left.y  * 1.5],
+            [origin.x + right.x * 1.5, origin.y + right.y * 1.5],
+        ];
+        let glow = Mesh::new_polygon(ctx, DrawMode::fill(), &glow_pts, glow_color)?;
+        canvas.draw(&glow, DrawParam::default());
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}

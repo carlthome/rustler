@@ -25,7 +25,8 @@ use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_combo_meter, draw_conga_rope,
-    draw_crab, draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
+    draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass, draw_particles,
+    draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -857,6 +858,9 @@ impl MainState {
 
         // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
+
+        // Draw screen-edge radar arrows pointing to free crabs
+        draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.beat_intensity, self.time_elapsed)?;
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
