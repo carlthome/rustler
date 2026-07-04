@@ -228,6 +228,57 @@ impl ParticleSystem {
         }
     }
 
+    pub fn spawn_milestone_fireworks(&mut self, center: Vec2, milestone: usize, rng: &mut impl Rng) {
+        // Scale particle count with milestone tier, capped at 200
+        let count = (120 + (milestone / 5).min(8) * 10).min(200);
+
+        // --- Color burst pass ---
+        for i in 0..count {
+            let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            let speed = rng.random_range(200.0_f32..600.0_f32);
+            // Bias direction upward: subtract from y so particles tend to shoot upward
+            let upward_bias = rng.random_range(100.0_f32..300.0_f32);
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed - upward_bias);
+            let life = rng.random_range(1.2_f32..2.8_f32);
+            // Full rainbow: spread hue evenly across particles with random jitter
+            let hue = ((i as f32 / count as f32) + rng.random_range(-0.05_f32..0.05_f32)).rem_euclid(1.0);
+            let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
+            let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
+            let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
+            self.particles.push(Particle {
+                pos: center,
+                vel,
+                life,
+                max_life: life,
+                size: rng.random_range(4.0_f32..12.0_f32),
+                color: [r, g, b],
+            });
+        }
+
+        // --- Sparkle pass: 30 bright white/yellow "star" particles ---
+        for _ in 0..30 {
+            let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            let speed = rng.random_range(300.0_f32..700.0_f32);
+            let upward_bias = rng.random_range(100.0_f32..250.0_f32);
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed - upward_bias);
+            let life = rng.random_range(0.6_f32..1.2_f32);
+            // Alternate between pure white and bright yellow for sparkle variety
+            let color = if rng.random_range(0.0_f32..1.0_f32) < 0.5 {
+                [1.0, 1.0, 1.0] // white
+            } else {
+                [1.0, 0.95, 0.3] // bright yellow
+            };
+            self.particles.push(Particle {
+                pos: center,
+                vel,
+                life,
+                max_life: life,
+                size: rng.random_range(2.0_f32..5.0_f32),
+                color,
+            });
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.particles.retain_mut(|particle| {
             particle.life -= dt;

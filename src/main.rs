@@ -127,6 +127,7 @@ struct MainState {
     screen_shake_vel: Vec2,     // current shake offset velocity
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
     chain_join_ripple: bool,       // set true when any crab is caught this frame
+    next_milestone: usize,               // Next train-length milestone to celebrate
 }
 
 impl MainState {
@@ -290,6 +291,7 @@ impl MainState {
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
             chain_join_ripple: false,
+            next_milestone: 5,
         })
     }
 
@@ -334,8 +336,38 @@ impl MainState {
         }
     }
 
+    fn check_milestone(&mut self, rng: &mut impl rand::Rng) {
+        let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+        if chain_len >= self.next_milestone {
+            let milestone = self.next_milestone;
+            self.next_milestone += 5;
+
+            // Fireworks burst from player center
+            let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            self.particle_system.spawn_milestone_fireworks(center, milestone, rng);
+
+            // Big centered banner text — spawn two: one shadow, one lit
+            let banner = format!("{} CRABS!", milestone);
+            let screen_center = Vec2::new(self.width / 2.0 - 100.0, self.height / 2.0 - 80.0);
+            // Shadow
+            self.floating_texts.spawn(banner.clone(), screen_center + Vec2::new(3.0, 3.0), 72.0, [0.0, 0.0, 0.0, 0.85]);
+            // Main text — gold/yellow
+            self.floating_texts.spawn(banner, screen_center, 72.0, [1.0, 0.92, 0.1, 1.0]);
+
+            // Extra-strong screen shake
+            let kick_angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake = 25.0;
+            self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 25.0 * 60.0;
+
+            // Amplify beat flash
+            self.beat_intensity = (self.beat_intensity + 1.5).min(2.0);
+            self.on_beat_flash = 0.5;
+        }
+    }
+
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
         let mult = self.combo_multiplier();
+        let mut any_caught = false;
         for crab in &mut self.crabs {
             if !crab.caught
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -355,6 +387,7 @@ impl MainState {
 
                 crab.caught = true;
                 self.chain_join_ripple = true;
+                any_caught = true;
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
@@ -391,6 +424,9 @@ impl MainState {
                 }
             }
         }
+        if any_caught {
+            self.check_milestone(&mut rand::rng());
+        }
     }
 
     fn catch_by_chain(&mut self, ctx: &mut Context) {
@@ -422,6 +458,7 @@ impl MainState {
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
+            self.check_milestone(&mut rand::rng());
             let pos = self.crabs[i].pos;
             self.register_catch(pos, 0);
             self.shake_timer = 0.15;
@@ -600,6 +637,7 @@ impl MainState {
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
         self.chain_join_ripple = false;
+        self.next_milestone = 5;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -1407,6 +1445,7 @@ impl EventHandler for MainState {
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
                         self.chain_count += 1;
+                        self.check_milestone(&mut rand::rng());
                         self.score += self.combo_multiplier();
                         self.shake_timer = 0.15;
                         self.time_since_catch = 0.0;
