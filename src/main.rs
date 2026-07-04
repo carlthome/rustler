@@ -896,24 +896,82 @@ impl MainState {
         // Draw lasso line and tip
         if let Some(tip) = self.lasso_pos {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            // Determine outward progress (0..1) and spin angle
+            let elapsed = 0.5 - self.lasso_timer;
+            let outward_progress = (elapsed / 0.3).clamp(0.0, 1.0);
+            let spin = self.time_elapsed * 18.0; // fast spin in radians/sec
+
             if player_center.distance(tip) > 1.0 {
+                // Glowing rope: thick glow pass + thin bright pass
+                let rope_glow = Mesh::new_line(
+                    ctx,
+                    &[player_center, tip],
+                    6.0,
+                    Color::from_rgba(230, 160, 30, 60),
+                )?;
+                let orig_blend = canvas.blend_mode();
+                canvas.set_blend_mode(BlendMode::ADD);
+                canvas.draw(&rope_glow, DrawParam::default());
+                canvas.set_blend_mode(orig_blend);
+
                 let rope = Mesh::new_line(
                     ctx,
                     &[player_center, tip],
-                    2.0,
-                    Color::from_rgba(200, 140, 50, 200),
+                    2.5,
+                    Color::from_rgba(220, 160, 50, 220),
                 )?;
                 canvas.draw(&rope, DrawParam::default());
             }
-            let tip_circle = Mesh::new_circle(
+
+            // Catch-radius indicator ring (fades in as lasso extends)
+            let catch_r = 60.0_f32;
+            let ring_alpha = (outward_progress * 80.0) as u8;
+            if ring_alpha > 4 {
+                let catch_ring = Mesh::new_circle(
+                    ctx,
+                    ggez::graphics::DrawMode::stroke(1.5),
+                    [0.0, 0.0],
+                    catch_r,
+                    1.5,
+                    Color::from_rgba(255, 220, 80, ring_alpha),
+                )?;
+                canvas.draw(&catch_ring, DrawParam::default().dest(tip));
+            }
+
+            // Spinning lasso loop: draw as a partial arc (330° gap = open lasso)
+            // We build 11 short line segments tracing a circle, leaving a gap
+            let loop_r = 18.0 + outward_progress * 6.0; // grows as it flies
+            let segments = 20_usize;
+            let arc_fraction = 0.88; // 88% of circle = open loop
+            let mut loop_pts: Vec<[f32; 2]> = Vec::with_capacity(segments + 1);
+            for s in 0..=segments {
+                let angle = spin + (s as f32 / segments as f32) * arc_fraction * std::f32::consts::TAU;
+                loop_pts.push([tip.x + angle.cos() * loop_r, tip.y + angle.sin() * loop_r]);
+            }
+            if loop_pts.len() >= 2 {
+                // Glow
+                let loop_glow = Mesh::new_line(ctx, &loop_pts, 8.0,
+                    Color::from_rgba(255, 200, 60, 80))?;
+                let orig_blend = canvas.blend_mode();
+                canvas.set_blend_mode(BlendMode::ADD);
+                canvas.draw(&loop_glow, DrawParam::default());
+                canvas.set_blend_mode(orig_blend);
+                // Main loop line
+                let loop_line = Mesh::new_line(ctx, &loop_pts, 3.5,
+                    Color::from_rgba(255, 210, 70, 230))?;
+                canvas.draw(&loop_line, DrawParam::default());
+            }
+
+            // Bright center dot at the tip knot
+            let knot = Mesh::new_circle(
                 ctx,
                 ggez::graphics::DrawMode::fill(),
                 [0.0, 0.0],
-                18.0,
+                5.0,
                 0.5,
-                Color::from_rgba(255, 200, 80, 180),
+                Color::from_rgba(255, 240, 160, 240),
             )?;
-            canvas.draw(&tip_circle, DrawParam::default().dest(tip));
+            canvas.draw(&knot, DrawParam::default().dest(tip));
         }
 
         // Show stats.
