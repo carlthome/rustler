@@ -1136,6 +1136,17 @@ impl EventHandler for MainState {
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
 
+        // Rainbow trail behind player when moving
+        if self.player_vel.length() > 15.0 {
+            let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            self.particle_system.spawn_movement_trail(
+                center,
+                self.player_vel,
+                self.time_elapsed,
+                &mut rand::rng(),
+            );
+        }
+
         // Update particle system
         self.particle_system.update(dt);
         self.floating_texts.update(dt);
