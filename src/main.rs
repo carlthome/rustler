@@ -24,8 +24,8 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
-    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_conga_rope, draw_crab,
-    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
+    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_combo_meter, draw_conga_rope,
+    draw_crab, draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -294,12 +294,13 @@ impl MainState {
     }
 
     fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
-        self.score += 1 + bonus_points;
+        let mult = self.combo_multiplier();
+        self.score += (1 + bonus_points) * mult;
         self.combo_count += 1;
         self.combo_timer = 1.8;
 
         // Score pop at catch position
-        let pts = 1 + bonus_points;
+        let pts = (1 + bonus_points) * mult;
         let score_text = if pts > 1 { format!("+{}  ON BEAT!", pts) } else { format!("+{}", pts) };
         let color = if pts > 1 {
             [1.0, 0.95, 0.3, 1.0]
@@ -324,7 +325,17 @@ impl MainState {
         }
     }
 
+    fn combo_multiplier(&self) -> usize {
+        match self.combo_count {
+            0..=2 => 1,
+            3..=5 => 2,
+            6..=9 => 3,
+            _ => 5,
+        }
+    }
+
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
+        let mult = self.combo_multiplier();
         for crab in &mut self.crabs {
             if !crab.caught
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -355,10 +366,10 @@ impl MainState {
                 let pos = crab.pos;
                 let player_pos = self.player_pos;
                 // Inline register_catch to avoid &mut self conflict with the crabs loop
-                self.score += 1 + bonus;
+                self.score += (1 + bonus) * mult;
                 self.combo_count += 1;
                 self.combo_timer = 1.8;
-                let pts = 1 + bonus;
+                let pts = (1 + bonus) * mult;
                 let score_str = if pts > 1 { format!("+{}  ON BEAT!", pts) } else { format!("+{}", pts) };
                 let score_col = if pts > 1 { [1.0, 0.95, 0.3, 1.0] } else { [1.0, 1.0, 1.0, 0.9] };
                 self.floating_texts.spawn(score_str, pos - Vec2::new(10.0, 20.0), 28.0, score_col);
@@ -780,6 +791,18 @@ impl MainState {
         draw_particles(ctx, canvas, &self.particle_system)?;
         draw_floating_texts(ctx, canvas, &self.floating_texts)?;
 
+        // Draw combo meter around player
+        draw_combo_meter(
+            ctx,
+            canvas,
+            self.player_pos,
+            PLAYER_SIZE,
+            self.combo_count,
+            self.combo_timer,
+            self.beat_intensity,
+            self.time_elapsed,
+        )?;
+
         // Draw beat wave circle outline
         if self.beat_wave_active && self.beat_wave_radius > 0.0 {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
@@ -821,7 +844,8 @@ impl MainState {
         // Show stats.
         let chain_len = self.crabs.iter().filter(|c| c.caught).count();
         let hud = if self.combo_count >= 3 {
-            format!("Score: {}  |  Train: {}  |  Combo x{}", self.score, chain_len, self.combo_count)
+            let mult = self.combo_multiplier();
+            format!("Score: {}  |  Train: {}  |  Combo x{}  [{}x pts]", self.score, chain_len, self.combo_count, mult)
         } else {
             format!("Score: {}  |  Train: {}", self.score, chain_len)
         };
@@ -1383,7 +1407,7 @@ impl EventHandler for MainState {
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
                         self.chain_count += 1;
-                        self.score += 1;
+                        self.score += self.combo_multiplier();
                         self.shake_timer = 0.15;
                         self.time_since_catch = 0.0;
                         if rng.random_range(0..5) == 0 {

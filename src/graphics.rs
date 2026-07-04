@@ -757,3 +757,96 @@ pub fn draw_floating_texts(
     }
     Ok(())
 }
+
+pub fn draw_combo_meter(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    player_pos: Vec2,
+    player_size: f32,
+    combo_count: usize,
+    combo_timer: f32,
+    beat_intensity: f32,
+    time: f32,
+) -> ggez::GameResult {
+    use ggez::graphics::Text;
+
+    if combo_count < 3 {
+        return Ok(());
+    }
+
+    // Determine multiplier tier
+    let (multiplier_label, tier_color) = if combo_count >= 10 {
+        ("x5", Color::new(0.8, 0.3, 1.0, 1.0))
+    } else if combo_count >= 6 {
+        ("x3", Color::new(1.0, 0.2, 0.2, 1.0))
+    } else {
+        ("x2", Color::new(1.0, 0.6, 0.1, 1.0))
+    };
+
+    let center = player_pos + Vec2::new(player_size / 2.0, player_size / 2.0);
+    let radius = 36.0 + beat_intensity * 8.0;
+    let fill_fraction = (combo_timer / 1.8).clamp(0.0, 1.0);
+    let rotation_offset = time * 0.5;
+
+    const SEGMENTS: usize = 32;
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Draw the main arc
+    for i in 0..SEGMENTS {
+        let t0 = i as f32 / SEGMENTS as f32;
+        let t1 = (i + 1) as f32 / SEGMENTS as f32;
+        if t0 >= fill_fraction {
+            break;
+        }
+        let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
+        let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
+        let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * radius;
+        let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * radius;
+        if p0.distance(p1) > 0.5 {
+            let seg = Mesh::new_line(
+                ctx,
+                &[[p0.x, p0.y], [p1.x, p1.y]],
+                3.0,
+                tier_color,
+            )?;
+            canvas.draw(&seg, DrawParam::default());
+        }
+    }
+
+    // Draw glow duplicate with larger radius and lower alpha
+    let glow_radius = radius + 5.0;
+    let glow_color = Color::new(tier_color.r, tier_color.g, tier_color.b, tier_color.a * 0.35);
+    for i in 0..SEGMENTS {
+        let t0 = i as f32 / SEGMENTS as f32;
+        let t1 = (i + 1) as f32 / SEGMENTS as f32;
+        if t0 >= fill_fraction {
+            break;
+        }
+        let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
+        let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
+        let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * glow_radius;
+        let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * glow_radius;
+        if p0.distance(p1) > 0.5 {
+            let seg = Mesh::new_line(
+                ctx,
+                &[[p0.x, p0.y], [p1.x, p1.y]],
+                6.0,
+                glow_color,
+            )?;
+            canvas.draw(&seg, DrawParam::default());
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+
+    // Draw multiplier text just above the player center
+    let text_alpha = (0.7 + 0.3 * beat_intensity).clamp(0.0, 1.0);
+    let text_color = Color::new(tier_color.r, tier_color.g, tier_color.b, text_alpha);
+    let mut label = Text::new(multiplier_label);
+    label.set_scale(22.0);
+    let text_pos = center - Vec2::new(14.0, radius + 20.0);
+    canvas.draw(&label, DrawParam::default().dest(text_pos).color(text_color));
+
+    Ok(())
+}
