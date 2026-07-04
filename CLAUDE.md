@@ -1,17 +1,33 @@
 # Crab Rustler — Claude session context
 
 Rust game (ggez 0.9.3), reverse Vampire Survivors: player builds a conga train of caught crabs.
-Active development: spawn a game-dev subagent to continue.
 
-## Quick resume
+## Session bootstrap (run this at the start of every session)
 
-If you're starting a fresh session and want to continue game development, run this:
+Set up four recurring crons:
+
+```text
+1. Game dev loop — every 12 minutes:
+   Spawn a background game-dev subagent (Agent tool, run_in_background: true) with the
+   "game dev prompt" below. One improvement per run: pick, implement, build, commit, push.
+
+2. Release judge — every 6 hours:
+   Count commits since the last semver tag on main. If ≥ 5 new non-chore commits, create
+   the next patch tag (e.g. v0.1.0 → v0.1.1) with:
+     git -C /home/carl/Repos/carlthome/rustler tag v<new> && git -C /home/carl/Repos/carlthome/rustler push origin v<new>
+
+3. Slack update — every 4 hours:
+   Read the last few commits, post a short friendly summary of what was built to the
+   #general Slack channel via the Slack MCP tool.
+
+4. Midnight fallback — every day at 00:03:
+   Same as game dev loop — kicks off an iteration if VS Code is open and no agent is
+   already running.
+```
+
+## Game dev prompt (use for crons 1 and 4)
 
 ```
-Spawn a background game-dev subagent for Crab Rustler. Use the Agent tool with
-run_in_background: true and this prompt:
-
----
 You are a game developer working on "Crab Rustler" at /home/carl/Repos/carlthome/rustler
 — a Rust game (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga
 train of caught crabs. Goal: make it more fun and visually impressive.
@@ -27,22 +43,17 @@ Steps:
 6. Fix any build errors and rebuild until clean
 7. Commit with a short plain-English message — no Co-Authored-By lines
 8. Push: `git -C /home/carl/Repos/carlthome/rustler push origin main`
----
 ```
 
 ## Build
 
 ```sh
-# Always use this — cargo is not on PATH outside the dev shell
+# Build (cargo not on PATH outside dev shell)
 nix develop /home/carl/Repos/carlthome/dotfiles#rustler --command cargo build
 
-# Run (sets up Vulkan/Wayland env automatically via shellHook)
+# Run (shellHook sets up Vulkan/Wayland env)
 nix develop /home/carl/Repos/carlthome/rustler --command ./target/debug/rustler
 ```
-
-> Note: use the **game repo's own flake** (`/home/carl/Repos/carlthome/rustler`) to *run* the
-> binary — its `shellHook` exports `LD_LIBRARY_PATH` for Vulkan/Wayland. The dotfiles flake
-> is fine for building (it uses a pinned commit but has the same buildInputs for cargo).
 
 ## File ownership (parallel agent splits)
 
@@ -66,4 +77,4 @@ BeatGrid/Spiral spawn patterns · rhythm bonus scoring · upgrade cards · dash 
 speed lines · beat-synced crab positional wobble · combo multiplier · beat pulse rings ·
 milestone fireworks · panic flee mechanic · screen-edge radar arrows · crab drop shadow ·
 beat-reactive chain bounce · spinning lasso loop with catch-radius ring · crabs rotate to face
-movement direction · beat-synced ghost rings on chain
+movement direction · beat-synced ghost rings on chain · flashlight attraction glow

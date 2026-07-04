@@ -2,23 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Crab Rustler: resume game-dev loop",
+      "label": "Crab Rustler: session bootstrap reminder",
       "type": "shell",
       "command": "bash",
       "args": [
         "-c",
-        "~/.local/bin/claude --print 'Spawn a background game-dev subagent for Crab Rustler. Use the Agent tool with run_in_background: true and this prompt:\n\n---\nYou are a game developer working on \"Crab Rustler\" at /home/carl/Repos/carlthome/rustler — a Rust game (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga train of caught crabs. Goal: make it more fun and visually impressive.\n\nSteps:\n1. Read git log: `git -C /home/carl/Repos/carlthome/rustler log --oneline -8`\n2. Skim the tops of src/main.rs and src/graphics.rs to understand current state\n3. Pick the single most impactful fun improvement not yet done. Priority order: (a) game feel/juice, (b) visual spectacle, (c) new mechanics, (d) difficulty balance\n4. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs, spawn two parallel subagents (one per file group) and wait for both before building\n5. Build: `cd /home/carl/Repos/carlthome/rustler && nix develop /home/carl/Repos/carlthome/dotfiles#rustler --command cargo build 2>&1 | grep -E \"^error|Finished\"`\n6. Fix any build errors and rebuild until clean\n7. Commit with a short plain-English message — no Co-Authored-By lines\n8. Push: `git -C /home/carl/Repos/carlthome/rustler push origin main`\n\nSee /home/carl/Repos/carlthome/rustler/AGENTS.md for file-split conventions and build instructions.\n---\n\nOnce the subagent is launched, your job is done — do not wait for it.' 2>&1 | tee /tmp/crab-rustler-autostart.log"
+        "echo ''; echo '🦀 Crab Rustler session ready.'; echo '   Tell Claude Code: \"bootstrap\" to start the game-dev loop, release judge, and Slack crons.'; echo '   (See CLAUDE.md for the full bootstrap instructions.)'; echo ''"
       ],
       "runOptions": {
         "runOn": "folderOpen"
       },
       "presentation": {
-        "reveal": "silent",
+        "reveal": "always",
         "panel": "dedicated",
-        "showReuseMessage": false,
-        "close": true
+        "showReuseMessage": false
       },
-      "isBackground": true,
+      "isBackground": false,
       "problemMatcher": []
     },
     {
@@ -31,7 +30,6 @@
         "--command",
         "./target/debug/rustler"
       ],
-      "group": "build",
       "presentation": {
         "reveal": "always",
         "panel": "dedicated"
