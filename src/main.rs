@@ -338,7 +338,20 @@ impl MainState {
                 }
                 let bonus = if on_beat { 1 } else { 0 };
                 let pos = crab.pos;
-                self.register_catch(pos, bonus);
+                let player_pos = self.player_pos;
+                // Inline register_catch to avoid &mut self conflict with the crabs loop
+                self.score += 1 + bonus;
+                self.combo_count += 1;
+                self.combo_timer = 1.8;
+                let pts = 1 + bonus;
+                let score_str = if pts > 1 { format!("+{}  ON BEAT!", pts) } else { format!("+{}", pts) };
+                let score_col = if pts > 1 { [1.0, 0.95, 0.3, 1.0] } else { [1.0, 1.0, 1.0, 0.9] };
+                self.floating_texts.spawn(score_str, pos - Vec2::new(10.0, 20.0), 28.0, score_col);
+                if self.combo_count >= 3 {
+                    let cc = self.combo_count;
+                    let combo_col = match cc { 3..=4 => [1.0, 0.6, 0.1, 1.0], 5..=7 => [1.0, 0.2, 0.2, 1.0], _ => [0.8, 0.3, 1.0, 1.0] };
+                    self.floating_texts.spawn(format!("x{} COMBO!", cc), player_pos - Vec2::new(0.0, 50.0), 36.0, combo_col);
+                }
                 self.shake_timer = 0.4;
                 self.time_since_catch = 0.0;
                 if rng.random_range(0..5) == 0 {
