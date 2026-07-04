@@ -568,24 +568,97 @@ pub fn draw_conga_rope(
     canvas: &mut Canvas,
     player_pos: Vec2,
     chain_crabs: &[&EnemyCrab],
-    _time: f32,
+    time: f32,
     beat_intensity: f32,
 ) -> ggez::GameResult {
     if chain_crabs.is_empty() {
         return Ok(());
     }
-    let thickness = 2.5 + beat_intensity * 4.0;
-    let alpha = (120 + (beat_intensity * 135.0) as u8).min(255);
-    let rope_color = Color::from_rgba(255, 140, 50, alpha);
+
+    // Number of sub-segments per chain link — more = smoother curve
+    const SEGS: usize = 14;
+    // Amplitude of the sine-wave wiggle (pixels perpendicular to the link)
+    let wiggle_amp = 5.0 + beat_intensity * 8.0;
+    // Speed of the wave traveling along the rope (faster on beat)
+    let wave_speed = 3.5 + beat_intensity * 2.5;
+    let thickness = 3.0 + beat_intensity * 4.5;
+    let alpha_base: f32 = 0.55 + beat_intensity * 0.4;
+
+    // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
-    let mut prev = player_center;
+    let mut waypoints: Vec<Vec2> = Vec::with_capacity(chain_crabs.len() + 1);
+    waypoints.push(player_center);
     for crab in chain_crabs {
-        let next = crab.pos;
-        if prev.distance(next) > 1.0 {
-            let rope = Mesh::new_line(ctx, &[prev, next], thickness, rope_color)?;
-            canvas.draw(&rope, DrawParam::default());
+        waypoints.push(crab.pos);
+    }
+
+    // Total chain length for hue mapping
+    let total_links = chain_crabs.len() as f32;
+
+    for (link_idx, window) in waypoints.windows(2).enumerate() {
+        let start = window[0];
+        let end = window[1];
+        let dist = start.distance(end);
+        if dist < 1.0 {
+            continue;
         }
-        prev = next;
+
+        // Unit vectors along and perpendicular to this link
+        let along = (end - start) / dist;
+        let perp = Vec2::new(-along.y, along.x);
+
+        // Hue for this link (rainbow along the chain)
+        let hue = (link_idx as f32 / total_links.max(1.0) + time * 0.12) % 1.0;
+
+        // Subdivide into SEGS micro-segments
+        let mut prev_point = start;
+        for seg in 0..=SEGS {
+            let t = seg as f32 / SEGS as f32;
+
+            // Travelling sine wave: phase depends on position-along-rope + time
+            let phase = t * std::f32::consts::TAU * 1.5
+                + link_idx as f32 * 0.9
+                - time * wave_speed;
+            let offset = perp * wiggle_amp * phase.sin();
+            let point = start.lerp(end, t) + offset;
+
+            if seg > 0 {
+                // Rainbow color for this micro-segment
+                let seg_hue = (hue + t * 0.08) % 1.0;
+                let r = ((seg_hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
+                let g = (2.0 - (seg_hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
+                let b = (2.0 - (seg_hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
+                // Slightly boost saturation/brightness
+                let boost = 0.35;
+                let rr = (r + boost).min(1.0);
+                let gg = (g + boost).min(1.0);
+                let bb = (b + boost).min(1.0);
+                let color = Color::new(rr, gg, bb, alpha_base);
+
+                if prev_point.distance(point) > 0.5 {
+                    let seg_line = Mesh::new_line(
+                        ctx,
+                        &[[prev_point.x, prev_point.y], [point.x, point.y]],
+                        thickness,
+                        color,
+                    )?;
+                    canvas.draw(&seg_line, DrawParam::default());
+
+                    // Thinner glow pass with additive blend for a neon look
+                    let glow_color = Color::new(rr, gg, bb, alpha_base * 0.35);
+                    let glow_line = Mesh::new_line(
+                        ctx,
+                        &[[prev_point.x, prev_point.y], [point.x, point.y]],
+                        thickness * 2.2,
+                        glow_color,
+                    )?;
+                    canvas.set_blend_mode(BlendMode::ADD);
+                    canvas.draw(&glow_line, DrawParam::default());
+                    canvas.set_blend_mode(BlendMode::ALPHA);
+                }
+            }
+            prev_point = point;
+        }
     }
     Ok(())
 }
