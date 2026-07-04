@@ -127,6 +127,7 @@ struct MainState {
     screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     screen_shake_vel: Vec2,     // current shake offset velocity
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
+    hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     next_milestone: usize,               // Next train-length milestone to celebrate
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
@@ -292,6 +293,7 @@ impl MainState {
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
+            hitstop_timer: 0.0,
             chain_join_ripple: false,
             next_milestone: 5,
             chain_rings: Vec::new(),
@@ -416,6 +418,8 @@ impl MainState {
                 }
                 self.shake_timer = 0.4;
                 self.time_since_catch = 0.0;
+                // Punchy freeze — a touch longer when the catch lands on the beat.
+                self.hitstop_timer = self.hitstop_timer.max(if on_beat { 0.08 } else { 0.05 });
                 if rng.random_range(0..5) == 0 {
                     let _ = self.sounds.success2.play_detached(ctx);
                 } else {
@@ -465,6 +469,7 @@ impl MainState {
             let pos = self.crabs[i].pos;
             self.register_catch(pos, 0);
             self.shake_timer = 0.15;
+            self.hitstop_timer = self.hitstop_timer.max(0.04);
             self.time_since_catch = 0.0;
             if rng.random_range(0..5) == 0 {
                 let _ = self.sounds.success2.play_detached(ctx);
@@ -725,6 +730,7 @@ impl MainState {
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
+        self.hitstop_timer = 0.0;
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.chain_rings.clear();
@@ -1420,6 +1426,15 @@ impl EventHandler for MainState {
         }
 
         let dt = ctx.time.delta().as_secs_f32();
+
+        // Hitstop: freeze the whole simulation for a few frames right after a catch so the
+        // impact snaps instead of sliding past. draw() still runs each frame, so the frozen
+        // moment is fully rendered — the classic Vampire-Survivors-style "punch".
+        if self.hitstop_timer > 0.0 {
+            self.hitstop_timer = (self.hitstop_timer - dt).max(0.0);
+            return Ok(());
+        }
+
         self.time_elapsed += dt;
         self.time_since_catch += dt;
 
@@ -1623,6 +1638,7 @@ impl EventHandler for MainState {
                         self.check_milestone(&mut rand::rng());
                         self.score += self.combo_multiplier();
                         self.shake_timer = 0.15;
+                        self.hitstop_timer = self.hitstop_timer.max(0.06);
                         self.time_since_catch = 0.0;
                         if rng.random_range(0..5) == 0 {
                             let _ = self.sounds.success2.play_detached(ctx);
