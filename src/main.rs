@@ -24,8 +24,8 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
-    ParticleSystem, draw_beat_indicator, draw_conga_rope, draw_crab, draw_flashlight, draw_grass,
-    draw_particles, draw_rustler,
+    FloatingTextSystem, ParticleSystem, draw_beat_indicator, draw_conga_rope, draw_crab,
+    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -106,6 +106,9 @@ struct MainState {
     on_beat_flash: f32,
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
+    floating_texts: FloatingTextSystem,
+    combo_count: usize,
+    combo_timer: f32,
     textures: GameTextures,                    // Textures for grass, sand, and player
     level_textures: Vec<LevelTexture>,         // Textures for each level
     // Beat Wave ability
@@ -264,6 +267,9 @@ impl MainState {
             on_beat_flash: 0.0,
             music_layers,
             catch_radius_upgrade: 0.0,
+            floating_texts: FloatingTextSystem::new(),
+            combo_count: 0,
+            combo_timer: 0.0,
             beat_count: 0,
             beat_wave_active: false,
             beat_wave_radius: 0.0,
@@ -271,6 +277,37 @@ impl MainState {
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
         })
+    }
+
+    fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
+        self.score += 1 + bonus_points;
+        self.combo_count += 1;
+        self.combo_timer = 1.8;
+
+        // Score pop at catch position
+        let pts = 1 + bonus_points;
+        let score_text = if pts > 1 { format!("+{}  ON BEAT!", pts) } else { format!("+{}", pts) };
+        let color = if pts > 1 {
+            [1.0, 0.95, 0.3, 1.0]
+        } else {
+            [1.0, 1.0, 1.0, 0.9]
+        };
+        self.floating_texts.spawn(score_text, catch_pos - Vec2::new(10.0, 20.0), 28.0, color);
+
+        // Combo pop above the player
+        if self.combo_count >= 3 {
+            let combo_color = match self.combo_count {
+                3..=4  => [1.0, 0.6, 0.1, 1.0],  // orange
+                5..=7  => [1.0, 0.2, 0.2, 1.0],  // red
+                _      => [0.8, 0.3, 1.0, 1.0],  // purple
+            };
+            self.floating_texts.spawn(
+                format!("x{} COMBO!", self.combo_count),
+                self.player_pos - Vec2::new(0.0, 50.0),
+                36.0,
+                combo_color,
+            );
+        }
     }
 
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
@@ -294,14 +331,14 @@ impl MainState {
                 crab.caught = true;
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
-                // On-beat bonus
                 let on_beat = self.beat_timer < BEAT_WINDOW
                     || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW;
                 if on_beat {
-                    self.score += 1; // bonus point for catching on beat
                     self.on_beat_flash = 0.25;
                 }
-                self.score += 1;
+                let bonus = if on_beat { 1 } else { 0 };
+                let pos = crab.pos;
+                self.register_catch(pos, bonus);
                 self.shake_timer = 0.4;
                 self.time_since_catch = 0.0;
                 if rng.random_range(0..5) == 0 {
@@ -345,7 +382,8 @@ impl MainState {
             self.crabs[i].caught = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
-            self.score += 1;
+            let pos = self.crabs[i].pos;
+            self.register_catch(pos, 0);
             self.shake_timer = 0.15;
             self.time_since_catch = 0.0;
             if rng.random_range(0..5) == 0 {
@@ -498,6 +536,9 @@ impl MainState {
         self.music_intensity = 0.0;
         self.on_beat_flash = 0.0;
         self.catch_radius_upgrade = 0.0;
+        self.floating_texts.texts.clear();
+        self.combo_count = 0;
+        self.combo_timer = 0.0;
         self.beat_count = 0;
         self.beat_wave_active = false;
         self.beat_wave_radius = 0.0;
@@ -674,6 +715,7 @@ impl MainState {
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
+        draw_floating_texts(ctx, canvas, &self.floating_texts)?;
 
         // Draw beat wave circle outline
         if self.beat_wave_active && self.beat_wave_radius > 0.0 {
@@ -715,10 +757,12 @@ impl MainState {
 
         // Show stats.
         let chain_len = self.crabs.iter().filter(|c| c.caught).count();
-        let text = Text::new(format!(
-            "Score: {}  |  Train: {}",
-            self.score, chain_len
-        ));
+        let hud = if self.combo_count >= 3 {
+            format!("Score: {}  |  Train: {}  |  Combo x{}", self.score, chain_len, self.combo_count)
+        } else {
+            format!("Score: {}  |  Train: {}", self.score, chain_len)
+        };
+        let text = Text::new(hud);
         canvas.draw(
             &text,
             DrawParam::default()
@@ -1031,6 +1075,15 @@ impl EventHandler for MainState {
             }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
+
+        // Combo window — reset streak if no catch for 1.8s
+        if self.combo_timer > 0.0 {
+            self.combo_timer -= dt;
+            if self.combo_timer <= 0.0 {
+                self.combo_count = 0;
+            }
+        }
+
         if self.on_beat_flash > 0.0 {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
         }
@@ -1072,6 +1125,7 @@ impl EventHandler for MainState {
 
         // Update particle system
         self.particle_system.update(dt);
+        self.floating_texts.update(dt);
 
         // Beat Wave: expand outward, attract crabs toward player
         if self.beat_wave_active {
