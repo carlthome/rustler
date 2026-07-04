@@ -529,3 +529,63 @@ pub fn draw_beat_indicator(
     canvas.draw(&inner, DrawParam::default().dest(center));
     Ok(())
 }
+
+pub struct FloatingText {
+    pub text: String,
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub life: f32,
+    pub max_life: f32,
+    pub scale: f32,
+    pub color: [f32; 4], // rgba 0..1
+}
+
+pub struct FloatingTextSystem {
+    pub texts: Vec<FloatingText>,
+}
+
+impl FloatingTextSystem {
+    pub fn new() -> Self {
+        Self { texts: Vec::new() }
+    }
+
+    pub fn spawn(&mut self, text: String, pos: Vec2, scale: f32, color: [f32; 4]) {
+        self.texts.push(FloatingText {
+            text,
+            pos,
+            vel: Vec2::new(0.0, -90.0),
+            life: 1.1,
+            max_life: 1.1,
+            scale,
+            color,
+        });
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        self.texts.retain_mut(|t| {
+            t.life -= dt;
+            t.pos += t.vel * dt;
+            t.vel.y *= 0.97;
+            t.life > 0.0
+        });
+    }
+}
+
+pub fn draw_floating_texts(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    system: &FloatingTextSystem,
+) -> ggez::GameResult {
+    use ggez::graphics::Text;
+    for ft in &system.texts {
+        let ratio = ft.life / ft.max_life;
+        let alpha = (ft.color[3] * ratio).clamp(0.0, 1.0);
+        let color = Color::new(ft.color[0], ft.color[1], ft.color[2], alpha);
+        // Slight upward scale pop at start, shrinks as it fades
+        let scale = ft.scale * (0.8 + 0.2 * ratio);
+        let mut text = Text::new(&ft.text);
+        text.set_scale(scale);
+        canvas.draw(&text, DrawParam::default().dest(ft.pos).color(color));
+    }
+    Ok(())
+}
