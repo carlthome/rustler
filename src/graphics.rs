@@ -7,6 +7,13 @@ use ggez::graphics::{
     BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader, ShaderParamsBuilder,
 };
 use rand::Rng;
+use std::sync::OnceLock;
+
+// A single unit-radius circle mesh, built once and reused for every particle by
+// scaling it via `DrawParam` instead of baking each particle's radius into fresh
+// mesh geometry. Milestone fireworks alone can push 200+ live particles, each
+// previously allocating two brand-new GPU mesh buffers every single frame.
+static UNIT_CIRCLE: OnceLock<Mesh> = OnceLock::new();
 
 #[derive(Copy, Clone, Debug, AsStd140)]
 pub struct ResolutionUniform {
@@ -304,55 +311,57 @@ pub fn draw_particles(
     canvas: &mut Canvas,
     particle_system: &ParticleSystem,
 ) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+
     // Set additive blend mode for glowing effect
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
-    
+
     for particle in &particle_system.particles {
         let life_ratio = particle.life / particle.max_life;
         let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
-        
+
         // Main particle
         let color = Color::new(
             particle.color[0],
-            particle.color[1], 
+            particle.color[1],
             particle.color[2],
             alpha,
         );
-        
-        let particle_mesh = Mesh::new_circle(
-            ctx,
-            DrawMode::fill(),
-            [0.0, 0.0],
-            particle.size,
-            0.1,
-            color,
-        )?;
-        
-        canvas.draw(&particle_mesh, DrawParam::default().dest(particle.pos));
-        
+
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(particle.pos)
+                .scale(Vec2::splat(particle.size))
+                .color(color),
+        );
+
         // Add a subtle glow effect for larger particles
         if particle.size > 4.0 {
             let glow_color = Color::new(
                 particle.color[0],
-                particle.color[1], 
+                particle.color[1],
                 particle.color[2],
                 alpha * 0.3,
             );
-            
-            let glow_mesh = Mesh::new_circle(
-                ctx,
-                DrawMode::fill(),
-                [0.0, 0.0],
-                particle.size * 1.5,
-                0.1,
-                glow_color,
-            )?;
-            
-            canvas.draw(&glow_mesh, DrawParam::default().dest(particle.pos));
+
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(particle.pos)
+                    .scale(Vec2::splat(particle.size * 1.5))
+                    .color(glow_color),
+            );
         }
     }
-    
+
     // Restore original blend mode
     canvas.set_blend_mode(original_blend);
     Ok(())
