@@ -122,6 +122,10 @@ struct MainState {
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
+    // Camera shake
+    screen_shake: f32,          // current shake magnitude (pixels), decays each frame
+    screen_shake_vel: Vec2,     // current shake offset velocity
+    screen_shake_offset: Vec2,  // current pixel offset applied to viewport
 }
 
 impl MainState {
@@ -281,6 +285,9 @@ impl MainState {
             lasso_target: Vec2::ZERO,
             dash_just_fired: false,
             dash_flash: 0.0,
+            screen_shake: 0.0,
+            screen_shake_vel: Vec2::ZERO,
+            screen_shake_offset: Vec2::ZERO,
         })
     }
 
@@ -574,6 +581,9 @@ impl MainState {
         self.lasso_target = Vec2::ZERO;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
+        self.screen_shake = 0.0;
+        self.screen_shake_vel = Vec2::ZERO;
+        self.screen_shake_offset = Vec2::ZERO;
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -1200,8 +1210,37 @@ impl EventHandler for MainState {
                 self.beat_wave_active = true;
                 self.beat_wave_radius = 0.0;
             }
+            // Beat camera shake — strength grows with chain length
+            let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+            if chain_len > 0 {
+                let shake_mag = (2.0 + chain_len as f32 * 0.8).min(14.0);
+                self.screen_shake = shake_mag;
+                // Random kick direction
+                let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * shake_mag * 60.0;
+            }
+            // Beat-pulse sparkle rings from all caught crabs
+            {
+                let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+                let positions: Vec<Vec2> = self.crabs.iter().filter(|c| c.caught).map(|c| c.pos).collect();
+                self.particle_system.spawn_beat_pulse(&positions, 1.0, chain_len, &mut rand::rng());
+            }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
+
+        // Decay screen shake — spring back to zero
+        if self.screen_shake > 0.0 {
+            self.screen_shake_offset += self.screen_shake_vel * dt;
+            // Spring: strong restoring force + damping
+            self.screen_shake_vel += -self.screen_shake_offset * 800.0 * dt;
+            self.screen_shake_vel *= 0.88_f32.powf(dt * 60.0);
+            self.screen_shake = (self.screen_shake - dt * 18.0).max(0.0);
+            if self.screen_shake < 0.05 {
+                self.screen_shake = 0.0;
+                self.screen_shake_offset = Vec2::ZERO;
+                self.screen_shake_vel = Vec2::ZERO;
+            }
+        }
 
         // Combo window — reset streak if no catch for 1.8s
         if self.combo_timer > 0.0 {
@@ -1386,7 +1425,9 @@ impl EventHandler for MainState {
         let width = self.width;
         let height = self.height;
         let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(100, 200, 100));
-        canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
+        let shake_ox = self.screen_shake_offset.x;
+        let shake_oy = self.screen_shake_offset.y;
+        canvas.set_screen_coordinates(Rect::new(shake_ox, shake_oy, width, height));
         canvas.set_blend_mode(BlendMode::ALPHA);
         canvas.set_sampler(Sampler::nearest_clamp());
 

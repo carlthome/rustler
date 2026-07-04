@@ -198,11 +198,41 @@ impl ParticleSystem {
         }
     }
 
+    pub fn spawn_beat_pulse(&mut self, positions: &[Vec2], beat_intensity: f32, chain_len: usize, rng: &mut impl Rng) {
+        if positions.is_empty() { return; }
+        // Scale ring size with chain length — bigger train = bigger burst
+        let base_count = (4 + chain_len / 3).min(16) as usize;
+        let ring_speed = 180.0 + beat_intensity * 120.0;
+        for &center in positions {
+            for j in 0..base_count {
+                let angle = (j as f32 / base_count as f32) * std::f32::consts::TAU;
+                // Slight random spread on the angle so rings aren't perfectly geometric
+                let spread = rng.random_range(-0.18_f32..0.18_f32);
+                let dir = Vec2::new((angle + spread).cos(), (angle + spread).sin());
+                let speed = ring_speed * rng.random_range(0.7_f32..1.3_f32);
+                let life = rng.random_range(0.25_f32..0.55_f32);
+                // Rainbow hue per particle, offset by position for variety
+                let hue = (angle / std::f32::consts::TAU + center.x * 0.001 + center.y * 0.0007) % 1.0;
+                let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
+                let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
+                let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
+                self.particles.push(Particle {
+                    pos: center,
+                    vel: dir * speed,
+                    life,
+                    max_life: life,
+                    size: rng.random_range(2.0_f32..5.5_f32),
+                    color: [r, g, b],
+                });
+            }
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.particles.retain_mut(|particle| {
             particle.life -= dt;
             particle.pos += particle.vel * dt;
-            
+
             // Add gravity effect
             particle.vel.y += 200.0 * dt;
             
