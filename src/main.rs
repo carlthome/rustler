@@ -25,8 +25,9 @@ use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, draw_attracted_crab_glow, draw_beat_indicator,
-    draw_chain_rings, draw_combo_meter, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
+    draw_catch_shockwaves, draw_chain_rings, draw_combo_meter, draw_conga_rope, draw_crab,
+    draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass, draw_particles,
+    draw_rustler,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -131,6 +132,7 @@ struct MainState {
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     next_milestone: usize,               // Next train-length milestone to celebrate
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
+    catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
 }
 
 impl MainState {
@@ -297,7 +299,17 @@ impl MainState {
             chain_join_ripple: false,
             next_milestone: 5,
             chain_rings: Vec::new(),
+            catch_shockwaves: Vec::new(),
         })
+    }
+
+    /// Kick off a punchy impact ring at the exact spot a crab was caught. Color-coded
+    /// to the crab so different crab types read differently at a glance.
+    fn spawn_catch_shockwave(&mut self, pos: Vec2, crab_color: [f32; 3]) {
+        // Cap live shockwaves so a big beat-wave sweep can't unbound the vec.
+        if self.catch_shockwaves.len() < 48 {
+            self.catch_shockwaves.push((pos, 0.0, crab_color));
+        }
     }
 
     fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
@@ -389,9 +401,13 @@ impl MainState {
                     crab.crab_type,
                     &mut rng,
                 );
+                let shock_pos = crab.pos;
 
                 crab.caught = true;
                 self.chain_join_ripple = true;
+                if self.catch_shockwaves.len() < 48 {
+                    self.catch_shockwaves.push((shock_pos, 0.0, crab_color));
+                }
                 any_caught = true;
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
@@ -461,6 +477,7 @@ impl MainState {
             let crab_color = self.crabs[i].crab_color();
             self.particle_system
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+            self.spawn_catch_shockwave(pos, crab_color);
             self.crabs[i].caught = true;
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
@@ -734,6 +751,7 @@ impl MainState {
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.chain_rings.clear();
+        self.catch_shockwaves.clear();
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -925,6 +943,9 @@ impl MainState {
 
         // Draw screen-edge radar arrows pointing to free crabs
         draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.beat_intensity, self.time_elapsed)?;
+
+        // Draw catch impact shockwaves (over the crabs, under score text)
+        draw_catch_shockwaves(ctx, canvas, &self.catch_shockwaves)?;
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
@@ -1574,6 +1595,13 @@ impl EventHandler for MainState {
             *age < 1.0
         });
 
+        // Advance catch impact shockwaves; a bit faster than ghost rings so they read as a snap
+        let shock_speed = 2.6; // age 0..1 in ~0.38 seconds
+        self.catch_shockwaves.retain_mut(|(_, age, _)| {
+            *age += dt * shock_speed;
+            *age < 1.0
+        });
+
         // Update particle system
         self.particle_system.update(dt);
         self.floating_texts.update(dt);
@@ -1631,6 +1659,7 @@ impl EventHandler for MainState {
                         let crab_type = self.crabs[i].crab_type;
                         let crab_color = self.crabs[i].crab_color();
                         self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+                        self.spawn_catch_shockwave(pos, crab_color);
                         self.crabs[i].caught = true;
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);

@@ -1093,6 +1093,76 @@ pub fn draw_chain_rings(
     Ok(())
 }
 
+/// Draw a snappy impact shockwave at each spot a crab was just caught. Unlike the
+/// beat-synced ghost rings, these fire once per catch, expand fast and wide, and lead
+/// with a white-hot edge that resolves into the crab's own color — a crisp "pop" of
+/// feedback at the exact catch position.
+pub fn draw_catch_shockwaves(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    shockwaves: &[(Vec2, f32, [f32; 3])],
+) -> ggez::GameResult {
+    if shockwaves.is_empty() {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for &(pos, age, color) in shockwaves {
+        // Ease-out expansion: fast at first, then decelerating — reads as an impact snap.
+        let ease = 1.0 - (1.0 - age).powi(2);
+        let radius = 6.0 + ease * 120.0;
+        let fade = (1.0 - age).clamp(0.0, 1.0);
+
+        // Initial white-hot filled flash that grows and fades in the first fraction.
+        if age < 0.22 {
+            let flash_t = age / 0.22;
+            let flash_alpha = (1.0 - flash_t) * 0.9;
+            let flash_r = 10.0 + flash_t * 26.0;
+            let flash = Mesh::new_circle(
+                ctx,
+                DrawMode::fill(),
+                [0.0, 0.0],
+                flash_r,
+                1.5,
+                Color::new(1.0, 1.0, 1.0, flash_alpha),
+            )?;
+            canvas.draw(&flash, DrawParam::default().dest(pos));
+        }
+
+        // Leading edge: white-hot early, blending toward the crab color as it expands.
+        let edge_r = (color[0] * age + (1.0 - age)).min(1.0);
+        let edge_g = (color[1] * age + (1.0 - age)).min(1.0);
+        let edge_b = (color[2] * age + (1.0 - age)).min(1.0);
+        let thickness = (5.0 * fade).max(1.0);
+        let ring = Mesh::new_circle(
+            ctx,
+            DrawMode::stroke(thickness),
+            [0.0, 0.0],
+            radius,
+            1.5,
+            Color::new(edge_r, edge_g, edge_b, fade * 0.95),
+        )?;
+        canvas.draw(&ring, DrawParam::default().dest(pos));
+
+        // Soft trailing glow just inside the leading edge for extra body.
+        if age < 0.8 {
+            let glow = Mesh::new_circle(
+                ctx,
+                DrawMode::stroke(thickness * 2.2),
+                [0.0, 0.0],
+                (radius - 6.0).max(1.0),
+                1.5,
+                Color::new(color[0], color[1], color[2], fade * 0.28),
+            )?;
+            canvas.draw(&glow, DrawParam::default().dest(pos));
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw a pulsing attraction halo around a crab that is inside the flashlight beam.
 /// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
 pub fn draw_attracted_crab_glow(
