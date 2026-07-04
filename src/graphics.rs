@@ -145,6 +145,37 @@ impl ParticleSystem {
         }
     }
 
+    pub fn spawn_movement_trail(&mut self, pos: Vec2, velocity: Vec2, time: f32, rng: &mut impl Rng) {
+        let speed = velocity.length();
+        if speed < 15.0 {
+            return;
+        }
+        let count = ((speed / 60.0) as usize).clamp(1, 5);
+        for _ in 0..count {
+            // Cycle hue over time for a rainbow trail
+            let hue = (time * 0.6 + pos.x * 0.003 + pos.y * 0.002) % 1.0;
+            let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
+            let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
+            let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
+            let spread_angle = rng.random_range(0.0..std::f32::consts::TAU);
+            let spread_dist = rng.random_range(0.0..12.0);
+            let vel = Vec2::new(spread_angle.cos(), spread_angle.sin()) * spread_dist
+                - velocity * 0.08;
+            let life = rng.random_range(0.12..0.30);
+            self.particles.push(Particle {
+                pos: pos + Vec2::new(
+                    rng.random_range(-5.0..5.0),
+                    rng.random_range(-5.0..5.0),
+                ),
+                vel,
+                life,
+                max_life: life,
+                size: rng.random_range(2.0..5.5),
+                color: [r, g, b],
+            });
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.particles.retain_mut(|particle| {
             particle.life -= dt;
