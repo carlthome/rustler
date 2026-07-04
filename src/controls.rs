@@ -84,7 +84,8 @@ pub fn handle_key_down_event(
                 if state.boost_cooldown <= 0.0 {
                     state.boost_timer = 0.18;
                     state.boost_cooldown = 0.08;
-                    state.dash_flash = 0.14;
+                    state.dash_just_fired = true;
+                    state.dash_flash = 1.0;
                 }
             }
             if key == KeyCode::Q {

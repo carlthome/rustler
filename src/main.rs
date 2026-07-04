@@ -924,9 +924,9 @@ impl MainState {
         let beat_center = Vec2::new(width - 50.0, 50.0);
         draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
 
-        // Dash flash — white burst when Space is pressed
+        // Dash flash — cyan burst when Space is pressed
         if self.dash_flash > 0.0 {
-            let alpha = (self.dash_flash / 0.14 * 140.0) as u8;
+            let alpha = (self.dash_flash * 130.0) as u8;
             let flash = Mesh::new_rectangle(
                 ctx,
                 ggez::graphics::DrawMode::fill(),
@@ -1229,7 +1229,7 @@ impl EventHandler for MainState {
             }
         }
         if self.dash_flash > 0.0 {
-            self.dash_flash = (self.dash_flash - dt * 3.0).max(0.0);
+            self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
 
         if self.level_title_timer > 0.0 {
@@ -1242,8 +1242,8 @@ impl EventHandler for MainState {
         let area = (self.width, self.height);
         handle_player_movement(self, ctx, dt, SPEED, area);
 
-        // Dash particle burst — fires once when dash_flash is freshly set
-        if self.dash_flash > 0.13 {
+        // Dash particle burst — fires only in the first frame (threshold near 1.0)
+        if self.dash_flash > 0.95 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             self.particle_system.spawn_dash_burst(center, self.last_dir, &mut rand::rng());
         }
