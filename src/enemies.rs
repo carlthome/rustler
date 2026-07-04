@@ -50,6 +50,7 @@ pub struct EnemyCrab {
     pub beat_phase_offset: f32,
     pub join_pulse: f32,
     pub fleeing: bool,  // true when actively panic-fleeing from the player
+    pub facing_angle: f32,  // current facing direction in radians (0 = right)
 }
 
 impl EnemyCrab {

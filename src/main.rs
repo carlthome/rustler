@@ -574,6 +574,16 @@ impl MainState {
                     crab.vel.y = -crab.vel.y;
                     crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
                 }
+
+                // Smoothly rotate crab to face its movement direction
+                let speed = crab.vel.length();
+                if speed > 5.0 {
+                    let target_angle = crab.vel.y.atan2(crab.vel.x);
+                    let mut delta = target_angle - crab.facing_angle;
+                    while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                    while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                    crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                }
             }
         }
 
@@ -599,7 +609,17 @@ impl MainState {
             })
             .collect();
         for (i, target) in targets {
-            self.crabs[i].pos = self.crabs[i].pos.lerp(target, 0.4);
+            let old_pos = self.crabs[i].pos;
+            self.crabs[i].pos = old_pos.lerp(target, 0.4);
+            // Rotate caught crab toward the direction it just moved
+            let move_dir = self.crabs[i].pos - old_pos;
+            if move_dir.length() > 0.5 {
+                let target_angle = move_dir.y.atan2(move_dir.x);
+                let mut d = target_angle - self.crabs[i].facing_angle;
+                while d > std::f32::consts::PI { d -= std::f32::consts::TAU; }
+                while d < -std::f32::consts::PI { d += std::f32::consts::TAU; }
+                self.crabs[i].facing_angle += d * (dt * 6.0).min(1.0);
+            }
         }
     }
 
@@ -1199,7 +1219,7 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0)?;
+                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0, crab.facing_angle)?;
             }
         }
         // Draw chain crabs with a groovy wave bob that travels through the train
@@ -1216,7 +1236,7 @@ impl MainState {
                 };
                 let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
                 let lift = bob.min(0.0).abs(); // lift = how much the crab is up (bob is negative = up)
-                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift)?;
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift, crab.facing_angle)?;
             }
         }
         Ok(())

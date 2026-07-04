@@ -30,6 +30,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
         join_pulse: 0.0,
         fleeing: false,
+        facing_angle: 0.0,
     }
 }
 

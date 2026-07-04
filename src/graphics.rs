@@ -431,7 +431,7 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32) -> ggez::GameResult {
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
     let base_size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
@@ -520,12 +520,12 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     )?;
 
     // Draw all parts at crab.pos
-    canvas.draw(&crab_body, DrawParam::default().dest(draw_pos));
+    canvas.draw(&crab_body, DrawParam::default().dest(draw_pos).rotation(rotation));
     for leg in &leg_meshes {
-        canvas.draw(leg, DrawParam::default().dest(draw_pos));
+        canvas.draw(leg, DrawParam::default().dest(draw_pos).rotation(rotation));
     }
-    canvas.draw(&left_claw, DrawParam::default().dest(draw_pos));
-    canvas.draw(&right_claw, DrawParam::default().dest(draw_pos));
+    canvas.draw(&left_claw, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(&right_claw, DrawParam::default().dest(draw_pos).rotation(rotation));
 
     // Eyes
     let eye_radius = size * 0.13;
@@ -546,10 +546,10 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let rw = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
     let lp = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
     let rp = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
-    canvas.draw(&lw, DrawParam::default().dest(draw_pos));
-    canvas.draw(&rw, DrawParam::default().dest(draw_pos));
-    canvas.draw(&lp, DrawParam::default().dest(draw_pos));
-    canvas.draw(&rp, DrawParam::default().dest(draw_pos));
+    canvas.draw(&lw, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(&rw, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(&lp, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(&rp, DrawParam::default().dest(draw_pos).rotation(rotation));
 
     Ok(())
 }
