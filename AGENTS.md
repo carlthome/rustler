@@ -26,9 +26,9 @@ just run the build after both finish to catch cross-file type errors.
 - Note borrow-checker gotchas explicitly: collect iterators into a `Vec` before mutating the same struct.
 - Tell the agent which functions a parallel agent will add, so it can reference them without stubs.
 
-## Commits
+## Commits and pushing
 
-Commit as Carl Thomé (the existing git user). No "Co-Authored-By" lines. Short plain-English
+Commit as the existing git user. No "Co-Authored-By" lines. Short plain-English
 messages describing the mechanic or fix, e.g.:
 
 ```
@@ -36,6 +36,14 @@ Add conga train - caught crabs follow player in a chain
 Add beat system with rhythm catch bonus
 Add crab eyes with directional pupils
 ```
+
+**Always push after committing:**
+
+```sh
+git -C /home/carl/Repos/carlthome/rustler push origin main
+```
+
+This keeps the remote in sync so the release pipeline can tag new versions.
 
 ## Audio layers
 
