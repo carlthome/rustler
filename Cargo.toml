@@ -14,3 +14,6 @@ path = "src/main.rs"
 
 [package.metadata.ggez]
 resources = ["resources"]
+
+[patch.crates-io]
+winit = { path = "vendor/winit-0.28.7" }

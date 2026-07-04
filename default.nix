@@ -43,7 +43,23 @@ pkgs.rustPlatform.buildRustPackage {
       fontconfig
       zlib
       udev
+      wayland
+      wayland-protocols
+      libxkbcommon
+      vulkan-loader
     ];
+  shellHook =
+    with pkgs;
+    lib.optionalString stdenv.isLinux ''
+      export LD_LIBRARY_PATH="${lib.makeLibraryPath [
+        wayland
+        xorg.libxcb
+        vulkan-loader
+        libxkbcommon
+      ]}:/run/opengl-driver/lib:$LD_LIBRARY_PATH"
+      export XDG_DATA_DIRS="/run/opengl-driver/share:$XDG_DATA_DIRS"
+      export VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json"
+    '';
   postInstall = ''
     cp -r resources $out/bin
   '';

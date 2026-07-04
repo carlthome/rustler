@@ -5,8 +5,13 @@
 Always build inside the nix dev shell — `cargo` is not on the system PATH:
 
 ```sh
-nix develop /home/carl/Repos/carlthome/dotfiles#rustler --command cargo build
+nix develop /home/carl/Repos/carlthome/rustler --command cargo build
 ```
+
+> **Note:** Use `nix develop /home/carl/Repos/carlthome/rustler` (the game repo's own flake),
+> not the dotfiles flake. The game flake's `shellHook` sets `LD_LIBRARY_PATH` and
+> `VK_ICD_FILENAMES` so the game binary can find the Vulkan/Wayland graphics stack.
+> The dotfiles flake uses a pinned GitHub commit and won't pick up local `default.nix` changes.
 
 ## Parallel agent workflow
 
@@ -31,7 +36,7 @@ just run the build after both finish to catch cross-file type errors.
 Commit as the existing git user. No "Co-Authored-By" lines. Short plain-English
 messages describing the mechanic or fix, e.g.:
 
-```
+```text
 Add conga train - caught crabs follow player in a chain
 Add beat system with rhythm catch bonus
 Add crab eyes with directional pupils
