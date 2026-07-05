@@ -36,12 +36,26 @@ pub fn handle_player_movement(
     }
 
     // Handle player movement direction and velocity.
-    let acceleration = if state.boost_timer > 0.0 {
+    let mut acceleration = if state.boost_timer > 0.0 {
         4000.0
     } else {
         1000.0
     };
     let mut friction = if state.boost_timer > 0.0 { 0.9 } else { 0.9 };
+
+    // Train weight: a longer conga line handles heavier — it shaves top speed and makes
+    // acceleration/turning lazier, so hauling a big, valuable train to the pen is a real
+    // handling tradeoff you feel in your hands, not just abstract chain-snap risk. Weight is
+    // correlated with score (which speeds you up), so it never fully stalls you; and because
+    // banking at the pen resets the chain, a successful delivery rewards you with an immediate
+    // burst of nimbleness. Dashes ignore the weight entirely (boost branch skipped), keeping the
+    // dash a punchy escape you can still fire to shed a charging King Crab even with a huge tail.
+    if state.boost_timer <= 0.0 {
+        let weight = state.chain_count as f32;
+        let handling = (1.0 / (1.0 + weight * 0.035)).max(0.55);
+        move_speed *= handling;
+        acceleration *= handling;
+    }
 
     // Tide-pool drag: wading through shallow water slows you to a crawl and adds extra drag, so
     // hauling a long conga train straight across a pool costs real time and exposure. A dash still
