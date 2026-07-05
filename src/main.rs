@@ -167,6 +167,24 @@ struct GameSounds {
     // Add more sounds here as needed
 }
 
+/// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
+/// (e.g. a conga chain sweeping up several crabs at once, or a lasso grabbing a cluster) doesn't
+/// sound like the exact same note firing on a machine-gun loop. Mostly the regular chime, with
+/// an occasional brighter `success2` swapped in for variety — same odds as before this existed.
+/// Free function (not a `&mut self` method) so it can be called from inside loops that already
+/// hold a disjoint mutable borrow of another field of `MainState` (e.g. `for crab in &mut
+/// self.crabs`), where a whole-`self` method call wouldn't type-check.
+fn play_catch_sound(sounds: &mut GameSounds, ctx: &mut Context, rng: &mut impl rand::Rng) {
+    let pitch = rng.random_range(0.92_f32..1.08);
+    if rng.random_range(0..5) == 0 {
+        sounds.success2.set_pitch(pitch);
+        let _ = sounds.success2.play_detached(ctx);
+    } else {
+        sounds.success.set_pitch(pitch);
+        let _ = sounds.success.play_detached(ctx);
+    }
+}
+
 struct Flashlight {
     on: bool,
     cone_upgrade: f32,
@@ -938,11 +956,7 @@ impl MainState {
                 self.hitstop_timer = self.hitstop_timer.max(if on_beat { 0.08 } else { 0.05 });
                 // Snap the camera in a hair on every catch, harder on the beat, for extra impact.
                 self.zoom_punch = self.zoom_punch.max(if on_beat { 0.055 } else { 0.035 });
-                if rng.random_range(0..5) == 0 {
-                    let _ = self.sounds.success2.play_detached(ctx);
-                } else {
-                    let _ = self.sounds.success.play_detached(ctx);
-                }
+                play_catch_sound(&mut self.sounds, ctx, &mut rng);
                 if self.score > 0 && self.score % 10 == 0 {
                     let _ = self.sounds.upgrade.play_detached(ctx);
                     self.pending_upgrade = true;
@@ -1073,11 +1087,7 @@ impl MainState {
             self.hitstop_timer = self.hitstop_timer.max(0.04);
             self.zoom_punch = self.zoom_punch.max(0.03);
             self.time_since_catch = 0.0;
-            if rng.random_range(0..5) == 0 {
-                let _ = self.sounds.success2.play_detached(ctx);
-            } else {
-                let _ = self.sounds.success.play_detached(ctx);
-            }
+            play_catch_sound(&mut self.sounds, ctx, &mut rng);
             if self.score > 0 && self.score % 10 == 0 {
                 let _ = self.sounds.upgrade.play_detached(ctx);
                 self.pending_upgrade = true;
@@ -3044,11 +3054,7 @@ impl EventHandler for MainState {
                         self.shake_timer = 0.15;
                         self.hitstop_timer = self.hitstop_timer.max(0.06);
                         self.time_since_catch = 0.0;
-                        if rng.random_range(0..5) == 0 {
-                            let _ = self.sounds.success2.play_detached(ctx);
-                        } else {
-                            let _ = self.sounds.success.play_detached(ctx);
-                        }
+                        play_catch_sound(&mut self.sounds, ctx, &mut rng);
                         if self.score > 0 && self.score % 10 == 0 {
                             let _ = self.sounds.upgrade.play_detached(ctx);
                             self.pending_upgrade = true;
