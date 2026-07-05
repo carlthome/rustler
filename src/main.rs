@@ -399,6 +399,74 @@ impl MainState {
         }
     }
 
+    /// Emergent beat-startle chain reaction: on each beat, crabs that are already panicking
+    /// (fleeing the player or mid-stampede) pass their fear to nearby *calm* crabs, so a scare
+    /// ripples outward crab-to-crab across the herd on the pulse rather than every crab only ever
+    /// reacting to the player directly. Carriers are snapshotted before infection, so the panic
+    /// advances just one hop per beat — a visible marching wave, not an instant map-wide cascade.
+    /// Self-limiting: only calm crabs can catch it (a crab already panicking isn't re-triggered),
+    /// the startle bolt decays in ~one beat, and infections are capped per beat, so the wave dies
+    /// down instead of locking the whole herd in permanent flight.
+    fn beat_startle_contagion(&mut self) {
+        const CONTAGION_RADIUS: f32 = 110.0;
+        const MAX_INFECTIONS_PER_BEAT: usize = 8;
+        // Snapshot of panicking crabs whose fear can jump to a neighbour this beat.
+        let carriers: Vec<Vec2> = self
+            .crabs
+            .iter()
+            .filter(|c| !c.caught && !c.is_boss() && (c.fleeing || c.startle_timer > 0.0))
+            .map(|c| c.pos)
+            .collect();
+        if carriers.is_empty() {
+            return;
+        }
+        let mut infected_pops: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            if infected_pops.len() >= MAX_INFECTIONS_PER_BEAT {
+                break;
+            }
+            // Only calm, catchable crabs outside the beam can be freshly infected.
+            if crab.caught
+                || crab.is_boss()
+                || crab.in_flashlight
+                || crab.fleeing
+                || crab.startle_timer > 0.0
+            {
+                continue;
+            }
+            // Nearest carrier within reach becomes the source the crab bolts away from.
+            let mut nearest: Option<(f32, Vec2)> = None;
+            for &source in &carriers {
+                let d = source.distance(crab.pos);
+                if d < CONTAGION_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
+                    nearest = Some((d, source));
+                }
+            }
+            if let Some((d, source)) = nearest {
+                let outward = (crab.pos - source).normalize_or_zero();
+                let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
+                let prox = 1.0 - d / CONTAGION_RADIUS; // 1 right on the carrier, 0 at the rim
+                let kick = crab.crab_type.speed_range().end * (1.1 + prox * 0.9);
+                crab.vel = outward * kick;
+                crab.speed = 1.0; // vel now encodes full speed, matching the flee/startle convention
+                crab.startle_timer = 0.45;
+                infected_pops.push(crab.pos);
+            }
+        }
+        // Cold alarm rings + "!" pops so the crab-to-crab ripple reads at a glance.
+        for pos in infected_pops {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                pos - Vec2::new(0.0, 24.0),
+                22.0,
+                [0.6, 0.9, 1.0, 1.0],
+            );
+        }
+    }
+
     fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
         let mult = self.combo_multiplier();
         self.score += (1 + bonus_points) * mult;
@@ -1917,6 +1985,8 @@ impl EventHandler for MainState {
                 let color = crab.crab_color();
                 self.chain_rings.push((crab.pos, 0.0, color));
             }
+            // Emergent beat-startle chain reaction: panic ripples crab-to-crab on the pulse.
+            self.beat_startle_contagion();
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
 
