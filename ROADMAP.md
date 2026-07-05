@@ -17,23 +17,6 @@ this for direction before picking their next task; they don't edit it themselves
 
 ## Now
 
-- **Boss crabs** — a rare, oversized crab with its own attack pattern and a real "catch" moment
-  (multi-stage lasso, or it needs to be worn down first). Gives runs a memorable peak instead
-  of just more of the same enemy.
-- **Biome/level variety** — the play area currently reads as one continuous space; distinct
-  zones (tide pools, rocky shore, kelp forest) with their own hazards and spawn flavor would
-  make runs feel like they're going somewhere.
-- **New player abilities, with real counters** — right now the core verb is lasso-and-catch,
-  and one tool can't be "wrong" because there's nothing else to reach for. Design any new tool
-  (dash-grab, a whistle that startles a cluster of crabs toward you) alongside crab archetypes
-  it's specifically good or bad against (a fast/small crab that dodges the lasso but folds to a
-  whistle, an armored one that shrugs off a whistle but is an easy lasso target), Doom Eternal
-  style — so picking the right tool for the crab in front of you is the skill, not just spamming
-  one favorite. Important guardrail: soft counters, not hard requirements. Every tool should
-  stay viable (if suboptimal) against every crab at normal difficulty — being bad at something
-  costs time or style, it never means "impossible without the right tool." A tool being
-  strictly mandatory against some crab is only acceptable, if ever, as an escalation at the
-  highest difficulty tiers, not baseline design. Player choice matters more than optimal play.
 - **Deeper music/rhythm integration** — the game already has BPM-synced visuals and rhythm catch
   bonuses; take it further with actual layered music (the `layer1/2/3.ogg` progressive-fade
   hook already exists but nothing populates it) so the soundtrack itself builds as the score
@@ -43,6 +26,21 @@ this for direction before picking their next task; they don't edit it themselves
   the in-run visual effects have come. Worth a real pass on menu layout and readability, and on
   texture/sprite quality for crabs, sand, and grass, so first impressions match the polish of
   the moment-to-moment gameplay.
+- **Grow the tool/counter toolkit into a real decision** — the Whistle shipped as the first
+  soft counter (great on skittish Sneaky crabs, weak on heavy Big ones), but with only two verbs
+  (lasso + whistle) "pick the right tool" is still a shallow choice. Add a third tool paired with
+  a crab archetype that resists *both* current tools — e.g. an armored/burrowing crab the lasso
+  slips off and the whistle barely moves, that a new close-range dash-grab or a stomp/ground-pound
+  cracks open. Same soft-counter guardrail as before: every tool stays viable against every crab,
+  the wrong pick just costs time or style. Three real options is where tool selection starts to
+  feel like a skill instead of a formality.
+- **Emergent system interaction — beat-startle chain reactions** — the prerequisites this needed
+  (flee/panic, beat pulses, chain, catch-triggered stampede) have all shipped, so pull the first
+  emergent-interaction experiment into Now: let a beat wave or a catch's alarm ring that hits one
+  fleeing crab pass its panic to nearby crabs, rippling a stampede outward crab-to-crab instead of
+  every crab reacting only to the player. Cheap to prototype on top of the startle timer that
+  already exists, and it's the clearest expression of Carl's Noita itch — systems affecting each
+  other, not just the player.
 
 ## Later (outer loop — not yet)
 
@@ -56,5 +54,7 @@ this for direction before picking their next task; they don't edit it themselves
   already have actually affect each other instead of running in isolation. E.g. a beat pulse
   that startles nearby fleeing crabs into a chain reaction, a lasso catch that ripples fear
   through crabs near the catch point, chain segments that can bump and redirect fleeing crabs
-  into each other. Worth watching for a natural moment to pull one of these into "Now" once a
-  couple of the systems it needs (flee/panic, beat pulses, chain) have settled down.
+  into each other. The first of these (beat-startle chain reactions) has now graduated into "Now"
+  since flee/panic, beat pulses, and chain have all settled — the remaining ideas (fear rippling
+  from a lasso catch point, chain segments bumping and redirecting fleeing crabs) stay parked here
+  until one of them earns its way up too.
