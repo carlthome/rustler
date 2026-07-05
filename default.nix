@@ -14,6 +14,7 @@ pkgs.rustPlatform.buildRustPackage {
   nativeBuildInputs = with pkgs; [
     pkg-config
     lldb
+    makeWrapper
   ];
 
   buildInputs =
@@ -60,7 +61,22 @@ pkgs.rustPlatform.buildRustPackage {
       export XDG_DATA_DIRS="/run/opengl-driver/share:$XDG_DATA_DIRS"
       export VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json"
     '';
-  postInstall = ''
-    cp -r resources $out/bin
-  '';
+  postInstall =
+    with pkgs;
+    ''
+      cp -r resources $out/bin
+    ''
+    + lib.optionalString stdenv.isLinux ''
+      wrapProgram $out/bin/rustler \
+        --prefix LD_LIBRARY_PATH : "${
+          lib.makeLibraryPath [
+            wayland
+            xorg.libxcb
+            vulkan-loader
+            libxkbcommon
+          ]
+        }:/run/opengl-driver/lib" \
+        --prefix XDG_DATA_DIRS : "/run/opengl-driver/share" \
+        --set-default VK_ICD_FILENAMES "/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json"
+    '';
 }
