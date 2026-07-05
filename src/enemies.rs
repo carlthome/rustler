@@ -6,18 +6,22 @@ pub enum CrabType {
     Fast,
     Big,
     Sneaky,
-    Boss, // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
+    Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
+    Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
 }
 
 impl CrabType {
     pub fn random(rng: &mut impl rand::Rng) -> Self {
         use CrabType::*;
         // Deliberately excludes Boss — bosses are spawned explicitly, not by the herd roll.
-        match rng.random_range(0..4) {
-            0 => Normal,
-            1 => Fast,
-            2 => Big,
-            _ => Sneaky,
+        // Armored crabs are the rarest of the herd (~10%) so they punctuate a run rather than
+        // flooding it — enough to make you reach for the Stomp, not so many they gate every catch.
+        match rng.random_range(0..10) {
+            0 | 1 | 2 => Normal,
+            3 | 4 => Fast,
+            5 | 6 => Big,
+            7 | 8 => Sneaky,
+            _ => Armored,
         }
     }
     pub fn speed_range(&self) -> std::ops::Range<f32> {
@@ -26,7 +30,18 @@ impl CrabType {
             CrabType::Fast => 60.0..120.0,
             CrabType::Big => 20.0..40.0,
             CrabType::Sneaky => 40.0..80.0,
-            CrabType::Boss => 18.0..34.0, // slow and lumbering
+            CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
+            CrabType::Boss => 18.0..34.0,    // slow and lumbering
+        }
+    }
+    /// Shell health an archetype spawns with. While a crab's shell (stored in `boss_health`) is
+    /// above zero it can't be lassoed or grabbed by the chain — the beam wears it down slowly, a
+    /// Stomp cracks it instantly. Only Armored crabs carry a shell from the herd roll (the Boss
+    /// gets its own, larger health set explicitly at spawn).
+    pub fn initial_shell(&self) -> f32 {
+        match self {
+            CrabType::Armored => 2.0,
+            _ => 0.0,
         }
     }
     /// How strongly the Whistle ability yanks this crab toward the player — a soft counter, not a
@@ -38,7 +53,8 @@ impl CrabType {
             CrabType::Sneaky => 1.5, // evasive and light — folds hard to a whistle
             CrabType::Normal => 1.0,
             CrabType::Fast => 0.85, // squirrely, harder to herd cleanly
-            CrabType::Big => 0.4,   // armored and heavy — shrugs most of it off
+            CrabType::Big => 0.4,   // heavy — shrugs most of it off
+            CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
         }
     }
@@ -49,7 +65,8 @@ impl CrabType {
             CrabType::Fast => 0.24..=0.36,
             CrabType::Big => 0.50..=0.80,
             CrabType::Sneaky => 0.30..=0.40,
-            CrabType::Boss => 1.7..=2.1, // towering
+            CrabType::Armored => 0.42..=0.62, // stocky, tank-like
+            CrabType::Boss => 1.7..=2.1,      // towering
         }
     }
 }
@@ -86,6 +103,7 @@ impl EnemyCrab {
             CrabType::Fast => [1.0, 180.0 / 255.0 * (1.0 - t), 40.0 / 255.0],
             CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, 180.0 / 255.0 * (1.0 - t)],
             CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
+            CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
         }
     }
@@ -93,6 +111,12 @@ impl EnemyCrab {
     /// A boss "King Crab" — oversized, must be worn down under the flashlight before it can be caught.
     pub fn is_boss(&self) -> bool {
         matches!(self.crab_type, CrabType::Boss)
+    }
+
+    /// A hard-shelled crab: its shell (stored in `boss_health`) must be cracked — by a Stomp
+    /// (instant) or worn down under the beam (slow) — before the lasso or chain can grab it.
+    pub fn is_armored(&self) -> bool {
+        matches!(self.crab_type, CrabType::Armored)
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

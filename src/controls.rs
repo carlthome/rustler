@@ -110,6 +110,25 @@ pub fn handle_key_down_event(
                     );
                 }
             }
+            if key == KeyCode::R {
+                // Stomp: a close-range ground-pound that cracks armored crab shells wide open.
+                if state.stomp_cooldown <= 0.0 {
+                    let center =
+                        state.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    state.stomp_center = center;
+                    state.stomp_radius = 0.0;
+                    state.stomp_active = 0.32;
+                    state.stomp_cooldown = crate::STOMP_COOLDOWN;
+                    state.screen_shake = state.screen_shake.max(16.0);
+                    state.zoom_punch = state.zoom_punch.max(0.05);
+                    state.floating_texts.spawn(
+                        "STOMP!".to_string(),
+                        center - Vec2::new(40.0, 60.0),
+                        30.0,
+                        [0.85, 0.8, 0.7, 1.0],
+                    );
+                }
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }

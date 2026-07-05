@@ -1639,6 +1639,80 @@ pub fn draw_whistle_ring(
     Ok(())
 }
 
+/// Draw the Stomp ground-pound shockwave — a fast, dusty ring that slams outward from the player.
+/// Earthier and heavier than the whistle's bright horn-blast so the two abilities read differently.
+pub fn draw_stomp_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    max_radius: f32,
+) -> ggez::GameResult {
+    if radius <= 0.0 {
+        return Ok(());
+    }
+    let frac = (radius / max_radius).clamp(0.0, 1.0);
+    let fade = 1.0 - frac;
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Thick leading dust wall — dirty tan, like kicked-up sand.
+    let thickness = (10.0 * fade + 2.0).max(2.0);
+    let front = cached_stroke_circle(ctx, radius, thickness)?;
+    canvas.draw(
+        &front,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(0.85, 0.74, 0.5, (fade * 0.85).clamp(0.0, 1.0))),
+    );
+    // A brighter thin crest riding the front for a bit of snap.
+    let crest = cached_stroke_circle(ctx, radius, 1.5)?;
+    canvas.draw(
+        &crest,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.95, 0.8, (fade * 0.9).clamp(0.0, 1.0))),
+    );
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Draw a hard-shelled crab's shell indicator — a thin steely arc that depletes as the shell is
+/// worn down or cracked, so the player can read at a glance which crabs need a Stomp.
+pub fn draw_armor_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    shell_frac: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let radius = size * 0.8;
+    let pulse = (time * 5.0).sin() * 0.5 + 0.5;
+
+    // Faint full track so the drained portion still reads as progress.
+    let track = cached_stroke_circle(ctx, radius, 3.0)?;
+    canvas.draw(
+        &track,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(0.0, 0.0, 0.0, 0.35)),
+    );
+
+    let segs = 40usize;
+    let filled = ((segs as f32) * shell_frac.clamp(0.0, 1.0)).ceil().max(1.0) as usize;
+    let arc = cached_stroke_arc(ctx, radius, 3.0, segs, filled)?;
+    canvas.draw(
+        &arc,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(0.6, 0.72, 0.88, 0.85 + pulse * 0.15)),
+    );
+    Ok(())
+}
+
 /// Draw a pulsing attraction halo around a crab that is inside the flashlight beam.
 /// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
 pub fn draw_attracted_crab_glow(

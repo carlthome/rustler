@@ -25,10 +25,10 @@ use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
-    draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings, draw_combo_meter,
-    draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar, draw_fear_rings,
-    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
-    draw_whistle_ring, unit_square,
+    draw_armor_ring, draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings,
+    draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
+    draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_particles,
+    draw_rustler, draw_stomp_ring, draw_whistle_ring, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -46,6 +46,9 @@ const WHISTLE_COOLDOWN: f32 = 4.5;     // seconds between whistle casts
 const WHISTLE_RING_SPEED: f32 = 1000.0; // how fast the sonic front sweeps outward (px/s)
 const WHISTLE_MAX_RADIUS: f32 = 360.0; // reach of the pulse — crabs inside it get yanked in
 const WHISTLE_PULL_SPEED: f32 = 240.0; // base inward speed applied to caught-in crabs (× type pull)
+const STOMP_COOLDOWN: f32 = 3.0;       // seconds between ground-pound Stomps
+const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (px/s)
+const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
 
 struct GameSounds {
     intro_music: Source,
@@ -137,6 +140,12 @@ struct MainState {
     whistle_radius: f32,                        // current front radius of the expanding pulse
     whistle_cooldown: f32,                      // >0 while on cooldown; whistle unusable until it hits 0
     whistle_center: Vec2,                       // player center captured at cast time (ring origin)
+    // Stomp ability — a close-range ground-pound that CRACKS armored crab shells instantly (its
+    // dedicated counter; the beam is the slow universal fallback) and shoves nearby free crabs in.
+    stomp_active: f32,                          // >0 while the shockwave is expanding (seconds remaining)
+    stomp_radius: f32,                          // current front radius of the shockwave
+    stomp_cooldown: f32,                        // >0 while on cooldown; Stomp unusable until it hits 0
+    stomp_center: Vec2,                         // player center captured at stomp time (ring origin)
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
@@ -331,6 +340,10 @@ impl MainState {
             whistle_radius: 0.0,
             whistle_cooldown: 0.0,
             whistle_center: Vec2::ZERO,
+            stomp_active: 0.0,
+            stomp_radius: 0.0,
+            stomp_cooldown: 0.0,
+            stomp_center: Vec2::ZERO,
             dash_just_fired: false,
             dash_flash: 0.0,
             screen_shake: 0.0,
@@ -790,6 +803,8 @@ impl MainState {
         let mut flee_pops: Vec<Vec2> = Vec::new();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
         let mut boss_broke: Vec<Vec2> = Vec::new();
+        // Positions of Armored crabs whose shell the beam just wore through — pop a "crack" after the loop
+        let mut armor_broke: Vec<Vec2> = Vec::new();
         // Sparkle particles for attracted crabs (collected to avoid borrow conflict)
         let mut attraction_particles: Vec<(Vec2, Vec2, f32, [f32; 3])> = Vec::new();
 
@@ -810,12 +825,19 @@ impl MainState {
                 // Track flashlight state on the crab for rendering
                 crab.in_flashlight = crab_in_light;
 
-                // King Crab: hold the beam on it to wear it down before it can be caught.
-                if crab.is_boss() && crab.boss_health > 0.0 && crab_in_light {
+                // Shelled crabs (King Crab boss + Armored herd crabs) must be worn down before they
+                // can be caught: holding the beam on one drains its shell. This is the slow universal
+                // path — a Stomp cracks an Armored shell instantly, but the beam always works too, so
+                // no crab is ever impossible without the right tool.
+                if crab.boss_health > 0.0 && crab_in_light {
                     crab.boss_health -= BOSS_DRAIN_RATE * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
-                        boss_broke.push(crab.pos);
+                        if crab.is_boss() {
+                            boss_broke.push(crab.pos);
+                        } else {
+                            armor_broke.push(crab.pos);
+                        }
                     }
                 }
 
@@ -932,7 +954,7 @@ impl MainState {
 
         // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
         for (pos, vel, life, [cr, cg, cb]) in attraction_particles {
-            self.particle_system.particles.push(crate::graphics::Particle {
+            self.particle_system.push(crate::graphics::Particle {
                 pos,
                 vel,
                 life,
@@ -953,6 +975,17 @@ impl MainState {
             self.spawn_catch_shockwave(pos, [1.0, 0.85, 0.3]);
             self.screen_shake = self.screen_shake.max(14.0);
             self.on_beat_flash = self.on_beat_flash.max(0.4);
+        }
+
+        // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare
+        for pos in armor_broke {
+            self.floating_texts.spawn(
+                "SHELL CRACKED!".to_string(),
+                pos - Vec2::new(70.0, 40.0),
+                26.0,
+                [0.7, 0.85, 1.0, 1.0],
+            );
+            self.spawn_catch_shockwave(pos, [0.7, 0.8, 0.95]);
         }
 
         // Emit "!" floating texts for crabs that just started fleeing this frame
@@ -1059,6 +1092,9 @@ impl MainState {
         self.whistle_active = 0.0;
         self.whistle_radius = 0.0;
         self.whistle_cooldown = 0.0;
+        self.stomp_active = 0.0;
+        self.stomp_radius = 0.0;
+        self.stomp_cooldown = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.screen_shake = 0.0;
@@ -1157,7 +1193,7 @@ impl MainState {
 
         // Draw instructions text centered.
         let text = Text::new(
-            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\n\nPress Space or Enter to start.",
+            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\n\nPress Space or Enter to start.",
         );
         let text_width = text.measure(ctx)?.x;
         let text_height = text.measure(ctx)?.y;
@@ -1322,6 +1358,17 @@ impl MainState {
                 self.whistle_center,
                 self.whistle_radius,
                 WHISTLE_MAX_RADIUS,
+            )?;
+        }
+
+        // Draw the stomp ground-pound shockwave
+        if self.stomp_active > 0.0 && self.stomp_radius > 0.0 {
+            draw_stomp_ring(
+                ctx,
+                canvas,
+                self.stomp_center,
+                self.stomp_radius,
+                STOMP_MAX_RADIUS,
             )?;
         }
 
@@ -1514,6 +1561,41 @@ impl MainState {
             DrawParam::default()
                 .dest(Vec2::new(bar_x + bar_width + 8.0, wbar_y - 2.0))
                 .color(Color::from_rgb(255, 230, 150)),
+        );
+
+        // Stomp cooldown bar (R) — steely blue, refills as the ground-pound recharges.
+        let sbar_y = wbar_y + wbar_h + 20.0;
+        let sbar_h = 12.0;
+        let sready = self.stomp_cooldown <= 0.0;
+        let scharge = (1.0 - self.stomp_cooldown / STOMP_COOLDOWN).clamp(0.0, 1.0);
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, sbar_y))
+                .scale(Vec2::new(bar_width, sbar_h))
+                .color(Color::from_rgb(40, 40, 40)),
+        );
+        let (sr, sg, sb) = if sready { (150, 190, 235) } else { (80, 105, 135) };
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, sbar_y))
+                .scale(Vec2::new(bar_width * scharge, sbar_h))
+                .color(Color::from_rgb(sr, sg, sb)),
+        );
+        let sborder = cached_stroke_rect(ctx, bar_width, sbar_h, 2.0)?;
+        canvas.draw(
+            &sborder,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, sbar_y))
+                .color(Color::from_rgb(255, 255, 255)),
+        );
+        let slabel = Text::new(if sready { "Stomp (R) READY" } else { "Stomp (R)" });
+        canvas.draw(
+            &slabel,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x + bar_width + 8.0, sbar_y - 2.0))
+                .color(Color::from_rgb(190, 215, 245)),
         );
 
         // Show current level at the bottom center.
@@ -1743,6 +1825,11 @@ impl MainState {
                     let size = crab.scale * CRAB_SIZE;
                     let frac = crab.boss_health / BOSS_MAX_HEALTH;
                     draw_boss_health_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
+                } else if crab.is_armored() && crab.boss_health > 0.0 {
+                    // Armored shell indicator — depletes as the shell is worn or cracked
+                    let size = crab.scale * CRAB_SIZE;
+                    let frac = crab.boss_health / crab.crab_type.initial_shell().max(0.001);
+                    draw_armor_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
                 }
             }
         }
@@ -2066,6 +2153,9 @@ impl EventHandler for MainState {
         if self.whistle_cooldown > 0.0 {
             self.whistle_cooldown = (self.whistle_cooldown - dt).max(0.0);
         }
+        if self.stomp_cooldown > 0.0 {
+            self.stomp_cooldown = (self.stomp_cooldown - dt).max(0.0);
+        }
         if self.dash_flash > 0.0 {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
@@ -2181,6 +2271,45 @@ impl EventHandler for MainState {
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
                     crab.fleeing = false;
                 }
+            }
+        }
+
+        // Stomp: a close-range ground-pound shockwave. It CRACKS Armored crab shells instantly (its
+        // dedicated counter — the beam is the slow universal fallback) and gives any free crab the
+        // front passes a light inward shove. Its short reach makes it a melee tool, not a ranged
+        // gather like the whistle/lasso, so choosing the right verb per herd is a real decision.
+        if self.stomp_active > 0.0 {
+            self.stomp_active = (self.stomp_active - dt).max(0.0);
+            self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(STOMP_MAX_RADIUS);
+            let center = self.stomp_center;
+            let mut cracked: Vec<Vec2> = Vec::new();
+            for crab in &mut self.crabs {
+                if crab.caught || crab.is_boss() {
+                    continue; // the King Crab shrugs off a Stomp — it needs the beam
+                }
+                let dist = center.distance(crab.pos);
+                if dist >= self.stomp_radius {
+                    continue; // only crabs the front has already swept past are hit this frame
+                }
+                // Crack an armored shell wide open the instant the shockwave reaches it.
+                if crab.is_armored() && crab.boss_health > 0.0 {
+                    crab.boss_health = 0.0;
+                    cracked.push(crab.pos);
+                }
+                // Light inward shove + brief calm so the shaken crab doesn't immediately bolt.
+                let toward = (center - crab.pos).normalize_or_zero();
+                crab.vel = toward * (WHISTLE_PULL_SPEED * 0.6);
+                crab.spooked_timer = crab.spooked_timer.max(0.4);
+                crab.fleeing = false;
+            }
+            for pos in cracked {
+                self.floating_texts.spawn(
+                    "SHELL CRACKED!".to_string(),
+                    pos - Vec2::new(70.0, 40.0),
+                    26.0,
+                    [0.7, 0.85, 1.0, 1.0],
+                );
+                self.spawn_catch_shockwave(pos, [0.7, 0.8, 0.95]);
             }
         }
 
