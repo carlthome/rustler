@@ -1131,6 +1131,62 @@ pub fn draw_flashlight(
         DrawParam::default().dest(center).rotation(rotation),
     );
 
+    // --- Volumetric dust motes drifting inside the beam ---
+    // Cheap procedural "god-ray dust": a fixed set of specks, each riding a straight ray out
+    // from the flashlight, twinkling and recycling at the far end so the cone reads as lit
+    // airborne dust rather than a flat gradient. Every mote's position/brightness is a pure
+    // function of its index and `time`, so this stays allocation-free and reuses the shared
+    // cached unit circle. Switch back to the default shader first (the flashlight shader is
+    // screen-space and ignores mesh colour), but keep the ADD blend so the motes glow.
+    canvas.set_default_shader();
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    // Fresh-catch flare: the beam briefly sparkles brighter right after grabbing a crab.
+    let catch_flare = (0.6 - time_since_catch).max(0.0) / 0.6 * 0.8;
+    let half_spread = spread * 0.5 * 0.9; // keep motes just inside the visible cone edge
+    const MOTE_COUNT: usize = 20;
+    let hash = |n: f32| -> f32 {
+        let s = (n * 12.9898).sin() * 43758.5453;
+        s - s.floor()
+    };
+    for i in 0..MOTE_COUNT {
+        let fi = i as f32;
+        // Stable per-mote randoms.
+        let lateral = hash(fi + 1.0) * 2.0 - 1.0; // where across the cone this ray sits
+        let speed = 0.35 + hash(fi + 2.0) * 0.65; // how fast it drifts outward
+        let seed = hash(fi + 3.0); // phase / twinkle offset
+        let size = 1.2 + hash(fi + 4.0) * 1.6; // mote radius in px
+        // Drift outward along the beam and recycle at the far end.
+        let dfrac_raw = seed + time * speed * 0.14;
+        let dfrac = dfrac_raw - dfrac_raw.floor(); // 0..1 distance fraction
+        let dist = dfrac * flashlight_len * 1.02;
+        // Cone widens with distance: motes near the apex hug the axis, far ones fan out.
+        let mote_angle = angle + lateral * half_spread * (0.25 + 0.75 * dfrac);
+        let pos = center + Vec2::new(mote_angle.cos(), mote_angle.sin()) * dist;
+        // Brightness: fade in from the apex and out at the far edge, dim toward the cone
+        // sides, and twinkle over time so the dust shimmers.
+        let along_fade = (dfrac * std::f32::consts::PI).sin(); // 0 at both ends, 1 mid-beam
+        let edge_fade = 1.0 - lateral * lateral; // dim near the cone's sides
+        let twinkle = 0.45 + 0.55 * (time * (2.0 + seed * 3.0) + fi).sin();
+        let alpha = (0.22 + catch_flare * 0.35) * along_fade * edge_fade * twinkle;
+        if alpha <= 0.01 {
+            continue;
+        }
+        let r = size + catch_flare * 0.8;
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::new(r, r))
+                .color(Color::new(1.0, 0.96, 0.82, alpha.clamp(0.0, 1.0))),
+        );
+    }
+
     // Restore original blend mode and shader
     canvas.set_blend_mode(original_blend);
     canvas.set_default_shader();
