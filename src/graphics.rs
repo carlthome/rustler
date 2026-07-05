@@ -49,6 +49,47 @@ thread_local! {
     // panel outlines). Bounded in practice: only a handful of distinct UI element sizes ever
     // get drawn, so this cache stays tiny for the life of the process.
     static STROKE_RECT_CACHE: RefCell<HashMap<(i32, i32, i32), Mesh>> = RefCell::new(HashMap::new());
+
+    // Cache of partial-circle ("arc") stroke meshes, keyed by (radius, thickness, filled
+    // segments out of a fixed 48-segment ring). Used by the King Crab health ring, which
+    // otherwise rebuilt a fresh ~48-point Vec plus a fresh Mesh::new_line every single frame
+    // for its whole (multi-second) time on screen. Bounded to at most a handful of live boss
+    // radii times 49 possible fill levels, so this cache stays small.
+    static STROKE_ARC_CACHE: RefCell<HashMap<(i32, i32, usize), Mesh>> = RefCell::new(HashMap::new());
+}
+
+/// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
+/// `radius`/`thickness`, starting at the top and sweeping clockwise — the same shape
+/// `draw_boss_health_ring`'s health arc needs, but built once per (radius, thickness, filled)
+/// combo instead of allocating a fresh point Vec + GPU mesh every frame. Mesh is centered at the
+/// origin in local space; draw with `.dest(pos)` only (no `.scale`, which would distort the
+/// stroke thickness the same way it would for `cached_stroke_circle`).
+fn cached_stroke_arc(
+    ctx: &mut Context,
+    radius: f32,
+    thickness: f32,
+    segs: usize,
+    filled: usize,
+) -> ggez::GameResult<Mesh> {
+    let radius = radius.max(0.5);
+    let thickness = thickness.max(0.25);
+    let filled = filled.clamp(1, segs);
+    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32, filled);
+
+    if let Some(mesh) = STROKE_ARC_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let start = -std::f32::consts::FRAC_PI_2;
+    let pts: Vec<[f32; 2]> = (0..=filled)
+        .map(|i| {
+            let a = start + (i as f32 / segs as f32) * std::f32::consts::TAU;
+            [a.cos() * radius, a.sin() * radius]
+        })
+        .collect();
+    let mesh = Mesh::new_line(ctx, &pts, thickness, Color::WHITE)?;
+    STROKE_ARC_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
 }
 
 /// Fetch a cached stroke-circle mesh for the given radius/thickness (built once per rounded
@@ -815,47 +856,36 @@ pub fn draw_boss_health_ring(
     health_frac: f32,
     time: f32,
 ) -> ggez::GameResult {
-    use std::f32::consts::{FRAC_PI_2, TAU};
     let radius = size * 0.85;
     let pulse = (time * 6.0).sin() * 0.5 + 0.5; // 0..1
 
     // Pulsing aura ring behind the boss — deep gold, breathing with the beat of the track.
+    // Reuses the same STROKE_CIRCLE_CACHE every other ring effect in this file draws from,
+    // instead of rebuilding a fresh ~48-point Vec + GPU mesh every frame this boss is alive.
     let aura_radius = radius * (1.12 + pulse * 0.08);
-    let aura_pts: Vec<[f32; 2]> = (0..=48)
-        .map(|i| {
-            let a = i as f32 / 48.0 * TAU;
-            [pos.x + a.cos() * aura_radius, pos.y + a.sin() * aura_radius]
-        })
-        .collect();
-    let aura = Mesh::new_line(
-        ctx,
-        &aura_pts,
-        3.0,
-        Color::new(1.0, 0.8, 0.25, 0.30 + pulse * 0.25),
-    )?;
-    canvas.draw(&aura, DrawParam::default());
+    let aura = cached_stroke_circle(ctx, aura_radius, 3.0)?;
+    canvas.draw(
+        &aura,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(1.0, 0.8, 0.25, 0.30 + pulse * 0.25)),
+    );
 
     if health_frac > 0.0 {
         // Faint full track so the empty portion still reads as "health you've drained".
-        let track_pts: Vec<[f32; 2]> = (0..=48)
-            .map(|i| {
-                let a = i as f32 / 48.0 * TAU;
-                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
-            })
-            .collect();
-        let track = Mesh::new_line(ctx, &track_pts, 5.0, Color::new(0.0, 0.0, 0.0, 0.45))?;
-        canvas.draw(&track, DrawParam::default());
+        let track = cached_stroke_circle(ctx, radius, 5.0)?;
+        canvas.draw(
+            &track,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(0.0, 0.0, 0.0, 0.45)),
+        );
 
-        // Filled arc from the top, clockwise, spanning the remaining health fraction.
-        let start = -FRAC_PI_2;
+        // Filled arc from the top, clockwise, spanning the remaining health fraction. Cached
+        // per (radius, filled-segment) combo — bounded to 49 possible fill levels for the
+        // lifetime of a single boss, instead of a fresh mesh every single frame.
         let segs = 48usize;
         let filled = ((segs as f32) * health_frac.clamp(0.0, 1.0)).ceil().max(1.0) as usize;
-        let arc_pts: Vec<[f32; 2]> = (0..=filled)
-            .map(|i| {
-                let a = start + (i as f32 / segs as f32) * TAU;
-                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
-            })
-            .collect();
         // Green when fresh, shading to red as it's worn down.
         let col = Color::new(
             (1.0 - health_frac).clamp(0.2, 1.0),
@@ -863,25 +893,17 @@ pub fn draw_boss_health_ring(
             0.15,
             1.0,
         );
-        if arc_pts.len() >= 2 {
-            let arc = Mesh::new_line(ctx, &arc_pts, 5.0, col)?;
-            canvas.draw(&arc, DrawParam::default());
-        }
+        let arc = cached_stroke_arc(ctx, radius, 5.0, segs, filled)?;
+        canvas.draw(&arc, DrawParam::default().dest(pos).color(col));
     } else {
         // Worn down — flash a bright "catch me now" ring so the player knows to grab it.
-        let ring_pts: Vec<[f32; 2]> = (0..=48)
-            .map(|i| {
-                let a = i as f32 / 48.0 * TAU;
-                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
-            })
-            .collect();
-        let ring = Mesh::new_line(
-            ctx,
-            &ring_pts,
-            4.0 + pulse * 3.0,
-            Color::new(0.4, 1.0, 0.5, 0.6 + pulse * 0.4),
-        )?;
-        canvas.draw(&ring, DrawParam::default());
+        let ring = cached_stroke_circle(ctx, radius, 4.0 + pulse * 3.0)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(0.4, 1.0, 0.5, 0.6 + pulse * 0.4)),
+        );
     }
     Ok(())
 }
