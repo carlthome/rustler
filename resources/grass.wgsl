@@ -33,67 +33,93 @@ fn hash(n: f32) -> f32 {
     return fract(sin(n) * 43758.5453);
 }
 
-fn grass_blade(uv: vec2<f32>, pos: vec2<f32>, height: f32, width: f32, sway: f32) -> f32 {
-    let p = uv - pos;
+fn hash2(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
 
-    // Check if we're in the grass area (above the base position)
-    if (p.y < 0.0 || p.y > height) {
-        return 1.0;
+// Smooth value noise on a 2D grid.
+fn value_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = hash2(i);
+    let b = hash2(i + vec2<f32>(1.0, 0.0));
+    let c = hash2(i + vec2<f32>(0.0, 1.0));
+    let d = hash2(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Fractal Brownian motion — layered noise for organic ground mottling.
+fn fbm(p: vec2<f32>) -> f32 {
+    var v = 0.0;
+    var amp = 0.5;
+    var freq = 1.0;
+    for (var i = 0; i < 4; i += 1) {
+        v += amp * value_noise(p * freq);
+        freq *= 2.0;
+        amp *= 0.5;
     }
-
-    // Normalize height position (0 at base, 1 at tip)
-    let t = p.y / height;
-
-    // Simple curved blade with sway
-    let curve_x = sway * sin(t * 3.14159) * t;
-
-    // Distance to blade center line
-    let dist = abs(p.x - curve_x) - width * (1.0 - t * 0.5);
-
-    return dist;
+    return v;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Use UVs directly
-    let uv = in.uv;
+    // Aspect-correct field space so noise cells and tufts stay round rather than
+    // stretched with the window's aspect ratio.
+    let aspect = resolution.width / max(resolution.height, 1.0);
+    let uv = vec2<f32>(in.uv.x * aspect, in.uv.y);
+    let time = resolution.time;
 
-    // Ground color
-    var color = vec3<f32>(0.2, 0.6, 0.3);
+    // A slow wind vector that drifts the whole field so nothing sits perfectly still.
+    let wind = vec2<f32>(sin(time * 0.35), cos(time * 0.27)) * 0.06;
 
-    // Grass parameters
-    let blade_count = 10.0;
-    let blade_spacing = 100.0 / blade_count;
+    // --- Base ground: organic mottling from layered noise -------------------
+    // Two noise octaves at different scales give large soft patches plus finer
+    // grain, so the ground reads as a living field instead of a flat fill.
+    let patches = fbm(uv * 4.0 + wind);
+    let grain = fbm(uv * 18.0 - wind * 2.0);
+    let mottle = mix(patches, grain, 0.35);
 
-    // Wind animation
-    let wind = sin(resolution.time * 1.5) * 0.05;
+    // Blend between a darker, cooler shade and a brighter, warmer one by the noise.
+    let ground_dark = vec3<f32>(0.13, 0.42, 0.20);
+    let ground_light = vec3<f32>(0.28, 0.66, 0.32);
+    var color = mix(ground_dark, ground_light, smoothstep(0.25, 0.75, mottle));
 
-    // Generate grass blades
-    for (var i = 0.0; i < blade_count; i += 1.0) {
-        let rand = hash(i);
+    // Scattered dirt/dry patches where the noise dips low.
+    let dry = 1.0 - smoothstep(0.12, 0.32, patches);
+    color = mix(color, vec3<f32>(0.34, 0.44, 0.22), dry * 0.35);
 
-        // Blade position - spread across full width, at bottom of screen
-        let pos = vec2<f32>(
-            (i / blade_count) + rand * 0.01,
-            0.0
-        );
+    // --- Wind light-sweep: a soft diagonal band of brightness that glides across
+    // the field, like sunlight rippling over grass on a breezy day.
+    let sweep_dir = normalize(vec2<f32>(0.8, 0.6));
+    let sweep = sin(dot(uv, sweep_dir) * 3.5 - time * 0.9);
+    color += vec3<f32>(0.05, 0.07, 0.03) * smoothstep(0.6, 1.0, sweep);
 
-        // Calculate blade SDF.
-        let height = mix(0.2, 0.9, hash(i + 1.0));
-        let width = mix(0.01, 0.03, hash(i + 2.0));
-        let sway = mix(-0.05, 0.05, hash(i + 3.0)) + wind * hash(i + 7.0);
-        let d = grass_blade(uv, pos, height, width, sway);
+    // --- Grass tufts scattered across the whole field -----------------------
+    // Cellular scatter: each grid cell may hold one small tuft that sways with the
+    // wind. Single-cell lookup keeps this cheap regardless of screen size.
+    let cell_scale = 26.0;
+    let g = uv * cell_scale;
+    let cell = floor(g);
+    let fpart = fract(g);
+    let present = step(0.52, hash2(cell + vec2<f32>(9.1, 4.3)));
+    // Random tuft anchor within the cell, plus a per-cell wind sway phase.
+    var anchor = vec2<f32>(hash2(cell), hash2(cell + vec2<f32>(3.7, 1.2)));
+    let sway = sin(time * 1.6 + hash2(cell) * 6.28) * 0.08;
+    anchor.x += sway;
+    let td = distance(fpart, anchor);
+    // Small bright blade cluster with a soft edge.
+    let tuft = (1.0 - smoothstep(0.02, 0.11, td)) * present;
+    let tuft_color = vec3<f32>(
+        0.30 + hash2(cell + vec2<f32>(4.0, 0.0)) * 0.18,
+        0.72 + hash2(cell + vec2<f32>(5.0, 0.0)) * 0.20,
+        0.22 + hash2(cell + vec2<f32>(6.0, 0.0)) * 0.14
+    );
+    color = mix(color, tuft_color, tuft * 0.85);
 
-        // Apply a mask to blend the blade color.
-        let blade_mask = 1.0 - smoothstep(0.0, 0.01, d);
-        let blade_color = vec3<f32>(
-            0.3 + hash(i + 4.0) * 0.2,
-            0.7 + hash(i + 5.0) * 0.2,
-            0.2 + hash(i + 6.0) * 0.15
-        );
-
-        color = mix(color, blade_color, blade_mask);
-    }
+    // Tiny highlight speck at each tuft tip for a bit of sparkle in the field.
+    let tip = (1.0 - smoothstep(0.0, 0.035, td)) * present;
+    color += vec3<f32>(0.12, 0.16, 0.08) * tip;
 
     return vec4<f32>(color, 1.0);
 }
