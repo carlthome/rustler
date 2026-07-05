@@ -17,17 +17,16 @@ this for direction before picking their next task; they don't edit it themselves
 
 ## Now
 
-- **Make the conga train a real risk, not just upside** — right now the chain only ever grows, so
-  a long train is pure reward with no downside. Give length stakes: a panicking crab, a King Crab
-  charge, or a level hazard can snap the tail and scatter those crabs back into the wild, so a big
-  train becomes something you actively protect, route carefully, and can lose. This turns the
-  game's central mechanic from a growing counter into a moment-to-moment decision — the single
-  highest-leverage way to deepen the inner loop.
-- **A second boss that fights the loop, not just absorbs it** — the King Crab shipped, but it's a
-  stationary damage-sponge you park the beam on; the encounter tests beam uptime and nothing else.
-  Add a boss with an actual threat verb — charges the conga line to scatter it, or rallies/spawns
-  nearby crabs into a wall — so boss fights test movement and chain management too. Pairs naturally
-  with the chain-risk item above.
+- **A place to cash in the train — decide when to bank vs. push your luck** — now that the tail can
+  snap (chain-snap risk shipped), the train has downside but nowhere to convert it. Give the player
+  a delivery/pen where dropping off the train banks big score and resets tension, so every run
+  becomes a running "bank now or grow it bigger and riskier" decision. This is the highest-leverage
+  next beat: it closes the risk/reward loop that chain-snap just opened, turning the train from a
+  number that only climbs into a resource you weigh, protect, and spend.
+- **Terrain that shapes where the train can go** — the biomes are pure color grading today; make
+  them matter to play. Tide pools that slow the tail, rocks the train can snag on, kelp that hides
+  crabs — hazards you route a long train around rather than through. Wires the already-shipped biome
+  system into gameplay and gives the new chain-snap risk real geography to play against.
 - **Deeper music/rhythm integration** — the game already has BPM-synced visuals, rhythm catch
   bonuses, and now a Groove meter; take it further with actual layered music (the `layer1/2/3.ogg`
   progressive-fade hook already exists but nothing populates it) so the soundtrack itself builds as
@@ -37,6 +36,10 @@ this for direction before picking their next task; they don't edit it themselves
   the in-run visual effects have come. Worth a real pass on menu layout and readability, and on
   texture/sprite quality for crabs, sand, and grass, so first impressions match the polish of
   the moment-to-moment gameplay.
+
+_In flight (uncommitted WIP as of this update): a boss with a real threat verb — the King Crab now
+charges the conga line to scatter the tail instead of just sitting there soaking beam. Leave it be;
+if it lands and sticks, it's done and this note goes away._
 
 ## Later (outer loop — not yet)
 
@@ -53,5 +56,8 @@ this for direction before picking their next task; they don't edit it themselves
   into each other. The first of these — beat-startle chain reactions — has now *shipped*
   (panic ripples crab-to-crab on each beat). The remaining ideas (fear rippling from a lasso
   catch point, chain segments bumping and redirecting fleeing crabs) stay parked here until one
-  of them earns its way up too. Note the new "conga train as a real risk" Now item is itself an
-  emergent-interaction play: it wires the flee/boss systems back into the chain.
+  of them earns its way up too. The "conga train as a real risk" play has now *shipped* as
+  chain-snap risk (a panicking crab that hits the tail knocks the last links loose) — an
+  emergent-interaction win that wired the flee system back into the chain. The new "cash in the
+  train" and "terrain shapes routing" Now items are the same spirit: give that risk somewhere to
+  pay off and somewhere to play out.
