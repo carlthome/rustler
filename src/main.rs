@@ -29,7 +29,7 @@ use crate::graphics::{
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
     draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_whistle_ring,
-    unit_square,
+    unit_circle, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -83,6 +83,14 @@ thread_local! {
     static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
     static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
     static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+
+    // The menu/instructions screen's translucent rounded panel behind the controls text. Its
+    // geometry only depends on window width/height (never on `menu_time`), yet
+    // draw_instructions_screen was rebuilding a fresh `Mesh::new_rounded_rectangle` GPU buffer
+    // every single frame this screen is shown — which can be indefinitely long if a player
+    // idles on the title screen. Keyed by (width, height) bit patterns so it only rebuilds on an
+    // actual resolution change (in practice: never, after the one-time fullscreen fixup).
+    static MENU_PANEL_CACHE: RefCell<Option<(u32, u32, Mesh)>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -1624,7 +1632,12 @@ impl MainState {
                 1.0,
             )
         };
+        // Every strip is the same (width x strip_h+1) rectangle, just moved down and recolored,
+        // so — same trick as the rest of the codebase's UNIT_SQUARE usage — draw the single
+        // cached unit-square mesh 28 times with a per-strip dest/scale/color instead of building
+        // 28 fresh `Mesh::new_rectangle` GPU buffers every single frame this screen is up.
         let strip_h = height / strips as f32;
+        let strip_square = unit_square(ctx)?;
         for i in 0..strips {
             let k = i as f32 / (strips - 1) as f32;
             // Two-segment gradient: sky->horizon over the top 65%, horizon->sand below it.
@@ -1633,17 +1646,19 @@ impl MainState {
             } else {
                 lerp(mid, sand, (k - 0.65) / 0.35)
             };
-            let strip = Mesh::new_rectangle(
-                ctx,
-                DrawMode::fill(),
-                Rect::new(0.0, i as f32 * strip_h, width, strip_h + 1.0),
-                c,
-            )?;
-            canvas.draw(&strip, DrawParam::default());
+            canvas.draw(
+                strip_square,
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, i as f32 * strip_h))
+                    .scale(Vec2::new(width, strip_h + 1.0))
+                    .color(c),
+            );
         }
 
-        // Reusable dot mesh for stars and the moon halo — one allocation, many cheap draws.
-        let dot = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.1, Color::WHITE)?;
+        // Reusable dot mesh for stars and the moon halo — the same cached unit circle the rest
+        // of graphics.rs's particle/ring drawing uses, instead of a fresh `Mesh::new_circle` GPU
+        // buffer every frame this screen is up.
+        let dot = unit_circle(ctx)?;
 
         // --- Twinkling stars ----------------------------------------------------------------
         // Deterministic positions from a cheap integer hash so the field is stable frame to
@@ -1663,7 +1678,7 @@ impl MainState {
             let twinkle = 0.25 + 0.75 * (t * speed + phase).sin().abs();
             let r = 0.7 + (hash(i * 19 + 7) % 100) as f32 / 100.0 * 1.6;
             canvas.draw(
-                &dot,
+                dot,
                 DrawParam::default()
                     .dest(Vec2::new(sx, sy))
                     .scale(Vec2::splat(r))
@@ -1677,7 +1692,7 @@ impl MainState {
             let rr = 34.0 + ring as f32 * 16.0;
             let a = 0.05 + (5 - ring) as f32 * 0.03;
             canvas.draw(
-                &dot,
+                dot,
                 DrawParam::default()
                     .dest(moon_pos)
                     .scale(Vec2::splat(rr))
@@ -1685,7 +1700,7 @@ impl MainState {
             );
         }
         canvas.draw(
-            &dot,
+            dot,
             DrawParam::default()
                 .dest(moon_pos)
                 .scale(Vec2::splat(30.0))
@@ -1809,18 +1824,33 @@ impl MainState {
         let text_x = (width - text_width) / 2.0;
         let text_y = height * 0.44;
         let pad = 26.0;
-        let panel = Mesh::new_rounded_rectangle(
-            ctx,
-            DrawMode::fill(),
-            Rect::new(
-                text_x - pad,
-                text_y - pad,
-                text_width + pad * 2.0,
-                text_height + pad * 2.0,
-            ),
-            14.0,
-            Color::from_rgba(10, 14, 30, 170),
-        )?;
+        let panel_key = (width.to_bits(), height.to_bits());
+        let cached_panel = MENU_PANEL_CACHE.with(|c| {
+            c.borrow().as_ref().and_then(|(w, h, mesh)| {
+                (*w == panel_key.0 && *h == panel_key.1).then(|| mesh.clone())
+            })
+        });
+        let panel = match cached_panel {
+            Some(mesh) => mesh,
+            None => {
+                let mesh = Mesh::new_rounded_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    Rect::new(
+                        text_x - pad,
+                        text_y - pad,
+                        text_width + pad * 2.0,
+                        text_height + pad * 2.0,
+                    ),
+                    14.0,
+                    Color::from_rgba(10, 14, 30, 170),
+                )?;
+                MENU_PANEL_CACHE.with(|c| {
+                    *c.borrow_mut() = Some((panel_key.0, panel_key.1, mesh.clone()))
+                });
+                mesh
+            }
+        };
         canvas.draw(&panel, DrawParam::default());
         canvas.draw(
             &text,

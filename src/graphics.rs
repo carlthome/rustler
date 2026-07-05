@@ -213,6 +213,23 @@ pub fn unit_line(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
     }
 }
 
+/// Fetch the cached unit-circle mesh (radius 1, centered at the origin), building it once on
+/// first use. Scale by `(r, r)` and set `.dest((x, y))` to place a filled circle of any size/
+/// color without allocating a fresh `Mesh::new_circle` GPU buffer — the same trick
+/// `UNIT_SQUARE`/`UNIT_LINE` use. Baked with `Color::WHITE`; tint via `DrawParam::color`. Public
+/// so one-off fill-circle effects driven from outside graphics.rs (e.g. the menu screen's stars/
+/// moon) can reuse the same mesh internal particle/ring drawing already relies on instead of each
+/// keeping its own private copy of the `UNIT_CIRCLE.get_or_init` dance.
+pub fn unit_circle(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
+    match UNIT_CIRCLE.get() {
+        Some(mesh) => Ok(mesh),
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            Ok(UNIT_CIRCLE.get_or_init(|| mesh))
+        }
+    }
+}
+
 /// Draw the dash speed-line wake trailing behind the player: a small fan of short streaks in
 /// the direction the player just came from, brighter the more recently the dash started. Reuses
 /// the cached unit-line mesh (scaled/rotated per streak via `DrawParam`) instead of building a
