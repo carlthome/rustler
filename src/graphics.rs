@@ -473,17 +473,69 @@ pub fn draw_rustler(
     canvas: &mut Canvas,
     pos: Vec2,
     sprite: &Image,
+    velocity: Vec2,
+    beat_intensity: f32,
+    time: f32,
+    dashing: bool,
 ) -> ggez::GameResult {
-    let color = Color::from_rgba(255, 255, 255, 255);
+    let base = 0.05_f32;
+    let dims = Vec2::new(sprite.width() as f32, sprite.height() as f32) * base;
+    // Keep the sprite centered on the same point it used to occupy (top-left was
+    // pos + (15,15) at 0.05 scale) so transforms can pivot around the center.
+    let center = pos + Vec2::new(15.0, 15.0) + dims * 0.5;
 
-    // Offset the sprite a little bit.
-    let offset = Vec2 { x: 15.0, y: 15.0 };
+    let beat = beat_intensity.clamp(0.0, 1.0);
+
+    // Beat-synced hop: the rustler pops upward on every downbeat like everything else
+    // in the conga, plus a gentle idle breathing bob so it's never fully still.
+    let hop = beat * 8.0;
+    let idle = (time * 2.2).sin() * 1.5;
+    let bob = -hop + idle;
+
+    // Squash & stretch: stretch tall on the up-beat, and stretch along the run when
+    // moving fast (extra on a dash) for a snappy sense of momentum.
+    let hspeed = velocity.x.abs();
+    let run_stretch = (hspeed / 200.0).clamp(0.0, 1.0) * if dashing { 0.20 } else { 0.09 };
+    let sx = base * (1.0 - beat * 0.08 + run_stretch);
+    let sy = base * (1.0 + beat * 0.13 - run_stretch * 0.5);
+
+    // Lean into horizontal movement — tilt forward as if leaning into the run.
+    let lean_amt = if dashing { 0.26 } else { 0.16 };
+    let lean = (velocity.x / 200.0).clamp(-1.0, 1.0) * lean_amt;
+
+    // Grounding drop shadow that shrinks and fades as the rustler leaves the ground.
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let ground_y = center.y + dims.y * 0.42;
+    let lift = hop.max(0.0);
+    let shadow_shrink = (1.0 - lift * 0.02).clamp(0.55, 1.0);
+    let shadow_alpha = (0.32 * shadow_shrink).clamp(0.0, 1.0);
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(Vec2::new(center.x, ground_y))
+            .scale(Vec2::new(
+                dims.x * 0.34 * shadow_shrink,
+                dims.y * 0.13 * shadow_shrink,
+            ))
+            .color(Color::new(0.0, 0.0, 0.0, shadow_alpha)),
+    );
+
+    // Draw the sprite pivoting around its center so the hop, squash and lean all
+    // anchor sensibly.
     canvas.draw(
         sprite,
         DrawParam::default()
-            .dest(pos + offset)
-            .color(color)
-            .scale(Vec2 { x: 0.05, y: 0.05 }),
+            .dest(Vec2::new(center.x, center.y + bob))
+            .offset(Vec2::new(0.5, 0.5))
+            .rotation(lean)
+            .scale(Vec2::new(sx, sy))
+            .color(Color::from_rgba(255, 255, 255, 255)),
     );
 
     Ok(())

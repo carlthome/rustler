@@ -911,7 +911,16 @@ impl MainState {
         draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed, self.beat_intensity)?;
 
         // Draw player character.
-        draw_rustler(ctx, canvas, self.player_pos, &self.textures.player)?;
+        draw_rustler(
+            ctx,
+            canvas,
+            self.player_pos,
+            &self.textures.player,
+            self.player_vel,
+            self.beat_intensity,
+            self.time_elapsed,
+            self.boost_timer > 0.0,
+        )?;
 
         // Speed lines trailing behind player while dashing
         if self.boost_timer > 0.0 && self.last_dir.length() > 0.01 {
