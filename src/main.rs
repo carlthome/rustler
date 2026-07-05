@@ -519,13 +519,43 @@ impl MainState {
         if chain_positions.is_empty() {
             return;
         }
-        let to_catch: Vec<usize> = self.crabs.iter().enumerate()
-            .filter(|(_, c)| {
-                !c.caught
-                    && chain_positions
-                        .iter()
-                        .any(|cp| cp.distance(c.pos) < catch_radius)
-            })
+        // Bucket uncaught crabs into a spatial grid keyed by cell so each chain link only
+        // tests the handful of crabs near it instead of the whole uncaught set. Without this,
+        // the scan below is O(caught * uncaught) and gets noticeably slower as the conga
+        // train — and the crab count — grow.
+        let cell_size = catch_radius.max(1.0);
+        let cell_of = |p: Vec2| -> (i32, i32) {
+            ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+        };
+        let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, c) in self.crabs.iter().enumerate() {
+            if !c.caught {
+                grid.entry(cell_of(c.pos)).or_default().push(i);
+            }
+        }
+        let catch_radius_sq = catch_radius * catch_radius;
+        let mut caught_now = vec![false; self.crabs.len()];
+        for &cp in &chain_positions {
+            let (cx, cy) = cell_of(cp);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(candidates) = grid.get(&(cx + dx, cy + dy)) {
+                        for &i in candidates {
+                            if !caught_now[i]
+                                && cp.distance_squared(self.crabs[i].pos) < catch_radius_sq
+                            {
+                                caught_now[i] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let to_catch: Vec<usize> = caught_now
+            .iter()
+            .enumerate()
+            .filter(|&(_, &v)| v)
             .map(|(i, _)| i)
             .collect();
         let mut rng = rand::rng();
