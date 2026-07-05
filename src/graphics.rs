@@ -827,6 +827,32 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
             .color(crab_color),
     );
 
+    // Shell shading: give the flat body circle a rounded, lit look. Light comes from a fixed
+    // screen-space direction (up and slightly left) so the whole herd reads as lit from the same
+    // sky, independent of each crab's facing rotation — hence these offsets are NOT rotated.
+    let light_dir = Vec2::new(-0.4, -0.72);
+    // Domed highlight: a smaller, brighter disc pushed toward the light makes the body read as a
+    // rounded shell rather than a paper cut-out.
+    let hi = |c: f32| (c + (1.0 - c) * 0.34).min(1.0);
+    let dome_color = Color::new(hi(crab_color.r), hi(crab_color.g), hi(crab_color.b), 0.85);
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + light_dir * size * 0.15)
+            .scale(Vec2::splat(size / 2.0 * 0.62))
+            .color(dome_color),
+    );
+    // Glossy specular glint near the top of the shell — a tiny bright dot that catches the eye and
+    // pulses faintly with the beat so the herd shimmers on the downbeat.
+    let glint_a = 0.5 + beat_phase * 0.35;
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + light_dir * size * 0.26)
+            .scale(Vec2::splat(size / 2.0 * 0.2))
+            .color(Color::new(1.0, 1.0, 1.0, glint_a)),
+    );
+
     // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
     // the whole leg (root + direction) by the crab's facing is the same as just adding
     // `rotation` to `angle` before computing everything in world space directly.
@@ -854,20 +880,32 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     // Crab claws (small circles)
     let claw_offset = size * 0.7;
     let claw_radius = size * 0.18;
+    let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3));
+    let claw_r = draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3));
     canvas.draw(
         unit_circle,
         DrawParam::default()
-            .dest(draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3)))
+            .dest(claw_l)
             .scale(Vec2::splat(claw_radius))
             .color(crab_color),
     );
     canvas.draw(
         unit_circle,
         DrawParam::default()
-            .dest(draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3)))
+            .dest(claw_r)
             .scale(Vec2::splat(claw_radius))
             .color(crab_color),
     );
+    // Matching lit highlight on each claw so they look like the same rounded shell as the body.
+    for claw_pos in [claw_l, claw_r] {
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(claw_pos + light_dir * claw_radius * 0.5)
+                .scale(Vec2::splat(claw_radius * 0.55))
+                .color(dome_color),
+        );
+    }
 
     // Eyes
     let eye_radius = size * 0.13;
