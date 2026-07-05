@@ -72,6 +72,15 @@ thread_local! {
     // tuple so the fresh `format!` String + `Text` (glyph shaping) only gets rebuilt when one of
     // those values actually changes, not on every one of the ~60 frames between catches.
     static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
+
+    // The three ability-bar labels ("Stamina (Space)", "Whistle (E)[/READY]", "Stomp (R)[/READY]")
+    // were being rebuilt via a fresh Text::new every single frame even though the stamina label
+    // never changes at all and the other two only ever flip between one of two fixed strings.
+    // Same fix as above: cache the built Text and only pay for glyph shaping again when the
+    // underlying "ready" flag actually flips (or, for stamina, never again after the first frame).
+    static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+    static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
 }
 
 struct GameSounds {
@@ -1742,14 +1751,20 @@ impl MainState {
                 .color(Color::from_rgb(255, 255, 255)),
         );
 
-        // Draw label
-        let label = Text::new("Stamina (Space)");
-        canvas.draw(
-            &label,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x, bar_y - 22.0))
-                .color(Color::from_rgb(255, 255, 255)),
-        );
+        // Draw label (static text — build once and reuse forever, same pattern as the HUD/level
+        // label caches above).
+        STAMINA_LABEL_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                *cache = Some(Text::new("Stamina (Space)"));
+            }
+            canvas.draw(
+                cache.as_ref().unwrap(),
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, bar_y - 22.0))
+                    .color(Color::from_rgb(255, 255, 255)),
+            );
+        });
 
         // Whistle cooldown bar (E) — fills back up to amber as it recharges, ready when full.
         let wbar_y = bar_y + bar_height + 26.0;
@@ -1778,13 +1793,20 @@ impl MainState {
                 .dest(Vec2::new(bar_x, wbar_y))
                 .color(Color::from_rgb(255, 255, 255)),
         );
-        let wlabel = Text::new(if ready { "Whistle (E) READY" } else { "Whistle (E)" });
-        canvas.draw(
-            &wlabel,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x + bar_width + 8.0, wbar_y - 2.0))
-                .color(Color::from_rgb(255, 230, 150)),
-        );
+        WHISTLE_LABEL_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == ready);
+            if needs_rebuild {
+                let text = Text::new(if ready { "Whistle (E) READY" } else { "Whistle (E)" });
+                *cache = Some((ready, text));
+            }
+            canvas.draw(
+                &cache.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x + bar_width + 8.0, wbar_y - 2.0))
+                    .color(Color::from_rgb(255, 230, 150)),
+            );
+        });
 
         // Stomp cooldown bar (R) — steely blue, refills as the ground-pound recharges.
         let sbar_y = wbar_y + wbar_h + 20.0;
@@ -1813,13 +1835,20 @@ impl MainState {
                 .dest(Vec2::new(bar_x, sbar_y))
                 .color(Color::from_rgb(255, 255, 255)),
         );
-        let slabel = Text::new(if sready { "Stomp (R) READY" } else { "Stomp (R)" });
-        canvas.draw(
-            &slabel,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x + bar_width + 8.0, sbar_y - 2.0))
-                .color(Color::from_rgb(190, 215, 245)),
-        );
+        STOMP_LABEL_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == sready);
+            if needs_rebuild {
+                let text = Text::new(if sready { "Stomp (R) READY" } else { "Stomp (R)" });
+                *cache = Some((sready, text));
+            }
+            canvas.draw(
+                &cache.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x + bar_width + 8.0, sbar_y - 2.0))
+                    .color(Color::from_rgb(190, 215, 245)),
+            );
+        });
 
         // Show current level at the bottom center. Text/layout is cached per level index (see
         // LEVEL_LABEL_CACHE) since it's static for the whole level but this branch runs every
