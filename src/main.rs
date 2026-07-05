@@ -151,6 +151,15 @@ struct MainState {
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
     fullscreen_applied: bool, // deferred until the first update tick, see update()
+    // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
+    // average + worst-case every couple seconds so future optimization passes have real numbers
+    // instead of guessing from code inspection alone.
+    #[cfg(debug_assertions)]
+    perf_frame_count: u32,
+    #[cfg(debug_assertions)]
+    perf_time_accum: f32,
+    #[cfg(debug_assertions)]
+    perf_worst_frame: f32,
 }
 
 impl MainState {
@@ -326,6 +335,12 @@ impl MainState {
             fear_rings: Vec::new(),
             zoom_punch: 0.0,
             fullscreen_applied: false,
+            #[cfg(debug_assertions)]
+            perf_frame_count: 0,
+            #[cfg(debug_assertions)]
+            perf_time_accum: 0.0,
+            #[cfg(debug_assertions)]
+            perf_worst_frame: 0.0,
         })
     }
 
@@ -1729,6 +1744,32 @@ impl EventHandler for MainState {
         }
 
         let dt = ctx.time.delta().as_secs_f32();
+
+        // Perf instrumentation (debug builds only): track average + worst frame time over a
+        // rolling ~2s window and print it, so optimization passes have real numbers instead of
+        // guessing from code inspection. Uses the same per-update dt ggez already measured, so
+        // this is just a couple of float adds — no extra timing calls or allocations.
+        #[cfg(debug_assertions)]
+        {
+            self.perf_frame_count += 1;
+            self.perf_time_accum += dt;
+            self.perf_worst_frame = self.perf_worst_frame.max(dt);
+            if self.perf_time_accum >= 2.0 {
+                let avg_ms = (self.perf_time_accum / self.perf_frame_count as f32) * 1000.0;
+                let worst_ms = self.perf_worst_frame * 1000.0;
+                println!(
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms",
+                    self.perf_frame_count,
+                    self.perf_time_accum,
+                    avg_ms,
+                    1000.0 / avg_ms,
+                    worst_ms,
+                );
+                self.perf_frame_count = 0;
+                self.perf_time_accum = 0.0;
+                self.perf_worst_frame = 0.0;
+            }
+        }
 
         // Hitstop: freeze the whole simulation for a few frames right after a catch so the
         // impact snaps instead of sliding past. draw() still runs each frame, so the frozen
