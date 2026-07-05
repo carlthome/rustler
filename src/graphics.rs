@@ -7,6 +7,8 @@ use ggez::graphics::{
     BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader, ShaderParamsBuilder,
 };
 use rand::Rng;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // A single unit-radius circle mesh, built once and reused for every particle by
@@ -23,6 +25,44 @@ static UNIT_CIRCLE: OnceLock<Mesh> = OnceLock::new();
 // micro-subdivision per chain link (SEGS=14), so a long conga train — the whole
 // point of this game — was allocating hundreds of GPU meshes every frame.
 static UNIT_LINE: OnceLock<Mesh> = OnceLock::new();
+
+thread_local! {
+    // Cache of stroke-circle meshes keyed by (radius, thickness) quantized to the nearest
+    // pixel/quarter-pixel. Ring-style effects (beat ghost rings, catch shockwaves, attraction
+    // glow) can't reuse a single unit-circle scaled via DrawParam like fill circles do, because
+    // scaling a stroke ring scales its line thickness along with its radius, distorting the
+    // taper these effects rely on. Instead we memoize the actual built mesh per rounded
+    // (radius, thickness) pair. This matters most for beat ghost rings: every crab in the conga
+    // chain gets a ring on each beat, and since they're all spawned in lockstep they share the
+    // same age every frame, so in practice one cache entry is reused by every ring in the chain
+    // instead of the whole chain rebuilding a fresh GPU mesh each frame.
+    static STROKE_CIRCLE_CACHE: RefCell<HashMap<(i32, i32), Mesh>> = RefCell::new(HashMap::new());
+}
+
+/// Fetch a cached stroke-circle mesh for the given radius/thickness (built once per rounded
+/// key, reused after that), instead of calling `Mesh::new_circle` fresh every draw. The mesh is
+/// baked with `Color::WHITE` — callers should tint it via `DrawParam::color`, exactly like the
+/// existing `UNIT_CIRCLE`/`UNIT_LINE` fill meshes.
+fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+    let radius = radius.max(0.5);
+    let thickness = thickness.max(0.25);
+    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32);
+
+    if let Some(mesh) = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_circle(
+        ctx,
+        DrawMode::stroke(thickness),
+        [0.0, 0.0],
+        radius,
+        1.2,
+        Color::WHITE,
+    )?;
+    STROKE_CIRCLE_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
 
 #[derive(Copy, Clone, Debug, AsStd140)]
 pub struct ResolutionUniform {
@@ -829,19 +869,30 @@ pub fn draw_beat_indicator(
     beat_intensity: f32,
     _time: f32,
 ) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
     let base_r = 20.0;
     let pulse_r = base_r + beat_intensity * 14.0;
     let alpha = ((80.0 + beat_intensity * 175.0) as u8).min(255);
-    let outer = Mesh::new_circle(
-        ctx, DrawMode::fill(), [0.0, 0.0], pulse_r, 0.5,
-        Color::from_rgba(255, 200, 50, alpha),
-    )?;
-    canvas.draw(&outer, DrawParam::default().dest(center));
-    let inner = Mesh::new_circle(
-        ctx, DrawMode::fill(), [0.0, 0.0], base_r * 0.55, 0.5,
-        Color::from_rgba(255, 140, 50, 220),
-    )?;
-    canvas.draw(&inner, DrawParam::default().dest(center));
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(center)
+            .scale(Vec2::splat(pulse_r))
+            .color(Color::from_rgba(255, 200, 50, alpha)),
+    );
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(center)
+            .scale(Vec2::splat(base_r * 0.55))
+            .color(Color::from_rgba(255, 140, 50, 220)),
+    );
     Ok(())
 }
 
@@ -1110,29 +1161,27 @@ pub fn draw_chain_rings(
         // Stroke thickness tapers as ring expands
         let thickness = 3.5 * (1.0 - age * 0.7);
 
-        // Main ring
-        let ring = Mesh::new_circle(
-            ctx,
-            DrawMode::stroke(thickness),
-            [0.0, 0.0],
-            radius,
-            1.2,
-            Color::new(color[0], color[1], color[2], alpha),
-        )?;
-        canvas.draw(&ring, DrawParam::default().dest(pos));
+        // Main ring — rings spawned on the same beat share the same age every frame, so this
+        // cache lookup is shared across the whole conga chain instead of building one fresh
+        // mesh per crab per frame.
+        let ring = cached_stroke_circle(ctx, radius, thickness)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(color[0], color[1], color[2], alpha)),
+        );
 
         // Soft outer glow ring (larger radius, lower alpha)
         if age < 0.7 {
             let glow_alpha = alpha * 0.3;
-            let glow = Mesh::new_circle(
-                ctx,
-                DrawMode::stroke(thickness * 2.0),
-                [0.0, 0.0],
-                radius + 4.0,
-                1.5,
-                Color::new(color[0], color[1], color[2], glow_alpha),
-            )?;
-            canvas.draw(&glow, DrawParam::default().dest(pos));
+            let glow = cached_stroke_circle(ctx, radius + 4.0, thickness * 2.0)?;
+            canvas.draw(
+                &glow,
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(color[0], color[1], color[2], glow_alpha)),
+            );
         }
     }
 
@@ -1152,6 +1201,13 @@ pub fn draw_catch_shockwaves(
     if shockwaves.is_empty() {
         return Ok(());
     }
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
@@ -1166,15 +1222,13 @@ pub fn draw_catch_shockwaves(
             let flash_t = age / 0.22;
             let flash_alpha = (1.0 - flash_t) * 0.9;
             let flash_r = 10.0 + flash_t * 26.0;
-            let flash = Mesh::new_circle(
-                ctx,
-                DrawMode::fill(),
-                [0.0, 0.0],
-                flash_r,
-                1.5,
-                Color::new(1.0, 1.0, 1.0, flash_alpha),
-            )?;
-            canvas.draw(&flash, DrawParam::default().dest(pos));
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(flash_r))
+                    .color(Color::new(1.0, 1.0, 1.0, flash_alpha)),
+            );
         }
 
         // Leading edge: white-hot early, blending toward the crab color as it expands.
@@ -1182,27 +1236,23 @@ pub fn draw_catch_shockwaves(
         let edge_g = (color[1] * age + (1.0 - age)).min(1.0);
         let edge_b = (color[2] * age + (1.0 - age)).min(1.0);
         let thickness = (5.0 * fade).max(1.0);
-        let ring = Mesh::new_circle(
-            ctx,
-            DrawMode::stroke(thickness),
-            [0.0, 0.0],
-            radius,
-            1.5,
-            Color::new(edge_r, edge_g, edge_b, fade * 0.95),
-        )?;
-        canvas.draw(&ring, DrawParam::default().dest(pos));
+        let ring = cached_stroke_circle(ctx, radius, thickness)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(edge_r, edge_g, edge_b, fade * 0.95)),
+        );
 
         // Soft trailing glow just inside the leading edge for extra body.
         if age < 0.8 {
-            let glow = Mesh::new_circle(
-                ctx,
-                DrawMode::stroke(thickness * 2.2),
-                [0.0, 0.0],
-                (radius - 6.0).max(1.0),
-                1.5,
-                Color::new(color[0], color[1], color[2], fade * 0.28),
-            )?;
-            canvas.draw(&glow, DrawParam::default().dest(pos));
+            let glow = cached_stroke_circle(ctx, (radius - 6.0).max(1.0), thickness * 2.2)?;
+            canvas.draw(
+                &glow,
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(color[0], color[1], color[2], fade * 0.28)),
+            );
         }
     }
 
@@ -1233,34 +1283,30 @@ pub fn draw_attracted_crab_glow(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Outer soft glow ring
+    // Outer soft glow ring — attracted crabs tend to share similar size/pulse phase (same
+    // global beat clock), so this cache lookup is often shared across every glowing crab
+    // instead of building a fresh GPU mesh per crab per frame.
     let glow_alpha = (0.18 + pulse * 0.22).clamp(0.0, 1.0);
-    let glow = Mesh::new_circle(
-        ctx,
-        DrawMode::stroke(outer_radius * 0.35),
-        [0.0, 0.0],
-        outer_radius + outer_radius * 0.18,
-        1.5,
-        Color::new(r, g, b, glow_alpha),
-    )?;
-    canvas.draw(&glow, DrawParam::default().dest(pos));
+    let glow = cached_stroke_circle(ctx, outer_radius + outer_radius * 0.18, outer_radius * 0.35)?;
+    canvas.draw(
+        &glow,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(r, g, b, glow_alpha)),
+    );
 
     // Bright inner ring
     let ring_alpha = (0.45 + pulse * 0.45).clamp(0.0, 1.0);
-    let ring = Mesh::new_circle(
-        ctx,
-        DrawMode::stroke(2.5),
-        [0.0, 0.0],
-        outer_radius,
-        1.2,
-        Color::new(
+    let ring = cached_stroke_circle(ctx, outer_radius, 2.5)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default().dest(pos).color(Color::new(
             (r * 0.5 + 0.5).min(1.0),
             (g * 0.5 + 0.5).min(1.0),
             (b * 0.5 + 0.5).min(1.0),
             ring_alpha,
-        ),
-    )?;
-    canvas.draw(&ring, DrawParam::default().dest(pos));
+        )),
+    );
 
     canvas.set_blend_mode(original_blend);
     Ok(())
