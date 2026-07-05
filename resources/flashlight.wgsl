@@ -135,106 +135,109 @@ fn calculate_edge_vignetting(screen_pos: vec2<f32>) -> f32 {
     return vignette;
 }
 
-fn hue_to_rgb(h: f32) -> vec3<f32> {
-    let r = abs(h * 6.0 - 3.0) - 1.0;
-    let g = 2.0 - abs(h * 6.0 - 2.0);
-    let b = 2.0 - abs(h * 6.0 - 4.0);
-    return clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
-}
-
-fn laser_beam(uv_angle: f32, beam_angle: f32, level: f32) -> f32 {
-    let diff = abs(uv_angle - beam_angle);
-    let wrapped = min(diff, 6.28318 - diff);
-    return smoothstep(0.025, 0.005, wrapped) * level;
-}
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let screen_pos = uv_to_screen(in.uv);
-
-    var final_color = vec3<f32>(0.0);
-    var final_alpha = 0.0;
-
-    // Flashlight cone contribution
-    if (is_in_cone(screen_pos)) {
-        // Calculate number of gradient layers
-        let min_layers = 1.0;
-        let max_layers = 10.0;
-        let t_catch = clamp(flashlight.time_since_catch / 5.0, 0.0, 1.0);
-        let num_layers = round(max_layers - (max_layers - min_layers) * t_catch);
-
-        // Calculate edge vignetting
-        let vignette = calculate_edge_vignetting(screen_pos);
-
-        // Blend all layers
-        for (var i = 0.0; i < num_layers; i += 1.0) {
-            let layer_alpha = calculate_gradient_alpha(screen_pos, i, num_layers);
-            if (layer_alpha > 0.0) {
-                let layer_color = calculate_layer_color(i, num_layers);
-
-                // Apply vignetting to the layer alpha
-                let vignetted_alpha = layer_alpha * vignette;
-
-                // Additive blending
-                final_color += layer_color * vignetted_alpha;
-                final_alpha += vignetted_alpha;
-            }
-        }
-    }
-
-    // Add laser beams if laser level > 0 — these can reach outside the cone
-    if (flashlight.laser_level > 0.0) {
-        let center = vec2<f32>(flashlight.center_x, flashlight.center_y);
-        let to_point = screen_pos - center;
-        let dist = length(to_point);
-        let uv_angle = atan2(to_point.y, to_point.x);
-        let laser_range = flashlight.range * (1.3 + 0.2 * flashlight.laser_level);
-
-        if (dist > 0.0 && dist <= laser_range) {
-            // Cycling rainbow hue driven by time
-            let hue1 = fract((flashlight.time * 120.0 + flashlight.laser_level * 60.0) / 360.0);
-
-            // Beam 1: along the flashlight direction (always present at laser_level >= 1)
-            let beam1_intensity = laser_beam(uv_angle, flashlight.angle, flashlight.laser_level);
-            if (beam1_intensity > 0.0) {
-                let rgb1 = hue_to_rgb(hue1) * 0.7 + vec3<f32>(0.3);
-                final_color += rgb1 * beam1_intensity * 1.5;
-                final_alpha += beam1_intensity * 1.5;
-            }
-
-            // Beam 2: at 120° offset (laser_level >= 2)
-            if (flashlight.laser_level >= 2.0) {
-                let hue2 = fract(hue1 + 1.0 / 3.0);
-                let beam2_angle = flashlight.angle + 2.09440; // 120° in radians
-                let beam2_intensity = laser_beam(uv_angle, beam2_angle, flashlight.laser_level);
-                if (beam2_intensity > 0.0) {
-                    let rgb2 = hue_to_rgb(hue2) * 0.7 + vec3<f32>(0.3);
-                    final_color += rgb2 * beam2_intensity * 1.5;
-                    final_alpha += beam2_intensity * 1.5;
-                }
-            }
-
-            // Beam 3: at 240° offset (laser_level >= 3)
-            if (flashlight.laser_level >= 3.0) {
-                let hue3 = fract(hue1 + 2.0 / 3.0);
-                let beam3_angle = flashlight.angle + 4.18879; // 240° in radians
-                let beam3_intensity = laser_beam(uv_angle, beam3_angle, flashlight.laser_level);
-                if (beam3_intensity > 0.0) {
-                    let rgb3 = hue_to_rgb(hue3) * 0.7 + vec3<f32>(0.3);
-                    final_color += rgb3 * beam3_intensity * 1.5;
-                    final_alpha += beam3_intensity * 1.5;
-                }
-            }
-        }
-    }
-
-    // Discard fully transparent pixels
-    if (final_alpha <= 0.0) {
+    
+    // Check if we're in the flashlight cone
+    if (!is_in_cone(screen_pos)) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
-
+    
+    // Calculate number of gradient layers
+    let min_layers = 1.0;
+    let max_layers = 10.0;
+    let t_catch = clamp(flashlight.time_since_catch / 5.0, 0.0, 1.0);
+    let num_layers = round(max_layers - (max_layers - min_layers) * t_catch);
+    
+    var final_color = vec3<f32>(0.0);
+    var final_alpha = 0.0;
+    
+    // Calculate edge vignetting
+    let vignette = calculate_edge_vignetting(screen_pos);
+    
+    // Blend all layers
+    for (var i = 0.0; i < num_layers; i += 1.0) {
+        let layer_alpha = calculate_gradient_alpha(screen_pos, i, num_layers);
+        if (layer_alpha > 0.0) {
+            let layer_color = calculate_layer_color(i, num_layers);
+            
+            // Apply vignetting to the layer alpha
+            let vignetted_alpha = layer_alpha * vignette;
+            
+            // Additive blending
+            final_color += layer_color * vignetted_alpha;
+            final_alpha += vignetted_alpha;
+        }
+    }
+    
+    // Add laser beams if laser level > 0
+    if (flashlight.laser_level > 0.0) {
+        let num_lasers = 2.0 + flashlight.laser_level * 2.0;
+        let center = vec2<f32>(flashlight.center_x, flashlight.center_y);
+        
+        for (var i = 0.0; i < num_lasers; i += 1.0) {
+            let t = i / num_lasers;
+            // Reduce the spread multiplier to keep lasers more inward from the edges
+            let laser_spread_factor = 0.75; // Use 75% of the cone spread instead of 100%
+            let laser_angle = flashlight.angle - flashlight.spread * laser_spread_factor * 0.5 + flashlight.spread * laser_spread_factor * t;
+            
+            // Calculate distance to laser line
+            let laser_dir = vec2<f32>(cos(laser_angle), sin(laser_angle));
+            let to_point = screen_pos - center;
+            let projection = dot(to_point, laser_dir);
+            
+            if (projection > 0.0 && projection <= flashlight.range * (1.2 + 0.2 * flashlight.laser_level)) {
+                let perp_dist = length(to_point - laser_dir * projection);
+                let laser_width = 6.0 + 2.0 * flashlight.laser_level;
+                
+                if (perp_dist <= laser_width * 0.5) {
+                    // Use modulo to select color without dynamic indexing
+                    var laser_color = vec3<f32>(1.0, 0.0, 1.0); // Default magenta
+                    let color_selector = i32(i) % 5;
+                    if (color_selector == 0) {
+                        laser_color = vec3<f32>(1.0, 0.0, 1.0); // Magenta
+                    } else if (color_selector == 1) {
+                        laser_color = vec3<f32>(0.0, 1.0, 1.0); // Cyan
+                    } else if (color_selector == 2) {
+                        laser_color = vec3<f32>(1.0, 1.0, 0.0); // Yellow
+                    } else if (color_selector == 3) {
+                        laser_color = vec3<f32>(0.0, 1.0, 0.0); // Green
+                    } else {
+                        laser_color = vec3<f32>(1.0, 0.0, 0.0); // Red
+                    }
+                    
+                    let laser_falloff = 1.0 - (perp_dist / (laser_width * 0.5));
+                    
+                    // Create pulsating rave effect for lasers
+                    let pulse_freq = 3.0 + i * 1.5; // Different frequency for each laser
+                    let pulse_phase = i * 0.8; // Phase offset for each laser
+                    let pulse_base = sin(flashlight.time * pulse_freq + pulse_phase);
+                    let pulse_secondary = sin(flashlight.time * pulse_freq * 2.3 + pulse_phase * 1.7);
+                    
+                    // Combine multiple sine waves for complex pulsing
+                    let pulse_intensity = 0.7 + 0.3 * (pulse_base * 0.6 + pulse_secondary * 0.4);
+                    
+                    // Add quick strobe effect occasionally
+                    let strobe_freq = 8.0 + i * 2.0;
+                    let strobe = step(0.85, sin(flashlight.time * strobe_freq + pulse_phase));
+                    let strobe_intensity = 1.0 + strobe * 0.8;
+                    
+                    // Combine all effects
+                    let total_intensity = pulse_intensity * strobe_intensity;
+                    
+                    // Apply vignetting and pulsing effects
+                    let vignetted_laser_falloff = laser_falloff * vignette * total_intensity;
+                    
+                    final_color += laser_color * vignetted_laser_falloff * 0.8;
+                    final_alpha += vignetted_laser_falloff * 0.8;
+                }
+            }
+        }
+    }
+    
     // Clamp final alpha
     final_alpha = clamp(final_alpha, 0.0, 1.0);
-
+    
     return vec4<f32>(final_color, final_alpha);
 }
