@@ -133,6 +133,8 @@ struct MainState {
     next_milestone: usize,               // Next train-length milestone to celebrate
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
+    zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
+    fullscreen_applied: bool, // deferred until the first update tick, see update()
 }
 
 impl MainState {
@@ -300,6 +302,8 @@ impl MainState {
             next_milestone: 5,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
+            zoom_punch: 0.0,
+            fullscreen_applied: false,
         })
     }
 
@@ -376,6 +380,9 @@ impl MainState {
             self.screen_shake = 25.0;
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 25.0 * 60.0;
 
+            // Big celebratory zoom punch on every milestone.
+            self.zoom_punch = self.zoom_punch.max(0.09);
+
             // Amplify beat flash
             self.beat_intensity = (self.beat_intensity + 1.5).min(2.0);
             self.on_beat_flash = 0.5;
@@ -436,6 +443,8 @@ impl MainState {
                 self.time_since_catch = 0.0;
                 // Punchy freeze — a touch longer when the catch lands on the beat.
                 self.hitstop_timer = self.hitstop_timer.max(if on_beat { 0.08 } else { 0.05 });
+                // Snap the camera in a hair on every catch, harder on the beat, for extra impact.
+                self.zoom_punch = self.zoom_punch.max(if on_beat { 0.055 } else { 0.035 });
                 if rng.random_range(0..5) == 0 {
                     let _ = self.sounds.success2.play_detached(ctx);
                 } else {
@@ -487,6 +496,7 @@ impl MainState {
             self.register_catch(pos, 0);
             self.shake_timer = 0.15;
             self.hitstop_timer = self.hitstop_timer.max(0.04);
+            self.zoom_punch = self.zoom_punch.max(0.03);
             self.time_since_catch = 0.0;
             if rng.random_range(0..5) == 0 {
                 let _ = self.sounds.success2.play_detached(ctx);
@@ -1442,6 +1452,24 @@ impl MainState {
 
 impl EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
+        if !self.fullscreen_applied {
+            // current_monitor() can still be None on the very first tick, so keep retrying
+            // until it resolves instead of only trying once.
+            if let Some(monitor_size) = ctx.gfx.window().current_monitor().map(|m| m.size()) {
+                ctx.gfx
+                    .window()
+                    .set_fullscreen(Some(ggez::winit::window::Fullscreen::Borderless(None)));
+                // set_fullscreen() alone changes the window's on-screen chrome but doesn't
+                // reliably trigger ggez to reconfigure its wgpu surface on this winit/Wayland
+                // combo, leaving the swapchain at its old (windowed) size while the compositor
+                // letterboxes it. set_drawable_size() goes through ggez's own window-mode path,
+                // which resizes the surface synchronously instead of waiting on a resize event.
+                ctx.gfx
+                    .set_drawable_size(monitor_size.width as f32, monitor_size.height as f32)?;
+                self.fullscreen_applied = true;
+            }
+        }
+
         if self.show_instructions || self.game_over || self.pending_upgrade {
             return Ok(());
         }
@@ -1498,6 +1526,14 @@ impl EventHandler for MainState {
             }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
+
+        // Ease the zoom punch back out — snaps in instantly on catch, smooth spring-out.
+        if self.zoom_punch > 0.0 {
+            self.zoom_punch *= 0.86_f32.powf(dt * 60.0);
+            if self.zoom_punch < 0.0008 {
+                self.zoom_punch = 0.0;
+            }
+        }
 
         // Decay screen shake — spring back to zero
         if self.screen_shake > 0.0 {
@@ -1735,7 +1771,18 @@ impl EventHandler for MainState {
         let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(100, 200, 100));
         let shake_ox = self.screen_shake_offset.x;
         let shake_oy = self.screen_shake_offset.y;
-        canvas.set_screen_coordinates(Rect::new(shake_ox, shake_oy, width, height));
+        // Zoom punch: shrink the visible world rect (magnify) around the player so they stay
+        // pixel-locked while the world snaps in on a catch. z == 0 leaves the view untouched.
+        let z = self.zoom_punch.clamp(0.0, 0.2);
+        let focus = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+        let vw = width * (1.0 - z);
+        let vh = height * (1.0 - z);
+        canvas.set_screen_coordinates(Rect::new(
+            focus.x * z + shake_ox,
+            focus.y * z + shake_oy,
+            vw,
+            vh,
+        ));
         canvas.set_blend_mode(BlendMode::ALPHA);
         canvas.set_sampler(Sampler::nearest_clamp());
 
@@ -1849,7 +1896,7 @@ fn main() -> GameResult {
 
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
-        .window_mode(WindowMode::default().fullscreen_type(ggez::conf::FullscreenType::Desktop))
+        .window_mode(WindowMode::default())
         .build()?;
     let state = MainState::new(&mut ctx)?;
     event::run(ctx, event_loop, state)
