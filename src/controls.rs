@@ -94,6 +94,22 @@ pub fn handle_key_down_event(
                     state.beat_wave_radius = 0.0;
                 }
             }
+            if key == KeyCode::E {
+                // Whistle: yank nearby crabs toward the player. Great for skittish Sneaky crabs.
+                if state.whistle_cooldown <= 0.0 {
+                    state.whistle_center =
+                        state.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    state.whistle_radius = 0.0;
+                    state.whistle_active = 0.4;
+                    state.whistle_cooldown = crate::WHISTLE_COOLDOWN;
+                    state.floating_texts.spawn(
+                        "WHISTLE!".to_string(),
+                        state.whistle_center - Vec2::new(48.0, 60.0),
+                        30.0,
+                        [1.0, 0.85, 0.35, 1.0],
+                    );
+                }
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }

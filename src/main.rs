@@ -27,7 +27,8 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings, draw_combo_meter,
     draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar, draw_fear_rings,
-    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler, unit_square,
+    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler,
+    draw_whistle_ring, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -41,6 +42,10 @@ const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 const BOSS_MAX_HEALTH: f32 = 3.0; // seconds of sustained flashlight needed to wear a King Crab down
 const BOSS_DRAIN_RATE: f32 = 1.0; // boss health drained per second while held in the beam
 const BOSS_SCORE_INTERVAL: usize = 40; // score gap between successive King Crab arrivals
+const WHISTLE_COOLDOWN: f32 = 4.5;     // seconds between whistle casts
+const WHISTLE_RING_SPEED: f32 = 1000.0; // how fast the sonic front sweeps outward (px/s)
+const WHISTLE_MAX_RADIUS: f32 = 360.0; // reach of the pulse — crabs inside it get yanked in
+const WHISTLE_PULL_SPEED: f32 = 240.0; // base inward speed applied to caught-in crabs (× type pull)
 
 struct GameSounds {
     intro_music: Source,
@@ -124,6 +129,12 @@ struct MainState {
     lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     lasso_timer: f32,                          // Time remaining on lasso flight
     lasso_target: Vec2,                        // Target position for lasso
+    // Whistle ability — a sonic pulse that yanks nearby crabs toward the player. Soft-counters
+    // skittish Sneaky crabs (strong pull) while heavy Big crabs barely budge (see CrabType::whistle_pull).
+    whistle_active: f32,                        // >0 while the ring is expanding (seconds remaining)
+    whistle_radius: f32,                        // current front radius of the expanding pulse
+    whistle_cooldown: f32,                      // >0 while on cooldown; whistle unusable until it hits 0
+    whistle_center: Vec2,                       // player center captured at cast time (ring origin)
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
@@ -297,6 +308,10 @@ impl MainState {
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
+            whistle_active: 0.0,
+            whistle_radius: 0.0,
+            whistle_cooldown: 0.0,
+            whistle_center: Vec2::ZERO,
             dash_just_fired: false,
             dash_flash: 0.0,
             screen_shake: 0.0,
@@ -925,6 +940,9 @@ impl MainState {
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
+        self.whistle_active = 0.0;
+        self.whistle_radius = 0.0;
+        self.whistle_cooldown = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.screen_shake = 0.0;
@@ -1023,7 +1041,7 @@ impl MainState {
 
         // Draw instructions text centered.
         let text = Text::new(
-            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\n\nPress Space or Enter to start.",
+            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\n\nPress Space or Enter to start.",
         );
         let text_width = text.measure(ctx)?.x;
         let text_height = text.measure(ctx)?.y;
@@ -1172,6 +1190,17 @@ impl MainState {
                 Color::from_rgba(255, 200, 100, alpha),
             )?;
             canvas.draw(&wave_circle, DrawParam::default().dest(player_center));
+        }
+
+        // Draw the whistle sonic pulse
+        if self.whistle_active > 0.0 && self.whistle_radius > 0.0 {
+            draw_whistle_ring(
+                ctx,
+                canvas,
+                self.whistle_center,
+                self.whistle_radius,
+                WHISTLE_MAX_RADIUS,
+            )?;
         }
 
         // Draw lasso line and tip
@@ -1328,6 +1357,41 @@ impl MainState {
             DrawParam::default()
                 .dest(Vec2::new(bar_x, bar_y - 22.0))
                 .color(Color::from_rgb(255, 255, 255)),
+        );
+
+        // Whistle cooldown bar (E) — fills back up to amber as it recharges, ready when full.
+        let wbar_y = bar_y + bar_height + 26.0;
+        let wbar_h = 12.0;
+        let ready = self.whistle_cooldown <= 0.0;
+        let charge = (1.0 - self.whistle_cooldown / WHISTLE_COOLDOWN).clamp(0.0, 1.0);
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, wbar_y))
+                .scale(Vec2::new(bar_width, wbar_h))
+                .color(Color::from_rgb(40, 40, 40)),
+        );
+        let (wr, wg, wb) = if ready { (255, 210, 90) } else { (150, 110, 40) };
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, wbar_y))
+                .scale(Vec2::new(bar_width * charge, wbar_h))
+                .color(Color::from_rgb(wr, wg, wb)),
+        );
+        let wborder = cached_stroke_rect(ctx, bar_width, wbar_h, 2.0)?;
+        canvas.draw(
+            &wborder,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, wbar_y))
+                .color(Color::from_rgb(255, 255, 255)),
+        );
+        let wlabel = Text::new(if ready { "Whistle (E) READY" } else { "Whistle (E)" });
+        canvas.draw(
+            &wlabel,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x + bar_width + 8.0, wbar_y - 2.0))
+                .color(Color::from_rgb(255, 230, 150)),
         );
 
         // Show current level at the bottom center.
@@ -1773,6 +1837,9 @@ impl EventHandler for MainState {
                 self.boost_cooldown = 0.0;
             }
         }
+        if self.whistle_cooldown > 0.0 {
+            self.whistle_cooldown = (self.whistle_cooldown - dt).max(0.0);
+        }
         if self.dash_flash > 0.0 {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
@@ -1857,6 +1924,36 @@ impl EventHandler for MainState {
                             crab.vel = toward * speed;
                         }
                     }
+                }
+            }
+        }
+
+        // Whistle: an expanding sonic pulse from the player that yanks free crabs inward. The pull
+        // strength is per-archetype (CrabType::whistle_pull) so it's the go-to tool for skittish
+        // Sneaky crabs but only nudges the heavy Big ones — a soft counter, never a hard requirement.
+        if self.whistle_active > 0.0 {
+            self.whistle_active = (self.whistle_active - dt).max(0.0);
+            self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(WHISTLE_MAX_RADIUS);
+            let center = self.whistle_center;
+            for crab in &mut self.crabs {
+                if crab.caught {
+                    continue;
+                }
+                let pull = crab.crab_type.whistle_pull();
+                if pull <= 0.0 {
+                    continue; // boss shrugs it off entirely
+                }
+                let dist = center.distance(crab.pos);
+                // Only crabs the sweeping front has already passed get grabbed this frame.
+                if dist < self.whistle_radius {
+                    let toward = (center - crab.pos).normalize_or_zero();
+                    // Stronger yank the closer the crab is, scaled by its archetype's susceptibility.
+                    let proximity = 1.0 - (dist / WHISTLE_MAX_RADIUS).clamp(0.0, 1.0);
+                    let speed = WHISTLE_PULL_SPEED * pull * (0.5 + proximity * 0.5);
+                    crab.vel = toward * speed;
+                    // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
+                    crab.spooked_timer = crab.spooked_timer.max(0.6);
+                    crab.fleeing = false;
                 }
             }
         }

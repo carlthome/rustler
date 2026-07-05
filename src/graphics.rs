@@ -1555,6 +1555,56 @@ pub fn draw_fear_rings(
     Ok(())
 }
 
+/// Draw the expanding sonic ring of the Whistle ability — a warm double-pulse that sweeps out from
+/// the player and yanks nearby crabs in. `radius` is the current front, `max_radius` its reach;
+/// alpha fades as the front nears its limit so the ring dissolves rather than snapping off.
+pub fn draw_whistle_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    max_radius: f32,
+) -> ggez::GameResult {
+    if radius <= 0.0 {
+        return Ok(());
+    }
+    let frac = (radius / max_radius).clamp(0.0, 1.0);
+    let fade = 1.0 - frac; // bright at the cast, gone by full reach
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Leading edge — bright amber, like a horn blast made visible.
+    let thickness = (6.0 * fade + 1.5).max(1.5);
+    let front = cached_stroke_circle(ctx, radius, thickness)?;
+    canvas.draw(
+        &front,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.82, 0.35, (fade * 0.9).clamp(0.0, 1.0))),
+    );
+
+    // A couple of trailing echo rings for a "wub" of concentric pulses chasing the front.
+    for (offset, alpha_scale) in [(26.0_f32, 0.45_f32), (54.0_f32, 0.22_f32)] {
+        let er = radius - offset;
+        if er > 2.0 {
+            let echo = cached_stroke_circle(ctx, er, thickness * 0.7)?;
+            canvas.draw(
+                &echo,
+                DrawParam::default().dest(center).color(Color::new(
+                    1.0,
+                    0.7,
+                    0.3,
+                    (fade * alpha_scale).clamp(0.0, 1.0),
+                )),
+            );
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw a pulsing attraction halo around a crab that is inside the flashlight beam.
 /// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
 pub fn draw_attracted_crab_glow(

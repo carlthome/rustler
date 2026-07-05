@@ -29,6 +29,20 @@ impl CrabType {
             CrabType::Boss => 18.0..34.0, // slow and lumbering
         }
     }
+    /// How strongly the Whistle ability yanks this crab toward the player — a soft counter, not a
+    /// hard requirement. Every archetype still moves at least a little (nothing is whistle-immune
+    /// except the boss), but the whistle is *the* tool for gathering skittish Sneaky crabs, while
+    /// heavy Big crabs barely budge and are better handled with the lasso/flashlight.
+    pub fn whistle_pull(&self) -> f32 {
+        match self {
+            CrabType::Sneaky => 1.5, // evasive and light — folds hard to a whistle
+            CrabType::Normal => 1.0,
+            CrabType::Fast => 0.85, // squirrely, harder to herd cleanly
+            CrabType::Big => 0.4,   // armored and heavy — shrugs most of it off
+            CrabType::Boss => 0.0,  // the King Crab is unshakeable
+        }
+    }
+
     pub fn scale_range(&self) -> std::ops::RangeInclusive<f32> {
         match self {
             CrabType::Normal => 0.28..=0.48,
