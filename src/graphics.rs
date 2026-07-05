@@ -238,10 +238,29 @@ pub struct ParticleSystem {
     pub particles: Vec<Particle>,
 }
 
+// Hard ceiling on live particles. Several emitters (beat pulses, conga dust) scale their
+// spawn rate with conga-chain length, which grows unbounded over a long run — without a cap,
+// a big train can pile up thousands of live sparkles and tank frame time even though each
+// individual draw call is cheap on its own. Capping here (instead of per-emitter) keeps every
+// effect's look identical for normal-sized trains and only kicks in once the screen is already
+// visually saturated with particles, so it reads as "same effect" rather than "less effect."
+const MAX_PARTICLES: usize = 900;
+
 impl ParticleSystem {
     pub fn new() -> Self {
         Self {
             particles: Vec::new(),
+        }
+    }
+
+    /// Push a particle unless the live-particle budget is already spent. Newest triggers (the
+    /// catch/beat/dash the player just caused) matter most, so once at the cap we simply drop
+    /// further spawns for this frame rather than evicting older ones — cheaper than a shift,
+    /// and anything dropped would already be buried in the crowd.
+    #[inline]
+    pub(crate) fn push(&mut self, particle: Particle) {
+        if self.particles.len() < MAX_PARTICLES {
+            self.particles.push(particle);
         }
     }
 
@@ -251,6 +270,7 @@ impl ParticleSystem {
             CrabType::Fast => (35, 120.0..300.0, 2.0..5.0, true), // More particles, faster
             CrabType::Big => (40, 60.0..150.0, 4.0..10.0, false), // Larger particles
             CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
+            CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
         };
         
@@ -271,7 +291,7 @@ impl ParticleSystem {
                 (crab_color[2] + color_variation + brightness_boost).clamp(0.0, 1.0),
             ];
             
-            self.particles.push(Particle {
+            self.push(Particle {
                 pos,
                 vel,
                 life,
@@ -302,7 +322,7 @@ impl ParticleSystem {
                     _ => [1.0, 1.0, 0.9],
                 };
                 
-                self.particles.push(Particle {
+                self.push(Particle {
                     pos,
                     vel,
                     life,
@@ -320,7 +340,7 @@ impl ParticleSystem {
                 let life = rng.random_range(0.4..0.8);
                 let size = rng.random_range(1.5..4.0);
                 
-                self.particles.push(Particle {
+                self.push(Particle {
                     pos,
                     vel,
                     life,
@@ -349,7 +369,7 @@ impl ParticleSystem {
             let vel = Vec2::new(spread_angle.cos(), spread_angle.sin()) * spread_dist
                 - velocity * 0.08;
             let life = rng.random_range(0.12..0.30);
-            self.particles.push(Particle {
+            self.push(Particle {
                 pos: pos + Vec2::new(
                     rng.random_range(-5.0..5.0),
                     rng.random_range(-5.0..5.0),
@@ -391,7 +411,7 @@ impl ParticleSystem {
         let life = rng.random_range(0.30..0.6);
         // Warm sandy tone; drawn additively so keep it dim — reads as a soft haze, not a blob.
         let shade = rng.random_range(0.0..0.08);
-        self.particles.push(Particle {
+        self.push(Particle {
             pos: pos + Vec2::new(rng.random_range(-4.0..4.0), rng.random_range(-3.0..3.0)),
             vel,
             life,
@@ -412,7 +432,7 @@ impl ParticleSystem {
             let life = rng.random_range(0.18_f32..0.40_f32);
             // Cyan-white colour with slight variation
             let g = rng.random_range(0.85_f32..1.0_f32);
-            self.particles.push(Particle {
+            self.push(Particle {
                 pos: pos + Vec2::new(rng.random_range(-6.0_f32..6.0_f32), rng.random_range(-6.0_f32..6.0_f32)),
                 vel: dir * speed,
                 life,
@@ -441,7 +461,7 @@ impl ParticleSystem {
                 let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
                 let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
                 let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
-                self.particles.push(Particle {
+                self.push(Particle {
                     pos: center,
                     vel: dir * speed,
                     life,
@@ -470,7 +490,7 @@ impl ParticleSystem {
             let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
             let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
             let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
-            self.particles.push(Particle {
+            self.push(Particle {
                 pos: center,
                 vel,
                 life,
@@ -493,7 +513,7 @@ impl ParticleSystem {
             } else {
                 [1.0, 0.95, 0.3] // bright yellow
             };
-            self.particles.push(Particle {
+            self.push(Particle {
                 pos: center,
                 vel,
                 life,
