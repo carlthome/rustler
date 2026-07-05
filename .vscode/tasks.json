@@ -2,13 +2,16 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Crab Rustler: session bootstrap reminder",
+      "label": "Crab Rustler: auto-bootstrap game-dev loop",
       "type": "shell",
       "command": "bash",
       "args": [
         "-c",
-        "echo ''; echo '🦀 Crab Rustler session ready.'; echo '   Tell Claude Code: \"bootstrap\" to start the game-dev loop, release judge, and Slack crons.'; echo '   (See CLAUDE.md for the full bootstrap instructions.)'; echo ''"
+        "unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION; exec ~/.local/bin/claude --dangerously-skip-permissions 'bootstrap'"
       ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "runOptions": {
         "runOn": "folderOpen"
       },
@@ -17,7 +20,7 @@
         "panel": "dedicated",
         "showReuseMessage": false
       },
-      "isBackground": false,
+      "isBackground": true,
       "problemMatcher": []
     },
     {
@@ -26,7 +29,7 @@
       "command": "nix",
       "args": [
         "develop",
-        "/home/carl/Repos/carlthome/rustler",
+        "${workspaceFolder}",
         "--command",
         "./target/debug/rustler"
       ],
@@ -42,7 +45,7 @@
       "command": "nix",
       "args": [
         "develop",
-        "/home/carl/Repos/carlthome/dotfiles#rustler",
+        "${workspaceFolder}",
         "--command",
         "cargo",
         "build"
