@@ -114,6 +114,8 @@ struct MainState {
     beat_intensity: f32,
     music_intensity: f32,
     on_beat_flash: f32,
+    groove: f32,         // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
+    beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
     floating_texts: FloatingTextSystem,
@@ -306,6 +308,8 @@ impl MainState {
             beat_intensity: 0.0,
             music_intensity: 0.0,
             on_beat_flash: 0.0,
+            groove: 0.0,
+            beat_streak: 0,
             music_layers,
             catch_radius_upgrade: 0.0,
             floating_texts: FloatingTextSystem::new(),
@@ -505,10 +509,28 @@ impl MainState {
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
                     || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW;
+                let bonus;
                 if on_beat {
-                    self.on_beat_flash = 0.25;
+                    // On-beat catch: build the groove. Consecutive on-beat catches escalate the
+                    // score bonus and fill the groove meter, which in turn swells the music.
+                    self.beat_streak += 1;
+                    self.groove = (self.groove + 0.22).min(1.0);
+                    bonus = self.beat_streak.min(5) as usize;
+                    self.on_beat_flash = (0.25 + self.beat_streak as f32 * 0.06).min(0.6);
+                    if self.beat_streak >= 3 {
+                        self.floating_texts.spawn(
+                            format!("GROOVE x{}!", self.beat_streak),
+                            self.player_pos - Vec2::new(0.0, 80.0),
+                            34.0,
+                            [0.4, 1.0, 0.85, 1.0],
+                        );
+                    }
+                } else {
+                    // Off-beat catch breaks the streak and drains the groove.
+                    self.beat_streak = 0;
+                    self.groove = (self.groove - 0.3).max(0.0);
+                    bonus = 0;
                 }
-                let bonus = if on_beat { 1 } else { 0 };
                 let pos = crab.pos;
                 let player_pos = self.player_pos;
                 // Inline register_catch to avoid &mut self conflict with the crabs loop
@@ -945,6 +967,8 @@ impl MainState {
         self.beat_intensity = 0.0;
         self.music_intensity = 0.0;
         self.on_beat_flash = 0.0;
+        self.groove = 0.0;
+        self.beat_streak = 0;
         self.catch_radius_upgrade = 0.0;
         self.floating_texts.texts.clear();
         self.combo_count = 0;
@@ -1471,6 +1495,61 @@ impl MainState {
         let beat_center = Vec2::new(width - 50.0, 50.0);
         draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
 
+        // Groove meter (top center) — fills as you catch crabs on the beat, glowing and
+        // pulsing to the beat once you're in the pocket. Rewards rhythmic play at a glance.
+        if self.groove > 0.01 {
+            let gw = 260.0;
+            let gh = 14.0;
+            let gx = (width - gw) / 2.0;
+            let gy = 16.0;
+            let maxed = self.groove >= 0.999;
+            let pulse = if maxed { self.beat_intensity * 0.5 } else { 0.0 };
+            // Background track
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(gx, gy))
+                    .scale(Vec2::new(gw, gh))
+                    .color(Color::from_rgba(20, 24, 30, 200)),
+            );
+            // Fill — cyan when building, shifting to hot magenta/gold as it tops out.
+            let t = self.groove;
+            let r = 0.25 + t * 0.75;
+            let g = 0.95 - t * 0.35;
+            let b = 0.85 - t * 0.35;
+            let bright = 1.0 + pulse;
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(gx, gy))
+                    .scale(Vec2::new(gw * t, gh))
+                    .color(Color::new((r * bright).min(1.0), (g * bright).min(1.0), (b * bright).min(1.0), 1.0)),
+            );
+            // Border
+            let gborder = cached_stroke_rect(ctx, gw, gh, 2.0)?;
+            canvas.draw(
+                &gborder,
+                DrawParam::default()
+                    .dest(Vec2::new(gx, gy))
+                    .color(Color::from_rgba(255, 255, 255, if maxed { 255 } else { 160 })),
+            );
+            // Label
+            let (ltext, lcol) = if maxed {
+                ("IN THE GROOVE!", Color::from_rgb(255, 240, 120))
+            } else {
+                ("GROOVE", Color::from_rgba(200, 230, 240, 200))
+            };
+            let mut glabel = Text::new(ltext);
+            glabel.set_scale(16.0);
+            let glw = glabel.measure(ctx)?.x;
+            canvas.draw(
+                &glabel,
+                DrawParam::default()
+                    .dest(Vec2::new((width - glw) / 2.0, gy + gh + 3.0))
+                    .color(lcol),
+            );
+        }
+
         // Dash flash — cyan burst when Space is pressed
         if self.dash_flash > 0.0 {
             let alpha = (self.dash_flash * 130.0) as u8;
@@ -1875,8 +1954,16 @@ impl EventHandler for MainState {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
         }
 
-        // Music intensity increases with score
-        let target_intensity = (self.score as f32 / 30.0).min(1.0);
+        // Groove meter decays over time; when it empties the on-beat streak lapses too.
+        if self.groove > 0.0 {
+            self.groove = (self.groove - dt * 0.18).max(0.0);
+            if self.groove <= 0.0 {
+                self.beat_streak = 0;
+            }
+        }
+
+        // Music intensity rises with score, and surges while the player is in the groove.
+        let target_intensity = ((self.score as f32 / 30.0) + self.groove * 0.4).min(1.0);
         self.music_intensity += (target_intensity - self.music_intensity) * dt * 0.3;
 
         if self.shake_timer > 0.0 {
