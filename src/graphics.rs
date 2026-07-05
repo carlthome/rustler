@@ -286,6 +286,44 @@ impl ParticleSystem {
         }
     }
 
+    /// Kick up a small warm dust puff from a conga-train crab's feet as it scuttles along.
+    /// Called once per caught crab per frame; internally throttled so the emission rate is
+    /// framerate-independent and only fires while the crab is actually moving. Because every
+    /// crab in the train emits, a longer conga line kicks up a bigger, more spectacular cloud
+    /// — the visual payoff scales with how many crabs you've caught. `move_delta` is the crab's
+    /// per-frame position change; `dt` the frame time.
+    pub fn spawn_conga_dust(&mut self, pos: Vec2, move_delta: Vec2, dt: f32, rng: &mut impl Rng) {
+        let dt = dt.max(1e-4);
+        let speed = move_delta.length() / dt;
+        if speed < 40.0 {
+            return;
+        }
+        // ~10-18 puffs/sec per crab, a touch faster the quicker it's moving. Probability per
+        // frame = rate * dt, so total emission is stable regardless of FPS.
+        let rate = (10.0 + speed * 0.02).min(18.0);
+        if rng.random::<f32>() > rate * dt {
+            return;
+        }
+        let back = -move_delta.normalize_or_zero();
+        let perp = Vec2::new(-back.y, back.x);
+        // Mostly backward, with a little sideways scatter and a gentle upward kick so the puff
+        // rises before the particle system's gravity settles it back down.
+        let vel = back * rng.random_range(15.0..45.0)
+            + perp * rng.random_range(-18.0..18.0)
+            + Vec2::new(0.0, rng.random_range(-40.0..-15.0));
+        let life = rng.random_range(0.30..0.6);
+        // Warm sandy tone; drawn additively so keep it dim — reads as a soft haze, not a blob.
+        let shade = rng.random_range(0.0..0.08);
+        self.particles.push(Particle {
+            pos: pos + Vec2::new(rng.random_range(-4.0..4.0), rng.random_range(-3.0..3.0)),
+            vel,
+            life,
+            max_life: life,
+            size: rng.random_range(2.5..3.9),
+            color: [0.34 + shade, 0.28 + shade, 0.20 + shade],
+        });
+    }
+
     pub fn spawn_dash_burst(&mut self, pos: Vec2, move_dir: Vec2, rng: &mut impl Rng) {
         // shoot particles mostly backward from the movement direction, spread into a fan
         let back = if move_dir.length() > 0.1 { -move_dir.normalize() } else { Vec2::new(0.0, 1.0) };

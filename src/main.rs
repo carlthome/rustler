@@ -675,11 +675,16 @@ impl MainState {
                 })
             })
             .collect();
+        let mut dust_rng = rand::rng();
         for (i, target) in targets {
             let old_pos = self.crabs[i].pos;
             self.crabs[i].pos = old_pos.lerp(target, 0.4);
             // Rotate caught crab toward the direction it just moved
             let move_dir = self.crabs[i].pos - old_pos;
+            // Kick up a little dust from the crab's feet as the conga train stampedes along.
+            let feet = self.crabs[i].pos + Vec2::new(0.0, CRAB_SIZE * 0.35);
+            self.particle_system
+                .spawn_conga_dust(feet, move_dir, dt, &mut dust_rng);
             if move_dir.length() > 0.5 {
                 let target_angle = move_dir.y.atan2(move_dir.x);
                 let mut d = target_angle - self.crabs[i].facing_angle;
