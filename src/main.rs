@@ -24,10 +24,10 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::EnemyCrab;
 use crate::graphics::{
-    FloatingTextSystem, ParticleSystem, draw_attracted_crab_glow, draw_beat_indicator,
-    draw_catch_shockwaves, draw_chain_rings, draw_combo_meter, draw_conga_rope, draw_crab,
-    draw_crab_radar, draw_flashlight, draw_floating_texts, draw_grass, draw_particles,
-    draw_rustler,
+    FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
+    draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings, draw_combo_meter,
+    draw_conga_rope, draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts,
+    draw_grass, draw_particles, draw_rustler, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -891,13 +891,12 @@ impl MainState {
         // Subtle beat pulse: a green flash on every downbeat
         if self.beat_intensity > 0.0 {
             let pulse_alpha = (self.beat_intensity * 28.0) as u8;
-            let pulse = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(0.0, 0.0, width, height),
-                Color::from_rgba(80, 255, 80, pulse_alpha),
-            )?;
-            canvas.draw(&pulse, DrawParam::default());
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::from_rgba(80, 255, 80, pulse_alpha)),
+            );
         }
 
         // Collect chain crabs sorted by chain index
@@ -1104,45 +1103,45 @@ impl MainState {
         let cooldown_ratio = (self.boost_cooldown / max_cooldown).clamp(0.0, 1.0);
 
         // Draw background bar
-        let bg_bar = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(bar_x, bar_y, bar_width, bar_height),
-            Color::from_rgb(40, 40, 40),
-        )?;
-        canvas.draw(&bg_bar, DrawParam::default());
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, bar_y))
+                .scale(Vec2::new(bar_width, bar_height))
+                .color(Color::from_rgb(40, 40, 40)),
+        );
 
         // Draw boost timer (yellow)
         let ratio = ((max_boost - self.boost_timer) / max_boost).clamp(0.0, 1.0);
         if ratio > 0.0 {
-            let boost_bar = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(bar_x, bar_y, bar_width * ratio, bar_height),
-                Color::from_rgb(255, 220, 40),
-            )?;
-            canvas.draw(&boost_bar, DrawParam::default());
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, bar_y))
+                    .scale(Vec2::new(bar_width * ratio, bar_height))
+                    .color(Color::from_rgb(255, 220, 40)),
+            );
         }
 
         // Draw cooldown (red, overlays boost)
         if cooldown_ratio > 0.0 {
-            let cooldown_bar = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(bar_x, bar_y, bar_width * cooldown_ratio, bar_height),
-                Color::from_rgb(220, 60, 60),
-            )?;
-            canvas.draw(&cooldown_bar, DrawParam::default());
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, bar_y))
+                    .scale(Vec2::new(bar_width * cooldown_ratio, bar_height))
+                    .color(Color::from_rgb(220, 60, 60)),
+            );
         }
 
         // Draw stamina bar border
-        let border = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::stroke(2.0),
-            Rect::new(bar_x, bar_y, bar_width, bar_height),
-            Color::from_rgb(255, 255, 255),
-        )?;
-        canvas.draw(&border, DrawParam::default());
+        let border = cached_stroke_rect(ctx, bar_width, bar_height, 2.0)?;
+        canvas.draw(
+            &border,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, bar_y))
+                .color(Color::from_rgb(255, 255, 255)),
+        );
 
         // Draw label
         let label = Text::new("Stamina (Space)");
@@ -1212,25 +1211,23 @@ impl MainState {
         // Dash flash — cyan burst when Space is pressed
         if self.dash_flash > 0.0 {
             let alpha = (self.dash_flash * 130.0) as u8;
-            let flash = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(0.0, 0.0, width, height),
-                Color::from_rgba(220, 240, 255, alpha),
-            )?;
-            canvas.draw(&flash, DrawParam::default());
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::from_rgba(220, 240, 255, alpha)),
+            );
         }
 
         // On-beat catch flash
         if self.on_beat_flash > 0.0 {
             let fa = (self.on_beat_flash * 180.0) as u8;
-            let flash = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(0.0, 0.0, width, height),
-                Color::from_rgba(255, 220, 80, fa),
-            )?;
-            canvas.draw(&flash, DrawParam::default());
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::from_rgba(255, 220, 80, fa)),
+            );
             let mut bonus_text = Text::new("ON BEAT! +1");
             bonus_text.set_scale(36.0);
             let btw = bonus_text.measure(ctx)?.x;

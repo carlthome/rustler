@@ -26,6 +26,13 @@ static UNIT_CIRCLE: OnceLock<Mesh> = OnceLock::new();
 // point of this game — was allocating hundreds of GPU meshes every frame.
 static UNIT_LINE: OnceLock<Mesh> = OnceLock::new();
 
+// A unit square (1x1, top-left corner at the origin), built once and reused for every
+// axis-aligned fill rectangle — level backgrounds, full-screen flashes, HUD/UI bars —
+// via `DrawParam::dest`+`scale`, instead of a fresh `Mesh::new_rectangle` GPU buffer on
+// every draw call. Several of these (the grass background, the stamina bar) get redrawn
+// every single frame regardless of whether any effect is active.
+static UNIT_SQUARE: OnceLock<Mesh> = OnceLock::new();
+
 thread_local! {
     // Cache of stroke-circle meshes keyed by (radius, thickness) quantized to the nearest
     // pixel/quarter-pixel. Ring-style effects (beat ghost rings, catch shockwaves, attraction
@@ -37,6 +44,11 @@ thread_local! {
     // same age every frame, so in practice one cache entry is reused by every ring in the chain
     // instead of the whole chain rebuilding a fresh GPU mesh each frame.
     static STROKE_CIRCLE_CACHE: RefCell<HashMap<(i32, i32), Mesh>> = RefCell::new(HashMap::new());
+
+    // Same idea as STROKE_CIRCLE_CACHE but for axis-aligned stroke rectangles (bar borders,
+    // panel outlines). Bounded in practice: only a handful of distinct UI element sizes ever
+    // get drawn, so this cache stays tiny for the life of the process.
+    static STROKE_RECT_CACHE: RefCell<HashMap<(i32, i32, i32), Mesh>> = RefCell::new(HashMap::new());
 }
 
 /// Fetch a cached stroke-circle mesh for the given radius/thickness (built once per rounded
@@ -61,6 +73,48 @@ fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez:
         Color::WHITE,
     )?;
     STROKE_CIRCLE_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Fetch the cached unit-square mesh (1x1, top-left corner at the origin), building it once
+/// on first use. Scale by `(w, h)` and set `.dest((x, y))` to place/size an axis-aligned fill
+/// rectangle without allocating a fresh mesh — the same trick `UNIT_CIRCLE`/`UNIT_LINE` use.
+/// Baked with `Color::WHITE`; tint via `DrawParam::color`.
+pub fn unit_square(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
+    match UNIT_SQUARE.get() {
+        Some(mesh) => Ok(mesh),
+        None => {
+            let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE)?;
+            Ok(UNIT_SQUARE.get_or_init(|| mesh))
+        }
+    }
+}
+
+/// Fetch a cached stroke-rectangle mesh for the given size/thickness (built once per rounded
+/// key, reused after that), instead of calling `Mesh::new_rectangle` fresh every draw. Baked at
+/// its actual size (not unit-scaled), since scaling would distort the stroke thickness the same
+/// way it would for a stroke circle — draw with `.dest((x, y))` only, no `.scale(..)`.
+pub fn cached_stroke_rect(ctx: &mut Context, w: f32, h: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+    let w = w.max(0.5);
+    let h = h.max(0.5);
+    let thickness = thickness.max(0.25);
+    let key = (
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        (thickness * 4.0).round() as i32,
+    );
+
+    if let Some(mesh) = STROKE_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rectangle(
+        ctx,
+        DrawMode::stroke(thickness),
+        Rect::new(0.0, 0.0, w, h),
+        Color::WHITE,
+    )?;
+    STROKE_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
 
@@ -426,13 +480,13 @@ pub fn draw_grass(
     time: f32,
 ) -> ggez::GameResult {
     let blend_mode = canvas.blend_mode();
-    let solid_bg = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(0.0, 0.0, width, height),
-        Color::from_rgb(0, 100, 0),
-    )?;
-    canvas.draw(&solid_bg, DrawParam::default());
+    let solid_bg = unit_square(ctx)?;
+    canvas.draw(
+        solid_bg,
+        DrawParam::default()
+            .scale(Vec2::new(width, height))
+            .color(Color::from_rgb(0, 100, 0)),
+    );
 
     // Draw a full-screen quad using the grass shader.
     let params = ShaderParamsBuilder::new(&ResolutionUniform {
