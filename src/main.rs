@@ -1878,6 +1878,23 @@ impl MainState {
         Ok(())
     }
 
+    /// Screen-space rectangles for the four upgrade cards, in card order (index 0 = card "1").
+    /// Shared by the draw code (hover highlight) and the mouse-click handler so they always agree.
+    fn upgrade_card_rects(&self) -> [Rect; 4] {
+        let w = self.width;
+        let h = self.height;
+        let card_w = 242.0_f32;
+        let card_h = 310.0_f32;
+        let gap = 18.0_f32;
+        let n = 4usize;
+        let total_w = n as f32 * card_w + (n - 1) as f32 * gap;
+        let x0 = (w - total_w) / 2.0;
+        let y0 = (h - card_h) / 2.0 + 15.0;
+        std::array::from_fn(|i| {
+            Rect::new(x0 + i as f32 * (card_w + gap), y0, card_w, card_h)
+        })
+    }
+
     fn draw_upgrade_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         let w = self.width;
         let h = self.height;
@@ -1897,6 +1914,14 @@ impl MainState {
             .dest(Vec2::new((w - tw) / 2.0, 58.0))
             .color(Color::from_rgb(255, 215, 50)));
 
+        // Subtitle: make it obvious the cards are clickable, not just number-key driven.
+        let mut hint = Text::new("Click a card or press its number");
+        hint.set_scale(20.0);
+        let hw = hint.measure(ctx)?.x;
+        canvas.draw(&hint, DrawParam::default()
+            .dest(Vec2::new((w - hw) / 2.0, 110.0))
+            .color(Color::from_rgba(210, 210, 210, 200)));
+
         // (key, icon, name, description, r, g, b)
         let cards: &[(&str, &str, &str, &str, u8, u8, u8)] = &[
             ("1", ">",  "Wider Cone",   "Flashlight sweeps\na broader arc",       255, 200,  40),
@@ -1905,17 +1930,15 @@ impl MainState {
             ("4", "O",  "Chain Reach",  "Catch crabs from\nfurther with chain",    60, 220, 100),
         ];
 
-        let card_w = 242.0_f32;
-        let card_h = 310.0_f32;
-        let gap    = 18.0_f32;
-        let total_w = cards.len() as f32 * card_w + (cards.len() - 1) as f32 * gap;
-        let x0 = (w - total_w) / 2.0;
-        let y0 = (h - card_h) / 2.0 + 15.0;
+        let rects = self.upgrade_card_rects();
+        let card_w = rects[0].w;
+        let card_h = rects[0].h;
 
         for (i, &(key, icon, name, desc, r, g, b)) in cards.iter().enumerate() {
-            let cx = x0 + i as f32 * (card_w + gap);
-            let hovered = self.mouse_pos.x >= cx && self.mouse_pos.x <= cx + card_w
-                && self.mouse_pos.y >= y0 && self.mouse_pos.y <= y0 + card_h;
+            let cx = rects[i].x;
+            let y0 = rects[i].y;
+            let m = self.mouse_pos;
+            let hovered = m.x >= cx && m.x <= cx + card_w && m.y >= y0 && m.y <= y0 + card_h;
 
             let accent = Color::from_rgb(r, g, b);
             let bg_a   = if hovered { 190u8 } else { 115u8 };
@@ -2549,7 +2572,24 @@ impl EventHandler for MainState {
         x: f32,
         y: f32,
     ) -> GameResult {
-        if self.game_over || self.show_instructions || self.pending_upgrade {
+        // Upgrade screen: let the player click a card as an alternative to the number keys.
+        if self.pending_upgrade {
+            if button == MouseButton::Left {
+                let window_size = ctx.gfx.window().inner_size();
+                let scale_x = window_size.width as f32 / self.width;
+                let scale_y = window_size.height as f32 / self.height;
+                let p = Vec2::new(x / scale_x, y / scale_y);
+                let rects = self.upgrade_card_rects();
+                for (i, r) in rects.iter().enumerate() {
+                    if p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h {
+                        self.apply_upgrade(i as u8 + 1);
+                        break;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        if self.game_over || self.show_instructions {
             return Ok(());
         }
         if button == MouseButton::Left && self.lasso_pos.is_none() {
