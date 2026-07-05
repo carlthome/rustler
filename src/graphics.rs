@@ -76,6 +76,14 @@ thread_local! {
     // draw-call batching. Buffering the geometry lets both passes run back-to-back with only
     // two blend-mode switches total, no matter how long the chain gets.
     static CONGA_SEGMENT_BUF: RefCell<Vec<(Vec2, f32, f32, [f32; 3])>> = RefCell::new(Vec::new());
+
+    // Cache of the lasso's spinning open-loop ring mesh, keyed by rounded (radius, thickness).
+    // Built once in local space (centered at the origin, sweeping `LASSO_LOOP_ARC_FRACTION` of a
+    // circle starting at angle 0) and reused every frame via `DrawParam::rotation` to spin it and
+    // `.dest` to place it at the lasso tip. The lasso is one of the most-used actions in the game
+    // (thrown on basically every catch attempt), and this ring used to rebuild a fresh 21-point
+    // Vec plus two fresh `Mesh::new_line` GPU buffers every single frame it was in flight.
+    static LASSO_LOOP_CACHE: RefCell<HashMap<(i32, i32), Mesh>> = RefCell::new(HashMap::new());
 }
 
 /// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
@@ -134,6 +142,37 @@ fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez:
         Color::WHITE,
     )?;
     STROKE_CIRCLE_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+// Fraction of a full circle the lasso's spinning loop covers (leaves a gap so it reads as an
+// open lasso loop rather than a closed ring). Shared between the mesh builder below and
+// `draw_lasso`'s doc comment.
+const LASSO_LOOP_ARC_FRACTION: f32 = 0.88;
+const LASSO_LOOP_SEGMENTS: usize = 20;
+
+/// Fetch a cached lasso-loop mesh for the given radius/thickness (built once per rounded key).
+/// The mesh is built in local space starting at angle 0 and sweeping `LASSO_LOOP_ARC_FRACTION`
+/// of a full circle — callers spin it by passing a `.rotation(spin)` `DrawParam` (rotating local
+/// points by `spin` around the origin reproduces the old per-frame `angle = spin + t*frac*TAU`
+/// computation exactly) and place it via `.dest(tip)`.
+fn cached_lasso_loop(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+    let radius = radius.max(0.5);
+    let thickness = thickness.max(0.25);
+    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32);
+
+    if let Some(mesh) = LASSO_LOOP_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let pts: Vec<[f32; 2]> = (0..=LASSO_LOOP_SEGMENTS)
+        .map(|s| {
+            let angle = (s as f32 / LASSO_LOOP_SEGMENTS as f32) * LASSO_LOOP_ARC_FRACTION * std::f32::consts::TAU;
+            [angle.cos() * radius, angle.sin() * radius]
+        })
+        .collect();
+    let mesh = Mesh::new_line(ctx, &pts, thickness, Color::WHITE)?;
+    LASSO_LOOP_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
 
@@ -1760,6 +1799,118 @@ pub fn draw_stomp_ring(
     );
 
     canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Draw the thrown lasso: the rope from the player to its tip, a catch-radius indicator ring
+/// that fades in as it extends, the spinning open-loop noose, and a bright knot at the tip.
+/// `outward_progress` is 0..1 (how far the throw has extended) and `spin` is the loop's current
+/// rotation in radians. All geometry here reuses cached meshes (`UNIT_LINE`/`UNIT_CIRCLE` scaled
+/// via `DrawParam`, plus the dedicated stroke-circle and lasso-loop caches) instead of building
+/// fresh `Mesh::new_line`/`Mesh::new_circle` GPU buffers every frame — the lasso is thrown on
+/// nearly every catch attempt, so this used to be several fresh mesh allocations a frame for as
+/// long as it stayed in flight.
+pub fn draw_lasso(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    player_center: Vec2,
+    tip: Vec2,
+    outward_progress: f32,
+    spin: f32,
+) -> ggez::GameResult {
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
+
+    let rope_delta = tip - player_center;
+    let rope_len = rope_delta.length();
+    if rope_len > 1.0 {
+        let rope_angle = rope_delta.y.atan2(rope_delta.x);
+
+        // Glowing rope: thick glow pass + thin bright pass
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(player_center)
+                .rotation(rope_angle)
+                .scale(Vec2::new(rope_len, 6.0))
+                .color(Color::from_rgba(230, 160, 30, 60)),
+        );
+        canvas.set_blend_mode(orig_blend);
+
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(player_center)
+                .rotation(rope_angle)
+                .scale(Vec2::new(rope_len, 2.5))
+                .color(Color::from_rgba(220, 160, 50, 220)),
+        );
+    }
+
+    // Catch-radius indicator ring (fades in as lasso extends)
+    let catch_r = 60.0_f32;
+    let ring_alpha = (outward_progress * 80.0) as u8;
+    if ring_alpha > 4 {
+        let catch_ring = cached_stroke_circle(ctx, catch_r, 1.5)?;
+        canvas.draw(
+            &catch_ring,
+            DrawParam::default()
+                .dest(tip)
+                .color(Color::from_rgba(255, 220, 80, ring_alpha)),
+        );
+    }
+
+    // Spinning lasso loop: an open ring (gap = open lasso) that spins as it flies and grows
+    // slightly as the throw extends.
+    let loop_r = 18.0 + outward_progress * 6.0;
+    let loop_glow = cached_lasso_loop(ctx, loop_r, 8.0)?;
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    canvas.draw(
+        &loop_glow,
+        DrawParam::default()
+            .dest(tip)
+            .rotation(spin)
+            .color(Color::from_rgba(255, 200, 60, 80)),
+    );
+    canvas.set_blend_mode(orig_blend);
+    let loop_line = cached_lasso_loop(ctx, loop_r, 3.5)?;
+    canvas.draw(
+        &loop_line,
+        DrawParam::default()
+            .dest(tip)
+            .rotation(spin)
+            .color(Color::from_rgba(255, 210, 70, 230)),
+    );
+
+    // Bright center dot at the tip knot
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(tip)
+            .scale(Vec2::splat(5.0))
+            .color(Color::from_rgba(255, 240, 160, 240)),
+    );
+
     Ok(())
 }
 
