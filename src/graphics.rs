@@ -450,6 +450,40 @@ pub fn draw_rustler(
 }
 
 pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32) -> ggez::GameResult {
+    // Crabs previously rebuilt ~13 fresh GPU meshes every frame (shadow, body, 6 legs,
+    // 2 claws, 4 eye parts) via Mesh::new_circle/new_line/new_ellipse. With a long conga
+    // train this was easily 100+ mesh allocations per frame. Instead reuse the same cached
+    // unit-circle and unit-line meshes the particle system and conga rope already share,
+    // positioning/rotating/scaling them per-part via DrawParam instead of baking shape into
+    // fresh vertex buffers. A body-space offset that needs to rotate with the crab (claw
+    // and eye positions, leg roots) is rotated by hand via `rotate_offset` before being
+    // folded into `dest`, since DrawParam only applies one rotation after one translation.
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
+
+    let cos_r = rotation.cos();
+    let sin_r = rotation.sin();
+    // Rotates a body-local offset (x, y) by the crab's facing rotation, matching what the
+    // old per-part mesh + `.rotation(rotation)` draw used to do implicitly.
+    let rotate_offset = |x: f32, y: f32| Vec2::new(x * cos_r - y * sin_r, x * sin_r + y * cos_r);
+
     // Grow size with age
     let grow_t = (crab.spawn_time / 10.0).min(1.0);
     let base_size = CRAB_SIZE * (0.6 + 0.4 * grow_t) * crab.scale;
@@ -467,16 +501,16 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let shadow_offset_y = size * 0.35 + y_lift * 0.6;
     let shadow_offset_x = y_lift * 0.25;
     let shadow_alpha = ((1.0 - y_lift / 55.0) * 100.0).clamp(20.0, 100.0) as u8;
-    let shadow = Mesh::new_ellipse(
-        ctx,
-        DrawMode::fill(),
-        [shadow_offset_x, shadow_offset_y],
-        size * shadow_scale_x * 0.55,
-        size * shadow_scale_y * 0.55,
-        0.5,
-        Color::from_rgba(0, 0, 0, shadow_alpha),
-    )?;
-    canvas.draw(&shadow, DrawParam::default().dest(draw_pos));
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
+            .scale(Vec2::new(
+                size * shadow_scale_x * 0.55,
+                size * shadow_scale_y * 0.55,
+            ))
+            .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
+    );
 
     // Color: more red as crab ages, and different color for type
     let [r, g, b] = crab.crab_color();
@@ -487,18 +521,18 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     };
     let crab_color = Color::new((r + flash).min(1.0), (g + flash).min(1.0), (b + flash).min(1.0), 1.0);
 
-    // Crab body
-    let crab_body = Mesh::new_circle(
-        ctx,
-        DrawMode::fill(),
-        [0.0, 0.0],
-        size / 2.0,
-        0.5,
-        crab_color,
-    )?;
+    // Crab body (rotation-invariant, so no need to rotate the draw)
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos)
+            .scale(Vec2::splat(size / 2.0))
+            .color(crab_color),
+    );
 
-    // Crab legs (6 lines)
-    let mut leg_meshes = Vec::new();
+    // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
+    // the whole leg (root + direction) by the crab's facing is the same as just adding
+    // `rotation` to `angle` before computing everything in world space directly.
     let leg_len = size * 0.7;
     let leg_color = Color::from_rgb(200, 50, 50);
     for i in 0..6 {
@@ -508,42 +542,35 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
         let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
         let wiggle_amp = 0.18 + beat_phase * 0.12;
         let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
-        let angle = base_angle + wiggle;
-        let x1 = (size / 2.0) * angle.cos();
-        let y1 = (size / 2.0) * angle.sin();
-        let x2 = (size / 2.0 + leg_len) * angle.cos();
-        let y2 = (size / 2.0 + leg_len) * angle.sin();
-        let leg = Mesh::new_line(ctx, &[[x1, y1], [x2, y2]], 2.0, leg_color)?;
-        leg_meshes.push(leg);
+        let angle = base_angle + wiggle + rotation;
+        let root = draw_pos + Vec2::new(angle.cos(), angle.sin()) * (size / 2.0);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(root)
+                .rotation(angle)
+                .scale(Vec2::new(leg_len, 2.0))
+                .color(leg_color),
+        );
     }
 
     // Crab claws (small circles)
     let claw_offset = size * 0.7;
     let claw_radius = size * 0.18;
-    let left_claw = Mesh::new_circle(
-        ctx,
-        DrawMode::fill(),
-        [-(claw_offset), -(claw_offset * 0.3)],
-        claw_radius,
-        0.5,
-        crab_color,
-    )?;
-    let right_claw = Mesh::new_circle(
-        ctx,
-        DrawMode::fill(),
-        [claw_offset, -(claw_offset * 0.3)],
-        claw_radius,
-        0.5,
-        crab_color,
-    )?;
-
-    // Draw all parts at crab.pos
-    canvas.draw(&crab_body, DrawParam::default().dest(draw_pos).rotation(rotation));
-    for leg in &leg_meshes {
-        canvas.draw(leg, DrawParam::default().dest(draw_pos).rotation(rotation));
-    }
-    canvas.draw(&left_claw, DrawParam::default().dest(draw_pos).rotation(rotation));
-    canvas.draw(&right_claw, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3)))
+            .scale(Vec2::splat(claw_radius))
+            .color(crab_color),
+    );
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3)))
+            .scale(Vec2::splat(claw_radius))
+            .color(crab_color),
+    );
 
     // Eyes
     let eye_radius = size * 0.13;
@@ -560,14 +587,34 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     } else {
         (0.0, 0.0)
     };
-    let lw = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
-    let rw = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x, eye_y], eye_radius, 0.3, Color::WHITE)?;
-    let lp = Mesh::new_circle(ctx, DrawMode::fill(), [-eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
-    let rp = Mesh::new_circle(ctx, DrawMode::fill(), [eye_x + pdx, eye_y + pdy], pupil_r, 0.3, Color::BLACK)?;
-    canvas.draw(&lw, DrawParam::default().dest(draw_pos).rotation(rotation));
-    canvas.draw(&rw, DrawParam::default().dest(draw_pos).rotation(rotation));
-    canvas.draw(&lp, DrawParam::default().dest(draw_pos).rotation(rotation));
-    canvas.draw(&rp, DrawParam::default().dest(draw_pos).rotation(rotation));
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(-eye_x, eye_y))
+            .scale(Vec2::splat(eye_radius))
+            .color(Color::WHITE),
+    );
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(eye_x, eye_y))
+            .scale(Vec2::splat(eye_radius))
+            .color(Color::WHITE),
+    );
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(-eye_x + pdx, eye_y + pdy))
+            .scale(Vec2::splat(pupil_r))
+            .color(Color::BLACK),
+    );
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(draw_pos + rotate_offset(eye_x + pdx, eye_y + pdy))
+            .scale(Vec2::splat(pupil_r))
+            .color(Color::BLACK),
+    );
 
     Ok(())
 }
