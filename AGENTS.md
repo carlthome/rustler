@@ -5,13 +5,13 @@
 Always build inside the nix dev shell — `cargo` is not on the system PATH:
 
 ```sh
-nix develop /home/carl/Repos/carlthome/rustler --command cargo build
+nix develop . --command cargo build
 ```
 
-> **Note:** Use `nix develop /home/carl/Repos/carlthome/rustler` (the game repo's own flake),
-> not the dotfiles flake. The game flake's `shellHook` sets `LD_LIBRARY_PATH` and
-> `VK_ICD_FILENAMES` so the game binary can find the Vulkan/Wayland graphics stack.
-> The dotfiles flake uses a pinned GitHub commit and won't pick up local `default.nix` changes.
+> **Note:** Use `nix develop .` from the repo root (the game repo's own flake), not the
+> dotfiles flake. The game flake's `shellHook` sets `LD_LIBRARY_PATH` and `VK_ICD_FILENAMES`
+> so the game binary can find the Vulkan/Wayland graphics stack. The dotfiles flake uses a
+> pinned GitHub commit and won't pick up local `default.nix` changes.
 
 ## Parallel agent workflow
 
@@ -45,7 +45,7 @@ Add crab eyes with directional pupils
 **Always push after committing:**
 
 ```sh
-git -C /home/carl/Repos/carlthome/rustler push origin main
+git push origin main
 ```
 
 This keeps the remote in sync so the release pipeline can tag new versions.
