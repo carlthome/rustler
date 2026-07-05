@@ -153,6 +153,12 @@ struct MainState {
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
     fullscreen_applied: bool, // deferred until the first update tick, see update()
+    // Scratch buffers for catch_by_chain, reused every frame instead of being freshly
+    // allocated each call. The play area is fixed-size so the grid's cell count (and thus
+    // its Vec<usize> bucket count) stabilizes quickly — clearing beats rebuilding from scratch.
+    chain_positions_buf: Vec<Vec2>,
+    catch_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    caught_now_buf: Vec<bool>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -339,6 +345,9 @@ impl MainState {
             fear_rings: Vec::new(),
             zoom_punch: 0.0,
             fullscreen_applied: false,
+            chain_positions_buf: Vec::new(),
+            catch_grid_buf: std::collections::HashMap::new(),
+            caught_now_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -682,54 +691,58 @@ impl MainState {
 
     fn catch_by_chain(&mut self, ctx: &mut Context) {
         let catch_radius = 45.0 + self.catch_radius_upgrade;
-        let chain_positions: Vec<Vec2> = self.crabs.iter()
-            .filter(|c| c.caught)
-            .map(|c| c.pos)
-            .collect();
-        if chain_positions.is_empty() {
+
+        self.chain_positions_buf.clear();
+        self.chain_positions_buf
+            .extend(self.crabs.iter().filter(|c| c.caught).map(|c| c.pos));
+        if self.chain_positions_buf.is_empty() {
             return;
         }
         // Bucket uncaught crabs into a spatial grid keyed by cell so each chain link only
         // tests the handful of crabs near it instead of the whole uncaught set. Without this,
         // the scan below is O(caught * uncaught) and gets noticeably slower as the conga
         // train — and the crab count — grow.
+        //
+        // The grid (and its per-cell Vec<usize> buckets) live in a persistent buffer and are
+        // cleared-and-refilled rather than reallocated every frame: the play area is a fixed
+        // size, so distinct cell keys stabilize almost immediately and this stops rebuilding a
+        // fresh HashMap plus dozens of small Vecs on every single tick.
         let cell_size = catch_radius.max(1.0);
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
-            std::collections::HashMap::new();
+        for bucket in self.catch_grid_buf.values_mut() {
+            bucket.clear();
+        }
         for (i, c) in self.crabs.iter().enumerate() {
             if c.is_catchable() {
-                grid.entry(cell_of(c.pos)).or_default().push(i);
+                self.catch_grid_buf.entry(cell_of(c.pos)).or_default().push(i);
             }
         }
         let catch_radius_sq = catch_radius * catch_radius;
-        let mut caught_now = vec![false; self.crabs.len()];
-        for &cp in &chain_positions {
+        self.caught_now_buf.clear();
+        self.caught_now_buf.resize(self.crabs.len(), false);
+        for &cp in &self.chain_positions_buf {
             let (cx, cy) = cell_of(cp);
             for dx in -1..=1 {
                 for dy in -1..=1 {
-                    if let Some(candidates) = grid.get(&(cx + dx, cy + dy)) {
+                    if let Some(candidates) = self.catch_grid_buf.get(&(cx + dx, cy + dy)) {
                         for &i in candidates {
-                            if !caught_now[i]
+                            if !self.caught_now_buf[i]
                                 && cp.distance_squared(self.crabs[i].pos) < catch_radius_sq
                             {
-                                caught_now[i] = true;
+                                self.caught_now_buf[i] = true;
                             }
                         }
                     }
                 }
             }
         }
-        let to_catch: Vec<usize> = caught_now
-            .iter()
-            .enumerate()
-            .filter(|&(_, &v)| v)
-            .map(|(i, _)| i)
-            .collect();
         let mut rng = rand::rng();
-        for i in to_catch {
+        for i in 0..self.caught_now_buf.len() {
+            if !self.caught_now_buf[i] {
+                continue;
+            }
             let pos = self.crabs[i].pos;
             let crab_type = self.crabs[i].crab_type;
             let crab_color = self.crabs[i].crab_color();
@@ -952,33 +965,29 @@ impl MainState {
             );
         }
 
-        // Move chain crabs to their historical positions (conga train)
-        let targets: Vec<(usize, Vec2)> = self.crabs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| {
-                c.chain_index.and_then(|ci| {
-                    let history_idx = (ci + 1) * CHAIN_LINK_FRAMES;
-                    self.position_history.get(history_idx).map(|&p| (i, p))
-                })
-            })
-            .collect();
+        // Move chain crabs to their historical positions (conga train). Walking self.crabs
+        // mutably and consulting self.position_history in the same pass (rather than
+        // collecting an intermediate Vec<(usize, Vec2)> of chain targets first) avoids a
+        // per-frame heap allocation that used to scale with conga chain length.
         let mut dust_rng = rand::rng();
-        for (i, target) in targets {
-            let old_pos = self.crabs[i].pos;
-            self.crabs[i].pos = old_pos.lerp(target, 0.4);
+        for crab in &mut self.crabs {
+            let Some(ci) = crab.chain_index else { continue };
+            let history_idx = (ci + 1) * CHAIN_LINK_FRAMES;
+            let Some(&target) = self.position_history.get(history_idx) else { continue };
+            let old_pos = crab.pos;
+            crab.pos = old_pos.lerp(target, 0.4);
             // Rotate caught crab toward the direction it just moved
-            let move_dir = self.crabs[i].pos - old_pos;
+            let move_dir = crab.pos - old_pos;
             // Kick up a little dust from the crab's feet as the conga train stampedes along.
-            let feet = self.crabs[i].pos + Vec2::new(0.0, CRAB_SIZE * 0.35);
+            let feet = crab.pos + Vec2::new(0.0, CRAB_SIZE * 0.35);
             self.particle_system
                 .spawn_conga_dust(feet, move_dir, dt, &mut dust_rng);
             if move_dir.length() > 0.5 {
                 let target_angle = move_dir.y.atan2(move_dir.x);
-                let mut d = target_angle - self.crabs[i].facing_angle;
+                let mut d = target_angle - crab.facing_angle;
                 while d > std::f32::consts::PI { d -= std::f32::consts::TAU; }
                 while d < -std::f32::consts::PI { d += std::f32::consts::TAU; }
-                self.crabs[i].facing_angle += d * (dt * 6.0).min(1.0);
+                crab.facing_angle += d * (dt * 6.0).min(1.0);
             }
         }
     }
