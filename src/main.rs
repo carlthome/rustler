@@ -59,6 +59,13 @@ thread_local! {
     // `levels.len()` entries for the life of the process, same pattern as the mesh caches in
     // graphics.rs.
     static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());
+
+    // Cache for the top-left "Score / Train / Combo" HUD line. draw_game runs every frame but
+    // takes &self, so — same as LEVEL_LABEL_CACHE above — this lives in a thread_local RefCell
+    // rather than a struct field. Keyed by the actual (score, chain_len, combo_count, mult)
+    // tuple so the fresh `format!` String + `Text` (glyph shaping) only gets rebuilt when one of
+    // those values actually changes, not on every one of the ~60 frames between catches.
+    static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
 }
 
 struct GameSounds {
@@ -1552,21 +1559,39 @@ impl MainState {
             canvas.draw(&knot, DrawParam::default().dest(tip));
         }
 
-        // Show stats.
-        let chain_len = self.crabs.iter().filter(|c| c.caught).count();
-        let hud = if self.combo_count >= 3 {
-            let mult = self.combo_multiplier();
-            format!("Score: {}  |  Train: {}  |  Combo x{}  [{}x pts]", self.score, chain_len, self.combo_count, mult)
-        } else {
-            format!("Score: {}  |  Train: {}", self.score, chain_len)
-        };
-        let text = Text::new(hud);
-        canvas.draw(
-            &text,
-            DrawParam::default()
-                .dest(Vec2::new(10.0, 10.0))
-                .color(Color::from_rgb(255, 255, 00)),
-        );
+        // Show stats. The HUD line (score/train/combo) only changes on catch/combo events, not
+        // every tick, so cache the built Text and only rebuild it (fresh format! String + fresh
+        // Text, which re-triggers glyph shaping) when the underlying values actually differ from
+        // last frame's — same pattern as the per-level label cache above. Also use the
+        // already-maintained self.chain_count instead of re-scanning every crab for `.caught`
+        // every frame just to display the same number (crabs are never removed from the vec —
+        // caught state only flips via chain_count-tracked catches/snaps — so the two stay in
+        // sync).
+        let chain_len = self.chain_count;
+        let mult = if self.combo_count >= 3 { self.combo_multiplier() } else { 0 };
+        HUD_TEXT_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = match &*cache {
+                Some((s, cl, cc, m, _)) => {
+                    *s != self.score || *cl != chain_len || *cc != self.combo_count || *m != mult
+                }
+                None => true,
+            };
+            if needs_rebuild {
+                let hud = if self.combo_count >= 3 {
+                    format!("Score: {}  |  Train: {}  |  Combo x{}  [{}x pts]", self.score, chain_len, self.combo_count, mult)
+                } else {
+                    format!("Score: {}  |  Train: {}", self.score, chain_len)
+                };
+                *cache = Some((self.score, chain_len, self.combo_count, mult, Text::new(hud)));
+            }
+            canvas.draw(
+                &cache.as_ref().unwrap().4,
+                DrawParam::default()
+                    .dest(Vec2::new(10.0, 10.0))
+                    .color(Color::from_rgb(255, 255, 00)),
+            );
+        });
 
         // Draw stamina bar for boost timer/cooldown
         let bar_x = 10.0;
