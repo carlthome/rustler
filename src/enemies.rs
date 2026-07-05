@@ -1,5 +1,15 @@
 use ggez::glam::Vec2;
 
+/// King Crab charge state machine. Only the Boss archetype ever leaves `Idle`: it roams toward
+/// the conga train, `Winding` up a telegraphed charge, then `Charging` in a locked direction that
+/// scatters the tail of the train on contact. Every other crab stays `Idle` forever.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BossCharge {
+    Idle,          // roaming (or not a boss)
+    Winding(f32),  // telegraphing the charge; f32 = seconds of wind-up remaining
+    Charging(f32), // lunging along a locked heading; f32 = seconds of lunge remaining
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CrabType {
     Normal,
@@ -89,6 +99,8 @@ pub struct EnemyCrab {
     pub in_flashlight: bool, // true while crab is inside the flashlight cone being attracted
     pub startle_timer: f32,  // >0 while bolting away after a nearby catch spooked it (stampede ripple)
     pub boss_health: f32,    // >0 while a boss still needs wearing down under the beam; 0 for regular crabs
+    pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
+    pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
 }
 
 impl EnemyCrab {

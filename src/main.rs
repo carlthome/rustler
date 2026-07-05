@@ -22,7 +22,7 @@ use rand::prelude::IndexedRandom;
 use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
-use crate::enemies::EnemyCrab;
+use crate::enemies::{BossCharge, EnemyCrab};
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings,
@@ -42,6 +42,12 @@ const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 const BOSS_MAX_HEALTH: f32 = 3.0; // seconds of sustained flashlight needed to wear a King Crab down
 const BOSS_DRAIN_RATE: f32 = 1.0; // boss health drained per second while held in the beam
 const BOSS_SCORE_INTERVAL: usize = 40; // score gap between successive King Crab arrivals
+// King Crab charge: it periodically lunges at the conga train to scatter the tail.
+const BOSS_CHARGE_COOLDOWN: f32 = 4.5; // roam time between charges
+const BOSS_WINDUP_TIME: f32 = 0.85;    // telegraph duration before a charge fires
+const BOSS_CHARGE_TIME: f32 = 0.65;    // how long the lunge lasts
+const BOSS_CHARGE_SPEED: f32 = 540.0;  // px/s during the lunge (far faster than it roams)
+const BOSS_CHARGE_ARM_RANGE: f32 = 430.0; // only wind up when the train is within striking range
 const WHISTLE_COOLDOWN: f32 = 4.5;     // seconds between whistle casts
 const WHISTLE_RING_SPEED: f32 = 1000.0; // how fast the sonic front sweeps outward (px/s)
 const WHISTLE_MAX_RADIUS: f32 = 360.0; // reach of the pulse — crabs inside it get yanked in
@@ -536,12 +542,19 @@ impl MainState {
         else {
             return;
         };
-        // Did a panicking wild crab just run into the tail?
+        // Did a panicking wild crab — or a King Crab mid-lunge — just slam into the tail?
         let hit = self.crabs.iter().any(|c| {
-            !c.caught
-                && !c.is_boss()
-                && (c.fleeing || c.startle_timer > 0.0)
-                && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST
+            if c.caught {
+                return false;
+            }
+            if c.is_boss() {
+                // A charging King Crab plows through the tail; its bulk gives it a wider reach.
+                matches!(c.charge_state, BossCharge::Charging(_))
+                    && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST + c.scale * CRAB_SIZE * 0.5
+            } else {
+                (c.fleeing || c.startle_timer > 0.0)
+                    && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST
+            }
         });
         if !hit {
             return;
@@ -912,8 +925,118 @@ impl MainState {
         let mut armor_broke: Vec<Vec2> = Vec::new();
         // Sparkle particles for attracted crabs (collected to avoid borrow conflict)
         let mut attraction_particles: Vec<(Vec2, Vec2, f32, [f32; 3])> = Vec::new();
+        // King Crab charge telegraph events, collected to sidestep the &mut self.crabs borrow.
+        let mut boss_windups: Vec<Vec2> = Vec::new();                 // a charge just started winding up
+        let mut boss_launches: Vec<Vec2> = Vec::new();               // a wound-up charge just fired
+        let mut boss_charge_dust: Vec<(Vec2, Vec2)> = Vec::new();     // (pos, vel) trail while lunging
+
+        // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
+        // player. Computed before the mutable loop so the boss branch can read it freely.
+        let chain_tail_pos = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.is_some())
+            .max_by_key(|c| c.chain_index)
+            .map(|c| c.pos);
+        let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
 
         for crab in &mut self.crabs {
+            // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
+            if crab.is_boss() && !crab.caught {
+                crab.spawn_time += dt;
+                let distance = self.player_pos.distance(crab.pos);
+                let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
+                let angle_to_crab = flashlight_dir.angle_between(to_crab).abs();
+                let crab_in_light = self.flashlight.on
+                    && distance < flashlight_range
+                    && angle_to_crab < flashlight_cone_angle;
+                crab.in_flashlight = crab_in_light;
+
+                // Wearing it down under the beam is unchanged — the beam is still how you catch it.
+                if crab.boss_health > 0.0 && crab_in_light {
+                    crab.boss_health -= BOSS_DRAIN_RATE * dt;
+                    if crab.boss_health <= 0.0 {
+                        crab.boss_health = 0.0;
+                        boss_broke.push(crab.pos);
+                    }
+                }
+
+                // Charge state machine. Holding the beam can't cancel a wind-up — the counterplay is
+                // to move the train out of the lane, which is exactly the "route and protect" tension
+                // a long conga line should carry.
+                match crab.charge_state {
+                    BossCharge::Idle => {
+                        if crab.charge_cooldown > 0.0 {
+                            crab.charge_cooldown -= dt;
+                        }
+                        // Lumber toward the train so it stays a closing threat.
+                        let dir = (charge_target - crab.pos).normalize_or_zero();
+                        crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
+                        crab.pos += crab.vel * dt;
+                        // Arm a charge once it's rested, the train is worth scattering, and in range.
+                        if crab.charge_cooldown <= 0.0
+                            && self.chain_count >= 3
+                            && crab.pos.distance(charge_target) < BOSS_CHARGE_ARM_RANGE
+                        {
+                            crab.charge_state = BossCharge::Winding(BOSS_WINDUP_TIME);
+                            boss_windups.push(crab.pos);
+                        }
+                    }
+                    BossCharge::Winding(t) => {
+                        let nt = t - dt;
+                        // Rear back: nearly stop and lean away from the target to sell the wind-up.
+                        let away = (crab.pos - charge_target).normalize_or_zero();
+                        crab.vel = crab.vel.lerp(away * crab.speed * 0.7, 0.15);
+                        crab.pos += crab.vel * dt;
+                        crab.charge_state = if nt <= 0.0 {
+                            // Lock the heading at launch and commit.
+                            let mut dir = (charge_target - crab.pos).normalize_or_zero();
+                            if dir == Vec2::ZERO {
+                                dir = Vec2::new(0.0, 1.0);
+                            }
+                            crab.vel = dir * BOSS_CHARGE_SPEED;
+                            boss_launches.push(crab.pos);
+                            BossCharge::Charging(BOSS_CHARGE_TIME)
+                        } else {
+                            BossCharge::Winding(nt)
+                        };
+                    }
+                    BossCharge::Charging(t) => {
+                        let nt = t - dt;
+                        crab.pos += crab.vel * dt; // vel stays locked to the launch heading
+                        boss_charge_dust.push((crab.pos, crab.vel));
+                        crab.charge_state = if nt <= 0.0 {
+                            crab.charge_cooldown = BOSS_CHARGE_COOLDOWN;
+                            crab.vel *= 0.15; // skid to a halt out of the lunge
+                            BossCharge::Idle
+                        } else {
+                            BossCharge::Charging(nt)
+                        };
+                    }
+                }
+
+                // Bounce off the arena walls just like the herd.
+                let (width, height) = area;
+                if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
+                    crab.vel.x = -crab.vel.x;
+                    crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
+                }
+                if crab.pos.y < 0.0 || crab.pos.y > height - crab.scale {
+                    crab.vel.y = -crab.vel.y;
+                    crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
+                }
+                // Smoothly rotate to face travel direction.
+                let speed = crab.vel.length();
+                if speed > 5.0 {
+                    let target_angle = crab.vel.y.atan2(crab.vel.x);
+                    let mut delta = target_angle - crab.facing_angle;
+                    while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                    while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                    crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                }
+                continue;
+            }
+
             if !crab.caught {
                 crab.spawn_time += dt;
 
@@ -1080,6 +1203,53 @@ impl MainState {
             self.spawn_catch_shockwave(pos, [1.0, 0.85, 0.3]);
             self.screen_shake = self.screen_shake.max(14.0);
             self.on_beat_flash = self.on_beat_flash.max(0.4);
+        }
+
+        // King Crab winding up a charge: red alarm ring + shouted warning so the player has time
+        // to route the tail out of the lane before the lunge commits.
+        for pos in boss_windups {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "CHARGE INCOMING!".to_string(),
+                pos - Vec2::new(96.0, 52.0),
+                30.0,
+                [1.0, 0.45, 0.2, 1.0],
+            );
+            self.on_beat_flash = self.on_beat_flash.max(0.25);
+        }
+
+        // The lunge fires: a jolt and a hot shockwave sell the commitment.
+        for pos in boss_launches {
+            self.spawn_catch_shockwave(pos, [1.0, 0.5, 0.2]);
+            self.screen_shake = self.screen_shake.max(10.0);
+            let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 8.0 * 60.0;
+        }
+
+        // Dust kicked up behind the charging boss — sprayed opposite the lunge heading.
+        {
+            let mut rng = rand::rng();
+            for (pos, vel) in boss_charge_dust {
+                if rng.random_range(0.0_f32..1.0_f32) >= dt * 90.0 {
+                    continue; // throttle so a long lunge doesn't flood the particle pool
+                }
+                let back = (-vel).normalize_or_zero();
+                let perp = Vec2::new(-back.y, back.x);
+                let spread = rng.random_range(-0.5_f32..0.5_f32);
+                let dir = (back + perp * spread).normalize_or_zero();
+                let speed = rng.random_range(50.0_f32..140.0_f32);
+                let life = rng.random_range(0.3_f32..0.6_f32);
+                self.particle_system.push(crate::graphics::Particle {
+                    pos,
+                    vel: dir * speed,
+                    life,
+                    max_life: life,
+                    size: rng.random_range(2.0_f32..4.5_f32),
+                    color: [0.85, 0.7, 0.5],
+                });
+            }
         }
 
         // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare
