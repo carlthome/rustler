@@ -129,8 +129,10 @@ fn cached_stroke_arc(
 /// Fetch a cached stroke-circle mesh for the given radius/thickness (built once per rounded
 /// key, reused after that), instead of calling `Mesh::new_circle` fresh every draw. The mesh is
 /// baked with `Color::WHITE` — callers should tint it via `DrawParam::color`, exactly like the
-/// existing `UNIT_CIRCLE`/`UNIT_LINE` fill meshes.
-fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+/// existing `UNIT_CIRCLE`/`UNIT_LINE` fill meshes. Public so one-off ring effects driven from
+/// main.rs (e.g. the beat-wave expanding outline) can reuse it instead of building a fresh
+/// `Mesh::new_circle` every frame they're active.
+pub fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
     let radius = radius.max(0.5);
     let thickness = thickness.max(0.25);
     let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32);
@@ -194,6 +196,76 @@ pub fn unit_square(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
             Ok(UNIT_SQUARE.get_or_init(|| mesh))
         }
     }
+}
+
+/// Fetch the cached unit-line mesh (a 1x1 rect centered on the x-axis, spanning x in [0,1]),
+/// building it once on first use. Place a line segment of `length`/`thickness` from `origin` in
+/// direction `dir` via `.dest(origin).rotation(dir.y.atan2(dir.x)).scale((length, thickness))`
+/// instead of calling `Mesh::new_line` fresh every draw — the same trick `UNIT_CIRCLE`/
+/// `UNIT_SQUARE` use. Baked with `Color::WHITE`; tint via `DrawParam::color`.
+pub fn unit_line(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
+    match UNIT_LINE.get() {
+        Some(mesh) => Ok(mesh),
+        None => {
+            let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, -0.5, 1.0, 1.0), Color::WHITE)?;
+            Ok(UNIT_LINE.get_or_init(|| mesh))
+        }
+    }
+}
+
+/// Draw the dash speed-line wake trailing behind the player: a small fan of short streaks in
+/// the direction the player just came from, brighter the more recently the dash started. Reuses
+/// the cached unit-line mesh (scaled/rotated per streak via `DrawParam`) instead of building a
+/// fresh `Mesh::new_line` GPU buffer per streak per frame — this used to be up to 7 fresh line
+/// allocations every single frame for the whole dash window.
+pub fn draw_speed_lines(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    last_dir: Vec2,
+    intensity: f32,
+) -> ggez::GameResult {
+    if last_dir.length() < 0.01 {
+        return Ok(());
+    }
+    let line = unit_line(ctx)?;
+    let wake = -last_dir.normalize();
+    let angle = wake.y.atan2(wake.x);
+    let perp = Vec2::new(-wake.y, wake.x);
+    let alpha = (intensity.clamp(0.0, 1.0) * 110.0) as u8;
+    for i in 0i32..7 {
+        let t = (i as f32 - 3.0) / 3.0;
+        let origin = center + perp * (t * 14.0);
+        let length = 20.0 + (3.0 - (i as f32 - 3.0).abs()) * 8.0;
+        canvas.draw(
+            line,
+            DrawParam::default()
+                .dest(origin)
+                .rotation(angle)
+                .scale(Vec2::new(length, 1.5))
+                .color(Color::from_rgba(190, 215, 255, alpha)),
+        );
+    }
+    Ok(())
+}
+
+/// Draw the beat-wave's expanding ring outline. Reuses `cached_stroke_circle` instead of
+/// building a fresh `Mesh::new_circle` GPU buffer every frame the wave is expanding.
+pub fn draw_beat_wave_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+) -> ggez::GameResult {
+    let alpha = ((1.0 - radius / 300.0).clamp(0.0, 1.0) * 150.0) as u8;
+    let ring = cached_stroke_circle(ctx, radius, 3.0)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::from_rgba(255, 200, 100, alpha)),
+    );
+    Ok(())
 }
 
 /// Fetch a cached stroke-rectangle mesh for the given size/thickness (built once per rounded

@@ -25,10 +25,11 @@ use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, EnemyCrab};
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
-    draw_armor_ring, draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings,
+    draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_particles, draw_rustler, draw_stomp_ring, draw_tide_pools, draw_whistle_ring, unit_square,
+    draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_whistle_ring,
+    unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -1772,23 +1773,13 @@ impl MainState {
             self.boost_timer > 0.0,
         )?;
 
-        // Speed lines trailing behind player while dashing
+        // Speed lines trailing behind player while dashing. Uses the cached unit-line mesh
+        // (see draw_speed_lines) instead of building up to 7 fresh Mesh::new_line GPU buffers
+        // every single frame of the dash window.
         if self.boost_timer > 0.0 && self.last_dir.length() > 0.01 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            let wake = -self.last_dir.normalize();
-            let perp = Vec2::new(-wake.y, wake.x);
             let intensity = self.boost_timer / 0.18;
-            for i in 0i32..7 {
-                let t = (i as f32 - 3.0) / 3.0;
-                let origin = center + perp * (t * 14.0);
-                let length = 20.0 + (3.0 - (i as f32 - 3.0).abs()) * 8.0;
-                let end = origin + wake * length;
-                let alpha = (intensity * 110.0) as u8;
-                let line = Mesh::new_line(ctx,
-                    &[[origin.x, origin.y], [end.x, end.y]],
-                    1.5, Color::from_rgba(190, 215, 255, alpha))?;
-                canvas.draw(&line, DrawParam::default());
-            }
+            draw_speed_lines(ctx, canvas, center, self.last_dir, intensity)?;
         }
 
         // Calculate flashlight direction from player to mouse.
@@ -1835,19 +1826,11 @@ impl MainState {
             self.time_elapsed,
         )?;
 
-        // Draw beat wave circle outline
+        // Draw beat wave circle outline. Uses cached_stroke_circle (via draw_beat_wave_ring)
+        // instead of building a fresh Mesh::new_circle GPU buffer every frame the wave expands.
         if self.beat_wave_active && self.beat_wave_radius > 0.0 {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            let alpha = ((1.0 - self.beat_wave_radius / 300.0) * 150.0) as u8;
-            let wave_circle = Mesh::new_circle(
-                ctx,
-                ggez::graphics::DrawMode::stroke(3.0),
-                [0.0, 0.0],
-                self.beat_wave_radius,
-                1.0,
-                Color::from_rgba(255, 200, 100, alpha),
-            )?;
-            canvas.draw(&wave_circle, DrawParam::default().dest(player_center));
+            draw_beat_wave_ring(ctx, canvas, player_center, self.beat_wave_radius)?;
         }
 
         // Draw the whistle sonic pulse
