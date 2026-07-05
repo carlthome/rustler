@@ -27,8 +27,8 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_particles,
-    draw_rustler, draw_stomp_ring, draw_whistle_ring, unit_square,
+    draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
+    draw_particles, draw_rustler, draw_stomp_ring, draw_whistle_ring, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -55,6 +55,7 @@ const WHISTLE_PULL_SPEED: f32 = 240.0; // base inward speed applied to caught-in
 const STOMP_COOLDOWN: f32 = 3.0;       // seconds between ground-pound Stomps
 const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (px/s)
 const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
+const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
 
 thread_local! {
     // Cache for the persistent bottom-of-screen "Level N: Title / description" label. Its text
@@ -81,6 +82,32 @@ thread_local! {
     static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
     static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
     static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+}
+
+/// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
+/// good stride from `avoid` (usually the player) so banking always means routing the train across
+/// open ground rather than the pen landing in your lap.
+fn pick_pen_pos(width: f32, height: f32, avoid: Vec2, rng: &mut impl rand::Rng) -> Vec2 {
+    let margin = PEN_RADIUS + 60.0;
+    let min_dist = 320.0;
+    let mut best = Vec2::new(width * 0.5, height * 0.5);
+    let mut best_dist = -1.0;
+    for _ in 0..12 {
+        let candidate = Vec2::new(
+            rng.random_range(margin..(width - margin)),
+            rng.random_range(margin..(height - margin)),
+        );
+        let d = candidate.distance(avoid);
+        if d >= min_dist {
+            return candidate;
+        }
+        // Fall back to the farthest candidate we saw if none clears the threshold.
+        if d > best_dist {
+            best_dist = d;
+            best = candidate;
+        }
+    }
+    best
 }
 
 struct GameSounds {
@@ -191,6 +218,12 @@ struct MainState {
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next King Crab boss arrives
+    // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
+    // the whole train for a super-linear score payout (longer train = disproportionately more) and
+    // reset the chain, closing the risk/reward loop the chain-snap risk opened. The pen relocates
+    // each level so routing the train there stays a fresh decision.
+    pen_pos: Vec2,                       // center of the delivery pen on the field
+    deliver_flash: f32,                  // 1..0 bloom timer after a successful bank (visual only)
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
@@ -388,6 +421,8 @@ impl MainState {
             chain_snap_cooldown: 0.0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
+            pen_pos: pick_pen_pos(width, height, player_pos + Vec2::splat(PLAYER_SIZE / 2.0), &mut rand::rng()),
+            deliver_flash: 0.0,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             fear_rings: Vec::new(),
@@ -687,6 +722,65 @@ impl MainState {
             self.beat_intensity = (self.beat_intensity + 1.5).min(2.0);
             self.on_beat_flash = 0.5;
         }
+    }
+
+    /// Cash in the train: if the player has a conga line and drives its head into the delivery pen,
+    /// bank the whole train for a super-linear score payout (each extra crab is worth more than the
+    /// last, so a longer, riskier train pays off disproportionately), then clear the chain and
+    /// relocate the pen. This is the "bank now vs. push your luck" beat that closes the risk/reward
+    /// loop chain-snap opened.
+    fn try_deliver_train(&mut self, ctx: &mut Context) {
+        if self.chain_count == 0 {
+            return;
+        }
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        if player_center.distance(self.pen_pos) > PEN_RADIUS {
+            return;
+        }
+
+        // How many crabs are actually banking (defensive count in case any wild state drifted).
+        let delivered = self.crabs.iter().filter(|c| c.caught).count().max(self.chain_count);
+        if delivered == 0 {
+            return;
+        }
+
+        // Super-linear payout: triangular sum so crab #n adds n points, times a flat handler.
+        let n = delivered;
+        let bank = (n * (n + 1) / 2) * 3;
+        self.score += bank;
+
+        // The delivered crabs leave the field for good — they've been penned.
+        self.crabs.retain(|c| !c.caught);
+        self.chain_count = 0;
+        self.next_milestone = 5;
+
+        // Big celebratory feedback so banking feels like a real payoff, not just a number ticking.
+        let mut rng = rand::rng();
+        self.particle_system.spawn_milestone_fireworks(self.pen_pos, n, &mut rng);
+        self.spawn_catch_shockwave(self.pen_pos, [0.5, 1.0, 0.5]);
+        self.floating_texts.spawn(
+            format!("BANKED +{}", bank),
+            self.pen_pos - Vec2::new(60.0, 40.0),
+            48.0,
+            [0.4, 1.0, 0.5, 1.0],
+        );
+        self.floating_texts.spawn(
+            format!("{} crabs delivered!", n),
+            self.pen_pos - Vec2::new(70.0, 4.0),
+            26.0,
+            [1.0, 0.95, 0.6, 1.0],
+        );
+        self.deliver_flash = 1.0;
+        self.zoom_punch = self.zoom_punch.max(0.11);
+        self.screen_shake = self.screen_shake.max(18.0);
+        let kick_angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 18.0 * 60.0;
+        self.on_beat_flash = 0.6;
+        self.groove = (self.groove + 0.35).min(1.0);
+        let _ = self.sounds.success2.play_detached(ctx);
+
+        // Move the pen so the next bank is a fresh routing decision, not a treadmill loop.
+        self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rng);
     }
 
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
@@ -1331,6 +1425,9 @@ impl MainState {
             self.current_pattern = 0;
             self.level_title = level.title.clone();
             self.level_title_timer = 1.0;
+            // Fresh biome, fresh pen location — keep routing the train there a live decision.
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rand::rng());
         }
         if self.current_level >= self.levels.len() {
             // Game completed, show game over screen.
@@ -1389,6 +1486,13 @@ impl MainState {
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
+        self.deliver_flash = 0.0;
+        self.pen_pos = pick_pen_pos(
+            self.width,
+            self.height,
+            player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+            &mut rand::rng(),
+        );
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
         self.fear_rings.clear();
@@ -1534,6 +1638,19 @@ impl MainState {
                     .color(Color::from_rgba(pr, pg, pb, pulse_alpha)),
             );
         }
+
+        // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
+        // into it. Lights up green once there's a train to bank (chain_count > 0).
+        draw_delivery_pen(
+            ctx,
+            canvas,
+            self.pen_pos,
+            PEN_RADIUS,
+            self.time_elapsed,
+            self.beat_intensity,
+            self.chain_count > 0,
+            self.deliver_flash,
+        )?;
 
         // Collect chain crabs sorted by chain index
         let mut chain_crabs: Vec<&EnemyCrab> = self.crabs
@@ -2467,6 +2584,12 @@ impl EventHandler for MainState {
 
         // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
         self.snap_chain_on_panic();
+
+        // Cash in the train: drive the conga head into the delivery pen to bank it for score.
+        self.try_deliver_train(ctx);
+        if self.deliver_flash > 0.0 {
+            self.deliver_flash = (self.deliver_flash - dt * 1.6).max(0.0);
+        }
 
         // Decay join_pulse ripple timers
         for crab in &mut self.crabs {

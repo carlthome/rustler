@@ -1858,6 +1858,143 @@ pub fn draw_stomp_ring(
     Ok(())
 }
 
+/// Draw the delivery pen — the "bank your train" corral the player drives the conga line into.
+/// A warm gold goal-zone disc ringed by slowly-turning buoy posts, with a bobbing chevron beacon
+/// marking the drop-off. It's dormant-but-visible with no train, and lights up (brighter fill,
+/// faster pulse, a green "GO" halo) once the player has crabs to bank. `flash` (0..1, decaying)
+/// blooms a bright celebratory ring right after a delivery lands. All geometry reuses the shared
+/// cached circle/line meshes, so this costs a handful of tinted draws — no per-frame allocation.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_delivery_pen(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    time: f32,
+    beat_intensity: f32,
+    ready: bool,
+    flash: f32,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
+
+    // Breathing pulse — gentle when idle, urgent when there's a train to bank.
+    let pulse_speed = if ready { 6.0 } else { 2.2 };
+    let pulse = 0.5 + 0.5 * (time * pulse_speed).sin();
+    let beat = beat_intensity.clamp(0.0, 1.0);
+
+    // Warm goal-zone fill (normal blend so it reads as a marked patch of ground, not a glow).
+    let fill_alpha = if ready { 0.16 + 0.12 * pulse } else { 0.08 + 0.04 * pulse };
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(center)
+            .scale(Vec2::splat(radius))
+            .color(Color::new(1.0, 0.82, 0.28, fill_alpha)),
+    );
+
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Outer boundary ring — the "fence line" of the pen. Greenish + brighter when ready to bank.
+    let (rr, rg, rb) = if ready { (0.5, 1.0, 0.5) } else { (1.0, 0.82, 0.35) };
+    let ring_alpha = if ready { 0.55 + 0.35 * pulse } else { 0.3 + 0.15 * pulse };
+    let boundary = cached_stroke_circle(ctx, radius, 3.0)?;
+    canvas.draw(
+        &boundary,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(rr, rg, rb, ring_alpha.clamp(0.0, 1.0))),
+    );
+    // Inner accent ring, breathing on the beat.
+    let inner = cached_stroke_circle(ctx, radius * 0.7, 1.5)?;
+    canvas.draw(
+        &inner,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(rr, rg, rb, (0.2 + beat * 0.5) * 0.6)),
+    );
+
+    // Buoy posts around the rim, slowly turning like a rotating corral.
+    let post_count = 10;
+    let spin = time * if ready { 0.9 } else { 0.35 };
+    for i in 0..post_count {
+        let ang = spin + (i as f32 / post_count as f32) * std::f32::consts::TAU;
+        let p = center + Vec2::new(ang.cos(), ang.sin()) * radius;
+        let post_r = 4.0 + 1.5 * pulse;
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(p)
+                .scale(Vec2::splat(post_r))
+                .color(Color::new(rr, rg, rb, (0.6 + beat * 0.4).clamp(0.0, 1.0))),
+        );
+    }
+
+    // Bobbing chevron beacon above the pen pointing down into it — "deliver here".
+    let bob = (time * (if ready { 4.0 } else { 2.0 })).sin() * 6.0;
+    let apex = center + Vec2::new(0.0, -radius - 26.0 + bob);
+    let wing = 13.0;
+    let drop = 15.0;
+    let bright = (0.7 + 0.3 * pulse).clamp(0.0, 1.0);
+    let beacon_col = Color::new(rr, rg, rb, bright);
+    for side in [-1.0f32, 1.0] {
+        let tip = apex + Vec2::new(side * wing, drop);
+        let d = tip - apex;
+        let len = d.length();
+        let angle = d.y.atan2(d.x);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(apex)
+                .rotation(angle)
+                .scale(Vec2::new(len, 4.0))
+                .color(beacon_col),
+        );
+    }
+
+    // Delivery bloom — a bright expanding ring right after a successful bank.
+    if flash > 0.0 {
+        let f = flash.clamp(0.0, 1.0);
+        let burst_r = radius * (1.0 + (1.0 - f) * 1.4);
+        let burst = cached_stroke_circle(ctx, burst_r, 4.0 + f * 8.0)?;
+        canvas.draw(
+            &burst,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(0.6, 1.0, 0.6, f)),
+        );
+        // Full-zone gold flare fading out.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius))
+                .color(Color::new(1.0, 0.9, 0.4, f * 0.4)),
+        );
+    }
+
+    canvas.set_blend_mode(orig_blend);
+    Ok(())
+}
+
 /// Draw the thrown lasso: the rope from the player to its tip, a catch-radius indicator ring
 /// that fades in as it extends, the spinning open-loop noose, and a bright knot at the tip.
 /// `outward_progress` is 0..1 (how far the throw has extended) and `spin` is the loop's current
