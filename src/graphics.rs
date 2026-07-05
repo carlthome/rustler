@@ -77,6 +77,12 @@ thread_local! {
     // two blend-mode switches total, no matter how long the chain gets.
     static CONGA_SEGMENT_BUF: RefCell<Vec<(Vec2, f32, f32, [f32; 3])>> = RefCell::new(Vec::new());
 
+    // Scratch buffer for `draw_conga_rope`'s player->crab0->crab1->... waypoint list, persisted
+    // and cleared each frame instead of a fresh `Vec::with_capacity` allocation. Grows with chain
+    // length just like CONGA_SEGMENT_BUF above, so on a long train this was a real per-frame heap
+    // allocation on top of the (already-fixed) segment buffer.
+    static CONGA_WAYPOINT_BUF: RefCell<Vec<Vec2>> = RefCell::new(Vec::new());
+
     // Cache of the lasso's spinning open-loop ring mesh, keyed by rounded (radius, thickness).
     // Built once in local space (centered at the origin, sweeping `LASSO_LOOP_ARC_FRACTION` of a
     // circle starting at angle 0) and reused every frame via `DrawParam::rotation` to spin it and
@@ -1229,98 +1235,102 @@ pub fn draw_conga_rope(
 
     // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
-    let mut waypoints: Vec<Vec2> = Vec::with_capacity(chain_crabs.len() + 1);
-    waypoints.push(player_center);
-    for crab in chain_crabs {
-        waypoints.push(crab.pos);
-    }
 
     // Total chain length for hue mapping
     let total_links = chain_crabs.len() as f32;
 
-    CONGA_SEGMENT_BUF.with(|buf| -> ggez::GameResult {
-        let mut segs = buf.borrow_mut();
-        segs.clear();
+    CONGA_WAYPOINT_BUF.with(|wbuf| -> ggez::GameResult {
+        let mut waypoints = wbuf.borrow_mut();
+        waypoints.clear();
+        waypoints.push(player_center);
+        for crab in chain_crabs {
+            waypoints.push(crab.pos);
+        }
 
-        for (link_idx, window) in waypoints.windows(2).enumerate() {
-            let start = window[0];
-            let end = window[1];
-            let dist = start.distance(end);
-            if dist < 1.0 {
-                continue;
-            }
+        CONGA_SEGMENT_BUF.with(|buf| -> ggez::GameResult {
+            let mut segs = buf.borrow_mut();
+            segs.clear();
 
-            // Unit vectors along and perpendicular to this link
-            let along = (end - start) / dist;
-            let perp = Vec2::new(-along.y, along.x);
-
-            // Hue for this link (rainbow along the chain)
-            let hue = (link_idx as f32 / total_links.max(1.0) + time * 0.12) % 1.0;
-
-            // Subdivide into SEGS micro-segments
-            let mut prev_point = start;
-            for seg in 0..=SEGS {
-                let t = seg as f32 / SEGS as f32;
-
-                // Travelling sine wave: phase depends on position-along-rope + time
-                let phase = t * std::f32::consts::TAU * 1.5
-                    + link_idx as f32 * 0.9
-                    - time * wave_speed;
-                let offset = perp * wiggle_amp * phase.sin();
-                let point = start.lerp(end, t) + offset;
-
-                if seg > 0 {
-                    // Rainbow color for this micro-segment
-                    let seg_hue = (hue + t * 0.08) % 1.0;
-                    let r = ((seg_hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
-                    let g = (2.0 - (seg_hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
-                    let b = (2.0 - (seg_hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
-                    // Slightly boost saturation/brightness
-                    let boost = 0.35;
-                    let rr = (r + boost).min(1.0);
-                    let gg = (g + boost).min(1.0);
-                    let bb = (b + boost).min(1.0);
-
-                    let seg_delta = point - prev_point;
-                    let seg_len = seg_delta.length();
-                    if seg_len > 0.5 {
-                        let seg_angle = seg_delta.y.atan2(seg_delta.x);
-                        segs.push((prev_point, seg_angle, seg_len, [rr, gg, bb]));
-                    }
+            for (link_idx, window) in waypoints.windows(2).enumerate() {
+                let start = window[0];
+                let end = window[1];
+                let dist = start.distance(end);
+                if dist < 1.0 {
+                    continue;
                 }
-                prev_point = point;
+
+                // Unit vectors along and perpendicular to this link
+                let along = (end - start) / dist;
+                let perp = Vec2::new(-along.y, along.x);
+
+                // Hue for this link (rainbow along the chain)
+                let hue = (link_idx as f32 / total_links.max(1.0) + time * 0.12) % 1.0;
+
+                // Subdivide into SEGS micro-segments
+                let mut prev_point = start;
+                for seg in 0..=SEGS {
+                    let t = seg as f32 / SEGS as f32;
+
+                    // Travelling sine wave: phase depends on position-along-rope + time
+                    let phase = t * std::f32::consts::TAU * 1.5
+                        + link_idx as f32 * 0.9
+                        - time * wave_speed;
+                    let offset = perp * wiggle_amp * phase.sin();
+                    let point = start.lerp(end, t) + offset;
+
+                    if seg > 0 {
+                        // Rainbow color for this micro-segment
+                        let seg_hue = (hue + t * 0.08) % 1.0;
+                        let r = ((seg_hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
+                        let g = (2.0 - (seg_hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
+                        let b = (2.0 - (seg_hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
+                        // Slightly boost saturation/brightness
+                        let boost = 0.35;
+                        let rr = (r + boost).min(1.0);
+                        let gg = (g + boost).min(1.0);
+                        let bb = (b + boost).min(1.0);
+
+                        let seg_delta = point - prev_point;
+                        let seg_len = seg_delta.length();
+                        if seg_len > 0.5 {
+                            let seg_angle = seg_delta.y.atan2(seg_delta.x);
+                            segs.push((prev_point, seg_angle, seg_len, [rr, gg, bb]));
+                        }
+                    }
+                    prev_point = point;
+                }
             }
-        }
 
-        // Pass 1: main rope segments, plain alpha blend (whatever the canvas is already using).
-        for &(pos, angle, len, rgb) in segs.iter() {
-            let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
-            canvas.draw(
-                unit_line,
-                DrawParam::default()
-                    .dest(pos)
-                    .rotation(angle)
-                    .scale(Vec2::new(len, thickness))
-                    .color(color),
-            );
-        }
+            // Pass 1: main rope segments, plain alpha blend (whatever the canvas is already using).
+            for &(pos, angle, len, rgb) in segs.iter() {
+                let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
+                canvas.draw(
+                    unit_line,
+                    DrawParam::default()
+                        .dest(pos)
+                        .rotation(angle)
+                        .scale(Vec2::new(len, thickness))
+                        .color(color),
+                );
+            }
 
-        // Pass 2: neon glow, additive blend switched on once for the whole rope instead of
-        // once per micro-segment.
-        canvas.set_blend_mode(BlendMode::ADD);
-        for &(pos, angle, len, rgb) in segs.iter() {
-            let glow_color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base * 0.35);
-            canvas.draw(
-                unit_line,
-                DrawParam::default()
-                    .dest(pos)
-                    .rotation(angle)
-                    .scale(Vec2::new(len, thickness * 2.2))
-                    .color(glow_color),
-            );
-        }
-        canvas.set_blend_mode(BlendMode::ALPHA);
-        Ok(())
+            // Pass 2: neon glow, additive blend switched on once for the whole rope instead of
+            // once per micro-segment.
+            canvas.set_blend_mode(BlendMode::ADD);
+            for &(pos, angle, len, rgb) in segs.iter() {
+                let glow_color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base * 0.35);
+                canvas.draw(
+                    unit_line,
+                    DrawParam::default()
+                        .dest(pos)
+                        .rotation(angle)
+                        .scale(Vec2::new(len, thickness * 2.2))
+                        .color(glow_color),
+                );
+            }
+            canvas.set_blend_mode(BlendMode::ALPHA);
+            Ok(())
+        })
     })
 }
 
