@@ -166,6 +166,7 @@ struct MainState {
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
     hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
     chain_join_ripple: bool,       // set true when any crab is caught this frame
+    chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next King Crab boss arrives
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
@@ -362,6 +363,7 @@ impl MainState {
             screen_shake_offset: Vec2::ZERO,
             hitstop_timer: 0.0,
             chain_join_ripple: false,
+            chain_snap_cooldown: 0.0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
             chain_rings: Vec::new(),
@@ -498,6 +500,91 @@ impl MainState {
                 [0.6, 0.9, 1.0, 1.0],
             );
         }
+    }
+
+    /// Chain-as-risk: the trailing end of the conga train is exposed and can be knocked loose.
+    /// Once the train is long enough to matter, a panicking wild crab (fleeing the beam or
+    /// mid-stampede) that barrels into the tail snaps the last few links free — they revert to the
+    /// wild and scatter outward. This flips the central mechanic from a pure-upside growing counter
+    /// into a moment-to-moment decision: a long conga line is now a bigger, more exposed target you
+    /// have to route around spooked herds and actively protect, and can lose the end of.
+    /// Self-limiting: short trains are immune, only the tail chunk goes (never the head), and a
+    /// cooldown means one brush can't strip the whole train in a single pass.
+    fn snap_chain_on_panic(&mut self) {
+        const MIN_TRAIN_TO_SNAP: usize = 5;        // short trains are safe — the risk only bites once you've invested
+        const SNAP_COLLIDE_DIST: f32 = CRAB_SIZE * 0.9;
+        const SNAP_LINKS: usize = 3;               // how many tail links a hit knocks loose
+        const SNAP_COOLDOWN: f32 = 1.6;            // grace period so a herd can't strip everything at once
+
+        if self.chain_snap_cooldown > 0.0 || self.chain_count < MIN_TRAIN_TO_SNAP {
+            return;
+        }
+        // The vulnerable end is the most-recently-caught crab (highest chain_index sits at the tail).
+        let tail_index = self.chain_count - 1;
+        let Some(tail_pos) = self
+            .crabs
+            .iter()
+            .find(|c| c.caught && c.chain_index == Some(tail_index))
+            .map(|c| c.pos)
+        else {
+            return;
+        };
+        // Did a panicking wild crab just run into the tail?
+        let hit = self.crabs.iter().any(|c| {
+            !c.caught
+                && !c.is_boss()
+                && (c.fleeing || c.startle_timer > 0.0)
+                && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST
+        });
+        if !hit {
+            return;
+        }
+
+        // Release the last SNAP_LINKS links — always leave at least the head crab attached.
+        let keep = self.chain_count.saturating_sub(SNAP_LINKS).max(1);
+        let snapped = self.chain_count - keep;
+        let mut snapped_positions: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            let Some(ci) = crab.chain_index else { continue };
+            if ci >= keep {
+                // Revert to the wild and bolt outward from the tail so the break reads clearly.
+                crab.caught = false;
+                crab.chain_index = None;
+                crab.fleeing = true;
+                crab.startle_timer = 0.6;
+                let outward = (crab.pos - tail_pos).normalize_or_zero();
+                let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+                crab.vel = outward * crab.crab_type.speed_range().end * 2.2;
+                crab.speed = 1.0; // vel now encodes full speed, matching the flee/startle convention
+                snapped_positions.push(crab.pos);
+            }
+        }
+        // Indices 0..keep stay contiguous, so the shortened train and future catches line up cleanly.
+        self.chain_count = keep;
+        self.chain_snap_cooldown = SNAP_COOLDOWN;
+
+        // Feedback: cold alarm rings + "!" pops on the scattering crabs, a SNAP! callout, and a jolt.
+        for pos in &snapped_positions {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                *pos - Vec2::new(0.0, 24.0),
+                24.0,
+                [1.0, 0.5, 0.4, 1.0],
+            );
+        }
+        self.floating_texts.spawn(
+            format!("SNAP!  -{}", snapped),
+            tail_pos - Vec2::new(24.0, 32.0),
+            32.0,
+            [1.0, 0.4, 0.3, 1.0],
+        );
+        self.spawn_catch_shockwave(tail_pos, [1.0, 0.4, 0.3]);
+        self.screen_shake = self.screen_shake.max(9.0);
+        let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
     }
 
     fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
@@ -1075,6 +1162,7 @@ impl MainState {
             height / 2.0 - PLAYER_SIZE / 2.0,
         );
         self.crabs = Vec::default();
+        self.chain_snap_cooldown = 0.0;
         self.position_history.clear();
         let center = Vec2::new(
             width / 2.0 - PLAYER_SIZE / 2.0,
@@ -2198,6 +2286,9 @@ impl EventHandler for MainState {
         if self.stomp_cooldown > 0.0 {
             self.stomp_cooldown = (self.stomp_cooldown - dt).max(0.0);
         }
+        if self.chain_snap_cooldown > 0.0 {
+            self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);
+        }
         if self.dash_flash > 0.0 {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
@@ -2220,6 +2311,9 @@ impl EventHandler for MainState {
 
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
+
+        // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
+        self.snap_chain_on_panic();
 
         // Decay join_pulse ripple timers
         for crab in &mut self.crabs {
