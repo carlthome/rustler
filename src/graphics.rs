@@ -2069,10 +2069,18 @@ pub fn draw_delivery_pen(
         );
     }
 
-    // Delivery bloom — a bright expanding ring right after a successful bank.
+    // Delivery bloom — a jackpot flare right after a successful bank. Layered so cashing in the
+    // train reads as a real payoff, not just a number ticking: an expanding shockwave ring, a
+    // spinning starburst of god-rays, a rising column of light, and a hot core pop that all bloom
+    // out of the pen and fade together. Everything except the single shockwave ring reuses the
+    // already-fetched cached unit line/circle meshes (scaled via DrawParam), so this stays a
+    // handful of draws with no per-frame GPU-buffer allocation.
     if flash > 0.0 {
         let f = flash.clamp(0.0, 1.0);
-        let burst_r = radius * (1.0 + (1.0 - f) * 1.4);
+        let grow = 1.0 - f; // 0 at the instant of banking, 1 as the flare finishes
+
+        // Expanding shockwave ring sweeping outward past the pen boundary.
+        let burst_r = radius * (1.0 + grow * 1.4);
         let burst = cached_stroke_circle(ctx, burst_r, 4.0 + f * 8.0)?;
         canvas.draw(
             &burst,
@@ -2080,6 +2088,47 @@ pub fn draw_delivery_pen(
                 .dest(center)
                 .color(Color::new(0.6, 1.0, 0.6, f)),
         );
+
+        // Starburst of god-rays firing out of the pen, turning slowly as they stretch and fade.
+        let ray_count = 12;
+        let ray_spin = time * 1.5;
+        let ray_len = radius * (0.5 + grow * 1.6);
+        let ray_thick = (2.0 + f * 6.0).max(0.5);
+        let ray_alpha = (f * 0.8).clamp(0.0, 1.0);
+        for i in 0..ray_count {
+            let ang = ray_spin + (i as f32 / ray_count as f32) * std::f32::consts::TAU;
+            canvas.draw(
+                unit_line,
+                DrawParam::default()
+                    .dest(center + Vec2::new(ang.cos(), ang.sin()) * radius * 0.25)
+                    .rotation(ang)
+                    .scale(Vec2::new(ray_len, ray_thick))
+                    .color(Color::new(0.8, 1.0, 0.7, ray_alpha)),
+            );
+        }
+
+        // Rising column of light — a bright shaft climbing out of the pen as the flare peaks.
+        let col_h = radius * (1.2 + grow * 2.2);
+        let col_w = (radius * 0.5 * f).max(1.0);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(center)
+                .rotation(-std::f32::consts::FRAC_PI_2)
+                .scale(Vec2::new(col_h, col_w))
+                .color(Color::new(0.7, 1.0, 0.75, f * 0.5)),
+        );
+
+        // Hot core pop — a white-gold flash at the pen center, fiercest right as you bank.
+        let core_r = radius * (0.35 + grow * 0.5);
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(core_r))
+                .color(Color::new(1.0, 1.0, 0.85, f * f * 0.7)),
+        );
+
         // Full-zone gold flare fading out.
         canvas.draw(
             unit_circle,
