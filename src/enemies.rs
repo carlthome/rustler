@@ -52,6 +52,7 @@ pub struct EnemyCrab {
     pub fleeing: bool,  // true when actively panic-fleeing from the player
     pub facing_angle: f32,  // current facing direction in radians (0 = right)
     pub in_flashlight: bool, // true while crab is inside the flashlight cone being attracted
+    pub startle_timer: f32,  // >0 while bolting away after a nearby catch spooked it (stampede ripple)
 }
 
 impl EnemyCrab {

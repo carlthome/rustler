@@ -26,8 +26,8 @@ use crate::enemies::EnemyCrab;
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings, draw_combo_meter,
-    draw_conga_rope, draw_crab, draw_crab_radar, draw_flashlight, draw_floating_texts,
-    draw_grass, draw_particles, draw_rustler, unit_square,
+    draw_conga_rope, draw_crab, draw_crab_radar, draw_fear_rings, draw_flashlight,
+    draw_floating_texts, draw_grass, draw_particles, draw_rustler, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::spawn_enemies;
@@ -133,6 +133,7 @@ struct MainState {
     next_milestone: usize,               // Next train-length milestone to celebrate
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
+    fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
     fullscreen_applied: bool, // deferred until the first update tick, see update()
 }
@@ -302,6 +303,7 @@ impl MainState {
             next_milestone: 5,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
+            fear_rings: Vec::new(),
             zoom_punch: 0.0,
             fullscreen_applied: false,
         })
@@ -313,6 +315,48 @@ impl MainState {
         // Cap live shockwaves so a big beat-wave sweep can't unbound the vec.
         if self.catch_shockwaves.len() < 48 {
             self.catch_shockwaves.push((pos, 0.0, crab_color));
+        }
+    }
+
+    /// Emergent stampede: the shock of a catch ripples outward and startles nearby *uncaught*
+    /// crabs that aren't safely inside the flashlight beam, scattering them away from the catch
+    /// point. Most noticeable when the trailing conga tail brushes through a distant cluster —
+    /// nab one and the rest bolt. Keep your beam on the herd to hold them (the counterplay).
+    fn emit_catch_startle(&mut self, origin: Vec2) {
+        const STARTLE_RADIUS: f32 = 135.0;
+        // Cold alarm ring so the scatter reads at a glance, distinct from the warm catch pop.
+        if self.fear_rings.len() < 32 {
+            self.fear_rings.push((origin, 0.0));
+        }
+        let mut startled_pops: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            if crab.caught || crab.in_flashlight {
+                continue;
+            }
+            let dist = origin.distance(crab.pos);
+            if dist >= STARTLE_RADIUS {
+                continue;
+            }
+            let outward = (crab.pos - origin).normalize_or_zero();
+            // Degenerate case: crab sits exactly on the origin — shove it in a stable direction.
+            let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
+            let prox = 1.0 - dist / STARTLE_RADIUS; // 1 at the epicenter, 0 at the rim
+            let kick = crab.crab_type.speed_range().end * (1.3 + prox * 1.2);
+            crab.vel = outward * kick;
+            crab.speed = 1.0; // vel now encodes full speed, matching the flee branch's convention
+            crab.startle_timer = 0.45;
+            // Only pop a fresh "!" if it wasn't already panicking, so we don't spam text.
+            if !crab.fleeing {
+                startled_pops.push(crab.pos);
+            }
+        }
+        for pos in startled_pops {
+            self.floating_texts.spawn(
+                "!".to_string(),
+                pos - Vec2::new(0.0, 24.0),
+                24.0,
+                [0.6, 0.9, 1.0, 1.0],
+            );
         }
     }
 
@@ -392,6 +436,7 @@ impl MainState {
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
         let mult = self.combo_multiplier();
         let mut any_caught = false;
+        let mut startle_origins: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
             if !crab.caught
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -415,6 +460,7 @@ impl MainState {
                 if self.catch_shockwaves.len() < 48 {
                     self.catch_shockwaves.push((shock_pos, 0.0, crab_color));
                 }
+                startle_origins.push(shock_pos);
                 any_caught = true;
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
@@ -456,6 +502,9 @@ impl MainState {
                 }
             }
         }
+        for origin in startle_origins {
+            self.emit_catch_startle(origin);
+        }
         if any_caught {
             self.check_milestone(&mut rand::rng());
         }
@@ -488,6 +537,7 @@ impl MainState {
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             self.spawn_catch_shockwave(pos, crab_color);
             self.crabs[i].caught = true;
+            self.emit_catch_startle(pos);
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
@@ -580,6 +630,16 @@ impl MainState {
                     crab.spooked_timer -= dt;
                     if crab.spooked_timer < 0.0 {
                         crab.spooked_timer = 0.0;
+                    }
+                }
+
+                // Startle from a nearby catch (stampede ripple): the crab keeps its outward
+                // bolt speed for a beat. The light re-attracts it (in_light lerp above wins),
+                // so sweeping the beam over a scattering herd holds them.
+                if crab.startle_timer > 0.0 {
+                    crab.startle_timer -= dt;
+                    if crab.startle_timer < 0.0 {
+                        crab.startle_timer = 0.0;
                     }
                 }
 
@@ -767,6 +827,7 @@ impl MainState {
         self.next_milestone = 5;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
+        self.fear_rings.clear();
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -969,6 +1030,9 @@ impl MainState {
 
         // Draw catch impact shockwaves (over the crabs, under score text)
         draw_catch_shockwaves(ctx, canvas, &self.catch_shockwaves)?;
+
+        // Draw stampede fear rings where catches startled the herd
+        draw_fear_rings(ctx, canvas, &self.fear_rings)?;
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
@@ -1646,6 +1710,13 @@ impl EventHandler for MainState {
         let shock_speed = 2.6; // age 0..1 in ~0.38 seconds
         self.catch_shockwaves.retain_mut(|(_, age, _)| {
             *age += dt * shock_speed;
+            *age < 1.0
+        });
+
+        // Advance stampede fear rings — a touch slower/wider than the catch pop so the scatter reads.
+        let fear_speed = 2.0; // age 0..1 in ~0.5 seconds
+        self.fear_rings.retain_mut(|(_, age)| {
+            *age += dt * fear_speed;
             *age < 1.0
         });
 

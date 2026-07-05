@@ -1404,6 +1404,52 @@ pub fn draw_catch_shockwaves(
     Ok(())
 }
 
+/// Draw the cold "alarm" rings kicked off when a catch startles the surrounding herd
+/// (the stampede ripple). Cyan/white and a little wider than the warm catch pop so the two
+/// read as different events: warm = a crab joined, cold = the rest just bolted.
+pub fn draw_fear_rings(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    rings: &[(Vec2, f32)],
+) -> ggez::GameResult {
+    if rings.is_empty() {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for &(pos, age) in rings {
+        // Ease-out expansion, wider reach than the catch shockwave (matches the startle radius).
+        let ease = 1.0 - (1.0 - age).powi(2);
+        let radius = 8.0 + ease * 135.0;
+        let fade = (1.0 - age).clamp(0.0, 1.0);
+
+        // Bright leading edge, cyan-white.
+        let thickness = (4.0 * fade).max(1.0);
+        let ring = cached_stroke_circle(ctx, radius, thickness)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(0.55, 0.9, 1.0, fade * 0.85)),
+        );
+
+        // Faint inner echo for a double-pulse "alarm" feel.
+        if age < 0.75 {
+            let echo = cached_stroke_circle(ctx, (radius - 14.0).max(1.0), thickness * 1.6)?;
+            canvas.draw(
+                &echo,
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(0.35, 0.7, 1.0, fade * 0.3)),
+            );
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw a pulsing attraction halo around a crab that is inside the flashlight beam.
 /// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
 pub fn draw_attracted_crab_glow(
