@@ -175,6 +175,7 @@ impl ParticleSystem {
             CrabType::Fast => (35, 120.0..300.0, 2.0..5.0, true), // More particles, faster
             CrabType::Big => (40, 60.0..150.0, 4.0..10.0, false), // Larger particles
             CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
+            CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
         };
         
         // Create main particles
@@ -800,6 +801,88 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
             .color(Color::BLACK),
     );
 
+    Ok(())
+}
+
+/// Draws the King Crab's menacing aura plus a health ring showing how much wearing-down is left.
+/// While `health_frac > 0` a golden arc drains counter-clockwise as the player holds the beam on it;
+/// once worn down (`health_frac <= 0`) the ring flips to a bright pulsing "CATCH ME" glow instead.
+pub fn draw_boss_health_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    health_frac: f32,
+    time: f32,
+) -> ggez::GameResult {
+    use std::f32::consts::{FRAC_PI_2, TAU};
+    let radius = size * 0.85;
+    let pulse = (time * 6.0).sin() * 0.5 + 0.5; // 0..1
+
+    // Pulsing aura ring behind the boss — deep gold, breathing with the beat of the track.
+    let aura_radius = radius * (1.12 + pulse * 0.08);
+    let aura_pts: Vec<[f32; 2]> = (0..=48)
+        .map(|i| {
+            let a = i as f32 / 48.0 * TAU;
+            [pos.x + a.cos() * aura_radius, pos.y + a.sin() * aura_radius]
+        })
+        .collect();
+    let aura = Mesh::new_line(
+        ctx,
+        &aura_pts,
+        3.0,
+        Color::new(1.0, 0.8, 0.25, 0.30 + pulse * 0.25),
+    )?;
+    canvas.draw(&aura, DrawParam::default());
+
+    if health_frac > 0.0 {
+        // Faint full track so the empty portion still reads as "health you've drained".
+        let track_pts: Vec<[f32; 2]> = (0..=48)
+            .map(|i| {
+                let a = i as f32 / 48.0 * TAU;
+                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
+            })
+            .collect();
+        let track = Mesh::new_line(ctx, &track_pts, 5.0, Color::new(0.0, 0.0, 0.0, 0.45))?;
+        canvas.draw(&track, DrawParam::default());
+
+        // Filled arc from the top, clockwise, spanning the remaining health fraction.
+        let start = -FRAC_PI_2;
+        let segs = 48usize;
+        let filled = ((segs as f32) * health_frac.clamp(0.0, 1.0)).ceil().max(1.0) as usize;
+        let arc_pts: Vec<[f32; 2]> = (0..=filled)
+            .map(|i| {
+                let a = start + (i as f32 / segs as f32) * TAU;
+                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
+            })
+            .collect();
+        // Green when fresh, shading to red as it's worn down.
+        let col = Color::new(
+            (1.0 - health_frac).clamp(0.2, 1.0),
+            (0.35 + health_frac * 0.55).clamp(0.0, 1.0),
+            0.15,
+            1.0,
+        );
+        if arc_pts.len() >= 2 {
+            let arc = Mesh::new_line(ctx, &arc_pts, 5.0, col)?;
+            canvas.draw(&arc, DrawParam::default());
+        }
+    } else {
+        // Worn down — flash a bright "catch me now" ring so the player knows to grab it.
+        let ring_pts: Vec<[f32; 2]> = (0..=48)
+            .map(|i| {
+                let a = i as f32 / 48.0 * TAU;
+                [pos.x + a.cos() * radius, pos.y + a.sin() * radius]
+            })
+            .collect();
+        let ring = Mesh::new_line(
+            ctx,
+            &ring_pts,
+            4.0 + pulse * 3.0,
+            Color::new(0.4, 1.0, 0.5, 0.6 + pulse * 0.4),
+        )?;
+        canvas.draw(&ring, DrawParam::default());
+    }
     Ok(())
 }
 

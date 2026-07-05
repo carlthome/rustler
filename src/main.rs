@@ -26,11 +26,11 @@ use crate::enemies::EnemyCrab;
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings, draw_combo_meter,
-    draw_conga_rope, draw_crab, draw_crab_radar, draw_fear_rings, draw_flashlight,
-    draw_floating_texts, draw_grass, draw_particles, draw_rustler, unit_square,
+    draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar, draw_fear_rings,
+    draw_flashlight, draw_floating_texts, draw_grass, draw_particles, draw_rustler, unit_square,
 };
 use crate::levels::{Level, get_levels};
-use crate::spawnings::spawn_enemies;
+use crate::spawnings::{spawn_boss, spawn_enemies};
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -38,6 +38,9 @@ const SPEED: f32 = 200.0;
 const CHAIN_LINK_FRAMES: usize = 12;
 const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
+const BOSS_MAX_HEALTH: f32 = 3.0; // seconds of sustained flashlight needed to wear a King Crab down
+const BOSS_DRAIN_RATE: f32 = 1.0; // boss health drained per second while held in the beam
+const BOSS_SCORE_INTERVAL: usize = 40; // score gap between successive King Crab arrivals
 
 struct GameSounds {
     intro_music: Source,
@@ -131,6 +134,7 @@ struct MainState {
     hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     next_milestone: usize,               // Next train-length milestone to celebrate
+    next_boss_score: usize,              // score at which the next King Crab boss arrives
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
@@ -301,6 +305,7 @@ impl MainState {
             hitstop_timer: 0.0,
             chain_join_ripple: false,
             next_milestone: 5,
+            next_boss_score: BOSS_SCORE_INTERVAL,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             fear_rings: Vec::new(),
@@ -437,11 +442,15 @@ impl MainState {
         let mult = self.combo_multiplier();
         let mut any_caught = false;
         let mut startle_origins: Vec<Vec2> = Vec::new();
+        let mut boss_catches: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
-            if !crab.caught
+            if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
                 && (self.player_pos.y - crab.pos.y).abs() < (PLAYER_SIZE + crab.scale) / 2.0
             {
+                if crab.is_boss() {
+                    boss_catches.push(crab.pos);
+                }
                 // Get crab color before marking as caught
                 let crab_color = crab.crab_color();
 
@@ -505,8 +514,49 @@ impl MainState {
         for origin in startle_origins {
             self.emit_catch_startle(origin);
         }
+        for bpos in boss_catches {
+            self.on_boss_caught(bpos);
+        }
         if any_caught {
             self.check_milestone(&mut rand::rng());
+        }
+    }
+
+    /// Big celebratory payoff when a worn-down King Crab is finally snagged.
+    fn on_boss_caught(&mut self, pos: Vec2) {
+        let mut rng = rand::rng();
+        let bonus = 25 * self.combo_multiplier();
+        self.score += bonus;
+        self.particle_system
+            .spawn_milestone_fireworks(pos, 30, &mut rng);
+        let screen_center = Vec2::new(self.width / 2.0 - 200.0, self.height / 2.0 - 90.0);
+        self.floating_texts.spawn(
+            "KING CRAB CAUGHT!".to_string(),
+            screen_center + Vec2::new(3.0, 3.0),
+            64.0,
+            [0.0, 0.0, 0.0, 0.85],
+        );
+        self.floating_texts.spawn(
+            "KING CRAB CAUGHT!".to_string(),
+            screen_center,
+            64.0,
+            [1.0, 0.85, 0.2, 1.0],
+        );
+        self.floating_texts.spawn(
+            format!("+{}", bonus),
+            pos - Vec2::new(20.0, 30.0),
+            40.0,
+            [1.0, 0.95, 0.3, 1.0],
+        );
+        let a = rng.random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake = 30.0;
+        self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 30.0 * 60.0;
+        self.zoom_punch = self.zoom_punch.max(0.11);
+        self.hitstop_timer = self.hitstop_timer.max(0.12);
+        self.beat_intensity = 2.0;
+        self.on_beat_flash = 0.6;
+        if self.catch_shockwaves.len() < 48 {
+            self.catch_shockwaves.push((pos, 0.0, [1.0, 0.8, 0.2]));
         }
     }
 
@@ -530,7 +580,7 @@ impl MainState {
         let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
             std::collections::HashMap::new();
         for (i, c) in self.crabs.iter().enumerate() {
-            if !c.caught {
+            if c.is_catchable() {
                 grid.entry(cell_of(c.pos)).or_default().push(i);
             }
         }
@@ -567,6 +617,9 @@ impl MainState {
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             self.spawn_catch_shockwave(pos, crab_color);
             self.crabs[i].caught = true;
+            if self.crabs[i].is_boss() {
+                self.on_boss_caught(pos);
+            }
             self.emit_catch_startle(pos);
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
@@ -602,6 +655,8 @@ impl MainState {
 
         // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
         let mut flee_pops: Vec<Vec2> = Vec::new();
+        // Positions of King Crabs that just got worn down this frame — celebrate after the loop
+        let mut boss_broke: Vec<Vec2> = Vec::new();
         // Sparkle particles for attracted crabs (collected to avoid borrow conflict)
         let mut attraction_particles: Vec<(Vec2, Vec2, f32, [f32; 3])> = Vec::new();
 
@@ -622,9 +677,19 @@ impl MainState {
                 // Track flashlight state on the crab for rendering
                 crab.in_flashlight = crab_in_light;
 
+                // King Crab: hold the beam on it to wear it down before it can be caught.
+                if crab.is_boss() && crab.boss_health > 0.0 && crab_in_light {
+                    crab.boss_health -= BOSS_DRAIN_RATE * dt;
+                    if crab.boss_health <= 0.0 {
+                        crab.boss_health = 0.0;
+                        boss_broke.push(crab.pos);
+                    }
+                }
+
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
+                // Bosses are unshakeable — they lumber on rather than panic-bolting.
                 const FLEE_RADIUS: f32 = 220.0;
-                let now_fleeing = !crab_in_light && distance < FLEE_RADIUS;
+                let now_fleeing = !crab_in_light && distance < FLEE_RADIUS && !crab.is_boss();
 
                 if crab_in_light {
                     // Crab is gently attracted to the player's position (sauntering, not rocketing)
@@ -744,6 +809,19 @@ impl MainState {
             });
         }
 
+        // Celebrate any King Crab worn down to catchable this frame
+        for pos in boss_broke {
+            self.floating_texts.spawn(
+                "WORN DOWN — CATCH IT!".to_string(),
+                pos - Vec2::new(110.0, 46.0),
+                34.0,
+                [0.4, 1.0, 0.5, 1.0],
+            );
+            self.spawn_catch_shockwave(pos, [1.0, 0.85, 0.3]);
+            self.screen_shake = self.screen_shake.max(14.0);
+            self.on_beat_flash = self.on_beat_flash.max(0.4);
+        }
+
         // Emit "!" floating texts for crabs that just started fleeing this frame
         for pos in flee_pops {
             self.floating_texts.spawn(
@@ -855,6 +933,7 @@ impl MainState {
         self.hitstop_timer = 0.0;
         self.chain_join_ripple = false;
         self.next_milestone = 5;
+        self.next_boss_score = BOSS_SCORE_INTERVAL;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
         self.fear_rings.clear();
@@ -1405,6 +1484,12 @@ impl MainState {
                     let size = crab.scale * CRAB_SIZE;
                     draw_attracted_crab_glow(ctx, canvas, pos, size, crab.crab_color(), self.time_elapsed, self.beat_intensity)?;
                 }
+                // King Crab aura + wear-down health ring
+                if crab.is_boss() {
+                    let size = crab.scale * CRAB_SIZE;
+                    let frac = crab.boss_health / BOSS_MAX_HEALTH;
+                    draw_boss_health_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
+                }
             }
         }
         // Draw chain crabs with a groovy wave bob that travels through the train
@@ -1798,7 +1883,7 @@ impl EventHandler for MainState {
                 if elapsed < 0.3 {
                     let tip = new_pos;
                     let to_catch: Vec<usize> = self.crabs.iter().enumerate()
-                        .filter(|(_, c)| !c.caught && tip.distance(c.pos) < 60.0)
+                        .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < 60.0)
                         .map(|(i, _)| i)
                         .collect();
                     let mut rng = rand::rng();
@@ -1809,6 +1894,9 @@ impl EventHandler for MainState {
                         self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
                         self.spawn_catch_shockwave(pos, crab_color);
                         self.crabs[i].caught = true;
+                        if self.crabs[i].is_boss() {
+                            self.on_boss_caught(pos);
+                        }
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
                         self.chain_count += 1;
@@ -1844,6 +1932,34 @@ impl EventHandler for MainState {
                     }
                 }
             }
+        }
+
+        // King Crab boss: once the player is rolling, send in a rare oversized crab that must be
+        // worn down under the flashlight before it can be caught. Only one at a time.
+        if self.score >= self.next_boss_score
+            && !self.crabs.iter().any(|c| c.is_boss() && !c.caught)
+        {
+            self.next_boss_score = self.score + BOSS_SCORE_INTERVAL;
+            let boss = spawn_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH);
+            let bpos = boss.pos;
+            self.crabs.push(boss);
+            self.floating_texts.spawn(
+                "A KING CRAB APPROACHES!".to_string(),
+                Vec2::new(self.width / 2.0 - 230.0, 80.0),
+                46.0,
+                [1.0, 0.8, 0.2, 1.0],
+            );
+            self.floating_texts.spawn(
+                "Hold your light on it!".to_string(),
+                Vec2::new(self.width / 2.0 - 120.0, 130.0),
+                26.0,
+                [1.0, 0.95, 0.7, 0.9],
+            );
+            self.particle_system
+                .spawn_milestone_fireworks(bpos, 12, &mut rand::rng());
+            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake = 18.0;
+            self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 18.0 * 60.0;
         }
 
         // Scale music volume with intensity
