@@ -558,6 +558,7 @@ pub fn draw_grass(
     texture: &Image,
     shader: &Shader,
     time: f32,
+    biome_tint: Color,
 ) -> ggez::GameResult {
     let blend_mode = canvas.blend_mode();
     let solid_bg = unit_square(ctx)?;
@@ -598,6 +599,17 @@ pub fn draw_grass(
             canvas.draw(texture, DrawParam::default().dest(dest));
         }
     }
+
+    // Biome color grade: a full-screen multiply pass that recolors the whole ground so each
+    // level reads as a distinct zone (warm meadow, cool tide pools, stony shore, neon kelp).
+    // Blend mode is already MULTIPLY here from the tiling pass, so this is a single extra quad.
+    canvas.draw(
+        unit_square(ctx)?,
+        DrawParam::default()
+            .scale(Vec2::new(width, height))
+            .color(biome_tint),
+    );
+
     canvas.set_blend_mode(blend_mode);
     Ok(())
 }

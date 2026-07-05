@@ -1085,7 +1085,11 @@ impl MainState {
             LevelTexture::Sand => &self.textures.sand,
         };
 
-        // Draw level background.
+        // Biome for the current zone (clamped so a finished run doesn't index past the end).
+        let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
+        let (tr, tg, tb) = biome.tint;
+
+        // Draw level background, color-graded to the current biome.
         draw_grass(
             ctx,
             canvas,
@@ -1094,16 +1098,18 @@ impl MainState {
             texture,
             &self.shader,
             self.time_elapsed,
+            Color::from_rgb(tr, tg, tb),
         )?;
 
-        // Subtle beat pulse: a green flash on every downbeat
+        // Subtle beat pulse: an on-beat flash tinted to match the current biome's mood.
         if self.beat_intensity > 0.0 {
             let pulse_alpha = (self.beat_intensity * 28.0) as u8;
+            let (pr, pg, pb) = biome.pulse;
             canvas.draw(
                 unit_square(ctx)?,
                 DrawParam::default()
                     .scale(Vec2::new(width, height))
-                    .color(Color::from_rgba(80, 255, 80, pulse_alpha)),
+                    .color(Color::from_rgba(pr, pg, pb, pulse_alpha)),
             );
         }
 
@@ -1534,6 +1540,19 @@ impl MainState {
             DrawParam::default()
                 .dest(destination)
                 .color(Color::from_rgb(240, 240, 240)),
+        );
+
+        // Announce the biome under the title so the player registers the change of zone.
+        let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
+        let mut subtitle = Text::new(biome.name);
+        subtitle.set_scale(40.0);
+        let sub_width = subtitle.measure(ctx)?.x;
+        let (pr, pg, pb) = biome.pulse;
+        canvas.draw(
+            &subtitle,
+            DrawParam::default()
+                .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
+                .color(Color::from_rgb(pr, pg, pb)),
         );
         Ok(())
     }
