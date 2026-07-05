@@ -17,30 +17,26 @@ this for direction before picking their next task; they don't edit it themselves
 
 ## Now
 
-- **Deeper music/rhythm integration** — the game already has BPM-synced visuals and rhythm catch
-  bonuses; take it further with actual layered music (the `layer1/2/3.ogg` progressive-fade
-  hook already exists but nothing populates it) so the soundtrack itself builds as the score
-  rises, and tie more gameplay systems (spawns, chain movement, screen effects) to the beat
-  rather than just the visuals reacting to it.
+- **Make the conga train a real risk, not just upside** — right now the chain only ever grows, so
+  a long train is pure reward with no downside. Give length stakes: a panicking crab, a King Crab
+  charge, or a level hazard can snap the tail and scatter those crabs back into the wild, so a big
+  train becomes something you actively protect, route carefully, and can lose. This turns the
+  game's central mechanic from a growing counter into a moment-to-moment decision — the single
+  highest-leverage way to deepen the inner loop.
+- **A second boss that fights the loop, not just absorbs it** — the King Crab shipped, but it's a
+  stationary damage-sponge you park the beam on; the encounter tests beam uptime and nothing else.
+  Add a boss with an actual threat verb — charges the conga line to scatter it, or rallies/spawns
+  nearby crabs into a wall — so boss fights test movement and chain management too. Pairs naturally
+  with the chain-risk item above.
+- **Deeper music/rhythm integration** — the game already has BPM-synced visuals, rhythm catch
+  bonuses, and now a Groove meter; take it further with actual layered music (the `layer1/2/3.ogg`
+  progressive-fade hook already exists but nothing populates it) so the soundtrack itself builds as
+  the groove/score rises, and tie more gameplay systems (spawns, chain movement, screen effects) to
+  the beat rather than just the visuals reacting to it.
 - **Menu and art facelift** — the title/menu screens and textures haven't kept pace with how far
   the in-run visual effects have come. Worth a real pass on menu layout and readability, and on
   texture/sprite quality for crabs, sand, and grass, so first impressions match the polish of
   the moment-to-moment gameplay.
-- **Grow the tool/counter toolkit into a real decision** — the Whistle shipped as the first
-  soft counter (great on skittish Sneaky crabs, weak on heavy Big ones), but with only two verbs
-  (lasso + whistle) "pick the right tool" is still a shallow choice. Add a third tool paired with
-  a crab archetype that resists *both* current tools — e.g. an armored/burrowing crab the lasso
-  slips off and the whistle barely moves, that a new close-range dash-grab or a stomp/ground-pound
-  cracks open. Same soft-counter guardrail as before: every tool stays viable against every crab,
-  the wrong pick just costs time or style. Three real options is where tool selection starts to
-  feel like a skill instead of a formality.
-- **Emergent system interaction — beat-startle chain reactions** — the prerequisites this needed
-  (flee/panic, beat pulses, chain, catch-triggered stampede) have all shipped, so pull the first
-  emergent-interaction experiment into Now: let a beat wave or a catch's alarm ring that hits one
-  fleeing crab pass its panic to nearby crabs, rippling a stampede outward crab-to-crab instead of
-  every crab reacting only to the player. Cheap to prototype on top of the startle timer that
-  already exists, and it's the clearest expression of Carl's Noita itch — systems affecting each
-  other, not just the player.
 
 ## Later (outer loop — not yet)
 
@@ -54,7 +50,8 @@ this for direction before picking their next task; they don't edit it themselves
   already have actually affect each other instead of running in isolation. E.g. a beat pulse
   that startles nearby fleeing crabs into a chain reaction, a lasso catch that ripples fear
   through crabs near the catch point, chain segments that can bump and redirect fleeing crabs
-  into each other. The first of these (beat-startle chain reactions) has now graduated into "Now"
-  since flee/panic, beat pulses, and chain have all settled — the remaining ideas (fear rippling
-  from a lasso catch point, chain segments bumping and redirecting fleeing crabs) stay parked here
-  until one of them earns its way up too.
+  into each other. The first of these — beat-startle chain reactions — has now *shipped*
+  (panic ripples crab-to-crab on each beat). The remaining ideas (fear rippling from a lasso
+  catch point, chain segments bumping and redirecting fleeing crabs) stay parked here until one
+  of them earns its way up too. Note the new "conga train as a real risk" Now item is itself an
+  emergent-interaction play: it wires the flee/boss systems back into the chain.
