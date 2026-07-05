@@ -2005,6 +2005,106 @@ pub fn draw_delivery_pen(
     Ok(())
 }
 
+/// Draw the level's tide pools — patches of shallow water that drag on movement and force the
+/// player to route the conga train around (or dash across) them. Each pool is a translucent blue
+/// disc with a soft rim, a couple of slowly expanding ripple rings, and a glint highlight, all
+/// gently breathing on the beat so the water feels alive without stealing focus from the crabs.
+/// `wading` brightens the pool the player is currently standing in for feedback. Drawn on the
+/// ground layer, under the crabs and rope, so the train visibly wades through it. All geometry
+/// reuses the cached unit circle / stroke-circle meshes — no per-frame GPU buffer allocation.
+pub fn draw_tide_pools(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pools: &[(Vec2, f32)],
+    time: f32,
+    beat_intensity: f32,
+    player_center: Vec2,
+) -> ggez::GameResult {
+    if pools.is_empty() {
+        return Ok(());
+    }
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let beat = beat_intensity.clamp(0.0, 1.0);
+
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        // Per-pool phase so they don't all breathe in lockstep.
+        let phase = i as f32 * 1.7;
+        let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
+        let wading = player_center.distance(center) < radius;
+
+        // Base water disc — normal blend so it reads as a darker, cooler patch of ground.
+        let fill_a = 0.30 + 0.06 * breathe + if wading { 0.10 } else { 0.0 };
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius))
+                .color(Color::new(0.16, 0.34, 0.52, fill_a)),
+        );
+        // Lighter shallow center for a bit of depth.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius * 0.6))
+                .color(Color::new(0.30, 0.55, 0.72, 0.16)),
+        );
+
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+
+        // Soft rim so the pool edge — the line you route around — reads clearly.
+        let rim = cached_stroke_circle(ctx, radius, 2.5)?;
+        canvas.draw(
+            &rim,
+            DrawParam::default().dest(center).color(Color::new(
+                0.45,
+                0.8,
+                1.0,
+                (0.22 + 0.18 * breathe + if wading { 0.25 } else { 0.0 }).clamp(0.0, 1.0),
+            )),
+        );
+
+        // Two ripple rings expanding outward from the middle and fading at the rim.
+        for k in 0..2 {
+            let t = ((time * 0.35 + phase + k as f32 * 0.5).fract()).clamp(0.0, 1.0);
+            let rr = radius * (0.15 + t * 0.85);
+            let a = (1.0 - t) * 0.28;
+            if a > 0.01 {
+                let ripple = cached_stroke_circle(ctx, rr, 1.5)?;
+                canvas.draw(
+                    &ripple,
+                    DrawParam::default()
+                        .dest(center)
+                        .color(Color::new(0.55, 0.85, 1.0, a)),
+                );
+            }
+        }
+
+        // A drifting glint highlight, brighter on the beat, to sell the wet surface.
+        let g_ang = time * 0.6 + phase;
+        let glint = center + Vec2::new(g_ang.cos(), g_ang.sin() * 0.5) * radius * 0.4;
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(glint)
+                .scale(Vec2::splat(6.0 + 3.0 * beat))
+                .color(Color::new(0.7, 0.95, 1.0, 0.18 + 0.25 * beat)),
+        );
+
+        canvas.set_blend_mode(orig_blend);
+    }
+    Ok(())
+}
+
 /// Draw the thrown lasso: the rope from the player to its tip, a catch-radius indicator ring
 /// that fades in as it extends, the spinning open-loop noose, and a bright knot at the tip.
 /// `outward_progress` is 0..1 (how far the throw has extended) and `spin` is the loop's current

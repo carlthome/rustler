@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_particles, draw_rustler, draw_stomp_ring, draw_whistle_ring, unit_square,
+    draw_particles, draw_rustler, draw_stomp_ring, draw_tide_pools, draw_whistle_ring, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -108,6 +108,44 @@ fn pick_pen_pos(width: f32, height: f32, avoid: Vec2, rng: &mut impl rand::Rng) 
         }
     }
     best
+}
+
+/// Scatter a handful of tide pools across the field for the current level. Pools are kept clear of
+/// the delivery pen (so banking never means wading), off the player's current spot, and apart from
+/// each other, so they read as distinct hazards to route between rather than one big swamp. Count
+/// scales gently with `difficulty` so later zones have more water to thread the train through.
+fn pick_tide_pools(
+    width: f32,
+    height: f32,
+    avoid_pen: Vec2,
+    avoid_player: Vec2,
+    difficulty: usize,
+    rng: &mut impl rand::Rng,
+) -> Vec<(Vec2, f32)> {
+    let count = (2 + difficulty / 2).min(5);
+    let mut pools: Vec<(Vec2, f32)> = Vec::with_capacity(count);
+    let mut attempts = 0;
+    while pools.len() < count && attempts < 80 {
+        attempts += 1;
+        let radius = rng.random_range(66.0..112.0);
+        let margin = radius + 30.0;
+        let c = Vec2::new(
+            rng.random_range(margin..(width - margin)),
+            rng.random_range(margin..(height - margin)),
+        );
+        // Never let a pool swallow the pen or land on the player, and keep pools spaced apart.
+        if c.distance(avoid_pen) < radius + PEN_RADIUS + 40.0 {
+            continue;
+        }
+        if c.distance(avoid_player) < radius + 120.0 {
+            continue;
+        }
+        if pools.iter().any(|(pc, pr)| c.distance(*pc) < radius + pr + 50.0) {
+            continue;
+        }
+        pools.push((c, radius));
+    }
+    pools
 }
 
 struct GameSounds {
@@ -224,6 +262,13 @@ struct MainState {
     // each level so routing the train there stays a fresh decision.
     pen_pos: Vec2,                       // center of the delivery pen on the field
     deliver_flash: f32,                  // 1..0 bloom timer after a successful bank (visual only)
+    // Tide pools — terrain that shapes where the train can go. Each pool is a patch of shallow
+    // water (center, radius) that drags on movement: crossing one slows the player to a wade, and
+    // because the whole conga tail replays the player's path, hauling a long train through open
+    // water costs you real time and exposure. They relocate each level (like the pen) so routing
+    // — skirt the pools or dash across them — stays a live, geography-driven decision.
+    tide_pools: Vec<(Vec2, f32)>,        // (center, radius) of each shallow-water drag zone
+    in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
@@ -277,6 +322,23 @@ impl MainState {
 
         // Get levels.
         let levels = get_levels();
+
+        // Delivery pen + tide-pool hazards for the opening level, placed before `levels` is moved
+        // into the struct so we can read the first zone's difficulty for the pool count.
+        let init_pen = pick_pen_pos(
+            width,
+            height,
+            player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+            &mut rand::rng(),
+        );
+        let init_tide_pools = pick_tide_pools(
+            width,
+            height,
+            init_pen,
+            player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+            levels.first().map(|l| l.difficulty).unwrap_or(0),
+            &mut rand::rng(),
+        );
 
         // Randomly select a texture for each level
         let mut rng = rand::rng();
@@ -421,8 +483,10 @@ impl MainState {
             chain_snap_cooldown: 0.0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
-            pen_pos: pick_pen_pos(width, height, player_pos + Vec2::splat(PLAYER_SIZE / 2.0), &mut rand::rng()),
+            pen_pos: init_pen,
             deliver_flash: 0.0,
+            tide_pools: init_tide_pools,
+            in_tide_pool: false,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             fear_rings: Vec::new(),
@@ -1428,6 +1492,20 @@ impl MainState {
             // Fresh biome, fresh pen location — keep routing the train there a live decision.
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rand::rng());
+            // New zone, new water: relocate the tide-pool hazards too, scaling with difficulty.
+            let difficulty = self
+                .levels
+                .get(self.current_level.min(self.levels.len() - 1))
+                .map(|l| l.difficulty)
+                .unwrap_or(0);
+            self.tide_pools = pick_tide_pools(
+                self.width,
+                self.height,
+                self.pen_pos,
+                player_center,
+                difficulty,
+                &mut rand::rng(),
+            );
         }
         if self.current_level >= self.levels.len() {
             // Game completed, show game over screen.
@@ -1493,6 +1571,15 @@ impl MainState {
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             &mut rand::rng(),
         );
+        self.tide_pools = pick_tide_pools(
+            self.width,
+            self.height,
+            self.pen_pos,
+            player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+            self.levels.first().map(|l| l.difficulty).unwrap_or(0),
+            &mut rand::rng(),
+        );
+        self.in_tide_pool = false;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
         self.fear_rings.clear();
@@ -1638,6 +1725,17 @@ impl MainState {
                     .color(Color::from_rgba(pr, pg, pb, pulse_alpha)),
             );
         }
+
+        // Tide pools — terrain hazards on the ground layer, under the crabs/rope, so the train
+        // visibly wades through the water it's being routed around.
+        draw_tide_pools(
+            ctx,
+            canvas,
+            &self.tide_pools,
+            self.time_elapsed,
+            self.beat_intensity,
+            self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+        )?;
 
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
         // into it. Lights up green once there's a train to bank (chain_count > 0).

@@ -41,7 +41,24 @@ pub fn handle_player_movement(
     } else {
         1000.0
     };
-    let friction = if state.boost_timer > 0.0 { 0.9 } else { 0.9 };
+    let mut friction = if state.boost_timer > 0.0 { 0.9 } else { 0.9 };
+
+    // Tide-pool drag: wading through shallow water slows you to a crawl and adds extra drag, so
+    // hauling a long conga train straight across a pool costs real time and exposure. A dash still
+    // punches through faster than a wade (its speed cap is huge), rewarding routing skill — skirt
+    // the water or dash across it. `in_tide_pool` is remembered so the draw pass can splash.
+    let player_center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+    let wading = state
+        .tide_pools
+        .iter()
+        .any(|(c, r)| player_center.distance(*c) < *r);
+    state.in_tide_pool = wading;
+    if wading {
+        // Cut top speed and bleed off momentum faster while submerged.
+        move_speed *= 0.5;
+        friction *= 0.82;
+    }
+
     if dir != Vec2::ZERO {
         let dir = dir.normalize();
         // Apply strong acceleration when boosting, like a rocket
