@@ -134,7 +134,6 @@ struct MainState {
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
-    fullscreen_applied: bool, // deferred until the first update tick, see update()
 }
 
 impl MainState {
@@ -303,7 +302,6 @@ impl MainState {
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             zoom_punch: 0.0,
-            fullscreen_applied: false,
         })
     }
 
@@ -1452,24 +1450,6 @@ impl MainState {
 
 impl EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        if !self.fullscreen_applied {
-            // current_monitor() can still be None on the very first tick, so keep retrying
-            // until it resolves instead of only trying once.
-            if let Some(monitor_size) = ctx.gfx.window().current_monitor().map(|m| m.size()) {
-                ctx.gfx
-                    .window()
-                    .set_fullscreen(Some(ggez::winit::window::Fullscreen::Borderless(None)));
-                // set_fullscreen() alone changes the window's on-screen chrome but doesn't
-                // reliably trigger ggez to reconfigure its wgpu surface on this winit/Wayland
-                // combo, leaving the swapchain at its old (windowed) size while the compositor
-                // letterboxes it. set_drawable_size() goes through ggez's own window-mode path,
-                // which resizes the surface synchronously instead of waiting on a resize event.
-                ctx.gfx
-                    .set_drawable_size(monitor_size.width as f32, monitor_size.height as f32)?;
-                self.fullscreen_applied = true;
-            }
-        }
-
         if self.show_instructions || self.game_over || self.pending_upgrade {
             return Ok(());
         }
@@ -1896,7 +1876,7 @@ fn main() -> GameResult {
 
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
-        .window_mode(WindowMode::default())
+        .window_mode(WindowMode::default().fullscreen_type(ggez::conf::FullscreenType::Desktop))
         .build()?;
     let state = MainState::new(&mut ctx)?;
     event::run(ctx, event_loop, state)
