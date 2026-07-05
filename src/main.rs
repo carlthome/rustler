@@ -91,6 +91,20 @@ thread_local! {
     // idles on the title screen. Keyed by (width, height) bit patterns so it only rebuilds on an
     // actual resolution change (in practice: never, after the one-time fullscreen fixup).
     static MENU_PANEL_CACHE: RefCell<Option<(u32, u32, Mesh)>> = RefCell::new(None);
+
+    // The rest of the title screen's text was in the same boat as the panel above: every one of
+    // these Text objects is either fully static ("Crab Rustler", the per-character wave glyphs,
+    // the instructions block, the start prompt) or changes only a handful of times per run (the
+    // subtitle), yet draw_instructions_screen was rebuilding ~15 fresh `Text`s (plus several
+    // `.measure()` glyph-layout passes) every single frame the menu sits on screen — which, like
+    // the panel, can be indefinitely long if a player idles there. Only position/color/rotation
+    // (all DrawParam, not the Text itself) actually change frame to frame, so build each once and
+    // reuse it forever (or until the underlying string changes, for the subtitle).
+    static MENU_TITLE_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
+    static MENU_TITLE_CHARS_CACHE: RefCell<Option<Vec<Text>>> = RefCell::new(None);
+    static MENU_SUBTITLE_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+    static MENU_INSTRUCTIONS_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
+    static MENU_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -1772,65 +1786,107 @@ impl MainState {
         }
 
         // --- Title: "Crab Rustler" with an animated colour wave -----------------------------
-        let mut main_title = Text::new("Crab Rustler");
-        main_title.set_scale(112.0);
-        let main_title_width = main_title.measure(ctx)?.x;
-        let main_title_height = main_title.measure(ctx)?.y;
+        let (main_title_width, main_title_height) = MENU_TITLE_CACHE.with(|c| -> GameResult<(f32, f32)> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut main_title = Text::new("Crab Rustler");
+                main_title.set_scale(112.0);
+                let dims = main_title.measure(ctx)?;
+                *cache = Some((main_title, dims.x, dims.y));
+            }
+            let (_, w, h) = cache.as_ref().unwrap();
+            Ok((*w, *h))
+        })?;
         let title_top = height * 0.13;
 
         // Drop shadow.
-        canvas.draw(
-            &main_title,
-            DrawParam::default()
-                .dest(Vec2::new(
-                    (width - main_title_width) / 2.0 + 8.0,
-                    title_top + 8.0,
-                ))
-                .color(Color::from_rgba(0, 0, 0, 180))
-                .rotation(0.03),
-        );
-
-        // Per-character wave that now rolls over time instead of sitting still.
-        for (i, ch) in "Crab Rustler".chars().enumerate() {
-            let frag = ggez::graphics::TextFragment::new(ch).scale(112.0);
-            let ch_text = Text::new(frag);
-            let x = (width - main_title_width) / 2.0 + i as f32 * 60.0;
-            let y = title_top + (t * 2.2 + i as f32 * 0.5).sin() * 14.0;
-            let hue = t * 0.6 + i as f32 * 0.55;
-            let color = Color::from_rgb(
-                (200.0 + hue.sin() * 55.0) as u8,
-                (120.0 + (hue + 2.0).sin() * 110.0) as u8,
-                (200.0 + (hue + 4.0).sin() * 55.0) as u8,
-            );
+        MENU_TITLE_CACHE.with(|c| {
+            let cache = c.borrow();
+            let (main_title, _, _) = cache.as_ref().unwrap();
             canvas.draw(
-                &ch_text,
+                main_title,
                 DrawParam::default()
-                    .dest(Vec2::new(x, y))
-                    .color(color)
-                    .rotation((t * 1.5 + i as f32 * 0.4).sin() * 0.07),
+                    .dest(Vec2::new(
+                        (width - main_title_width) / 2.0 + 8.0,
+                        title_top + 8.0,
+                    ))
+                    .color(Color::from_rgba(0, 0, 0, 180))
+                    .rotation(0.03),
             );
-        }
+        });
 
-        // Subtitle centred below the title.
-        let mut subtitle = Text::new(&self.subtitle);
-        subtitle.set_scale(22.0);
-        let subtitle_width = subtitle.measure(ctx)?.x;
-        canvas.draw(
-            &subtitle,
-            DrawParam::default()
-                .dest(Vec2::new(
-                    (width - subtitle_width) / 2.0,
-                    title_top + main_title_height + 14.0,
-                ))
-                .color(Color::from_rgb(255, 235, 190)),
-        );
+        // Per-character wave that now rolls over time instead of sitting still. The glyphs
+        // themselves never change — only position/color/rotation do, all via DrawParam — so
+        // build the 12 per-character Text objects once and reuse them forever instead of
+        // shaping fresh glyphs every frame.
+        MENU_TITLE_CHARS_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let chars: Vec<Text> = "Crab Rustler"
+                    .chars()
+                    .map(|ch| Text::new(ggez::graphics::TextFragment::new(ch).scale(112.0)))
+                    .collect();
+                *cache = Some(chars);
+            }
+            for (i, ch_text) in cache.as_ref().unwrap().iter().enumerate() {
+                let x = (width - main_title_width) / 2.0 + i as f32 * 60.0;
+                let y = title_top + (t * 2.2 + i as f32 * 0.5).sin() * 14.0;
+                let hue = t * 0.6 + i as f32 * 0.55;
+                let color = Color::from_rgb(
+                    (200.0 + hue.sin() * 55.0) as u8,
+                    (120.0 + (hue + 2.0).sin() * 110.0) as u8,
+                    (200.0 + (hue + 4.0).sin() * 55.0) as u8,
+                );
+                canvas.draw(
+                    ch_text,
+                    DrawParam::default()
+                        .dest(Vec2::new(x, y))
+                        .color(color)
+                        .rotation((t * 1.5 + i as f32 * 0.4).sin() * 0.07),
+                );
+            }
+        });
+
+        // Subtitle centred below the title. Rebuilt only when the underlying string changes
+        // (it's static for the life of a menu visit, just occasionally different across runs).
+        let subtitle_width = MENU_SUBTITLE_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((s, _, _)) if s == &self.subtitle);
+            if needs_rebuild {
+                let mut subtitle = Text::new(&self.subtitle);
+                subtitle.set_scale(22.0);
+                let w = subtitle.measure(ctx)?.x;
+                *cache = Some((self.subtitle.clone(), subtitle, w));
+            }
+            Ok(cache.as_ref().unwrap().2)
+        })?;
+        MENU_SUBTITLE_CACHE.with(|c| {
+            let cache = c.borrow();
+            let (_, subtitle, _) = cache.as_ref().unwrap();
+            canvas.draw(
+                subtitle,
+                DrawParam::default()
+                    .dest(Vec2::new(
+                        (width - subtitle_width) / 2.0,
+                        title_top + main_title_height + 14.0,
+                    ))
+                    .color(Color::from_rgb(255, 235, 190)),
+            );
+        });
 
         // --- Instructions on a translucent rounded panel for readability -------------------
-        let text = Text::new(
-            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R",
-        );
-        let text_width = text.measure(ctx)?.x;
-        let text_height = text.measure(ctx)?.y;
+        let (text_width, text_height) = MENU_INSTRUCTIONS_CACHE.with(|c| -> GameResult<(f32, f32)> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let text = Text::new(
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R",
+                );
+                let dims = text.measure(ctx)?;
+                *cache = Some((text, dims.x, dims.y));
+            }
+            let (_, w, h) = cache.as_ref().unwrap();
+            Ok((*w, *h))
+        })?;
         let text_x = (width - text_width) / 2.0;
         let text_y = height * 0.44;
         let pad = 26.0;
@@ -1862,27 +1918,42 @@ impl MainState {
             }
         };
         canvas.draw(&panel, DrawParam::default());
-        canvas.draw(
-            &text,
-            DrawParam::default()
-                .dest(Vec2::new(text_x, text_y))
-                .color(Color::from_rgb(255, 246, 210)),
-        );
+        MENU_INSTRUCTIONS_CACHE.with(|c| {
+            let cache = c.borrow();
+            let (text, _, _) = cache.as_ref().unwrap();
+            canvas.draw(
+                text,
+                DrawParam::default()
+                    .dest(Vec2::new(text_x, text_y))
+                    .color(Color::from_rgb(255, 246, 210)),
+            );
+        });
 
         // --- Pulsing "Press Space or Enter to start" prompt --------------------------------
         let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
-        let mut prompt = Text::new("Press Space or Enter to start");
-        prompt.set_scale(30.0);
-        let prompt_width = prompt.measure(ctx)?.x;
-        canvas.draw(
-            &prompt,
-            DrawParam::default()
-                .dest(Vec2::new(
-                    (width - prompt_width) / 2.0,
-                    text_y + text_height + pad * 2.0 + 22.0,
-                ))
-                .color(Color::new(1.0, 0.9, 0.25, pulse)),
-        );
+        let prompt_width = MENU_PROMPT_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut prompt = Text::new("Press Space or Enter to start");
+                prompt.set_scale(30.0);
+                let w = prompt.measure(ctx)?.x;
+                *cache = Some((prompt, w));
+            }
+            Ok(cache.as_ref().unwrap().1)
+        })?;
+        MENU_PROMPT_CACHE.with(|c| {
+            let cache = c.borrow();
+            let (prompt, _) = cache.as_ref().unwrap();
+            canvas.draw(
+                prompt,
+                DrawParam::default()
+                    .dest(Vec2::new(
+                        (width - prompt_width) / 2.0,
+                        text_y + text_height + pad * 2.0 + 22.0,
+                    ))
+                    .color(Color::new(1.0, 0.9, 0.25, pulse)),
+            );
+        });
         Ok(())
     }
 
