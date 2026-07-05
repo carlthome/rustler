@@ -22,7 +22,7 @@ use rand::prelude::IndexedRandom;
 use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
-use crate::enemies::{BossCharge, EnemyCrab};
+use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
@@ -186,6 +186,7 @@ struct MainState {
     score: usize,                              // Current score
     spawn_timer: f32,                          // Timer for spawning new crabs
     time_elapsed: f32,                         // Time since game start
+    menu_time: f32,                            // Free-running clock for the title/menu screen animation
     game_over: bool,                           // Game over flag
     sounds: GameSounds,                        // All game sound effects
     flashlight: Flashlight,                    // Flashlight settings and upgrades
@@ -421,6 +422,7 @@ impl MainState {
             score: 0,
             spawn_timer: 0.0,
             time_elapsed: 0.0,
+            menu_time: 0.0,
             game_over: false,
             sounds,
             flashlight,
@@ -1603,85 +1605,243 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> GameResult {
-        // Draw a solid background to hide all graphics
-        let bg = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(0.0, 0.0, width, height),
-            Color::BLACK,
-        )?;
-        canvas.draw(&bg, DrawParam::default());
+        use ggez::graphics::DrawMode;
+        let t = self.menu_time;
 
-        // Draw game title (split into main title and subtitle)
+        // --- Moonlit-beach gradient backdrop ------------------------------------------------
+        // Stacked horizontal strips fade deep night-navy at the top through a dusky plum into a
+        // warm strip of sand at the bottom, so the menu reads as the same seaside world the game
+        // is played in rather than a flat black card. ~28 strips is plenty smooth and cheap.
+        let strips = 28;
+        let top = Color::from_rgb(9, 12, 34); // deep night sky
+        let mid = Color::from_rgb(48, 26, 66); // dusky plum horizon
+        let sand = Color::from_rgb(74, 58, 78); // muted moonlit sand
+        let lerp = |a: Color, b: Color, k: f32| {
+            Color::new(
+                a.r + (b.r - a.r) * k,
+                a.g + (b.g - a.g) * k,
+                a.b + (b.b - a.b) * k,
+                1.0,
+            )
+        };
+        let strip_h = height / strips as f32;
+        for i in 0..strips {
+            let k = i as f32 / (strips - 1) as f32;
+            // Two-segment gradient: sky->horizon over the top 65%, horizon->sand below it.
+            let c = if k < 0.65 {
+                lerp(top, mid, k / 0.65)
+            } else {
+                lerp(mid, sand, (k - 0.65) / 0.35)
+            };
+            let strip = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, i as f32 * strip_h, width, strip_h + 1.0),
+                c,
+            )?;
+            canvas.draw(&strip, DrawParam::default());
+        }
+
+        // Reusable dot mesh for stars and the moon halo — one allocation, many cheap draws.
+        let dot = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.1, Color::WHITE)?;
+
+        // --- Twinkling stars ----------------------------------------------------------------
+        // Deterministic positions from a cheap integer hash so the field is stable frame to
+        // frame; each star breathes on its own phase/speed for a lively night sky.
+        let hash = |n: u32| {
+            let mut x = n.wrapping_mul(2654435761);
+            x ^= x >> 15;
+            x = x.wrapping_mul(2246822519);
+            x ^= x >> 13;
+            x
+        };
+        for i in 0..70u32 {
+            let sx = (hash(i) % 1000) as f32 / 1000.0 * width;
+            let sy = (hash(i * 7 + 1) % 1000) as f32 / 1000.0 * height * 0.6;
+            let phase = (hash(i * 13 + 3) % 628) as f32 / 100.0;
+            let speed = 1.2 + (hash(i * 17 + 5) % 200) as f32 / 100.0;
+            let twinkle = 0.25 + 0.75 * (t * speed + phase).sin().abs();
+            let r = 0.7 + (hash(i * 19 + 7) % 100) as f32 / 100.0 * 1.6;
+            canvas.draw(
+                &dot,
+                DrawParam::default()
+                    .dest(Vec2::new(sx, sy))
+                    .scale(Vec2::splat(r))
+                    .color(Color::new(1.0, 1.0, 0.92, twinkle)),
+            );
+        }
+
+        // --- Soft moon with a glowing halo --------------------------------------------------
+        let moon_pos = Vec2::new(width * 0.82, height * 0.2);
+        for ring in (0..6).rev() {
+            let rr = 34.0 + ring as f32 * 16.0;
+            let a = 0.05 + (5 - ring) as f32 * 0.03;
+            canvas.draw(
+                &dot,
+                DrawParam::default()
+                    .dest(moon_pos)
+                    .scale(Vec2::splat(rr))
+                    .color(Color::new(0.95, 0.93, 0.8, a)),
+            );
+        }
+        canvas.draw(
+            &dot,
+            DrawParam::default()
+                .dest(moon_pos)
+                .scale(Vec2::splat(30.0))
+                .color(Color::new(0.98, 0.96, 0.86, 1.0)),
+        );
+
+        // --- A conga line of crabs marching across the sand ---------------------------------
+        // Reuses the in-game crab renderer so the menu previews exactly what you play, forming a
+        // little train that scuttles across the bottom and wraps around — the game's whole hook in
+        // one glance. Positions/bob/facing are all driven by menu_time so it moves while paused.
+        let march_y = height - 66.0;
+        let march_speed = 70.0;
+        let spacing = 74.0;
+        let march_types = [
+            CrabType::Normal,
+            CrabType::Fast,
+            CrabType::Big,
+            CrabType::Sneaky,
+            CrabType::Armored,
+            CrabType::Normal,
+        ];
+        for (i, ctype) in march_types.iter().enumerate() {
+            // Lead crab walks the parade; each follower trails by `spacing`, all wrapping across
+            // a span a bit wider than the screen so they enter/exit smoothly.
+            let span = width + spacing * march_types.len() as f32;
+            let x = ((t * march_speed + i as f32 * spacing) % span) - spacing;
+            let bob = (t * 6.0 + i as f32 * 0.9).sin() * 5.0;
+            let deco = EnemyCrab {
+                pos: Vec2::new(x, march_y),
+                vel: Vec2::new(march_speed, 0.0),
+                speed: 60.0,
+                caught: true,
+                chain_index: Some(i),
+                scale: 0.5,
+                spawn_time: 10.0,
+                crab_type: *ctype,
+                spooked_timer: 0.0,
+                beat_phase_offset: 0.0,
+                join_pulse: 0.0,
+                fleeing: false,
+                facing_angle: 0.0,
+                in_flashlight: false,
+                startle_timer: 0.0,
+                boss_health: 0.0,
+                charge_state: BossCharge::Idle,
+                charge_cooldown: 0.0,
+            };
+            let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
+            draw_crab(
+                ctx,
+                canvas,
+                &deco,
+                Vec2::new(x, march_y - bob),
+                beat_phase,
+                0.0,
+                bob.max(0.0),
+                0.0,
+            )?;
+        }
+
+        // --- Title: "Crab Rustler" with an animated colour wave -----------------------------
         let mut main_title = Text::new("Crab Rustler");
         main_title.set_scale(112.0);
         let main_title_width = main_title.measure(ctx)?.x;
         let main_title_height = main_title.measure(ctx)?.y;
+        let title_top = height * 0.13;
 
-        // Use the stored subtitle
-        let mut subtitle = Text::new(&self.subtitle);
-        subtitle.set_scale(20.0);
-        let subtitle_width = subtitle.measure(ctx)?.x;
-        let _subtitle_height = subtitle.measure(ctx)?.y;
-
-        // Draw shadow for main title
+        // Drop shadow.
         canvas.draw(
             &main_title,
             DrawParam::default()
                 .dest(Vec2::new(
                     (width - main_title_width) / 2.0 + 8.0,
-                    (height - main_title_height) / 4.0 + 8.0,
+                    title_top + 8.0,
                 ))
                 .color(Color::from_rgba(0, 0, 0, 180))
-                .rotation(0.05),
+                .rotation(0.03),
         );
 
-        // Draw main title with a wavy color effect
+        // Per-character wave that now rolls over time instead of sitting still.
         for (i, ch) in "Crab Rustler".chars().enumerate() {
             let frag = ggez::graphics::TextFragment::new(ch).scale(112.0);
             let ch_text = Text::new(frag);
             let x = (width - main_title_width) / 2.0 + i as f32 * 60.0;
-            let y = (height - main_title_height) / 4.0 + (i as f32 * 0.5).sin() * 16.0;
-
+            let y = title_top + (t * 2.2 + i as f32 * 0.5).sin() * 14.0;
+            let hue = t * 0.6 + i as f32 * 0.55;
             let color = Color::from_rgb(
-                220 + ((i as f32 * 0.7).sin() * 35.0) as u8,
-                80 + ((i as f32 * 1.3).cos() * 140.0) as u8,
-                255 - (i as u8 * 7),
+                (200.0 + hue.sin() * 55.0) as u8,
+                (120.0 + (hue + 2.0).sin() * 110.0) as u8,
+                (200.0 + (hue + 4.0).sin() * 55.0) as u8,
             );
             canvas.draw(
                 &ch_text,
                 DrawParam::default()
                     .dest(Vec2::new(x, y))
                     .color(color)
-                    .rotation((i as f32 * 0.1).sin() * 0.08),
+                    .rotation((t * 1.5 + i as f32 * 0.4).sin() * 0.07),
             );
         }
 
-        // Draw subtitle centered below the main title.
+        // Subtitle centred below the title.
+        let mut subtitle = Text::new(&self.subtitle);
+        subtitle.set_scale(22.0);
+        let subtitle_width = subtitle.measure(ctx)?.x;
         canvas.draw(
             &subtitle,
             DrawParam::default()
                 .dest(Vec2::new(
                     (width - subtitle_width) / 2.0,
-                    (height - main_title_height) / 4.0 + main_title_height + 16.0,
+                    title_top + main_title_height + 14.0,
                 ))
-                .color(Color::from_rgb(255, 255, 255)),
+                .color(Color::from_rgb(255, 235, 190)),
         );
 
-        // Draw instructions text centered.
+        // --- Instructions on a translucent rounded panel for readability -------------------
         let text = Text::new(
-            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\n\nPress Space or Enter to start.",
+            "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R",
         );
         let text_width = text.measure(ctx)?.x;
         let text_height = text.measure(ctx)?.y;
+        let text_x = (width - text_width) / 2.0;
+        let text_y = height * 0.44;
+        let pad = 26.0;
+        let panel = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(
+                text_x - pad,
+                text_y - pad,
+                text_width + pad * 2.0,
+                text_height + pad * 2.0,
+            ),
+            14.0,
+            Color::from_rgba(10, 14, 30, 170),
+        )?;
+        canvas.draw(&panel, DrawParam::default());
         canvas.draw(
             &text,
             DrawParam::default()
+                .dest(Vec2::new(text_x, text_y))
+                .color(Color::from_rgb(255, 246, 210)),
+        );
+
+        // --- Pulsing "Press Space or Enter to start" prompt --------------------------------
+        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
+        let mut prompt = Text::new("Press Space or Enter to start");
+        prompt.set_scale(30.0);
+        let prompt_width = prompt.measure(ctx)?.x;
+        canvas.draw(
+            &prompt,
+            DrawParam::default()
                 .dest(Vec2::new(
-                    (width - text_width) / 2.0,
-                    (height - text_height) / 2.0 + 100.0,
+                    (width - prompt_width) / 2.0,
+                    text_y + text_height + pad * 2.0 + 22.0,
                 ))
-                .color(Color::from_rgb(255, 255, 0)),
+                .color(Color::new(1.0, 0.9, 0.25, pulse)),
         );
         Ok(())
     }
@@ -2483,6 +2643,10 @@ impl EventHandler for MainState {
         }
 
         if self.show_instructions || self.game_over || self.pending_upgrade {
+            // Keep a lightweight clock ticking so the title/menu screen can animate its
+            // background, marching crabs, and pulsing prompt even though the main simulation
+            // is paused here.
+            self.menu_time += ctx.time.delta().as_secs_f32();
             return Ok(());
         }
 
