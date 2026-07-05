@@ -4,7 +4,7 @@ mod graphics;
 mod levels;
 mod spawnings;
 
-use std::{collections::VecDeque, env, fs, path};
+use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
 
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
@@ -49,6 +49,17 @@ const WHISTLE_PULL_SPEED: f32 = 240.0; // base inward speed applied to caught-in
 const STOMP_COOLDOWN: f32 = 3.0;       // seconds between ground-pound Stomps
 const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (px/s)
 const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
+
+thread_local! {
+    // Cache for the persistent bottom-of-screen "Level N: Title / description" label. Its text
+    // only ever depends on `current_level`, which changes at most a handful of times per run
+    // (once per level), yet the label sits on screen for the entire level and was previously
+    // rebuilt from scratch — fresh `format!` String, fresh `Text`, and two redundant `.measure()`
+    // layout passes — on every single frame draw_game ran. Keyed by level index and bounded to
+    // `levels.len()` entries for the life of the process, same pattern as the mesh caches in
+    // graphics.rs.
+    static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());
+}
 
 struct GameSounds {
     intro_music: Source,
@@ -1598,28 +1609,36 @@ impl MainState {
                 .color(Color::from_rgb(190, 215, 245)),
         );
 
-        // Show current level at the bottom center.
+        // Show current level at the bottom center. Text/layout is cached per level index (see
+        // LEVEL_LABEL_CACHE) since it's static for the whole level but this branch runs every
+        // frame — only the very first frame after a level change pays for building/measuring it.
         if self.level_title_timer == 0.0 {
-            let mut level_label = Text::new(format!(
-                "Level {}: {}\n{} | Difficulty: {}",
-                self.current_level + 1,
-                self.levels[self.current_level].title,
-                self.levels[self.current_level].description,
-                self.levels[self.current_level].difficulty
-            ));
-
-            level_label.set_scale(18.0);
-            let label_width = level_label.measure(ctx)?.x;
-            let label_height = level_label.measure(ctx)?.y;
-            canvas.draw(
-                &level_label,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - label_width) / 2.0,
-                        height - label_height - 18.0,
-                    ))
-                    .color(Color::from_rgba(220, 220, 220, 120)), // subtle, monochrome, semi-transparent
-            );
+            LEVEL_LABEL_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                if !cache.contains_key(&self.current_level) {
+                    let mut label = Text::new(format!(
+                        "Level {}: {}\n{} | Difficulty: {}",
+                        self.current_level + 1,
+                        self.levels[self.current_level].title,
+                        self.levels[self.current_level].description,
+                        self.levels[self.current_level].difficulty
+                    ));
+                    label.set_scale(18.0);
+                    let dims = label.measure(ctx)?;
+                    cache.insert(self.current_level, (label, dims.x, dims.y));
+                }
+                let (label, label_width, label_height) = cache.get(&self.current_level).unwrap();
+                canvas.draw(
+                    label,
+                    DrawParam::default()
+                        .dest(Vec2::new(
+                            (width - label_width) / 2.0,
+                            height - label_height - 18.0,
+                        ))
+                        .color(Color::from_rgba(220, 220, 220, 120)), // subtle, monochrome, semi-transparent
+                );
+                Ok(())
+            })?;
         }
 
         // Draw level title if timer is active.
