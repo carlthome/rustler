@@ -56,6 +56,17 @@ thread_local! {
     // for its whole (multi-second) time on screen. Bounded to at most a handful of live boss
     // radii times 49 possible fill levels, so this cache stays small.
     static STROKE_ARC_CACHE: RefCell<HashMap<(i32, i32, usize), Mesh>> = RefCell::new(HashMap::new());
+
+    // Cache of fill-rectangle meshes keyed by (x, y, w, h) quantized plus the RGBA color,
+    // for rects whose exact geometry can't just be a scaled UNIT_SQUARE (the full-screen
+    // shader quads in `draw_grass`/`draw_flashlight` bake actual screen pixel offsets into
+    // their vertex positions, since the custom vertex shaders consume raw mesh-local
+    // position directly as clip space). These two quads plus the flashlight's small torso
+    // rect were being rebuilt (fresh Vec + fresh GPU buffer) every single frame regardless
+    // of whether anything on screen changed, on every frame of gameplay — the worst kind of
+    // per-frame allocation since it's unconditional. Resolution only changes on window
+    // resize, so in practice this cache stays at 2-3 entries for the life of the process.
+    static FILL_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, u32), Mesh>> = RefCell::new(HashMap::new());
 }
 
 /// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
@@ -156,6 +167,30 @@ pub fn cached_stroke_rect(ctx: &mut Context, w: f32, h: f32, thickness: f32) -> 
         Color::WHITE,
     )?;
     STROKE_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Fetch a cached fill-rectangle mesh built at the exact `(x, y, w, h)` offset/size given, in
+/// `color` — for the handful of rects that need real (non-unit) vertex positions baked in,
+/// instead of a fresh `Mesh::new_rectangle` GPU buffer every single frame. Unlike
+/// `unit_square`, this does NOT get scaled/positioned via `DrawParam`; draw it with
+/// `DrawParam::default()` (or whatever transform the caller already used), matching how the
+/// mesh used to be built fresh each time.
+pub fn cached_fill_rect(ctx: &mut Context, x: f32, y: f32, w: f32, h: f32, color: Color) -> ggez::GameResult<Mesh> {
+    let key = (
+        (x * 2.0).round() as i32,
+        (y * 2.0).round() as i32,
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        color.to_rgba_u32(),
+    );
+
+    if let Some(mesh) = FILL_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), color)?;
+    FILL_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
 
@@ -578,12 +613,7 @@ pub fn draw_grass(
     .build(ctx);
     canvas.set_shader_params(&params);
     canvas.set_shader(shader);
-    let quad = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(-width / 2.0, -height / 2.0, width, height),
-        Color::RED,
-    )?;
+    let quad = cached_fill_rect(ctx, -width / 2.0, -height / 2.0, width, height, Color::RED)?;
     canvas.draw(&quad, DrawParam::default());
     canvas.set_default_shader();
     canvas.set_blend_mode(BlendMode::MULTIPLY);
@@ -972,15 +1002,12 @@ pub fn draw_flashlight(
 
     // Draw a full-screen quad that the shader will render the flashlight onto
     // Use the same pattern as the grass shader
-    let flashlight_quad = Mesh::new_rectangle(
+    let flashlight_quad = cached_fill_rect(
         ctx,
-        DrawMode::fill(),
-        Rect::new(
-            -screen_width / 2.0,
-            -screen_height / 2.0,
-            screen_width,
-            screen_height,
-        ),
+        -screen_width / 2.0,
+        -screen_height / 2.0,
+        screen_width,
+        screen_height,
         Color::WHITE,
     )?;
 
@@ -992,12 +1019,7 @@ pub fn draw_flashlight(
     let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
 
     // Draw flashlight body.
-    let flashlight_body = Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        Rect::new(-5.0, 0.0, 10.0, 24.0),
-        Color::BLACK,
-    )?;
+    let flashlight_body = cached_fill_rect(ctx, -5.0, 0.0, 10.0, 24.0, Color::BLACK)?;
     canvas.draw(
         &flashlight_body,
         DrawParam::default().dest(center).rotation(rotation),
