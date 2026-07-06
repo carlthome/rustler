@@ -472,6 +472,7 @@ impl ParticleSystem {
             CrabType::Big => (40, 60.0..150.0, 4.0..10.0, false), // Larger particles
             CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
             CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
+            CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
         };
         
@@ -507,6 +508,7 @@ impl ParticleSystem {
             let sparkle_count = match crab_type {
                 CrabType::Fast => 15,
                 CrabType::Sneaky => 8,
+                CrabType::Dancer => 14,
                 _ => 0,
             };
             
@@ -520,6 +522,7 @@ impl ParticleSystem {
                 let sparkle_color = match crab_type {
                     CrabType::Fast => [1.0, 0.8, 0.2], // Golden sparkles for fast crabs
                     CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
+                    CrabType::Dancer => [1.0, 0.5, 0.95], // Hot-pink disco confetti
                     _ => [1.0, 1.0, 0.9],
                 };
                 

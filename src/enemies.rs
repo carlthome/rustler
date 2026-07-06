@@ -17,6 +17,7 @@ pub enum CrabType {
     Big,
     Sneaky,
     Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
+    Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
 }
 
@@ -26,12 +27,15 @@ impl CrabType {
         // Deliberately excludes Boss — bosses are spawned explicitly, not by the herd roll.
         // Armored crabs are the rarest of the herd (~10%) so they punctuate a run rather than
         // flooding it — enough to make you reach for the Stomp, not so many they gate every catch.
-        match rng.random_range(0..10) {
+        // Dancer crabs are an uncommon rhythm-flavored catch (~10%) — enough to make a beat-timed
+        // grab a recurring skill test without the herd turning into a strobe of hopping crabs.
+        match rng.random_range(0..11) {
             0 | 1 | 2 => Normal,
             3 | 4 => Fast,
             5 | 6 => Big,
             7 | 8 => Sneaky,
-            _ => Armored,
+            9 => Armored,
+            _ => Dancer,
         }
     }
     pub fn speed_range(&self) -> std::ops::Range<f32> {
@@ -41,6 +45,7 @@ impl CrabType {
             CrabType::Big => 20.0..40.0,
             CrabType::Sneaky => 40.0..80.0,
             CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
+            CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
         }
     }
@@ -65,6 +70,7 @@ impl CrabType {
             CrabType::Fast => 0.85, // squirrely, harder to herd cleanly
             CrabType::Big => 0.4,   // heavy — shrugs most of it off
             CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
+            CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
         }
     }
@@ -76,6 +82,7 @@ impl CrabType {
             CrabType::Big => 0.50..=0.80,
             CrabType::Sneaky => 0.30..=0.40,
             CrabType::Armored => 0.42..=0.62, // stocky, tank-like
+            CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
             CrabType::Boss => 1.7..=2.1,      // towering
         }
     }
@@ -117,6 +124,7 @@ impl EnemyCrab {
             CrabType::Big => [180.0 / 255.0, 60.0 / 255.0, 180.0 / 255.0 * (1.0 - t)],
             CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
             CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
+            CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
         }
     }
@@ -130,6 +138,12 @@ impl EnemyCrab {
     /// (instant) or worn down under the beam (slow) — before the lasso or chain can grab it.
     pub fn is_armored(&self) -> bool {
         matches!(self.crab_type, CrabType::Armored)
+    }
+
+    /// A rhythm "Dancer" crab: it drifts slowly between beats and takes a sharp hop on each beat
+    /// (see the beat-fire block in main.rs). Catch it during the freeze, not mid-leap.
+    pub fn is_dancer(&self) -> bool {
+        matches!(self.crab_type, CrabType::Dancer)
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

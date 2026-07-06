@@ -1519,9 +1519,13 @@ impl MainState {
                 const FLEE_RADIUS: f32 = 220.0;
                 // A whistle-charmed crab holds its nerve near the player instead of bolting, so a
                 // well-timed pulse pins a spooked herd in place long enough to sweep them up.
+                // Dancer crabs don't panic-flee continuously — their escape is the beat hop
+                // (handled in the beat-fire block), so between beats they hold still instead of
+                // streaming away. This is what makes them a rhythm-timed grab rather than a chase.
                 let now_fleeing = !crab_in_light
                     && distance < FLEE_RADIUS
                     && !crab.is_boss()
+                    && !crab.is_dancer()
                     && crab.charm_timer <= 0.0;
 
                 if crab_in_light {
@@ -2108,7 +2112,7 @@ impl MainState {
             CrabType::Big,
             CrabType::Sneaky,
             CrabType::Armored,
-            CrabType::Normal,
+            CrabType::Dancer,
         ];
         for (i, ctype) in march_types.iter().enumerate() {
             // Lead crab walks the parade; each follower trails by `spacing`, all wrapping across
@@ -3490,6 +3494,38 @@ impl EventHandler for MainState {
             }
             // Emergent beat-startle chain reaction: panic ripples crab-to-crab on the pulse.
             self.beat_startle_contagion();
+
+            // Dancer crabs hop on the beat. Between beats they barely drift (their speed_range is
+            // low), so their real motion is this quantized leap — making them a rhythm-reading
+            // catch: the beat that just fired is exactly when they bolt, so you grab them during
+            // the freeze, not mid-leap. Close ones hop away from the player (a rhythmic flee);
+            // distant ones keep their heading, wandering in beat-timed skips.
+            const DANCER_HOP: f32 = 74.0;
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            for crab in self.crabs.iter_mut() {
+                if crab.caught || !crab.is_dancer() {
+                    continue;
+                }
+                let dist = player_center.distance(crab.pos);
+                let dir = if dist < 240.0 {
+                    // Rhythmic flee: leap away from the player.
+                    (crab.pos - player_center).normalize_or_zero()
+                } else {
+                    // Wander: keep heading, or fall back to current facing if idle.
+                    let v = crab.vel.normalize_or_zero();
+                    if v == Vec2::ZERO {
+                        Vec2::new(crab.facing_angle.cos(), crab.facing_angle.sin())
+                    } else {
+                        v
+                    }
+                };
+                let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                crab.pos += dir * DANCER_HOP;
+                crab.pos.x = crab.pos.x.clamp(0.0, self.width - crab.scale);
+                crab.pos.y = crab.pos.y.clamp(0.0, self.height - crab.scale);
+                crab.vel = dir; // face the hop; unit vel so the drift branch stays gentle
+                crab.join_pulse = 1.0; // reuse the join squash-pop as a little "landed" bounce
+            }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
 
