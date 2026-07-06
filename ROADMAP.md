@@ -40,6 +40,10 @@ meta-progression expansion in Later where it can grow once Carl weighs in.
   into player-facing mechanics: a catch window that only opens on the beat for certain crabs, or
   a "call" the player issues on-beat that a Dancer answers, so the rhythm is something the player
   actively plays with, not just watches. Doubles down on what's most distinctive about this game.
+- **Mouse-clickable upgrade screen** — upgrade cards currently only accept keyboard number keys;
+  add mouse click (and hover highlight) as an equal alternative to picking by number. Small,
+  low-risk polish fix, but it's the kind of friction that makes the game feel unfinished on
+  first impression.
 
 ## Later (outer loop — not yet)
 
