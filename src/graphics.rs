@@ -616,6 +616,26 @@ impl ParticleSystem {
         }
     }
 
+    /// A soft warm puff of gently-rising motes off a crab the whistle just talked down out of a
+    /// panic — the calming counterpart to the cold "!" alarm rings the stampede throws.
+    pub fn spawn_soothe_puff(&mut self, pos: Vec2, rng: &mut impl Rng) {
+        for _ in 0..6 {
+            let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            let speed = rng.random_range(12.0_f32..40.0_f32);
+            // Drift outward but bias upward so the puff wafts off like a settling sigh.
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed - rng.random_range(20.0_f32..55.0_f32));
+            let life = rng.random_range(0.5_f32..0.95_f32);
+            self.push(Particle {
+                pos,
+                vel,
+                life,
+                max_life: life,
+                size: rng.random_range(2.5_f32..5.0_f32),
+                color: [1.0, 0.82 + rng.random_range(-0.08_f32..0.08_f32), 0.42],
+            });
+        }
+    }
+
     pub fn spawn_milestone_fireworks(&mut self, center: Vec2, milestone: usize, rng: &mut impl Rng) {
         // Scale particle count with milestone tier, capped at 200
         let count = (120 + (milestone / 5).min(8) * 10).min(200);

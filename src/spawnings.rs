@@ -33,6 +33,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         facing_angle: 0.0,
         in_flashlight: false,
         startle_timer: 0.0,
+        charm_timer: 0.0,
         // Armored crabs spawn with a shell here; every other herd type gets 0. The Boss's larger
         // health is overwritten explicitly in spawn_boss after this returns.
         boss_health: crab_type.initial_shell(),

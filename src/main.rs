@@ -651,11 +651,14 @@ impl MainState {
                 break;
             }
             // Only calm, catchable crabs outside the beam can be freshly infected.
+            // A crab still soothed by a recent whistle pulse shrugs off the panic — this is what
+            // makes the whistle a real crowd-control counter to a spreading stampede.
             if crab.caught
                 || crab.is_boss()
                 || crab.in_flashlight
                 || crab.fleeing
                 || crab.startle_timer > 0.0
+                || crab.charm_timer > 0.0
             {
                 continue;
             }
@@ -1399,7 +1402,12 @@ impl MainState {
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
                 // Bosses are unshakeable — they lumber on rather than panic-bolting.
                 const FLEE_RADIUS: f32 = 220.0;
-                let now_fleeing = !crab_in_light && distance < FLEE_RADIUS && !crab.is_boss();
+                // A whistle-charmed crab holds its nerve near the player instead of bolting, so a
+                // well-timed pulse pins a spooked herd in place long enough to sweep them up.
+                let now_fleeing = !crab_in_light
+                    && distance < FLEE_RADIUS
+                    && !crab.is_boss()
+                    && crab.charm_timer <= 0.0;
 
                 if crab_in_light {
                     // Crab is gently attracted to the player's position (sauntering, not rocketing)
@@ -1446,6 +1454,12 @@ impl MainState {
                     if crab.startle_timer < 0.0 {
                         crab.startle_timer = 0.0;
                     }
+                }
+
+                // Whistle charm wears off after a beat or two, at which point the crab is fair
+                // game for the panic contagion again.
+                if crab.charm_timer > 0.0 {
+                    crab.charm_timer = (crab.charm_timer - dt).max(0.0);
                 }
 
                 // If player is within 150 pixels and crab is in the light, add a small extra speed boost
@@ -1897,6 +1911,7 @@ impl MainState {
                 facing_angle: 0.0,
                 in_flashlight: false,
                 startle_timer: 0.0,
+                charm_timer: 0.0,
                 boss_health: 0.0,
                 charge_state: BossCharge::Idle,
                 charge_cooldown: 0.0,
@@ -3243,6 +3258,11 @@ impl EventHandler for MainState {
             self.whistle_active = (self.whistle_active - dt).max(0.0);
             self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
             let center = self.whistle_center;
+            // The whistle doubles as crowd control: sweeping it over a panicking herd soothes the
+            // fear. Charm lasts a beat or two (longer as the whistle lane is ranked up) and blocks
+            // both fresh flee and the beat-startle contagion, so it genuinely quells a stampede.
+            let charm_dur = 1.4 + 0.5 * self.whistle_rank as f32;
+            let mut soothed: Vec<Vec2> = Vec::new();
             for crab in &mut self.crabs {
                 if crab.caught {
                     continue;
@@ -3261,7 +3281,22 @@ impl EventHandler for MainState {
                     crab.vel = toward * speed;
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
+                    // Note the crabs we actually talked down out of a panic so the "soothed" note
+                    // only pops where it reads (not on already-calm crabs the pulse merely gathers).
+                    if crab.fleeing || crab.startle_timer > 0.0 {
+                        soothed.push(crab.pos);
+                    }
                     crab.fleeing = false;
+                    crab.startle_timer = 0.0;
+                    crab.charm_timer = crab.charm_timer.max(charm_dur);
+                }
+            }
+            // Warm puffs rising off the crabs the pulse just calmed — the visual counterpart to
+            // the cold "!" alarm rings the panic contagion throws.
+            if !soothed.is_empty() {
+                let mut rng = rand::rng();
+                for pos in soothed.into_iter().take(8) {
+                    self.particle_system.spawn_soothe_puff(pos, &mut rng);
                 }
             }
         }
