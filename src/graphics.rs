@@ -2095,6 +2095,44 @@ pub fn draw_whistle_ring(
     Ok(())
 }
 
+/// Draw the rhythm "Call" pulse — concentric magenta rings that COLLAPSE inward toward the player,
+/// reading as a summon (pull-in), opposite of the whistle's outward horn-blast. `pulse` is 1..0
+/// (fresh→gone); `reach` is how far out the outermost ring starts. Additive so it glows on the beat.
+pub fn draw_call_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    pulse: f32,
+    reach: f32,
+) -> ggez::GameResult {
+    if pulse <= 0.0 {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Three rings marching inward as the pulse decays — a beckoning "come here" cadence.
+    for (i, phase) in [0.0_f32, 0.33, 0.66].iter().enumerate() {
+        let p = (pulse - phase).rem_euclid(1.0);
+        let r = reach * p; // collapses toward the player as p → 0
+        if r > 4.0 {
+            let alpha = (pulse * (1.0 - p) * 0.8).clamp(0.0, 1.0);
+            let thickness = 2.0 + 4.0 * (1.0 - p);
+            let ring = cached_stroke_circle(ctx, r, thickness)?;
+            let hue = 0.5 + 0.5 * i as f32 / 3.0;
+            canvas.draw(
+                &ring,
+                DrawParam::default()
+                    .dest(center)
+                    .color(Color::new(1.0, 0.3 + 0.2 * hue, 0.9, alpha)),
+            );
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the Stomp ground-pound shockwave — a fast, dusty ring that slams outward from the player.
 /// Earthier and heavier than the whistle's bright horn-blast so the two abilities read differently.
 pub fn draw_stomp_ring(

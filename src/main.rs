@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_wave_telegraph,
+    draw_call_ring, draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, get_levels};
@@ -359,6 +359,14 @@ struct MainState {
     stomp_cooldown: f32,                        // >0 while on cooldown; Stomp unusable until it hits 0
     stomp_center: Vec2,                         // player center captured at stomp time (ring origin)
     stomp_beat_bonus: f32,                       // 1.0 normally, >1 when this cast landed on-beat (bigger slam)
+    // Call ability (F) — a rhythm-native summon aimed at Dancer crabs. An on-beat Call charms every
+    // nearby Dancer into "answering": on the next beat they hop TOWARD the player instead of fleeing,
+    // opening a catch window you actively play for. Off-beat it fizzles. This is the player's own
+    // on-beat action the Dancer answers to, turning rhythm from something you watch into something
+    // you play. Purely a control layer over existing Dancer hop logic — no new draw dependency.
+    call_cooldown: f32,                          // >0 while on cooldown; Call unusable until it hits 0
+    call_pulse: f32,                             // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
+    call_pulse_center: Vec2,                     // player center captured when the Call rang out
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
@@ -654,6 +662,9 @@ impl MainState {
             stomp_cooldown: 0.0,
             stomp_center: Vec2::ZERO,
             stomp_beat_bonus: 1.0,
+            call_cooldown: 0.0,
+            call_pulse: 0.0,
+            call_pulse_center: Vec2::ZERO,
             dash_just_fired: false,
             dash_flash: 0.0,
             screen_shake: 0.0,
@@ -1581,6 +1592,12 @@ impl MainState {
                     crab.charm_timer = (crab.charm_timer - dt).max(0.0);
                 }
 
+                // A Dancer answering the player's Call keeps its answer for a few beats, then reverts
+                // to normal (fleeing) behavior if it wasn't caught in time.
+                if crab.answering_call > 0.0 {
+                    crab.answering_call = (crab.answering_call - dt).max(0.0);
+                }
+
                 // If player is within 150 pixels and crab is in the light, add a small extra speed boost
                 let mut speed_multiplier = 1.0;
                 if crab_in_light && distance < 150.0 {
@@ -1956,6 +1973,8 @@ impl MainState {
         self.stomp_radius = 0.0;
         self.stomp_cooldown = 0.0;
         self.stomp_beat_bonus = 1.0;
+        self.call_cooldown = 0.0;
+        self.call_pulse = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.screen_shake = 0.0;
@@ -2137,6 +2156,7 @@ impl MainState {
                 in_flashlight: false,
                 startle_timer: 0.0,
                 charm_timer: 0.0,
+                answering_call: 0.0,
                 boss_health: 0.0,
                 charge_state: BossCharge::Idle,
                 charge_cooldown: 0.0,
@@ -2252,7 +2272,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -2617,6 +2637,11 @@ impl MainState {
                 self.stomp_radius,
                 self.stomp_max_radius() * self.stomp_beat_bonus,
             )?;
+        }
+
+        // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
+        if self.call_pulse > 0.0 {
+            draw_call_ring(ctx, canvas, self.call_pulse_center, self.call_pulse, 420.0)?;
         }
 
         // Draw lasso line and tip
@@ -3309,6 +3334,55 @@ impl MainState {
             1.0
         }
     }
+    /// Issue a rhythm "Call" (F). This is the player's on-beat action that Dancer crabs answer to:
+    /// on the beat, it charms every nearby Dancer into hopping TOWARD the player on the next beat
+    /// (see the beat-fire Dancer block) instead of fleeing, opening a catch window. Off the beat it
+    /// fizzles with a red flash and no charm — the whole point is you have to play in time. A short
+    /// cooldown keeps it from being mashed. Turns the rhythm into something the player actively does.
+    fn issue_call(&mut self) {
+        if self.call_cooldown > 0.0 {
+            return;
+        }
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        self.call_cooldown = 1.5;
+        if self.on_beat_now() {
+            // On beat: the Call lands. Charm every nearby free Dancer so it answers on the next beat.
+            const CALL_RADIUS: f32 = 420.0;
+            let mut answered = 0u32;
+            for crab in self.crabs.iter_mut() {
+                if crab.caught || !crab.is_dancer() {
+                    continue;
+                }
+                if center.distance(crab.pos) <= CALL_RADIUS {
+                    // ~3 beats worth of "come here": won't flee, hops toward the player on the beat.
+                    crab.answering_call = 1.6;
+                    crab.charm_timer = crab.charm_timer.max(1.6);
+                    answered += 1;
+                }
+            }
+            self.call_pulse = 1.0;
+            self.call_pulse_center = center;
+            self.groove = (self.groove + 0.12).min(1.0);
+            self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
+            self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
+            let (msg, col) = if answered > 0 {
+                ("CALL! Dancers answer".to_string(), [1.0, 0.4, 0.9, 1.0])
+            } else {
+                ("CALL!".to_string(), [1.0, 0.6, 0.9, 1.0])
+            };
+            self.floating_texts
+                .spawn(msg, center - Vec2::new(70.0, 84.0), 28.0, col);
+        } else {
+            // Off beat: fizzle. Red flash so the miss reads, no charm applied.
+            self.shop_denied = self.shop_denied.max(0.6);
+            self.floating_texts.spawn(
+                "off beat…".to_string(),
+                center - Vec2::new(40.0, 70.0),
+                24.0,
+                [0.9, 0.4, 0.4, 0.9],
+            );
+        }
+    }
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
     fn whistle_max_radius(&self) -> f32 {
         WHISTLE_MAX_RADIUS * (1.0 + 0.28 * self.whistle_rank as f32)
@@ -3511,7 +3585,17 @@ impl EventHandler for MainState {
                     continue;
                 }
                 let dist = player_center.distance(crab.pos);
-                let dir = if dist < 240.0 {
+                // An answering Dancer that's already in arm's reach holds still (its answer is spent)
+                // rather than hopping the default fallback direction and skittering off.
+                if crab.answering_call > 0.0 && dist < 90.0 {
+                    crab.answering_call = 0.0;
+                    crab.join_pulse = 1.0;
+                    continue;
+                }
+                let dir = if crab.answering_call > 0.0 {
+                    // Answering the player's Call: hop TOWARD the player on the beat.
+                    (player_center - crab.pos).normalize_or_zero()
+                } else if dist < 240.0 {
                     // Rhythmic flee: leap away from the player.
                     (crab.pos - player_center).normalize_or_zero()
                 } else {
@@ -3602,6 +3686,12 @@ impl EventHandler for MainState {
         }
         if self.stomp_cooldown > 0.0 {
             self.stomp_cooldown = (self.stomp_cooldown - dt).max(0.0);
+        }
+        if self.call_cooldown > 0.0 {
+            self.call_cooldown = (self.call_cooldown - dt).max(0.0);
+        }
+        if self.call_pulse > 0.0 {
+            self.call_pulse = (self.call_pulse - dt * 1.6).max(0.0);
         }
         if self.chain_snap_cooldown > 0.0 {
             self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);

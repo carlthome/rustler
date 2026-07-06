@@ -192,6 +192,10 @@ pub fn handle_key_down_event(
                     );
                 }
             }
+            if key == KeyCode::F {
+                // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.
+                state.issue_call();
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }

@@ -106,6 +106,7 @@ pub struct EnemyCrab {
     pub in_flashlight: bool, // true while crab is inside the flashlight cone being attracted
     pub startle_timer: f32,  // >0 while bolting away after a nearby catch spooked it (stampede ripple)
     pub charm_timer: f32,    // >0 while soothed by a whistle pulse: won't flee and is immune to beat-startle panic
+    pub answering_call: f32, // >0 while a Dancer is answering an on-beat player Call: it hops *toward* the player on the beat instead of fleeing
     pub boss_health: f32,    // >0 while a boss still needs wearing down under the beam; 0 for regular crabs
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
