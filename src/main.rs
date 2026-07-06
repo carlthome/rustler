@@ -413,6 +413,17 @@ struct MainState {
     // Reused scratch buffer for bounce-ring spawn positions collected during the deflection
     // pass, avoiding a fresh Vec allocation every frame.
     deflect_bounce_buf: Vec<Vec2>,
+    // Event-collection scratch buffers for update_crabs, reused every frame instead of being
+    // freshly allocated on each call. Most frames produce zero events in each of these (no
+    // crab started fleeing, no boss broke, etc.), so a per-frame Vec::new() was pure churn —
+    // clearing a buffer that's almost always empty costs nothing, while allocating one does.
+    flee_pops_buf: Vec<Vec2>,
+    boss_broke_buf: Vec<Vec2>,
+    armor_broke_buf: Vec<Vec2>,
+    attraction_particles_buf: Vec<(Vec2, Vec2, f32, [f32; 3])>,
+    boss_windups_buf: Vec<Vec2>,
+    boss_launches_buf: Vec<Vec2>,
+    boss_charge_dust_buf: Vec<(Vec2, Vec2)>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -690,6 +701,13 @@ impl MainState {
             deflect_body_buf: Vec::new(),
             deflect_grid_buf: std::collections::HashMap::new(),
             deflect_bounce_buf: Vec::new(),
+            flee_pops_buf: Vec::new(),
+            boss_broke_buf: Vec::new(),
+            armor_broke_buf: Vec::new(),
+            attraction_particles_buf: Vec::new(),
+            boss_windups_buf: Vec::new(),
+            boss_launches_buf: Vec::new(),
+            boss_charge_dust_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -1373,18 +1391,30 @@ impl MainState {
         // Beam-lane-scaled boss/shell drain, read once so the &mut self.crabs loop can use it.
         let boss_drain = self.boss_drain_rate();
 
+        // Event-collection scratch buffers, reused every frame (see field docs) instead of
+        // being freshly allocated here — most frames leave every one of these empty. Taken out
+        // (rather than borrowed) so the later celebration loops are free to call back into
+        // methods that need a full `&mut self`; the buffers (and their capacity) are restored
+        // at the end of this function so next frame reuses the same allocation.
         // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
-        let mut flee_pops: Vec<Vec2> = Vec::new();
+        let mut flee_pops = std::mem::take(&mut self.flee_pops_buf);
+        flee_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
-        let mut boss_broke: Vec<Vec2> = Vec::new();
+        let mut boss_broke = std::mem::take(&mut self.boss_broke_buf);
+        boss_broke.clear();
         // Positions of Armored crabs whose shell the beam just wore through — pop a "crack" after the loop
-        let mut armor_broke: Vec<Vec2> = Vec::new();
+        let mut armor_broke = std::mem::take(&mut self.armor_broke_buf);
+        armor_broke.clear();
         // Sparkle particles for attracted crabs (collected to avoid borrow conflict)
-        let mut attraction_particles: Vec<(Vec2, Vec2, f32, [f32; 3])> = Vec::new();
+        let mut attraction_particles = std::mem::take(&mut self.attraction_particles_buf);
+        attraction_particles.clear();
         // King Crab charge telegraph events, collected to sidestep the &mut self.crabs borrow.
-        let mut boss_windups: Vec<Vec2> = Vec::new();                 // a charge just started winding up
-        let mut boss_launches: Vec<Vec2> = Vec::new();               // a wound-up charge just fired
-        let mut boss_charge_dust: Vec<(Vec2, Vec2)> = Vec::new();     // (pos, vel) trail while lunging
+        let mut boss_windups = std::mem::take(&mut self.boss_windups_buf); // a charge just started winding up
+        boss_windups.clear();
+        let mut boss_launches = std::mem::take(&mut self.boss_launches_buf); // a wound-up charge just fired
+        boss_launches.clear();
+        let mut boss_charge_dust = std::mem::take(&mut self.boss_charge_dust_buf); // (pos, vel) trail while lunging
+        boss_charge_dust.clear();
 
         // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
         // player. Computed before the mutable loop so the boss branch can read it freely.
@@ -1658,7 +1688,7 @@ impl MainState {
         }
 
         // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
-        for (pos, vel, life, [cr, cg, cb]) in attraction_particles {
+        for &(pos, vel, life, [cr, cg, cb]) in attraction_particles.iter() {
             self.particle_system.push(crate::graphics::Particle {
                 pos,
                 vel,
@@ -1670,7 +1700,7 @@ impl MainState {
         }
 
         // Celebrate any King Crab worn down to catchable this frame
-        for pos in boss_broke {
+        for &pos in boss_broke.iter() {
             self.floating_texts.spawn(
                 "WORN DOWN — CATCH IT!".to_string(),
                 pos - Vec2::new(110.0, 46.0),
@@ -1684,7 +1714,7 @@ impl MainState {
 
         // King Crab winding up a charge: red alarm ring + shouted warning so the player has time
         // to route the tail out of the lane before the lunge commits.
-        for pos in boss_windups {
+        for &pos in boss_windups.iter() {
             if self.fear_rings.len() < 32 {
                 self.fear_rings.push((pos, 0.0));
             }
@@ -1698,7 +1728,7 @@ impl MainState {
         }
 
         // The lunge fires: a jolt and a hot shockwave sell the commitment.
-        for pos in boss_launches {
+        for &pos in boss_launches.iter() {
             self.spawn_catch_shockwave(pos, [1.0, 0.5, 0.2]);
             self.screen_shake = self.screen_shake.max(10.0);
             let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
@@ -1708,7 +1738,7 @@ impl MainState {
         // Dust kicked up behind the charging boss — sprayed opposite the lunge heading.
         {
             let mut rng = rand::rng();
-            for (pos, vel) in boss_charge_dust {
+            for &(pos, vel) in boss_charge_dust.iter() {
                 if rng.random_range(0.0_f32..1.0_f32) >= dt * 90.0 {
                     continue; // throttle so a long lunge doesn't flood the particle pool
                 }
@@ -1730,7 +1760,7 @@ impl MainState {
         }
 
         // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare
-        for pos in armor_broke {
+        for &pos in armor_broke.iter() {
             self.floating_texts.spawn(
                 "SHELL CRACKED!".to_string(),
                 pos - Vec2::new(70.0, 40.0),
@@ -1741,7 +1771,7 @@ impl MainState {
         }
 
         // Emit "!" floating texts for crabs that just started fleeing this frame
-        for pos in flee_pops {
+        for &pos in flee_pops.iter() {
             self.floating_texts.spawn(
                 "!".to_string(),
                 pos - Vec2::new(0.0, 24.0),
@@ -1749,6 +1779,16 @@ impl MainState {
                 [1.0, 0.9, 0.1, 1.0],
             );
         }
+
+        // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
+        // allocation instead of starting from an empty Vec.
+        self.flee_pops_buf = flee_pops;
+        self.boss_broke_buf = boss_broke;
+        self.armor_broke_buf = armor_broke;
+        self.attraction_particles_buf = attraction_particles;
+        self.boss_windups_buf = boss_windups;
+        self.boss_launches_buf = boss_launches;
+        self.boss_charge_dust_buf = boss_charge_dust;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
