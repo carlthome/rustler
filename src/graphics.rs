@@ -1590,7 +1590,14 @@ pub fn draw_beat_indicator(
     } else {
         Color::from_rgba(255, 220, 120, ring_alpha)
     };
-    let approach = cached_stroke_circle(ctx, approach_r, 2.5)?;
+    // The ring sweeps continuously from base_r to base_r+46 every single beat, so looking it up
+    // in the shared stroke-circle cache at full precision (rounded to the nearest half-pixel)
+    // missed on almost every frame — quietly building a brand-new GPU mesh buffer per frame for
+    // the whole time the game runs. Quantize to the nearest 4px for the cache lookup only (the
+    // draw call still positions/colors it per-frame via DrawParam, so the sweep still reads as
+    // smooth); this bounds the ring to ~12 reusable mesh variants instead of one alloc per frame.
+    let cache_r = (approach_r / 4.0).round() * 4.0;
+    let approach = cached_stroke_circle(ctx, cache_r, 2.5)?;
     canvas.draw(&approach, DrawParam::default().dest(center).color(ring_col));
 
     let pulse_r = base_r + beat_intensity * 14.0;
