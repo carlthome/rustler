@@ -1077,6 +1077,30 @@ impl MainState {
         }
     }
 
+    /// Payoff for catching a Dancer that's actively answering the player's Call. This closes the
+    /// Call loop — an on-beat Call summons Dancers toward you, and snapping one up while it's still
+    /// answering pays out extra score, a groove surge, and a distinct magenta "DANCE CATCH!" pop
+    /// plus a juice punch, so the rhythm summon is worth engaging rather than incidental. Call with
+    /// the crab's pre-catch `answering_call` timer and position; a no-op if the crab wasn't answering.
+    fn reward_dance_catch(&mut self, was_answering: bool, pos: Vec2) {
+        if !was_answering {
+            return;
+        }
+        let mult = self.combo_multiplier();
+        let bonus = 3 * mult;
+        self.score += bonus;
+        self.groove = (self.groove + 0.2).min(1.0);
+        self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
+        self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
+        self.zoom_punch = self.zoom_punch.max(0.06);
+        self.floating_texts.spawn(
+            format!("DANCE CATCH! +{}", bonus),
+            pos - Vec2::new(60.0, 46.0),
+            30.0,
+            [1.0, 0.4, 0.9, 1.0],
+        );
+    }
+
     fn combo_multiplier(&self) -> usize {
         match self.combo_count {
             0..=2 => 1,
@@ -1182,6 +1206,8 @@ impl MainState {
         let mut any_caught = false;
         let mut startle_origins: Vec<Vec2> = Vec::new();
         let mut boss_catches: Vec<(Vec2, bool)> = Vec::new();
+        // Dancers snapped up while still answering a Call — paid out after the loop (needs &mut self).
+        let mut dance_catches: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -1203,6 +1229,9 @@ impl MainState {
                 );
                 let shock_pos = crab.pos;
 
+                if crab.answering_call > 0.0 {
+                    dance_catches.push(crab.pos);
+                }
                 crab.caught = true;
                 self.chain_join_ripple = true;
                 if self.catch_shockwaves.len() < 48 {
@@ -1266,6 +1295,9 @@ impl MainState {
         }
         for origin in startle_origins {
             self.emit_catch_startle(origin);
+        }
+        for pos in dance_catches {
+            self.reward_dance_catch(true, pos);
         }
         for (bpos, is_tide) in boss_catches {
             self.on_boss_caught(bpos, is_tide);
@@ -1467,10 +1499,12 @@ impl MainState {
             self.particle_system
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             self.spawn_catch_shockwave(pos, crab_color);
+            let was_answering = self.crabs[i].answering_call > 0.0;
             self.crabs[i].caught = true;
             if self.crabs[i].is_boss() {
                 self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
             }
+            self.reward_dance_catch(was_answering, pos);
             self.emit_catch_startle(pos);
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
@@ -4194,10 +4228,12 @@ impl EventHandler for MainState {
                         let crab_color = self.crabs[i].crab_color();
                         self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
                         self.spawn_catch_shockwave(pos, crab_color);
+                        let was_answering = self.crabs[i].answering_call > 0.0;
                         self.crabs[i].caught = true;
                         if self.crabs[i].is_boss() {
                             self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
                         }
+                        self.reward_dance_catch(was_answering, pos);
                         lasso_startle_origins.push(pos);
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
