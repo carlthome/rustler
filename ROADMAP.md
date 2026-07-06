@@ -15,30 +15,39 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back.
 
-**Where we are.** The inner loop now feels substantially DONE. Everything that made the core loop
-tense and expressive has landed: catching across four distinct tools (beam/lasso/whistle/stomp),
-the conga train with real chain-snap downside, a delivery pen to bank it, rhythm/groove scoring,
-biomes with terrain hazards, the King Crab boss with a tail-scattering charge, upgrade cards that
-now **branch into four playstyle lanes** (Beam/Lasso/Whistle/Stomp Focus, each deepening with
-rank), and a whistle **soothe** that talks a panicking herd down and makes them immune to
-beat-startle contagion. The risk/reward loop is closed and the toolkit all matters. Depth-first
-work is running out of high-leverage targets — so this run **promotes meta-progression from Later
-into Now**. The one remaining pure-inner-loop item (layered music) is half-blocked on human audio
-authoring; its actionable code half is called out below.
+**Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/
+stomp) with four upgrade playstyle lanes, the conga train with chain-snap downside and a
+delivery-pen jackpot, rhythm/groove scoring that now **drives real mechanics** (bar-quantized
+spawn drops on the downbeat, on-beat PERFECT tool hits, a beat-stepping train), biomes with
+terrain hazards, and two enemy archetypes beyond the base crab (Armored → stomp, Dancer →
+rhythm). A first slice of **meta-progression has shipped too**: runs bank into a persistent
+career (best score, lifetime crabs, run count) and banked crabs buy permanent starting tool
+ranks in a title-screen perk shop, so a loss still buys progress. Both prior "Now" items are
+done. We're NOT declaring the inner loop finished and pivoting wholesale to outer-loop work
+until Carl says the core feels done — the Dancer crab shows fresh archetypes land well, and
+boss/biome variety is still thin. So this run keeps depth-first targets in Now and leaves the
+meta-progression expansion in Later where it can grow once Carl weighs in.
 
 ## Now
 
-- **Meta-progression between runs** (promoted from Later) — the inner loop is tight enough that the
-  biggest remaining fun-per-effort now lives across runs, not inside one. Add some small persistent
-  thread that carries over after a run ends — a currency banked from cash-ins, a handful of
-  permanent unlocks (a starting tool rank, a new crab archetype, a cosmetic), a run-history / best-
-  score record on the title screen — so a "loss" still feels like progress and pulls the player
-  into one more run. Start minimal and persistent (a single save file), not a sprawling meta-tree.
-- **Tie more gameplay to the beat** — the actionable half of the old layered-music item, which a
-  code agent can do without any new audio assets. Today the beat mostly drives visuals; push it
-  into mechanics: quantize spawn waves to the bar, make chain movement / catch windows / groove
-  bonuses land harder exactly on-beat, reward on-beat tool use. Closes the gap between "visuals
-  pulse to the beat" and "the beat is the game."
+- **A second boss, not just a second King Crab** — the King Crab charge is the game's only
+  climax beat and it's a single pattern. Add one more boss archetype with a distinct threat and
+  counter-play (e.g. a Hermit Crab that hides in a shell you must beat-crack, or a Tide Boss that
+  floods lanes and forces routing), so the run has more than one memorable spike. Depth: makes
+  every long run's peak moment less repetitive.
+- **Deepen the Dancer/rhythm enemy line into an ability, not just a foe** — the Dancer crab that
+  freezes off-beat and hops on-beat is the most rhythm-native thing in the game. Push it further
+  into player-facing mechanics: a catch window that only opens on the beat for certain crabs, or
+  a "call" the player issues on-beat that a Dancer answers, so the rhythm is something the player
+  actively plays with, not just watches. Doubles down on what's most distinctive about this game.
+
+## Later (outer loop — not yet)
+
+- **Expand meta-progression past the first slice** — the persistent career + perk shop is in.
+  Once Carl signals the inner loop feels done, grow it: more permanent unlocks (a new crab
+  archetype, a cosmetic, a starting biome), a run-history readout, small run-to-run goals. Keep
+  it a single save file, not a sprawling meta-tree. Deliberately held here so depth-first inner-
+  loop work stays first.
 
 ## Blocked (needs a human, not a code agent)
 
@@ -55,9 +64,8 @@ authoring; its actionable code half is called out below.
   already have actually affect each other instead of running in isolation. Shipped so far:
   beat-startle chain reactions (panic ripples crab-to-crab on each beat), chain-snap risk (a
   panicking crab that hits the tail knocks the last links loose), the conga body walling off /
-  deflecting fleeing crabs back toward the beam, and the whistle soothe calming a panic and
-  granting startle immunity. Still parked here until one earns its way up: fear rippling outward
-  from a lasso catch point, and chain segments redirecting fleeing crabs into each other. Same
-  depth-first spirit — deepen what's there before going wide.
-</content>
-</invoke>
+  deflecting fleeing crabs back toward the beam, the whistle soothe calming a panic and
+  granting startle immunity, and lasso catches now spooking the surrounding herd like beam/chain
+  catches do. Still parked here until one earns its way up: fear rippling into new panic archetypes
+  (a Dancer's on-beat hop startling neighbors), and chain segments redirecting fleeing crabs into
+  each other. Same depth-first spirit — deepen what's there before going wide.
