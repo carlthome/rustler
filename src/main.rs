@@ -253,6 +253,14 @@ struct MainState {
     debug_mode: bool,                          // Debug mode flag
     pending_upgrade: bool,                     // Whether upgrade screen should be shown
     best_time: f32,                            // Fastest time to catch all crabs
+    // --- Meta-progression: a single persistent thread that survives across runs, so ending a
+    // run (win or loss) still banks progress into a career you carry forward. Persisted to
+    // career.txt as three whitespace-separated integers: best_score total_score runs.
+    career_best_score: usize,                  // Highest single-run score ever reached
+    career_total_score: usize,                 // Sum of every run's final score (lifetime crabs banked)
+    career_runs: usize,                        // How many runs have ended
+    run_recorded: bool,                        // Guard so the current run is banked into career exactly once
+    run_is_new_best: bool,                     // Did the just-ended run set a new career best? (for game-over flourish)
     width: f32,                                // Virtual width of the game
     height: f32,                               // Virtual height of the game
     shader: ggez::graphics::Shader,            // Shader for grass rendering
@@ -429,6 +437,20 @@ impl MainState {
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(f32::MAX);
 
+        // Load the persistent career (meta-progression). Missing/garbled file just starts a
+        // fresh career at zero — the game must never fail to launch over a save file.
+        let (career_best_score, career_total_score, career_runs) =
+            fs::read_to_string("career.txt")
+                .ok()
+                .and_then(|s| {
+                    let mut it = s.split_whitespace();
+                    let best = it.next()?.parse::<usize>().ok()?;
+                    let total = it.next()?.parse::<usize>().ok()?;
+                    let runs = it.next()?.parse::<usize>().ok()?;
+                    Some((best, total, runs))
+                })
+                .unwrap_or((0, 0, 0));
+
         let crabs: Vec<EnemyCrab> = [].to_vec();
 
         // Pre-fill position history with initial player position
@@ -508,6 +530,11 @@ impl MainState {
             debug_mode: true,
             pending_upgrade: false,
             best_time,
+            career_best_score,
+            career_total_score,
+            career_runs,
+            run_recorded: false,
+            run_is_new_best: false,
             width,
             height,
             shader,
@@ -1713,6 +1740,30 @@ impl MainState {
         self.start_current_pattern(area);
     }
 
+    /// Bank the just-ended run into the persistent career and write it to disk. Called exactly
+    /// once per run (guarded by `run_recorded`) the moment the game enters its game-over state,
+    /// so even a losing run adds to a lifetime total the player carries forward — a "loss" still
+    /// feels like progress. Cheap and best-effort: a failed write never disrupts play.
+    fn record_run(&mut self) {
+        if self.run_recorded {
+            return;
+        }
+        self.run_recorded = true;
+        self.run_is_new_best = self.score > self.career_best_score;
+        if self.run_is_new_best {
+            self.career_best_score = self.score;
+        }
+        self.career_total_score += self.score;
+        self.career_runs += 1;
+        let _ = fs::write(
+            "career.txt",
+            format!(
+                "{} {} {}",
+                self.career_best_score, self.career_total_score, self.career_runs
+            ),
+        );
+    }
+
     fn reset_game(&mut self) {
         let width = self.width;
         let height = self.height;
@@ -1790,6 +1841,8 @@ impl MainState {
         self.spawn_timer = 0.0;
         self.time_elapsed = 0.0;
         self.game_over = false;
+        self.run_recorded = false;
+        self.run_is_new_best = false;
         self.boost_timer = 0.0;
         self.boost_cooldown = 0.0;
         self.current_level = 0;
@@ -2122,6 +2175,27 @@ impl MainState {
                     .color(Color::new(1.0, 0.9, 0.25, pulse)),
             );
         });
+
+        // --- Career line: the persistent thread across runs -------------------------------
+        // Only surfaces once there's a career to show, so a brand-new player sees a clean title.
+        // Reminds returning players what they're building toward before they hit start.
+        if self.career_runs > 0 {
+            let mut career = Text::new(format!(
+                "Career best {}   ·   {} crabs banked over {} runs",
+                self.career_best_score, self.career_total_score, self.career_runs
+            ));
+            career.set_scale(22.0);
+            let cw = career.measure(ctx)?.x;
+            canvas.draw(
+                &career,
+                DrawParam::default()
+                    .dest(Vec2::new(
+                        (width - cw) / 2.0,
+                        text_y + text_height + pad * 2.0 + 62.0,
+                    ))
+                    .color(Color::from_rgb(200, 190, 230)),
+            );
+        }
         Ok(())
     }
 
@@ -2759,9 +2833,9 @@ impl MainState {
 
     fn draw_game_over_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         let box_width = 600.0;
-        let box_height = 200.0;
+        let box_height = 260.0;
         let box_x = 340.0;
-        let box_y = 380.0;
+        let box_y = 360.0;
         let bg_box = Mesh::new_rectangle(
             ctx,
             ggez::graphics::DrawMode::fill(),
@@ -2770,15 +2844,29 @@ impl MainState {
         )?;
         canvas.draw(&bg_box, DrawParam::default());
         let text = Text::new(format!(
-            "Game Over!\nTime: {:.2} seconds\nBest Time: {:.2} seconds\nPress Esc to quit.\n\nPress Space or Enter to try again.",
-            self.time_elapsed, self.best_time
+            "Game Over!\nThis run: {} crabs banked\nTime: {:.2}s   Best time: {:.2}s\n\nCareer best: {}\nCareer total: {} over {} runs\n\nPress Space or Enter to try again.  Esc to quit.",
+            self.score, self.time_elapsed, self.best_time,
+            self.career_best_score, self.career_total_score, self.career_runs,
         ));
         canvas.draw(
             &text,
             DrawParam::default()
-                .dest(Vec2::new(370.0, 400.0))
+                .dest(Vec2::new(370.0, 380.0))
                 .color(Color::WHITE),
         );
+        // Celebrate a fresh career best with a pulsing banner so beating your record lands.
+        if self.run_is_new_best && self.score > 0 {
+            let pulse = 0.55 + 0.45 * (self.menu_time * 5.0).sin().abs();
+            let mut banner = Text::new("★ NEW CAREER BEST! ★");
+            banner.set_scale(34.0);
+            let bw = banner.measure(ctx)?.x;
+            canvas.draw(
+                &banner,
+                DrawParam::default()
+                    .dest(Vec2::new(box_x + (box_width - bw) / 2.0, box_y - 44.0))
+                    .color(Color::new(1.0, 0.85, 0.2, pulse)),
+            );
+        }
         Ok(())
     }
 
@@ -3006,6 +3094,12 @@ impl EventHandler for MainState {
         }
 
         if self.show_instructions || self.game_over || self.pending_upgrade {
+            // The run just ended — bank its result into the persistent career exactly once.
+            // Every game_over set-site funnels through here on the next tick, so one guarded
+            // call covers them all.
+            if self.game_over {
+                self.record_run();
+            }
             // Keep a lightweight clock ticking so the title/menu screen can animate its
             // background, marching crabs, and pulsing prompt even though the main simulation
             // is paused here.
