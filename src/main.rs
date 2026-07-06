@@ -106,6 +106,13 @@ thread_local! {
     static MENU_INSTRUCTIONS_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
     static MENU_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
+    // The title screen's "Career best ... crabs banked over N runs" line was rebuilt from a
+    // fresh `format!` String + `Text::new` (plus a `.measure()` glyph-layout pass) every single
+    // frame the title screen sits on-screen — same unbounded-idle-time cost as the panel/prompt
+    // caches above. Keyed by the (best, total, runs) tuple, same pattern as HUD_TEXT_CACHE, so it
+    // only rebuilds on the rare frame one of those actually changes (i.e. right after a run ends).
+    static CAREER_LABEL_CACHE: RefCell<Option<(usize, usize, usize, Text, f32)>> = RefCell::new(None);
+
     // Scratch buffer for draw_game's chain-crab ordering. draw_game takes &self and runs every
     // frame, so — same reasoning as the caches above — this lives in a thread_local RefCell
     // instead of a struct field. Chain length grows unbounded over a run (it's the whole point
@@ -307,12 +314,14 @@ struct MainState {
     whistle_radius: f32,                        // current front radius of the expanding pulse
     whistle_cooldown: f32,                      // >0 while on cooldown; whistle unusable until it hits 0
     whistle_center: Vec2,                       // player center captured at cast time (ring origin)
+    whistle_beat_bonus: f32,                     // 1.0 normally, >1 when this cast landed on-beat (bigger reach)
     // Stomp ability — a close-range ground-pound that CRACKS armored crab shells instantly (its
     // dedicated counter; the beam is the slow universal fallback) and shoves nearby free crabs in.
     stomp_active: f32,                          // >0 while the shockwave is expanding (seconds remaining)
     stomp_radius: f32,                          // current front radius of the shockwave
     stomp_cooldown: f32,                        // >0 while on cooldown; Stomp unusable until it hits 0
     stomp_center: Vec2,                         // player center captured at stomp time (ring origin)
+    stomp_beat_bonus: f32,                       // 1.0 normally, >1 when this cast landed on-beat (bigger slam)
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
@@ -572,10 +581,12 @@ impl MainState {
             whistle_radius: 0.0,
             whistle_cooldown: 0.0,
             whistle_center: Vec2::ZERO,
+            whistle_beat_bonus: 1.0,
             stomp_active: 0.0,
             stomp_radius: 0.0,
             stomp_cooldown: 0.0,
             stomp_center: Vec2::ZERO,
+            stomp_beat_bonus: 1.0,
             dash_just_fired: false,
             dash_flash: 0.0,
             screen_shake: 0.0,
@@ -1805,9 +1816,11 @@ impl MainState {
         self.whistle_active = 0.0;
         self.whistle_radius = 0.0;
         self.whistle_cooldown = 0.0;
+        self.whistle_beat_bonus = 1.0;
         self.stomp_active = 0.0;
         self.stomp_radius = 0.0;
         self.stomp_cooldown = 0.0;
+        self.stomp_beat_bonus = 1.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.screen_shake = 0.0;
@@ -2180,21 +2193,46 @@ impl MainState {
         // Only surfaces once there's a career to show, so a brand-new player sees a clean title.
         // Reminds returning players what they're building toward before they hit start.
         if self.career_runs > 0 {
-            let mut career = Text::new(format!(
-                "Career best {}   ·   {} crabs banked over {} runs",
-                self.career_best_score, self.career_total_score, self.career_runs
-            ));
-            career.set_scale(22.0);
-            let cw = career.measure(ctx)?.x;
-            canvas.draw(
-                &career,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - cw) / 2.0,
-                        text_y + text_height + pad * 2.0 + 62.0,
-                    ))
-                    .color(Color::from_rgb(200, 190, 230)),
-            );
+            let cw = CAREER_LABEL_CACHE.with(|c| -> GameResult<f32> {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = match cache.as_ref() {
+                    Some((best, total, runs, _, _)) => {
+                        *best != self.career_best_score
+                            || *total != self.career_total_score
+                            || *runs != self.career_runs
+                    }
+                    None => true,
+                };
+                if needs_rebuild {
+                    let mut career = Text::new(format!(
+                        "Career best {}   ·   {} crabs banked over {} runs",
+                        self.career_best_score, self.career_total_score, self.career_runs
+                    ));
+                    career.set_scale(22.0);
+                    let cw = career.measure(ctx)?.x;
+                    *cache = Some((
+                        self.career_best_score,
+                        self.career_total_score,
+                        self.career_runs,
+                        career,
+                        cw,
+                    ));
+                }
+                Ok(cache.as_ref().unwrap().4)
+            })?;
+            CAREER_LABEL_CACHE.with(|c| {
+                let cache = c.borrow();
+                let (_, _, _, career, _) = cache.as_ref().unwrap();
+                canvas.draw(
+                    career,
+                    DrawParam::default()
+                        .dest(Vec2::new(
+                            (width - cw) / 2.0,
+                            text_y + text_height + pad * 2.0 + 62.0,
+                        ))
+                        .color(Color::from_rgb(200, 190, 230)),
+                );
+            });
         }
         Ok(())
     }
@@ -2360,7 +2398,7 @@ impl MainState {
                 canvas,
                 self.whistle_center,
                 self.whistle_radius,
-                self.whistle_max_radius(),
+                self.whistle_max_radius() * self.whistle_beat_bonus,
             )?;
         }
 
@@ -2371,7 +2409,7 @@ impl MainState {
                 canvas,
                 self.stomp_center,
                 self.stomp_radius,
-                self.stomp_max_radius(),
+                self.stomp_max_radius() * self.stomp_beat_bonus,
             )?;
         }
 
@@ -3021,6 +3059,32 @@ impl MainState {
     fn lasso_tip_radius(&self) -> f32 {
         60.0 + self.lasso_rank as f32 * 22.0
     }
+    /// Is *right now* inside the on-beat window? Used to reward firing a tool on the beat —
+    /// the same window that gates on-beat catches, so the timing the player already feels for
+    /// catching also pays off for whistle/stomp/dash/beat-wave.
+    fn on_beat_now(&self) -> bool {
+        self.beat_timer < BEAT_WINDOW || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW
+    }
+    /// A tool was fired on the beat: bank a "PERFECT!" flash, feed the groove meter, and punch up
+    /// the juice (extra beat flash + a hair of zoom). Returns the on-beat multiplier the caller can
+    /// apply to the tool's effect (radius/duration), so an on-beat cast simply hits harder.
+    fn reward_on_beat_tool(&mut self, at: Vec2, label: &str) -> f32 {
+        if self.on_beat_now() {
+            self.groove = (self.groove + 0.14).min(1.0);
+            self.on_beat_flash = (self.on_beat_flash + 0.35).min(0.7);
+            self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+            self.zoom_punch = self.zoom_punch.max(0.03);
+            self.floating_texts.spawn(
+                format!("{} PERFECT!", label),
+                at - Vec2::new(52.0, 84.0),
+                26.0,
+                [1.0, 0.95, 0.3, 1.0],
+            );
+            1.25
+        } else {
+            1.0
+        }
+    }
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
     fn whistle_max_radius(&self) -> f32 {
         WHISTLE_MAX_RADIUS * (1.0 + 0.28 * self.whistle_rank as f32)
@@ -3378,8 +3442,8 @@ impl EventHandler for MainState {
         // Sneaky crabs but only nudges the heavy Big ones — a soft counter, never a hard requirement.
         if self.whistle_active > 0.0 {
             // Whistle-lane-scaled reach + pull, read once so the &mut self.crabs loop can use them.
-            let whistle_max_r = self.whistle_max_radius();
-            let whistle_pull = self.whistle_pull_speed();
+            let whistle_max_r = self.whistle_max_radius() * self.whistle_beat_bonus;
+            let whistle_pull = self.whistle_pull_speed() * self.whistle_beat_bonus;
             self.whistle_active = (self.whistle_active - dt).max(0.0);
             self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
             let center = self.whistle_center;
@@ -3432,7 +3496,7 @@ impl EventHandler for MainState {
         // gather like the whistle/lasso, so choosing the right verb per herd is a real decision.
         if self.stomp_active > 0.0 {
             // Stomp-lane-scaled reach, read once so the &mut self.crabs loop can use it.
-            let stomp_max_r = self.stomp_max_radius();
+            let stomp_max_r = self.stomp_max_radius() * self.stomp_beat_bonus;
             self.stomp_active = (self.stomp_active - dt).max(0.0);
             self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(stomp_max_r);
             let center = self.stomp_center;

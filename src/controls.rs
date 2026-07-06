@@ -117,12 +117,19 @@ pub fn handle_key_down_event(
                     state.boost_cooldown = 0.08;
                     state.dash_just_fired = true;
                     state.dash_flash = 1.0;
+                    // On-beat dash: reward the timing with groove + juice (no radius to scale).
+                    let center = state.player_pos
+                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    state.reward_on_beat_tool(center, "DASH");
                 }
             }
             if key == KeyCode::Q {
                 if !state.beat_wave_active {
                     state.beat_wave_active = true;
                     state.beat_wave_radius = 0.0;
+                    let center = state.player_pos
+                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    state.reward_on_beat_tool(center, "WAVE");
                 }
             }
             if key == KeyCode::E {
@@ -133,6 +140,9 @@ pub fn handle_key_down_event(
                     state.whistle_radius = 0.0;
                     state.whistle_active = 0.4;
                     state.whistle_cooldown = state.whistle_cooldown_dur();
+                    // On-beat whistle reaches farther and pulls harder this cast.
+                    state.whistle_beat_bonus =
+                        state.reward_on_beat_tool(state.whistle_center, "WHISTLE");
                     state.floating_texts.spawn(
                         "WHISTLE!".to_string(),
                         state.whistle_center - Vec2::new(48.0, 60.0),
@@ -152,6 +162,8 @@ pub fn handle_key_down_event(
                     state.stomp_cooldown = state.stomp_cooldown_dur();
                     state.screen_shake = state.screen_shake.max(16.0);
                     state.zoom_punch = state.zoom_punch.max(0.05);
+                    // On-beat stomp slams wider this cast.
+                    state.stomp_beat_bonus = state.reward_on_beat_tool(center, "STOMP");
                     state.floating_texts.spawn(
                         "STOMP!".to_string(),
                         center - Vec2::new(40.0, 60.0),
