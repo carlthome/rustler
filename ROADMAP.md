@@ -15,49 +15,44 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back. Not yet — don't pull items from this phase in while phase 1 is still open.
 
+**Where we are.** The inner loop now feels substantially built out: catching (beam/lasso/whistle/
+stomp), the conga train with real chain-snap downside, a delivery pen to bank it, rhythm/groove
+scoring, biomes with terrain hazards, and the King Crab boss with a charge that scatters the tail.
+The risk/reward loop is closed. Two depth items remain below; once they land, we're likely ready
+to promote the outer loop (meta-progression) from Later into Now.
+
 ## Now
 
-- **A place to cash in the train — decide when to bank vs. push your luck** — now that the tail can
-  snap (chain-snap risk shipped), the train has downside but nowhere to convert it. Give the player
-  a delivery/pen where dropping off the train banks big score and resets tension, so every run
-  becomes a running "bank now or grow it bigger and riskier" decision. This is the highest-leverage
-  next beat: it closes the risk/reward loop that chain-snap just opened, turning the train from a
-  number that only climbs into a resource you weigh, protect, and spend.
-- **Terrain that shapes where the train can go** — the biomes are pure color grading today; make
-  them matter to play. Tide pools that slow the tail, rocks the train can snag on, kelp that hides
-  crabs — hazards you route a long train around rather than through. Wires the already-shipped biome
-  system into gameplay and gives the new chain-snap risk real geography to play against.
-- **Deeper music/rhythm integration** — the game already has BPM-synced visuals, rhythm catch
-  bonuses, and now a Groove meter; take it further with actual layered music (the `layer1/2/3.ogg`
-  progressive-fade hook already exists but nothing populates it) so the soundtrack itself builds as
-  the groove/score rises, and tie more gameplay systems (spawns, chain movement, screen effects) to
-  the beat rather than just the visuals reacting to it.
-- **Menu and art facelift** — the title/menu screens and textures haven't kept pace with how far
-  the in-run visual effects have come. Worth a real pass on menu layout and readability, and on
-  texture/sprite quality for crabs, sand, and grass, so first impressions match the polish of
-  the moment-to-moment gameplay.
-
-_In flight (uncommitted WIP as of this update): a boss with a real threat verb — the King Crab now
-charges the conga line to scatter the tail instead of just sitting there soaking beam. Leave it be;
-if it lands and sticks, it's done and this note goes away._
+- **Upgrade choices that branch into playstyles** — the upgrade cards are the roguelite heart of a
+  run, but today they're four flat stat bumps (`apply_upgrade`: wider cone, longer range, more
+  speed, bigger catch radius). Nothing makes one run play differently from the next. Give the tools
+  we already have (beam / lasso / whistle / stomp) real upgrade branches that synergize — a
+  lasso-focused build that chains catches, a whistle/crowd-control build, a beam-DPS boss-hunter
+  build — so the choices at each level-up steer the run and reward committing to a lane. This is the
+  highest-leverage remaining inner-loop beat: it turns level-ups from "numbers go up" into
+  meaningful decisions, and it makes the whole toolkit matter instead of defaulting to the beam.
+- **The soundtrack builds with the groove** — the `layer{1,2,3}.ogg` progressive-fade hook already
+  exists in code (main.rs tries to load them at startup) but no audio files populate it, so it's
+  inert. Author those layers and wire them to the Groove meter / score so the music itself thickens
+  as the player's run heats up, and tie more gameplay (spawn timing, chain movement) to the beat
+  rather than only the visuals reacting to it. Closes the gap between "visuals pulse to the beat"
+  and "the beat is the game."
 
 ## Later (outer loop — not yet)
 
 - **Meta-progression between runs** — some small persistent unlock or upgrade that carries over
   after a run ends, so a "loss" still feels like progress and pulls the player into one more run.
+  _Getting close to promotable:_ with the inner loop nearly done, this is the natural next frontier
+  once the two Now items land. Not yet — finish phase 1 first.
 
 ## Also on our mind (not sequenced — no urgency, just don't lose it)
 
 - **Emergent system interactions** — Carl's Noita-inspired itch: the fun isn't a full physics/
   material simulation (too big a rearchitecture for this game), it's letting the systems we
-  already have actually affect each other instead of running in isolation. E.g. a beat pulse
-  that startles nearby fleeing crabs into a chain reaction, a lasso catch that ripples fear
-  through crabs near the catch point, chain segments that can bump and redirect fleeing crabs
-  into each other. The first of these — beat-startle chain reactions — has now *shipped*
-  (panic ripples crab-to-crab on each beat). The remaining ideas (fear rippling from a lasso
-  catch point, chain segments bumping and redirecting fleeing crabs) stay parked here until one
-  of them earns its way up too. The "conga train as a real risk" play has now *shipped* as
-  chain-snap risk (a panicking crab that hits the tail knocks the last links loose) — an
-  emergent-interaction win that wired the flee system back into the chain. The new "cash in the
-  train" and "terrain shapes routing" Now items are the same spirit: give that risk somewhere to
-  pay off and somewhere to play out.
+  already have actually affect each other instead of running in isolation. Shipped so far:
+  beat-startle chain reactions (panic ripples crab-to-crab on each beat) and chain-snap risk (a
+  panicking crab that hits the tail knocks the last links loose — wired the flee system back into
+  the chain). Still parked here until one earns its way up: fear rippling outward from a lasso
+  catch point, and chain segments bumping and redirecting fleeing crabs into each other. The
+  playstyle-branch and layered-music Now items are the same depth-first spirit — deepen what's
+  there before going wide.
