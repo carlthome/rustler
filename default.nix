@@ -71,7 +71,7 @@ pkgs.rustPlatform.buildRustPackage {
         --prefix LD_LIBRARY_PATH : "${
           lib.makeLibraryPath [
             wayland
-            xorg.libxcb
+            libxcb
             vulkan-loader
             libxkbcommon
           ]
