@@ -1648,6 +1648,20 @@ impl MainState {
                 while d < -std::f32::consts::PI { d += std::f32::consts::TAU; }
                 crab.facing_angle += d * (dt * 6.0).min(1.0);
             }
+            // Beat-synced conga step: the train physically hops forward on each beat, and the
+            // hop ripples down the line — each link lags the one ahead by a fixed phase — so the
+            // whole train visibly steps to the rhythm instead of just gliding after the player.
+            // This is gameplay reacting to the beat, not only visuals: the crabs move to it. The
+            // lerp above continuously reels each crab back to its chain target every frame, so
+            // this direct forward offset self-corrects and can never accumulate or drift the
+            // train off its path.
+            let travel = move_dir.normalize_or_zero();
+            if travel != Vec2::ZERO {
+                let step_phase = (1.0 - self.beat_timer / BEAT_INTERVAL) * std::f32::consts::TAU
+                    - ci as f32 * 0.7;
+                let hop = step_phase.sin().max(0.0); // forward-only footfall each beat
+                crab.pos += travel * hop * 4.0;
+            }
         }
     }
 
