@@ -435,6 +435,8 @@ struct MainState {
     boss_windups_buf: Vec<Vec2>,
     boss_launches_buf: Vec<Vec2>,
     boss_charge_dust_buf: Vec<(Vec2, Vec2)>,
+    tide_fires_buf: Vec<Vec2>,
+    tide_swells_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -721,6 +723,8 @@ impl MainState {
             boss_windups_buf: Vec::new(),
             boss_launches_buf: Vec::new(),
             boss_charge_dust_buf: Vec::new(),
+            tide_fires_buf: Vec::new(),
+            tide_swells_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -1524,9 +1528,12 @@ impl MainState {
         boss_charge_dust.clear();
         // Tide Boss pulse fires this frame (center positions) — processed after the loop so the
         // shockwave can scatter the herd and loosen the train without fighting the &mut borrow.
-        // Rare (one boss at a time), so a small local Vec is fine.
-        let mut tide_fires: Vec<Vec2> = Vec::new();
-        let mut tide_swells: Vec<Vec2> = Vec::new(); // a pulse just started swelling — telegraph feedback
+        // Reused scratch buffers like the other event vecs above: almost always empty (at most
+        // one boss pulsing at a time), so taking/restoring avoids a Vec::new() every frame.
+        let mut tide_fires = std::mem::take(&mut self.tide_fires_buf);
+        tide_fires.clear();
+        let mut tide_swells = std::mem::take(&mut self.tide_swells_buf); // a pulse just started swelling — telegraph feedback
+        tide_swells.clear();
 
         // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
         // player. Computed before the mutable loop so the boss branch can read it freely.
@@ -1977,6 +1984,8 @@ impl MainState {
         self.boss_windups_buf = boss_windups;
         self.boss_launches_buf = boss_launches;
         self.boss_charge_dust_buf = boss_charge_dust;
+        self.tide_fires_buf = tide_fires;
+        self.tide_swells_buf = tide_swells;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
