@@ -4,7 +4,8 @@ use crevice::std140::AsStd140;
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{
-    BlendMode, Canvas, Color, DrawMode, DrawParam, Image, Mesh, Rect, Shader, ShaderParamsBuilder,
+    BlendMode, Canvas, Color, DrawMode, DrawParam, Image, InstanceArray, Mesh, Rect, Shader,
+    ShaderParamsBuilder,
 };
 use rand::Rng;
 use std::cell::RefCell;
@@ -90,6 +91,18 @@ thread_local! {
     // (thrown on basically every catch attempt), and this ring used to rebuild a fresh 21-point
     // Vec plus two fresh `Mesh::new_line` GPU buffers every single frame it was in flight.
     static LASSO_LOOP_CACHE: RefCell<HashMap<(i32, i32), Mesh>> = RefCell::new(HashMap::new());
+
+    // Reusable instance buffers for the particle system's two draw passes (main dot + soft glow
+    // for larger particles). Milestone fireworks/catch bursts/dash trails can push close to
+    // MAX_PARTICLES (900) live particles at once, and each one used to cost its own
+    // `canvas.draw` call — a separate uniform-buffer allocation, bind group and `draw_indexed`
+    // submission per particle per pass (ggez does NOT batch consecutive `canvas.draw(&same_mesh,
+    // ...)` calls; only `InstanceArray` is truly instanced). That was up to ~1800 GPU draw calls
+    // a frame just for particles. Filling one `InstanceArray` per pass and issuing a single
+    // `draw_instanced_mesh` collapses that to two draw calls total, independent of particle
+    // count, with identical on-screen output (same mesh, same blend mode, no rotation to lose).
+    static PARTICLE_MAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static PARTICLE_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
@@ -713,55 +726,63 @@ pub fn draw_particles(
     particle_system: &ParticleSystem,
 ) -> ggez::GameResult {
     let unit_circle = match UNIT_CIRCLE.get() {
-        Some(mesh) => mesh,
+        Some(mesh) => mesh.clone(),
         None => {
             let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
-            UNIT_CIRCLE.get_or_init(|| mesh)
+            UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
+
+    if particle_system.particles.is_empty() {
+        return Ok(());
+    }
 
     // Set additive blend mode for glowing effect
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    for particle in &particle_system.particles {
-        let life_ratio = particle.life / particle.max_life;
-        let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
+    PARTICLE_MAIN_INSTANCES.with(|main_cell| -> ggez::GameResult {
+        PARTICLE_GLOW_INSTANCES.with(|glow_cell| -> ggez::GameResult {
+            let mut main_slot = main_cell.borrow_mut();
+            let main = main_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            let mut glow_slot = glow_cell.borrow_mut();
+            let glow = glow_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
 
-        // Main particle
-        let color = Color::new(
-            particle.color[0],
-            particle.color[1],
-            particle.color[2],
-            alpha,
-        );
+            main.set(particle_system.particles.iter().map(|particle| {
+                let life_ratio = particle.life / particle.max_life;
+                let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
+                let color = Color::new(
+                    particle.color[0],
+                    particle.color[1],
+                    particle.color[2],
+                    alpha,
+                );
+                DrawParam::default()
+                    .dest(particle.pos)
+                    .scale(Vec2::splat(particle.size))
+                    .color(color)
+            }));
 
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(particle.pos)
-                .scale(Vec2::splat(particle.size))
-                .color(color),
-        );
-
-        // Add a subtle glow effect for larger particles
-        if particle.size > 4.0 {
-            let glow_color = Color::new(
-                particle.color[0],
-                particle.color[1],
-                particle.color[2],
-                alpha * 0.3,
-            );
-
-            canvas.draw(
-                unit_circle,
+            glow.set(particle_system.particles.iter().filter(|p| p.size > 4.0).map(|particle| {
+                let life_ratio = particle.life / particle.max_life;
+                let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
+                let glow_color = Color::new(
+                    particle.color[0],
+                    particle.color[1],
+                    particle.color[2],
+                    alpha * 0.3,
+                );
                 DrawParam::default()
                     .dest(particle.pos)
                     .scale(Vec2::splat(particle.size * 1.5))
-                    .color(glow_color),
-            );
-        }
-    }
+                    .color(glow_color)
+            }));
+
+            canvas.draw_instanced_mesh(unit_circle.clone(), main, DrawParam::default());
+            canvas.draw_instanced_mesh(unit_circle, glow, DrawParam::default());
+            Ok(())
+        })
+    })?;
 
     // Restore original blend mode
     canvas.set_blend_mode(original_blend);
