@@ -105,6 +105,26 @@ pub fn handle_key_down_event(
                 state.show_instructions = false;
                 return true;
             }
+            // Perk shop: spend banked crabs on permanent starting tool ranks before a run.
+            match key {
+                KeyCode::Key1 => {
+                    state.buy_start_perk(1);
+                    return true;
+                }
+                KeyCode::Key2 => {
+                    state.buy_start_perk(2);
+                    return true;
+                }
+                KeyCode::Key3 => {
+                    state.buy_start_perk(3);
+                    return true;
+                }
+                KeyCode::Key4 => {
+                    state.buy_start_perk(4);
+                    return true;
+                }
+                _ => {}
+            }
         } else if state.game_over {
             if key == KeyCode::Space || key == KeyCode::Return {
                 state.reset_game();

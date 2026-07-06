@@ -58,6 +58,15 @@ const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (
 const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
 const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
 
+// --- Meta-progression shop (spend side) ---------------------------------------------------
+// Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
+// low so a perk is a head-start, not a run-trivializer (lane behavior milestones sit at rank 2).
+const MAX_START_RANK: u32 = 2;
+// Cost of buying the NEXT rank of a tool = (rank_being_bought) * PERK_COST_STEP. So rank 1 costs
+// 30, rank 2 costs 60 — escalating, and priced against a per-run banking of a few dozen crabs so a
+// perk is a handful of runs' worth of savings, not instant.
+const PERK_COST_STEP: usize = 30;
+
 thread_local! {
     // Cache for the persistent bottom-of-screen "Level N: Title / description" label. Its text
     // only ever depends on `current_level`, which changes at most a handful of times per run
@@ -112,6 +121,13 @@ thread_local! {
     // caches above. Keyed by the (best, total, runs) tuple, same pattern as HUD_TEXT_CACHE, so it
     // only rebuilds on the rare frame one of those actually changes (i.e. right after a run ends).
     static CAREER_LABEL_CACHE: RefCell<Option<(usize, usize, usize, Text, f32)>> = RefCell::new(None);
+    // The perk-shop block (available crabs + the four buyable starting ranks). Rebuilt only when
+    // its underlying numbers change — i.e. right after a purchase or a run ending — not every idle
+    // frame. Key: (available, beam, lasso, whistle, stomp). Holds a header Text and a per-tool
+    // list Text plus their measured widths.
+    #[allow(clippy::type_complexity)]
+    static SHOP_CACHE: RefCell<Option<((usize, u32, u32, u32, u32), Text, f32, Text, f32)>> =
+        RefCell::new(None);
 
     // Scratch buffer for draw_game's chain-crab ordering. draw_game takes &self and runs every
     // frame, so — same reasoning as the caches above — this lives in a thread_local RefCell
@@ -268,6 +284,19 @@ struct MainState {
     career_runs: usize,                        // How many runs have ended
     run_recorded: bool,                        // Guard so the current run is banked into career exactly once
     run_is_new_best: bool,                     // Did the just-ended run set a new career best? (for game-over flourish)
+    // Spend side of meta-progression: banked crabs (career_total_score) are a currency you spend
+    // on the title screen for PERMANENT starting tool ranks — a head-start that persists across
+    // runs, so even a losing run buys you closer to your next unlock. `career_spent` is the ledger
+    // of crabs already committed; available = career_total_score - career_spent. The four
+    // start_*_rank fields are the ranks a fresh run begins each tool at (capped low so it's a
+    // leg-up, not a run-trivializer). Persisted alongside best/total/runs in career.txt.
+    career_spent: usize,
+    start_beam_rank: u32,
+    start_lasso_rank: u32,
+    start_whistle_rank: u32,
+    start_stomp_rank: u32,
+    shop_flash: f32,                           // brief green flash on the last-bought perk (title-screen juice)
+    shop_denied: f32,                          // brief red flash when a purchase is refused (can't afford / maxed)
     width: f32,                                // Virtual width of the game
     height: f32,                               // Virtual height of the game
     shader: ggez::graphics::Shader,            // Shader for grass rendering
@@ -456,17 +485,36 @@ impl MainState {
 
         // Load the persistent career (meta-progression). Missing/garbled file just starts a
         // fresh career at zero — the game must never fail to launch over a save file.
-        let (career_best_score, career_total_score, career_runs) =
-            fs::read_to_string("career.txt")
-                .ok()
-                .and_then(|s| {
-                    let mut it = s.split_whitespace();
-                    let best = it.next()?.parse::<usize>().ok()?;
-                    let total = it.next()?.parse::<usize>().ok()?;
-                    let runs = it.next()?.parse::<usize>().ok()?;
-                    Some((best, total, runs))
-                })
-                .unwrap_or((0, 0, 0));
+        // Format: best total runs [spent beam lasso whistle stomp]. The trailing spend-side
+        // fields were added later, so an old three-number save still parses — the extras just
+        // default to 0 (no perks purchased yet). Starting ranks are clamped to their cap on load
+        // so a hand-edited or future save can never over-buy a run.
+        let (
+            career_best_score,
+            career_total_score,
+            career_runs,
+            career_spent,
+            start_beam_rank,
+            start_lasso_rank,
+            start_whistle_rank,
+            start_stomp_rank,
+        ) = fs::read_to_string("career.txt")
+            .ok()
+            .and_then(|s| {
+                let mut it = s.split_whitespace();
+                let best = it.next()?.parse::<usize>().ok()?;
+                let total = it.next()?.parse::<usize>().ok()?;
+                let runs = it.next()?.parse::<usize>().ok()?;
+                let spent = it.next().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
+                let clamp_rank =
+                    |v: Option<&str>| v.and_then(|s| s.parse::<u32>().ok()).unwrap_or(0).min(MAX_START_RANK);
+                let beam = clamp_rank(it.next());
+                let lasso = clamp_rank(it.next());
+                let whistle = clamp_rank(it.next());
+                let stomp = clamp_rank(it.next());
+                Some((best, total, runs, spent, beam, lasso, whistle, stomp))
+            })
+            .unwrap_or((0, 0, 0, 0, 0, 0, 0, 0));
 
         let crabs: Vec<EnemyCrab> = [].to_vec();
 
@@ -550,6 +598,13 @@ impl MainState {
             career_best_score,
             career_total_score,
             career_runs,
+            career_spent,
+            start_beam_rank,
+            start_lasso_rank,
+            start_whistle_rank,
+            start_stomp_rank,
+            shop_flash: 0.0,
+            shop_denied: 0.0,
             run_recorded: false,
             run_is_new_best: false,
             width,
@@ -572,10 +627,12 @@ impl MainState {
             beat_streak: 0,
             music_layers,
             catch_radius_upgrade: 0.0,
-            beam_rank: 0,
-            lasso_rank: 0,
-            whistle_rank: 0,
-            stomp_rank: 0,
+            // Runs begin at the permanent starting ranks bought with banked crabs (the spend side
+            // of meta-progression), not flat zero.
+            beam_rank: start_beam_rank,
+            lasso_rank: start_lasso_rank,
+            whistle_rank: start_whistle_rank,
+            stomp_rank: start_stomp_rank,
             floating_texts: FloatingTextSystem::new(),
             combo_count: 0,
             combo_timer: 0.0,
@@ -1776,13 +1833,73 @@ impl MainState {
         }
         self.career_total_score += self.score;
         self.career_runs += 1;
+        self.save_career();
+    }
+
+    /// Crabs available to spend in the title-screen perk shop: everything ever banked, minus what's
+    /// already been committed to permanent perks.
+    fn career_available(&self) -> usize {
+        self.career_total_score.saturating_sub(self.career_spent)
+    }
+
+    /// Cost of buying the next rank of a tool currently at `rank`. `None` if already maxed.
+    fn perk_cost(rank: u32) -> Option<usize> {
+        if rank >= MAX_START_RANK {
+            None
+        } else {
+            Some((rank as usize + 1) * PERK_COST_STEP)
+        }
+    }
+
+    /// Persist the whole career ledger (best/total/runs + spend side) to disk. Best-effort: a
+    /// failed write never disrupts play.
+    fn save_career(&self) {
         let _ = fs::write(
             "career.txt",
             format!(
-                "{} {} {}",
-                self.career_best_score, self.career_total_score, self.career_runs
+                "{} {} {} {} {} {} {} {}",
+                self.career_best_score,
+                self.career_total_score,
+                self.career_runs,
+                self.career_spent,
+                self.start_beam_rank,
+                self.start_lasso_rank,
+                self.start_whistle_rank,
+                self.start_stomp_rank,
             ),
         );
+    }
+
+    /// Title-screen purchase: buy the next permanent starting rank of one tool (1=beam, 2=lasso,
+    /// 3=whistle, 4=stomp) with banked crabs. Refused (with a red flash) if the tool is maxed or
+    /// there aren't enough banked crabs. On success the spend is committed to disk immediately so
+    /// the perk survives even if the game closes before the next run ends.
+    fn buy_start_perk(&mut self, tool: u32) {
+        let rank = match tool {
+            1 => self.start_beam_rank,
+            2 => self.start_lasso_rank,
+            3 => self.start_whistle_rank,
+            4 => self.start_stomp_rank,
+            _ => return,
+        };
+        match Self::perk_cost(rank) {
+            Some(cost) if cost <= self.career_available() => {
+                self.career_spent += cost;
+                match tool {
+                    1 => self.start_beam_rank += 1,
+                    2 => self.start_lasso_rank += 1,
+                    3 => self.start_whistle_rank += 1,
+                    4 => self.start_stomp_rank += 1,
+                    _ => {}
+                }
+                self.shop_flash = 1.0;
+                self.save_career();
+            }
+            _ => {
+                // Maxed out, or can't afford it: brief denial flash, no spend.
+                self.shop_denied = 1.0;
+            }
+        }
     }
 
     fn reset_game(&mut self) {
@@ -1810,10 +1927,12 @@ impl MainState {
         self.groove = 0.0;
         self.beat_streak = 0;
         self.catch_radius_upgrade = 0.0;
-        self.beam_rank = 0;
-        self.lasso_rank = 0;
-        self.whistle_rank = 0;
-        self.stomp_rank = 0;
+        // Seed tool ranks from the permanently-purchased starting ranks, not zero, so bought perks
+        // carry into every fresh run.
+        self.beam_rank = self.start_beam_rank;
+        self.lasso_rank = self.start_lasso_rank;
+        self.whistle_rank = self.start_whistle_rank;
+        self.stomp_rank = self.start_stomp_rank;
         self.floating_texts.texts.clear();
         self.combo_count = 0;
         self.combo_timer = 0.0;
@@ -2243,6 +2362,73 @@ impl MainState {
                             text_y + text_height + pad * 2.0 + 62.0,
                         ))
                         .color(Color::from_rgb(200, 190, 230)),
+                );
+            });
+
+            // --- Perk shop: spend the banked crabs on permanent starting ranks -----------------
+            // The spend side of meta-progression. Turns the career total from a passive counter
+            // into a currency, so even a losing run buys you closer to a permanent head-start.
+            let available = self.career_available();
+            let ranks = (
+                available,
+                self.start_beam_rank,
+                self.start_lasso_rank,
+                self.start_whistle_rank,
+                self.start_stomp_rank,
+            );
+            let (header_w, list_w) = SHOP_CACHE.with(|c| -> GameResult<(f32, f32)> {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = !matches!(cache.as_ref(), Some((k, ..)) if *k == ranks);
+                if needs_rebuild {
+                    let mut header = Text::new(format!(
+                        "SPEND {} banked crabs on permanent gear:",
+                        available
+                    ));
+                    header.set_scale(21.0);
+                    let hw = header.measure(ctx)?.x;
+                    let perk = |name: &str, key: char, rank: u32| -> String {
+                        match Self::perk_cost(rank) {
+                            Some(cost) => format!("[{}] {} Lv{} → {}crabs", key, name, rank, cost),
+                            None => format!("[{}] {} MAX", key, name),
+                        }
+                    };
+                    let mut list = Text::new(format!(
+                        "{}    {}    {}    {}",
+                        perk("Beam", '1', self.start_beam_rank),
+                        perk("Lasso", '2', self.start_lasso_rank),
+                        perk("Whistle", '3', self.start_whistle_rank),
+                        perk("Stomp", '4', self.start_stomp_rank),
+                    ));
+                    list.set_scale(19.0);
+                    let lw = list.measure(ctx)?.x;
+                    *cache = Some((ranks, header, hw, list, lw));
+                }
+                let cr = cache.as_ref().unwrap();
+                Ok((cr.2, cr.4))
+            })?;
+            // Green when a buy just landed, red when one was refused, otherwise a calm teal.
+            let list_color = if self.shop_flash > 0.0 {
+                Color::new(0.5 + 0.5 * self.shop_flash, 1.0, 0.5, 1.0)
+            } else if self.shop_denied > 0.0 {
+                Color::new(1.0, 0.5 - 0.3 * self.shop_denied, 0.5 - 0.3 * self.shop_denied, 1.0)
+            } else {
+                Color::from_rgb(150, 220, 210)
+            };
+            let shop_y = text_y + text_height + pad * 2.0 + 92.0;
+            SHOP_CACHE.with(|c| {
+                let cache = c.borrow();
+                let (_, header, _, list, _) = cache.as_ref().unwrap();
+                canvas.draw(
+                    header,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - header_w) / 2.0, shop_y))
+                        .color(Color::from_rgb(180, 175, 205)),
+                );
+                canvas.draw(
+                    list,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - list_w) / 2.0, shop_y + 28.0))
+                        .color(list_color),
                 );
             });
         }
@@ -3187,7 +3373,11 @@ impl EventHandler for MainState {
             // Keep a lightweight clock ticking so the title/menu screen can animate its
             // background, marching crabs, and pulsing prompt even though the main simulation
             // is paused here.
-            self.menu_time += ctx.time.delta().as_secs_f32();
+            let mdt = ctx.time.delta().as_secs_f32();
+            self.menu_time += mdt;
+            // Decay the perk-shop buy/deny flashes so they're a brief pop, not a stuck glow.
+            self.shop_flash = (self.shop_flash - mdt * 2.5).max(0.0);
+            self.shop_denied = (self.shop_denied - mdt * 2.5).max(0.0);
             return Ok(());
         }
 
