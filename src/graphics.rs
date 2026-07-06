@@ -514,6 +514,7 @@ impl ParticleSystem {
             CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
             CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
+            CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
         };
         
         // Create main particles
@@ -1225,20 +1226,21 @@ pub fn draw_boss_health_ring(
     size: f32,
     health_frac: f32,
     time: f32,
+    aura_color: [f32; 3],
 ) -> ggez::GameResult {
     let radius = size * 0.85;
     let pulse = (time * 6.0).sin() * 0.5 + 0.5; // 0..1
 
-    // Pulsing aura ring behind the boss — deep gold, breathing with the beat of the track.
-    // Reuses the same STROKE_CIRCLE_CACHE every other ring effect in this file draws from,
-    // instead of rebuilding a fresh ~48-point Vec + GPU mesh every frame this boss is alive.
+    // Pulsing aura ring behind the boss — tinted to the archetype (gold King Crab, cyan Tide Boss),
+    // breathing with the beat of the track. Reuses the same STROKE_CIRCLE_CACHE every other ring
+    // effect in this file draws from, instead of rebuilding a fresh mesh every frame this boss is alive.
     let aura_radius = radius * (1.12 + pulse * 0.08);
     let aura = cached_stroke_circle(ctx, aura_radius, 3.0)?;
     canvas.draw(
         &aura,
         DrawParam::default()
             .dest(pos)
-            .color(Color::new(1.0, 0.8, 0.25, 0.30 + pulse * 0.25)),
+            .color(Color::new(aura_color[0], aura_color[1], aura_color[2], 0.30 + pulse * 0.25)),
     );
 
     if health_frac > 0.0 {
@@ -2039,6 +2041,50 @@ pub fn draw_fear_rings(
                     .color(Color::new(0.35, 0.7, 1.0, fade * 0.3)),
             );
         }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Draw the Tide Boss's shockwave pulses — a heavy tidal double-ring in deep cyan that sweeps
+/// outward from the boss and shoves the herd/train away. `pulses` is (center, current radius);
+/// `max_radius` is the pulse reach, used to fade the front as it dissipates.
+pub fn draw_tide_pulses(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pulses: &[(Vec2, f32)],
+    max_radius: f32,
+) -> ggez::GameResult {
+    if pulses.is_empty() {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for &(center, radius) in pulses {
+        let frac = (radius / max_radius).clamp(0.0, 1.5);
+        let fade = (1.0 - (frac / 1.25)).clamp(0.0, 1.0);
+        if fade <= 0.0 {
+            continue;
+        }
+        // Thick leading front — a wall of water.
+        let thickness = (7.0 * fade).max(1.5);
+        let front = cached_stroke_circle(ctx, radius.max(1.0), thickness)?;
+        canvas.draw(
+            &front,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(0.25, 0.7, 1.0, fade * 0.8)),
+        );
+        // Trailing echo ring for a churning surge feel.
+        let echo = cached_stroke_circle(ctx, (radius - 22.0).max(1.0), thickness * 0.7)?;
+        canvas.draw(
+            &echo,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(0.1, 0.5, 0.9, fade * 0.4)),
+        );
     }
 
     canvas.set_blend_mode(original_blend);

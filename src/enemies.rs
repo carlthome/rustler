@@ -19,6 +19,7 @@ pub enum CrabType {
     Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
     Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
+    TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
 }
 
 impl CrabType {
@@ -47,6 +48,7 @@ impl CrabType {
             CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
             CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
+            CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
         }
     }
     /// Shell health an archetype spawns with. While a crab's shell (stored in `boss_health`) is
@@ -72,6 +74,7 @@ impl CrabType {
             CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
+            CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
         }
     }
 
@@ -84,6 +87,7 @@ impl CrabType {
             CrabType::Armored => 0.42..=0.62, // stocky, tank-like
             CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
             CrabType::Boss => 1.7..=2.1,      // towering
+            CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
         }
     }
 }
@@ -127,12 +131,26 @@ impl EnemyCrab {
             CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
+            CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
         }
     }
 
-    /// A boss "King Crab" — oversized, must be worn down under the flashlight before it can be caught.
+    /// Any oversized boss — must be worn down under the flashlight before it can be caught. Covers
+    /// both the charging King Crab and the pulsing Tide Boss, so all the shared boss plumbing
+    /// (health ring, catchable-only-when-drained, unshakeable, non-fleeing) applies to both.
     pub fn is_boss(&self) -> bool {
+        matches!(self.crab_type, CrabType::Boss | CrabType::TideBoss)
+    }
+
+    /// The charging "King Crab" boss specifically — the one that winds up and lunges at the train.
+    pub fn is_king_crab(&self) -> bool {
         matches!(self.crab_type, CrabType::Boss)
+    }
+
+    /// The "Tide Boss" specifically — it never charges; instead it drifts and emits expanding
+    /// shockwave pulses that scatter nearby free crabs and knock the train's tail loose.
+    pub fn is_tide_boss(&self) -> bool {
+        matches!(self.crab_type, CrabType::TideBoss)
     }
 
     /// A hard-shelled crab: its shell (stored in `boss_health`) must be cracked — by a Stomp

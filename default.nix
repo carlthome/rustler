@@ -26,17 +26,17 @@ pkgs.rustPlatform.buildRustPackage {
       pango
       gdk-pixbuf
       glibc
-      xorg.libX11
-      xorg.libXcursor
-      xorg.libXrandr
-      xorg.libXi
-      xorg.libXext
-      xorg.libXinerama
-      xorg.libXxf86vm
-      xorg.libXrender
-      xorg.libxcb
-      xorg.libXau
-      xorg.libXdmcp
+      libx11
+      libxcursor
+      libxrandr
+      libxi
+      libxext
+      libxinerama
+      libxxf86vm
+      libxrender
+      libxcb
+      libxau
+      libxdmcp
       mesa
       alsa-lib
       dbus
@@ -54,7 +54,7 @@ pkgs.rustPlatform.buildRustPackage {
     lib.optionalString stdenv.isLinux ''
       export LD_LIBRARY_PATH="${lib.makeLibraryPath [
         wayland
-        xorg.libxcb
+        libxcb
         vulkan-loader
         libxkbcommon
       ]}:/run/opengl-driver/lib:$LD_LIBRARY_PATH"

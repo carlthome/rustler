@@ -28,11 +28,12 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_call_ring, draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_wave_telegraph,
+    draw_call_ring, draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, get_levels};
-use crate::spawnings::{spawn_boss, spawn_enemies};
+use crate::spawnings::{spawn_boss, spawn_tide_boss, spawn_enemies};
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -49,6 +50,12 @@ const BOSS_WINDUP_TIME: f32 = 0.85;    // telegraph duration before a charge fir
 const BOSS_CHARGE_TIME: f32 = 0.65;    // how long the lunge lasts
 const BOSS_CHARGE_SPEED: f32 = 540.0;  // px/s during the lunge (far faster than it roams)
 const BOSS_CHARGE_ARM_RANGE: f32 = 430.0; // only wind up when the train is within striking range
+// Tide Boss pulse: instead of charging, it swells and releases an expanding shockwave ring that
+// scatters nearby free crabs and knocks the train's tail loose if it's clustered too close.
+const TIDE_PULSE_COOLDOWN: f32 = 5.0;   // drift time between pulses
+const TIDE_PULSE_WINDUP: f32 = 1.0;     // telegraph swell before the pulse fires
+const TIDE_PULSE_RADIUS: f32 = 320.0;   // reach of the shockwave — crabs inside get shoved outward
+const TIDE_PULSE_EXPAND_SPEED: f32 = 900.0; // how fast the visible ring sweeps outward (px/s)
 const WHISTLE_COOLDOWN: f32 = 4.5;     // seconds between whistle casts
 const WHISTLE_RING_SPEED: f32 = 1000.0; // how fast the sonic front sweeps outward (px/s)
 const WHISTLE_MAX_RADIUS: f32 = 360.0; // reach of the pulse — crabs inside it get yanked in
@@ -378,7 +385,8 @@ struct MainState {
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     next_milestone: usize,               // Next train-length milestone to celebrate
-    next_boss_score: usize,              // score at which the next King Crab boss arrives
+    next_boss_score: usize,              // score at which the next boss arrives
+    next_boss_is_tide: bool,             // alternates King Crab <-> Tide Boss so runs cycle both
     // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
     // the whole train for a super-linear score payout (longer train = disproportionately more) and
     // reset the chain, closing the risk/reward loop the chain-snap risk opened. The pen relocates
@@ -395,6 +403,9 @@ struct MainState {
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
+    // Tide Boss shockwave pulses — (center, current radius) of each expanding front. Grows to
+    // TIDE_PULSE_RADIUS then fades out. Bounded by the one-boss-at-a-time cap plus a hard len guard.
+    tide_pulses: Vec<(Vec2, f32)>,
     zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
     fullscreen_applied: bool, // deferred until the first update tick, see update()
     // Scratch buffers for catch_by_chain, reused every frame instead of being freshly
@@ -686,6 +697,7 @@ impl MainState {
             chain_snap_cooldown: 0.0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
+            next_boss_is_tide: false,
             pen_pos: init_pen,
             deliver_flash: 0.0,
             tide_pools: init_tide_pools,
@@ -693,6 +705,7 @@ impl MainState {
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             fear_rings: Vec::new(),
+            tide_pulses: Vec::new(),
             zoom_punch: 0.0,
             fullscreen_applied: false,
             chain_positions_buf: Vec::new(),
@@ -1164,14 +1177,14 @@ impl MainState {
         let mult = self.combo_multiplier();
         let mut any_caught = false;
         let mut startle_origins: Vec<Vec2> = Vec::new();
-        let mut boss_catches: Vec<Vec2> = Vec::new();
+        let mut boss_catches: Vec<(Vec2, bool)> = Vec::new();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
                 && (self.player_pos.y - crab.pos.y).abs() < (PLAYER_SIZE + crab.scale) / 2.0
             {
                 if crab.is_boss() {
-                    boss_catches.push(crab.pos);
+                    boss_catches.push((crab.pos, crab.is_tide_boss()));
                 }
                 // Get crab color before marking as caught
                 let crab_color = crab.crab_color();
@@ -1250,33 +1263,39 @@ impl MainState {
         for origin in startle_origins {
             self.emit_catch_startle(origin);
         }
-        for bpos in boss_catches {
-            self.on_boss_caught(bpos);
+        for (bpos, is_tide) in boss_catches {
+            self.on_boss_caught(bpos, is_tide);
         }
         if any_caught {
             self.check_milestone(&mut rand::rng());
         }
     }
 
-    /// Big celebratory payoff when a worn-down King Crab is finally snagged.
-    fn on_boss_caught(&mut self, pos: Vec2) {
+    /// Big celebratory payoff when a worn-down boss is finally snagged. `is_tide` swaps the callout
+    /// and shockwave color so the Tide Boss reads as its own catch, not a reskinned King Crab.
+    fn on_boss_caught(&mut self, pos: Vec2, is_tide: bool) {
         let mut rng = rand::rng();
         let bonus = 25 * self.combo_multiplier();
         self.score += bonus;
         self.particle_system
             .spawn_milestone_fireworks(pos, 30, &mut rng);
         let screen_center = Vec2::new(self.width / 2.0 - 200.0, self.height / 2.0 - 90.0);
+        let (label, label_color, shock_color): (&str, [f32; 4], [f32; 3]) = if is_tide {
+            ("TIDE BOSS CAUGHT!", [0.4, 0.85, 1.0, 1.0], [0.3, 0.75, 1.0])
+        } else {
+            ("KING CRAB CAUGHT!", [1.0, 0.85, 0.2, 1.0], [1.0, 0.8, 0.2])
+        };
         self.floating_texts.spawn(
-            "KING CRAB CAUGHT!".to_string(),
+            label.to_string(),
             screen_center + Vec2::new(3.0, 3.0),
             64.0,
             [0.0, 0.0, 0.0, 0.85],
         );
         self.floating_texts.spawn(
-            "KING CRAB CAUGHT!".to_string(),
+            label.to_string(),
             screen_center,
             64.0,
-            [1.0, 0.85, 0.2, 1.0],
+            label_color,
         );
         self.floating_texts.spawn(
             format!("+{}", bonus),
@@ -1292,8 +1311,96 @@ impl MainState {
         self.beat_intensity = 2.0;
         self.on_beat_flash = 0.6;
         if self.catch_shockwaves.len() < 48 {
-            self.catch_shockwaves.push((pos, 0.0, [1.0, 0.8, 0.2]));
+            self.catch_shockwaves.push((pos, 0.0, shock_color));
         }
+    }
+
+    /// A Tide Boss pulse detonates at `center`: an expanding shockwave ring that shoves every
+    /// nearby *free* crab outward into a panic, and — if the conga train's tail is caught inside the
+    /// blast — knocks the last few links loose (the Tide Boss's version of a chain snap). The threat
+    /// is spacing: keep your train out of the ring and the pulse does nothing, so it rewards reading
+    /// the swell telegraph and pulling back rather than routing out of a charge lane.
+    fn tide_pulse_burst(&mut self, center: Vec2) {
+        const TIDE_SNAP_LINKS: usize = 4; // a solid surge tears off a bit more than a panic-brush snap
+        let r2 = TIDE_PULSE_RADIUS * TIDE_PULSE_RADIUS;
+
+        // Spawn the visible expanding ring (bounded so a stall can't grow the Vec without limit).
+        if self.tide_pulses.len() < 8 {
+            self.tide_pulses.push((center, crate::CRAB_SIZE));
+        }
+
+        // Shove every free crab in range outward and startle it into a flee.
+        let mut scattered: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            if crab.caught || crab.is_boss() {
+                continue;
+            }
+            let d2 = crab.pos.distance_squared(center);
+            if d2 > r2 {
+                continue;
+            }
+            let outward = (crab.pos - center).normalize_or_zero();
+            let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+            crab.fleeing = true;
+            crab.startle_timer = crab.startle_timer.max(0.7);
+            crab.charm_timer = 0.0; // the surge overwhelms a whistle's calm
+            crab.vel = outward * crab.crab_type.speed_range().end * 2.0;
+            crab.speed = 1.0; // vel encodes full speed, matching the flee/startle convention
+            if scattered.len() < 24 {
+                scattered.push(crab.pos);
+            }
+        }
+
+        // Knock the tail loose if any caught link sits inside the blast. Mirrors snap_chain_on_panic
+        // but triggered by the pulse's reach rather than a physical tail collision.
+        let tail_in_blast = self
+            .crabs
+            .iter()
+            .any(|c| c.caught && c.chain_index.is_some() && c.pos.distance_squared(center) <= r2);
+        if tail_in_blast && self.chain_count >= 5 && self.chain_snap_cooldown <= 0.0 {
+            let keep = self.chain_count.saturating_sub(TIDE_SNAP_LINKS).max(1);
+            let snapped = self.chain_count - keep;
+            let mut snapped_positions: Vec<Vec2> = Vec::new();
+            for crab in &mut self.crabs {
+                let Some(ci) = crab.chain_index else { continue };
+                if ci >= keep {
+                    crab.caught = false;
+                    crab.chain_index = None;
+                    crab.fleeing = true;
+                    crab.startle_timer = 0.6;
+                    let outward = (crab.pos - center).normalize_or_zero();
+                    let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+                    crab.vel = outward * crab.crab_type.speed_range().end * 2.2;
+                    crab.speed = 1.0;
+                    snapped_positions.push(crab.pos);
+                }
+            }
+            self.chain_count = keep;
+            self.chain_snap_cooldown = 1.6;
+            for pos in &snapped_positions {
+                if self.fear_rings.len() < 32 {
+                    self.fear_rings.push((*pos, 0.0));
+                }
+            }
+            self.floating_texts.spawn(
+                format!("WASHED OUT!  -{}", snapped),
+                center - Vec2::new(60.0, 34.0),
+                32.0,
+                [0.5, 0.85, 1.0, 1.0],
+            );
+        }
+
+        // Feedback for the scattered herd.
+        for pos in &scattered {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+        }
+        self.spawn_catch_shockwave(center, [0.3, 0.75, 1.0]);
+        self.screen_shake = self.screen_shake.max(16.0);
+        let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 12.0 * 60.0;
+        self.on_beat_flash = self.on_beat_flash.max(0.35);
     }
 
     fn catch_by_chain(&mut self, ctx: &mut Context) {
@@ -1358,7 +1465,7 @@ impl MainState {
             self.spawn_catch_shockwave(pos, crab_color);
             self.crabs[i].caught = true;
             if self.crabs[i].is_boss() {
-                self.on_boss_caught(pos);
+                self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
             }
             self.emit_catch_startle(pos);
             self.chain_join_ripple = true;
@@ -1415,6 +1522,11 @@ impl MainState {
         boss_launches.clear();
         let mut boss_charge_dust = std::mem::take(&mut self.boss_charge_dust_buf); // (pos, vel) trail while lunging
         boss_charge_dust.clear();
+        // Tide Boss pulse fires this frame (center positions) — processed after the loop so the
+        // shockwave can scatter the herd and loosen the train without fighting the &mut borrow.
+        // Rare (one boss at a time), so a small local Vec is fine.
+        let mut tide_fires: Vec<Vec2> = Vec::new();
+        let mut tide_swells: Vec<Vec2> = Vec::new(); // a pulse just started swelling — telegraph feedback
 
         // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
         // player. Computed before the mutable loop so the boss branch can read it freely.
@@ -1445,6 +1557,61 @@ impl MainState {
                         crab.boss_health = 0.0;
                         boss_broke.push(crab.pos);
                     }
+                }
+
+                // The Tide Boss doesn't charge — it drifts and pulses. Distinct threat, distinct
+                // counterplay: keep the train *away* from it (spacing) rather than routing out of a
+                // charge lane. It reuses charge_cooldown as its pulse timer and BossCharge::Winding
+                // to mean "swelling before a pulse".
+                if crab.is_tide_boss() {
+                    let (width, height) = area;
+                    match crab.charge_state {
+                        BossCharge::Winding(t) => {
+                            let nt = t - dt;
+                            // Rear up and nearly stop while the swell builds — the telegraph window.
+                            crab.vel = crab.vel.lerp(Vec2::ZERO, 0.2);
+                            crab.pos += crab.vel * dt;
+                            crab.charge_state = if nt <= 0.0 {
+                                tide_fires.push(crab.pos);
+                                crab.charge_cooldown = TIDE_PULSE_COOLDOWN;
+                                BossCharge::Idle
+                            } else {
+                                BossCharge::Winding(nt)
+                            };
+                        }
+                        _ => {
+                            if crab.charge_cooldown > 0.0 {
+                                crab.charge_cooldown -= dt;
+                            }
+                            // Wander gently toward the train's heart so it stays a looming presence.
+                            let dir = (charge_target - crab.pos).normalize_or_zero();
+                            crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
+                            crab.pos += crab.vel * dt;
+                            // Once rested and there's a train worth scattering, begin swelling a pulse.
+                            if crab.charge_cooldown <= 0.0 && self.chain_count >= 3 {
+                                crab.charge_state = BossCharge::Winding(TIDE_PULSE_WINDUP);
+                                tide_swells.push(crab.pos);
+                            }
+                        }
+                    }
+                    // Bounce off walls, face travel direction (shared with the King Crab tail below).
+                    if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
+                        crab.vel.x = -crab.vel.x;
+                        crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
+                    }
+                    if crab.pos.y < 0.0 || crab.pos.y > height - crab.scale {
+                        crab.vel.y = -crab.vel.y;
+                        crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
+                    }
+                    let speed = crab.vel.length();
+                    if speed > 5.0 {
+                        let target_angle = crab.vel.y.atan2(crab.vel.x);
+                        let mut delta = target_angle - crab.facing_angle;
+                        while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                        while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                        crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                    }
+                    continue;
                 }
 
                 // Charge state machine. Holding the beam can't cancel a wind-up — the counterplay is
@@ -1733,6 +1900,27 @@ impl MainState {
             self.screen_shake = self.screen_shake.max(10.0);
             let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 8.0 * 60.0;
+        }
+
+        // Tide Boss starting to swell a pulse: a cold warning ring + shout so the player can pull
+        // the train back out of range before the shockwave lands.
+        for &pos in tide_swells.iter() {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "TIDE SURGE — BACK AWAY!".to_string(),
+                pos - Vec2::new(130.0, 52.0),
+                30.0,
+                [0.4, 0.85, 1.0, 1.0],
+            );
+            self.on_beat_flash = self.on_beat_flash.max(0.25);
+        }
+
+        // The pulse fires: spawn the expanding shockwave, scatter nearby free crabs, and knock the
+        // train's tail loose if it's clustered too close.
+        for &center in tide_fires.iter() {
+            self.tide_pulse_burst(center);
         }
 
         // Dust kicked up behind the charging boss — sprayed opposite the lunge heading.
@@ -2024,6 +2212,7 @@ impl MainState {
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
+        self.next_boss_is_tide = false;
         self.deliver_flash = 0.0;
         self.pen_pos = pick_pen_pos(
             self.width,
@@ -2043,6 +2232,7 @@ impl MainState {
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
         self.fear_rings.clear();
+        self.tide_pulses.clear();
         self.player_pos = player_pos;
         self.score = 0;
         self.spawn_timer = 0.0;
@@ -2634,6 +2824,9 @@ impl MainState {
         // Draw stampede fear rings where catches startled the herd
         draw_fear_rings(ctx, canvas, &self.fear_rings)?;
 
+        // Draw Tide Boss shockwave pulses sweeping outward
+        draw_tide_pulses(ctx, canvas, &self.tide_pulses, TIDE_PULSE_RADIUS)?;
+
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
         draw_floating_texts(ctx, canvas, &self.floating_texts)?;
@@ -3115,11 +3308,16 @@ impl MainState {
                     let size = crab.scale * CRAB_SIZE;
                     draw_attracted_crab_glow(ctx, canvas, pos, size, crab.crab_color(), self.time_elapsed, self.beat_intensity)?;
                 }
-                // King Crab aura + wear-down health ring
+                // Boss aura + wear-down health ring — aura tinted per archetype.
                 if crab.is_boss() {
                     let size = crab.scale * CRAB_SIZE;
                     let frac = crab.boss_health / BOSS_MAX_HEALTH;
-                    draw_boss_health_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
+                    let aura = if crab.is_tide_boss() {
+                        [0.25, 0.7, 1.0]
+                    } else {
+                        [1.0, 0.8, 0.25]
+                    };
+                    draw_boss_health_ring(ctx, canvas, pos, size, frac, self.time_elapsed, aura)?;
                 } else if crab.is_armored() && crab.boss_health > 0.0 {
                     // Armored shell indicator — depletes as the shell is worn or cracked
                     let size = crab.scale * CRAB_SIZE;
@@ -3812,6 +4010,12 @@ impl EventHandler for MainState {
             *age < 1.0
         });
 
+        // Advance Tide Boss shockwave rings — expand outward, drop once past their reach.
+        self.tide_pulses.retain_mut(|(_, radius)| {
+            *radius += TIDE_PULSE_EXPAND_SPEED * dt;
+            *radius < TIDE_PULSE_RADIUS * 1.25
+        });
+
         // Update particle system
         self.particle_system.update(dt);
         self.floating_texts.update(dt);
@@ -3972,7 +4176,7 @@ impl EventHandler for MainState {
                         self.spawn_catch_shockwave(pos, crab_color);
                         self.crabs[i].caught = true;
                         if self.crabs[i].is_boss() {
-                            self.on_boss_caught(pos);
+                            self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
                         }
                         lasso_startle_origins.push(pos);
                         self.chain_join_ripple = true;
@@ -4017,18 +4221,36 @@ impl EventHandler for MainState {
             && !self.crabs.iter().any(|c| c.is_boss() && !c.caught)
         {
             self.next_boss_score = self.score + BOSS_SCORE_INTERVAL;
-            let boss = spawn_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH);
+            // Alternate the two boss archetypes so every run cycles through both climax beats: the
+            // King Crab (charge — route the train out of the lane) and the Tide Boss (pulse — pull
+            // the train back out of range). Toggling guarantees variety instead of RNG streaks.
+            let (boss, title, hint, title_color) = if self.next_boss_is_tide {
+                (
+                    spawn_tide_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    "A TIDE BOSS SURGES IN!",
+                    "Hold your light — but keep your train clear of its pulse!",
+                    [0.35, 0.8, 1.0, 1.0],
+                )
+            } else {
+                (
+                    spawn_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    "A KING CRAB APPROACHES!",
+                    "Hold your light on it!",
+                    [1.0, 0.8, 0.2, 1.0],
+                )
+            };
+            self.next_boss_is_tide = !self.next_boss_is_tide;
             let bpos = boss.pos;
             self.crabs.push(boss);
             self.floating_texts.spawn(
-                "A KING CRAB APPROACHES!".to_string(),
+                title.to_string(),
                 Vec2::new(self.width / 2.0 - 230.0, 80.0),
                 46.0,
-                [1.0, 0.8, 0.2, 1.0],
+                title_color,
             );
             self.floating_texts.spawn(
-                "Hold your light on it!".to_string(),
-                Vec2::new(self.width / 2.0 - 120.0, 130.0),
+                hint.to_string(),
+                Vec2::new(self.width / 2.0 - 180.0, 130.0),
                 26.0,
                 [1.0, 0.95, 0.7, 0.9],
             );

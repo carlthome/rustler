@@ -65,6 +65,27 @@ pub fn spawn_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> Enem
     boss
 }
 
+/// Spawn a rare "Tide Boss". Like the King Crab it enters from a ring around center and must be
+/// worn down under the flashlight, but instead of charging it drifts and periodically emits an
+/// expanding shockwave pulse (see the tide branch in main.rs) that scatters nearby free crabs and
+/// knocks loose the tail of any train that's clustered too close — a spacing threat, not a lane one.
+pub fn spawn_tide_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> EnemyCrab {
+    let (width, height) = area;
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let radius = width.min(height) * 0.42;
+    let center = Vec2::new(width * 0.5, height * 0.5);
+    let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+    let vel = (center - pos).normalize_or_zero();
+    let mut boss = make_crab(pos, vel, 0.0, rng);
+    boss.crab_type = CrabType::TideBoss;
+    boss.speed = rng.random_range(CrabType::TideBoss.speed_range());
+    boss.scale = rng.random_range(CrabType::TideBoss.scale_range());
+    boss.boss_health = max_health;
+    // charge_cooldown doubles as the pulse timer for the Tide Boss — let it drift in first.
+    boss.charge_cooldown = 3.0;
+    boss
+}
+
 pub fn spawn_enemies(
     pattern: SpawnPattern,
     count: usize,
