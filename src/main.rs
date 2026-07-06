@@ -3149,7 +3149,18 @@ impl MainState {
             let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
             draw_wave_telegraph(ctx, canvas, beat_center, anticipation, beat_phase)?;
         }
-        draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
+        // beat_timer counts down from BEAT_INTERVAL to 0, so progress toward the next beat is
+        // 1 - (timer / interval). Feeds the approach ring so the player can anticipate the downbeat.
+        let beat_progress = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        draw_beat_indicator(
+            ctx,
+            canvas,
+            beat_center,
+            self.beat_intensity,
+            beat_progress,
+            self.on_beat_now(),
+            self.time_elapsed,
+        )?;
 
         // Groove meter (top center) — fills as you catch crabs on the beat, glowing and
         // pulsing to the beat once you're in the pocket. Rewards rhythmic play at a glance.

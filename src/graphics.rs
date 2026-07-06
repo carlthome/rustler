@@ -1560,6 +1560,13 @@ pub fn draw_beat_indicator(
     canvas: &mut Canvas,
     center: Vec2,
     beat_intensity: f32,
+    // 0..1 progress toward the next beat, where ~0 means the beat just landed and ~1 means it's
+    // about to land again. Drives an approach ring that shrinks toward the marker so the player
+    // can *anticipate* the downbeat and time on-beat tool hits, instead of only reacting after.
+    beat_progress: f32,
+    // True while the current instant counts as "on beat" (within BEAT_WINDOW). Flashes the marker
+    // green so the exact hit window is unmistakable.
+    on_beat: bool,
     _time: f32,
 ) -> ggez::GameResult {
     let unit_circle = match UNIT_CIRCLE.get() {
@@ -1570,14 +1577,36 @@ pub fn draw_beat_indicator(
         }
     };
     let base_r = 20.0;
+
+    // Approach ring: starts wide right after a beat and closes in on the marker as the next beat
+    // nears, snapping tight exactly on the downbeat. This is the timing cue a rhythm player reads
+    // to land PERFECT hits. Reuses the shared cached stroke circle so no per-frame mesh is built.
+    let p = beat_progress.clamp(0.0, 1.0);
+    let approach_r = base_r + (1.0 - p) * 46.0;
+    // Fades in as it converges so a freshly-reset ring doesn't pop; brightens near the hit window.
+    let ring_alpha = ((40.0 + p * p * 200.0) as u8).min(255);
+    let ring_col = if on_beat {
+        Color::from_rgba(120, 255, 140, 255)
+    } else {
+        Color::from_rgba(255, 220, 120, ring_alpha)
+    };
+    let approach = cached_stroke_circle(ctx, approach_r, 2.5)?;
+    canvas.draw(&approach, DrawParam::default().dest(center).color(ring_col));
+
     let pulse_r = base_r + beat_intensity * 14.0;
     let alpha = ((80.0 + beat_intensity * 175.0) as u8).min(255);
+    // The marker itself flashes green in the on-beat window, otherwise its usual warm amber.
+    let marker_col = if on_beat {
+        Color::from_rgba(150, 255, 160, alpha.max(200))
+    } else {
+        Color::from_rgba(255, 200, 50, alpha)
+    };
     canvas.draw(
         unit_circle,
         DrawParam::default()
             .dest(center)
             .scale(Vec2::splat(pulse_r))
-            .color(Color::from_rgba(255, 200, 50, alpha)),
+            .color(marker_col),
     );
     canvas.draw(
         unit_circle,
