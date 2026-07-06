@@ -1535,18 +1535,17 @@ pub fn draw_wave_telegraph(
             .scale(Vec2::splat(ring_r + 6.0))
             .color(Color::from_rgba(80, 220, 255, halo_alpha)),
     );
-    // Thin bright leading ring, built stroked so it reads as an outline closing in.
+    // Thin bright leading ring, built stroked so it reads as an outline closing in. Reuses
+    // `cached_stroke_circle` (same cache every other beat-synced ring in this file draws from)
+    // instead of building a fresh `Mesh::new_circle` GPU buffer every frame the wave is armed.
     let bright = ((130.0 + a * 125.0) as u8).min(255);
-    if let Ok(ring) = Mesh::new_circle(
-        ctx,
-        DrawMode::stroke(2.5 + a * 1.5),
-        [0.0, 0.0],
-        ring_r,
-        0.5,
-        Color::from_rgba(120, 235, 255, bright),
-    ) {
-        canvas.draw(&ring, DrawParam::default().dest(center));
-    }
+    let ring = cached_stroke_circle(ctx, ring_r, 2.5 + a * 1.5)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::from_rgba(120, 235, 255, bright)),
+    );
     Ok(())
 }
 
