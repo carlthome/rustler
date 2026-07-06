@@ -322,6 +322,9 @@ struct MainState {
     chain_positions_buf: Vec<Vec2>,
     catch_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
     caught_now_buf: Vec<bool>,
+    // Reused buffer of solid conga-body segment positions, rebuilt each frame for the
+    // fleeing-crab wall-deflection pass (see deflect_fleeing_off_chain).
+    deflect_body_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -538,6 +541,7 @@ impl MainState {
             chain_positions_buf: Vec::new(),
             catch_grid_buf: std::collections::HashMap::new(),
             caught_now_buf: Vec::new(),
+            deflect_body_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -756,6 +760,78 @@ impl MainState {
         self.screen_shake = self.screen_shake.max(9.0);
         let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
+    }
+
+    /// Emergent herding: the solid *body* of the conga train physically deflects panicking wild
+    /// crabs, bouncing them off instead of letting them phase through. Slide your line between a
+    /// spooked herd and open water and you can corral fleeing crabs back toward your beam for a
+    /// free re-catch — turning the train from a number-you-only-grow into a steerable wall you
+    /// play the herd against. Mirror of chain-snap: the exposed tail (the same last few links
+    /// snap can knock loose) is deliberately *not* a wall, so panic still slips past there. A long
+    /// train is a shield up front and a weak point at the back. A charging King Crab bulldozes
+    /// through regardless.
+    fn deflect_fleeing_off_chain(&mut self) {
+        const DEFLECT_DIST: f32 = CRAB_SIZE * 0.85;
+        // Only trains long enough to have a snap-vulnerable tail keep that tail soft; shorter
+        // trains have no exposed end yet, so their whole body walls.
+        let tail_guard = if self.chain_count >= 5 { 3 } else { 0 };
+        let body_max = self.chain_count.saturating_sub(tail_guard); // chain_index < body_max = solid wall
+
+        // Gather the solid body segments once into a reused buffer (no per-frame heap churn).
+        self.deflect_body_buf.clear();
+        for crab in &self.crabs {
+            if let Some(ci) = crab.chain_index {
+                if ci < body_max {
+                    self.deflect_body_buf.push(crab.pos);
+                }
+            }
+        }
+        if self.deflect_body_buf.is_empty() {
+            return;
+        }
+
+        let mut bounce_rings: Vec<Vec2> = Vec::new();
+        let mut rng = rand::rng();
+        for crab in &mut self.crabs {
+            if crab.caught || crab.is_boss() {
+                continue;
+            }
+            if !(crab.fleeing || crab.startle_timer > 0.0) {
+                continue;
+            }
+            // Nearest body segment within collision range.
+            let mut hit: Option<(f32, Vec2)> = None;
+            for &seg in &self.deflect_body_buf {
+                let d = seg.distance(crab.pos);
+                if d < DEFLECT_DIST && hit.map_or(true, |(hd, _)| d < hd) {
+                    hit = Some((d, seg));
+                }
+            }
+            let Some((_, seg)) = hit else { continue };
+            let mut n = (crab.pos - seg).normalize_or_zero();
+            if n == Vec2::ZERO {
+                n = Vec2::new(0.0, -1.0);
+            }
+            // Reflect its velocity off the wall only if it's actually heading into the segment,
+            // bleeding a little energy so it doesn't ping-pong forever.
+            let into = crab.vel.dot(n);
+            if into < 0.0 {
+                crab.vel = (crab.vel - n * (2.0 * into)) * 0.9;
+                crab.speed = 1.0; // vel encodes full speed, matching the flee/startle convention
+            }
+            // Shove it back out of the wall so it can't tunnel through, and keep it lively.
+            crab.pos = seg + n * DEFLECT_DIST;
+            crab.startle_timer = crab.startle_timer.max(0.2);
+            // Throttled cold ring so the wall-bounce reads without flooding the screen.
+            if rng.random::<f32>() < 0.25 {
+                bounce_rings.push(crab.pos);
+            }
+        }
+        for pos in bounce_rings {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+        }
     }
 
     fn register_catch(&mut self, catch_pos: Vec2, bonus_points: usize) {
@@ -2947,6 +3023,11 @@ impl EventHandler for MainState {
 
         self.handle_crab_catching(ctx);
         self.update_crabs(dt, area);
+
+        // Emergent herding: the conga body walls off panicking crabs, bouncing them back toward
+        // the beam. Runs before the snap check so a crab deflected by the body never reaches the
+        // tail, while one aimed straight at the soft tail still slips past to snap it.
+        self.deflect_fleeing_off_chain();
 
         // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
         self.snap_chain_on_panic();
