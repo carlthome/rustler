@@ -3830,6 +3830,10 @@ impl EventHandler for MainState {
                         .map(|(i, _)| i)
                         .collect();
                     let mut rng = rand::rng();
+                    // Yanking a crab off the sand spooks the herd around the snatch point, same as
+                    // a beam or chain catch — collected here and fired after the loop so the lasso
+                    // stampede reads as fear rippling outward from where the rope bit.
+                    let mut lasso_startle_origins: Vec<Vec2> = Vec::new();
                     for i in to_catch {
                         let pos = self.crabs[i].pos;
                         let crab_type = self.crabs[i].crab_type;
@@ -3840,6 +3844,7 @@ impl EventHandler for MainState {
                         if self.crabs[i].is_boss() {
                             self.on_boss_caught(pos);
                         }
+                        lasso_startle_origins.push(pos);
                         self.chain_join_ripple = true;
                         self.crabs[i].chain_index = Some(self.chain_count);
                         self.chain_count += 1;
@@ -3853,6 +3858,9 @@ impl EventHandler for MainState {
                             let _ = self.sounds.upgrade.play_detached(ctx);
                             self.pending_upgrade = true;
                         }
+                    }
+                    for origin in lasso_startle_origins {
+                        self.emit_catch_startle(origin);
                     }
                 }
             }
