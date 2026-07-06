@@ -103,6 +103,51 @@ thread_local! {
     // count, with identical on-screen output (same mesh, same blend mode, no rotation to lose).
     static PARTICLE_MAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static PARTICLE_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Crab legs (6 unit-line draws per crab) were the single biggest per-crab draw-call
+    // contributor — a long conga train plus a fresh wild herd can easily put 40-50+ crabs on
+    // screen at once, i.e. 240-300+ individual leg draw calls a frame on top of everything else
+    // draw_crab issues. draw_crab() pushes its 6 leg DrawParams here instead of drawing them
+    // immediately; flush_crab_legs() (called once per crab-drawing pass) fills one InstanceArray
+    // and issues a single draw_instanced_mesh, the same technique already used for particles.
+    // Legs still land at the same world position/rotation/color, so this is purely a batching
+    // change — no visible difference, just far fewer GPU submissions.
+    static CRAB_LEG_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static CRAB_LEG_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+}
+
+/// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
+/// a single instanced batch. Call this once after all draw_crab() calls in a drawing pass (e.g.
+/// once per frame in draw_crabs_with_shake) so legs still land in the same relative draw order —
+/// after bodies, before the claw/eye overlays each draw_crab() call still draws immediately.
+pub fn flush_crab_legs(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    CRAB_LEG_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_line = match UNIT_LINE.get() {
+            Some(mesh) => mesh.clone(),
+            None => {
+                let mesh = Mesh::new_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    Rect::new(0.0, -0.5, 1.0, 1.0),
+                    Color::WHITE,
+                )?;
+                UNIT_LINE.get_or_init(|| mesh).clone()
+            }
+        };
+        CRAB_LEG_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(unit_line, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
 }
 
 /// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
@@ -937,19 +982,6 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
-    let unit_line = match UNIT_LINE.get() {
-        Some(mesh) => mesh,
-        None => {
-            let mesh = Mesh::new_rectangle(
-                ctx,
-                DrawMode::fill(),
-                Rect::new(0.0, -0.5, 1.0, 1.0),
-                Color::WHITE,
-            )?;
-            UNIT_LINE.get_or_init(|| mesh)
-        }
-    };
-
     let cos_r = rotation.cos();
     let sin_r = rotation.sin();
     // Rotates a body-local offset (x, y) by the crab's facing rotation, matching what the
@@ -1042,14 +1074,17 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
         let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
         let angle = base_angle + wiggle + rotation;
         let root = draw_pos + Vec2::new(angle.cos(), angle.sin()) * (size / 2.0);
-        canvas.draw(
-            unit_line,
-            DrawParam::default()
-                .dest(root)
-                .rotation(angle)
-                .scale(Vec2::new(leg_len, 2.0))
-                .color(leg_color),
-        );
+        // Deferred: collected here and drawn as one instanced batch by flush_crab_legs() instead
+        // of an individual canvas.draw() per leg per crab (see CRAB_LEG_PARAMS above).
+        CRAB_LEG_PARAMS.with(|params| {
+            params.borrow_mut().push(
+                DrawParam::default()
+                    .dest(root)
+                    .rotation(angle)
+                    .scale(Vec2::new(leg_len, 2.0))
+                    .color(leg_color),
+            );
+        });
     }
 
     // Crab claws (small circles)
