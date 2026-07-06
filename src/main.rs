@@ -2832,8 +2832,18 @@ impl EventHandler for MainState {
                 let positions: Vec<Vec2> = self.crabs.iter().filter(|c| c.caught).map(|c| c.pos).collect();
                 self.particle_system.spawn_beat_pulse(&positions, 1.0, chain_len, &mut rand::rng());
             }
-            // Spawn ghost rings at each chain crab position
+            // Spawn ghost rings at each chain crab position. Unlike catch_shockwaves (capped at
+            // 48) and fear_rings (capped at 32), this loop had no ceiling — a long conga train
+            // (chain_count grows unbounded over a run, see MAX_PARTICLES's comment) would push
+            // one ring per caught crab every single beat, each drawing two more mesh draws in
+            // draw_chain_rings. Cap it the same way the sibling effect buffers are capped: once
+            // the live count hits the ceiling, stop adding for this beat rather than growing
+            // without bound. Only affects trains long enough to have hit the cap already.
+            const MAX_CHAIN_RINGS: usize = 64;
             for crab in self.crabs.iter().filter(|c| c.caught) {
+                if self.chain_rings.len() >= MAX_CHAIN_RINGS {
+                    break;
+                }
                 let color = crab.crab_color();
                 self.chain_rings.push((crab.pos, 0.0, color));
             }
