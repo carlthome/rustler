@@ -1312,11 +1312,14 @@ pub fn draw_conga_rope(
     ctx: &mut Context,
     canvas: &mut Canvas,
     player_pos: Vec2,
-    chain_crabs: &[&EnemyCrab],
+    // (chain_index, pos) pairs, already sorted by chain_index by the caller. Only the position
+    // is used here — the index just rides along because the caller sorts by it before this is
+    // called (see CHAIN_SORT_BUF in main.rs), so a plain &[Vec2] would force a second copy.
+    chain_links: &[(usize, Vec2)],
     time: f32,
     beat_intensity: f32,
 ) -> ggez::GameResult {
-    if chain_crabs.is_empty() {
+    if chain_links.is_empty() {
         return Ok(());
     }
 
@@ -1346,14 +1349,14 @@ pub fn draw_conga_rope(
     let player_center = player_pos + Vec2::new(24.0, 24.0);
 
     // Total chain length for hue mapping
-    let total_links = chain_crabs.len() as f32;
+    let total_links = chain_links.len() as f32;
 
     CONGA_WAYPOINT_BUF.with(|wbuf| -> ggez::GameResult {
         let mut waypoints = wbuf.borrow_mut();
         waypoints.clear();
         waypoints.push(player_center);
-        for crab in chain_crabs {
-            waypoints.push(crab.pos);
+        for &(_, pos) in chain_links {
+            waypoints.push(pos);
         }
 
         CONGA_SEGMENT_BUF.with(|buf| -> ggez::GameResult {

@@ -105,6 +105,16 @@ thread_local! {
     static MENU_SUBTITLE_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
     static MENU_INSTRUCTIONS_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
     static MENU_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
+    // Scratch buffer for draw_game's chain-crab ordering. draw_game takes &self and runs every
+    // frame, so — same reasoning as the caches above — this lives in a thread_local RefCell
+    // instead of a struct field. Chain length grows unbounded over a run (it's the whole point
+    // of the conga train), and this collected + sorted a fresh Vec<&EnemyCrab> from scratch every
+    // single frame just to hand positions off to draw_conga_rope, which immediately copies them
+    // out again. Reusing this buffer (and carrying (chain_index, pos) tuples so the sort key
+    // travels with the position, sidestepping the borrow) drops that to zero allocations per
+    // frame once the chain's high-water mark is reached.
+    static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2)>> = RefCell::new(Vec::new());
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -2166,15 +2176,22 @@ impl MainState {
             self.deliver_flash,
         )?;
 
-        // Collect chain crabs sorted by chain index
-        let mut chain_crabs: Vec<&EnemyCrab> = self.crabs
-            .iter()
-            .filter(|c| c.caught && c.chain_index.is_some())
-            .collect();
-        chain_crabs.sort_by_key(|c| c.chain_index.unwrap_or(0));
         // Draw beat ghost rings under the rope and crabs
         draw_chain_rings(ctx, canvas, &self.chain_rings)?;
-        draw_conga_rope(ctx, canvas, self.player_pos, &chain_crabs, self.time_elapsed, self.beat_intensity)?;
+        // Collect chain crab (chain_index, pos) pairs sorted by chain index into a persisted
+        // scratch buffer instead of a fresh Vec<&EnemyCrab> every frame (see CHAIN_SORT_BUF).
+        CHAIN_SORT_BUF.with(|buf| -> GameResult {
+            let mut chain_links = buf.borrow_mut();
+            chain_links.clear();
+            chain_links.extend(
+                self.crabs
+                    .iter()
+                    .filter(|c| c.caught && c.chain_index.is_some())
+                    .map(|c| (c.chain_index.unwrap_or(0), c.pos)),
+            );
+            chain_links.sort_by_key(|&(idx, _)| idx);
+            draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity)
+        })?;
 
         // Draw player character.
         draw_rustler(
