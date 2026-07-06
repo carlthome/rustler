@@ -261,6 +261,15 @@ struct MainState {
     beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
+    // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
+    // bumps, so committing to a lane branches the run into a distinct playstyle (beam boss-hunter,
+    // lasso chain-catcher, whistle crowd-control, stomp shell-breaker). Each rank scales the tool
+    // and, at milestone ranks, changes how it behaves. Effective per-tool values are derived from
+    // these ranks in the helper methods below rather than stored, so they stay in sync everywhere.
+    beam_rank: u32,
+    lasso_rank: u32,
+    whistle_rank: u32,
+    stomp_rank: u32,
     floating_texts: FloatingTextSystem,
     combo_count: usize,
     combo_timer: f32,
@@ -325,6 +334,13 @@ struct MainState {
     // Reused buffer of solid conga-body segment positions, rebuilt each frame for the
     // fleeing-crab wall-deflection pass (see deflect_fleeing_off_chain).
     deflect_body_buf: Vec<Vec2>,
+    // Spatial grid over deflect_body_buf (same idea as catch_grid_buf below) so each fleeing
+    // crab only tests nearby body segments instead of the whole chain — chain length has no
+    // cap, so a linear scan there gets slower the longer a session runs.
+    deflect_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    // Reused scratch buffer for bounce-ring spawn positions collected during the deflection
+    // pass, avoiding a fresh Vec allocation every frame.
+    deflect_bounce_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -542,6 +558,8 @@ impl MainState {
             catch_grid_buf: std::collections::HashMap::new(),
             caught_now_buf: Vec::new(),
             deflect_body_buf: Vec::new(),
+            deflect_grid_buf: std::collections::HashMap::new(),
+            deflect_bounce_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -790,7 +808,23 @@ impl MainState {
             return;
         }
 
-        let mut bounce_rings: Vec<Vec2> = Vec::new();
+        // Bucket body segments into a spatial grid keyed by cell (mirrors catch_by_chain's
+        // grid) so each fleeing crab only tests the handful of segments near it instead of
+        // scanning the whole chain. Chain length is uncapped and fleeing is common (any wild
+        // crab near the player but outside the beam panics), so the old linear scan was an
+        // O(fleeing * chain_length) cost that grew for the rest of a long session.
+        let cell_size = DEFLECT_DIST.max(1.0);
+        let cell_of = |p: Vec2| -> (i32, i32) {
+            ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+        };
+        for bucket in self.deflect_grid_buf.values_mut() {
+            bucket.clear();
+        }
+        for (i, &seg) in self.deflect_body_buf.iter().enumerate() {
+            self.deflect_grid_buf.entry(cell_of(seg)).or_default().push(i);
+        }
+
+        self.deflect_bounce_buf.clear();
         let mut rng = rand::rng();
         for crab in &mut self.crabs {
             if crab.caught || crab.is_boss() {
@@ -799,12 +833,21 @@ impl MainState {
             if !(crab.fleeing || crab.startle_timer > 0.0) {
                 continue;
             }
-            // Nearest body segment within collision range.
+            // Nearest body segment within collision range, restricted to the 3x3 neighborhood
+            // of grid cells around the crab instead of every segment in the chain.
+            let (cx, cy) = cell_of(crab.pos);
             let mut hit: Option<(f32, Vec2)> = None;
-            for &seg in &self.deflect_body_buf {
-                let d = seg.distance(crab.pos);
-                if d < DEFLECT_DIST && hit.map_or(true, |(hd, _)| d < hd) {
-                    hit = Some((d, seg));
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(candidates) = self.deflect_grid_buf.get(&(cx + dx, cy + dy)) {
+                        for &i in candidates {
+                            let seg = self.deflect_body_buf[i];
+                            let d = seg.distance(crab.pos);
+                            if d < DEFLECT_DIST && hit.map_or(true, |(hd, _)| d < hd) {
+                                hit = Some((d, seg));
+                            }
+                        }
+                    }
                 }
             }
             let Some((_, seg)) = hit else { continue };
@@ -824,10 +867,10 @@ impl MainState {
             crab.startle_timer = crab.startle_timer.max(0.2);
             // Throttled cold ring so the wall-bounce reads without flooding the screen.
             if rng.random::<f32>() < 0.25 {
-                bounce_rings.push(crab.pos);
+                self.deflect_bounce_buf.push(crab.pos);
             }
         }
-        for pos in bounce_rings {
+        for &pos in &self.deflect_bounce_buf {
             if self.fear_rings.len() < 32 {
                 self.fear_rings.push((pos, 0.0));
             }
