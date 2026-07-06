@@ -13,46 +13,51 @@ this for direction before picking their next task; they don't edit it themselves
    feels done.
 2. **Later — the outer loop.** Once the inner loop is tight and solid, shift attention to
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
-   come back. Not yet — don't pull items from this phase in while phase 1 is still open.
+   come back.
 
-**Where we are.** The inner loop now feels substantially built out: catching (beam/lasso/whistle/
-stomp), the conga train with real chain-snap downside, a delivery pen to bank it, rhythm/groove
-scoring, biomes with terrain hazards, and the King Crab boss with a charge that scatters the tail.
-The risk/reward loop is closed. Two depth items remain below; once they land, we're likely ready
-to promote the outer loop (meta-progression) from Later into Now.
+**Where we are.** The inner loop now feels substantially DONE. Everything that made the core loop
+tense and expressive has landed: catching across four distinct tools (beam/lasso/whistle/stomp),
+the conga train with real chain-snap downside, a delivery pen to bank it, rhythm/groove scoring,
+biomes with terrain hazards, the King Crab boss with a tail-scattering charge, upgrade cards that
+now **branch into four playstyle lanes** (Beam/Lasso/Whistle/Stomp Focus, each deepening with
+rank), and a whistle **soothe** that talks a panicking herd down and makes them immune to
+beat-startle contagion. The risk/reward loop is closed and the toolkit all matters. Depth-first
+work is running out of high-leverage targets — so this run **promotes meta-progression from Later
+into Now**. The one remaining pure-inner-loop item (layered music) is half-blocked on human audio
+authoring; its actionable code half is called out below.
 
 ## Now
 
-- **Upgrade choices that branch into playstyles** — the upgrade cards are the roguelite heart of a
-  run, but today they're four flat stat bumps (`apply_upgrade`: wider cone, longer range, more
-  speed, bigger catch radius). Nothing makes one run play differently from the next. Give the tools
-  we already have (beam / lasso / whistle / stomp) real upgrade branches that synergize — a
-  lasso-focused build that chains catches, a whistle/crowd-control build, a beam-DPS boss-hunter
-  build — so the choices at each level-up steer the run and reward committing to a lane. This is the
-  highest-leverage remaining inner-loop beat: it turns level-ups from "numbers go up" into
-  meaningful decisions, and it makes the whole toolkit matter instead of defaulting to the beam.
-- **The soundtrack builds with the groove** — the `layer{1,2,3}.ogg` progressive-fade hook already
-  exists in code (main.rs tries to load them at startup) but no audio files populate it, so it's
-  inert. Author those layers and wire them to the Groove meter / score so the music itself thickens
-  as the player's run heats up, and tie more gameplay (spawn timing, chain movement) to the beat
-  rather than only the visuals reacting to it. Closes the gap between "visuals pulse to the beat"
-  and "the beat is the game."
+- **Meta-progression between runs** (promoted from Later) — the inner loop is tight enough that the
+  biggest remaining fun-per-effort now lives across runs, not inside one. Add some small persistent
+  thread that carries over after a run ends — a currency banked from cash-ins, a handful of
+  permanent unlocks (a starting tool rank, a new crab archetype, a cosmetic), a run-history / best-
+  score record on the title screen — so a "loss" still feels like progress and pulls the player
+  into one more run. Start minimal and persistent (a single save file), not a sprawling meta-tree.
+- **Tie more gameplay to the beat** — the actionable half of the old layered-music item, which a
+  code agent can do without any new audio assets. Today the beat mostly drives visuals; push it
+  into mechanics: quantize spawn waves to the bar, make chain movement / catch windows / groove
+  bonuses land harder exactly on-beat, reward on-beat tool use. Closes the gap between "visuals
+  pulse to the beat" and "the beat is the game."
 
-## Later (outer loop — not yet)
+## Blocked (needs a human, not a code agent)
 
-- **Meta-progression between runs** — some small persistent unlock or upgrade that carries over
-  after a run ends, so a "loss" still feels like progress and pulls the player into one more run.
-  _Getting close to promotable:_ with the inner loop nearly done, this is the natural next frontier
-  once the two Now items land. Not yet — finish phase 1 first.
+- **The soundtrack builds with the groove** — the `layer{1,2,3}.ogg` progressive-fade hook exists in
+  code (main.rs loads them at startup) but no audio files populate it, so it's inert. This needs
+  someone to actually author/source three stacking music layers and drop them in `resources/`; a
+  headless dev agent can't compose them. Wiring them to the Groove meter once they exist is trivial.
+  Parked here so feature agents stop bouncing off it — pick it up when Carl provides the stems.
 
 ## Also on our mind (not sequenced — no urgency, just don't lose it)
 
 - **Emergent system interactions** — Carl's Noita-inspired itch: the fun isn't a full physics/
   material simulation (too big a rearchitecture for this game), it's letting the systems we
   already have actually affect each other instead of running in isolation. Shipped so far:
-  beat-startle chain reactions (panic ripples crab-to-crab on each beat) and chain-snap risk (a
-  panicking crab that hits the tail knocks the last links loose — wired the flee system back into
-  the chain). Still parked here until one earns its way up: fear rippling outward from a lasso
-  catch point, and chain segments bumping and redirecting fleeing crabs into each other. The
-  playstyle-branch and layered-music Now items are the same depth-first spirit — deepen what's
-  there before going wide.
+  beat-startle chain reactions (panic ripples crab-to-crab on each beat), chain-snap risk (a
+  panicking crab that hits the tail knocks the last links loose), the conga body walling off /
+  deflecting fleeing crabs back toward the beam, and the whistle soothe calming a panic and
+  granting startle immunity. Still parked here until one earns its way up: fear rippling outward
+  from a lasso catch point, and chain segments redirecting fleeing crabs into each other. Same
+  depth-first spirit — deepen what's there before going wide.
+</content>
+</invoke>
