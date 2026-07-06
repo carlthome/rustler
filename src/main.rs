@@ -28,8 +28,8 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_whistle_ring,
-    unit_circle, unit_square,
+    draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools, draw_wave_telegraph,
+    draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, get_levels};
 use crate::spawnings::{spawn_boss, spawn_enemies};
@@ -304,6 +304,14 @@ struct MainState {
     beat_count: u32,                           // Counts beats fired, every 4th triggers wave
     beat_wave_active: bool,                    // Whether beat wave is expanding
     beat_wave_radius: f32,                     // Current radius of expanding wave
+    // Bar-quantized spawns: when a pattern ends we don't drop the next wave at an arbitrary
+    // instant — we arm it and let it land on the next downbeat (bar boundary), so every fresh
+    // herd arrives locked to the music. `wave_armed` is set when the pattern timer lapses (or
+    // the field's fully caught), and the beat handler fires the wave on the next `beat_count %
+    // 4 == 0`. `wave_telegraph` counts up while armed so the draw layer can flash a "here it
+    // comes" pulse in the bottom bar.
+    wave_armed: bool,
+    wave_telegraph: f32,
     // Lasso Throw ability
     lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     lasso_timer: f32,                          // Time remaining on lasso flight
@@ -574,6 +582,8 @@ impl MainState {
             beat_count: 0,
             beat_wave_active: false,
             beat_wave_radius: 0.0,
+            wave_armed: false,
+            wave_telegraph: 0.0,
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
@@ -1810,6 +1820,8 @@ impl MainState {
         self.beat_count = 0;
         self.beat_wave_active = false;
         self.beat_wave_radius = 0.0;
+        self.wave_armed = false;
+        self.wave_telegraph = 0.0;
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
@@ -2668,6 +2680,14 @@ impl MainState {
         }
         // Beat indicator (top right)
         let beat_center = Vec2::new(width - 50.0, 50.0);
+        // Wave-incoming telegraph: while a spawn is armed, ring the beat indicator so the player
+        // sees the next herd will land on the coming downbeat. Anticipation climbs across the
+        // couple of beats before the drop; the ring throbs with the beat phase.
+        if self.wave_armed {
+            let anticipation = (self.wave_telegraph / (BEAT_INTERVAL * 4.0)).min(1.0);
+            let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+            draw_wave_telegraph(ctx, canvas, beat_center, anticipation, beat_phase)?;
+        }
         draw_beat_indicator(ctx, canvas, beat_center, self.beat_intensity, self.time_elapsed)?;
 
         // Groove meter (top center) — fills as you catch crabs on the beat, glowing and
@@ -3222,10 +3242,21 @@ impl EventHandler for MainState {
             self.beat_timer += BEAT_INTERVAL;
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
+            let downbeat = self.beat_count % 4 == 0;
             // Every 4th beat, auto-fire beat wave when score >= 20
-            if self.beat_count % 4 == 0 && self.score >= 20 && !self.beat_wave_active {
+            if downbeat && self.score >= 20 && !self.beat_wave_active {
                 self.beat_wave_active = true;
                 self.beat_wave_radius = 0.0;
+            }
+            // Bar-quantized spawn: an armed wave lands exactly here, on the downbeat, so a fresh
+            // herd always arrives in time with the music instead of at an arbitrary tick.
+            if downbeat && self.wave_armed {
+                self.wave_armed = false;
+                self.wave_telegraph = 0.0;
+                self.advance_pattern();
+                // Punch the downbeat that births a wave so the arrival reads as a musical hit.
+                self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
+                self.on_beat_flash = self.on_beat_flash.max(0.4);
             }
             // Beat camera shake — strength grows with chain length
             let chain_len = self.crabs.iter().filter(|c| c.caught).count();
@@ -3654,9 +3685,24 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
+        // Bar-quantized spawns: a lapsed pattern doesn't spawn the next wave right away — it arms
+        // it, and the beat handler drops the herd on the next downbeat so waves arrive locked to
+        // the music. Whole field caught still counts, so the player is never left waiting with
+        // nothing to chase. `wave_telegraph` counts up while armed to drive the draw-side flash.
         self.pattern_timer -= dt;
-        if self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0 {
-            self.advance_pattern();
+        if !self.wave_armed && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0) {
+            self.wave_armed = true;
+            self.wave_telegraph = 0.0;
+        }
+        if self.wave_armed {
+            self.wave_telegraph += dt;
+            // Safety valve: if a downbeat somehow doesn't arrive within two bars (e.g. the beat
+            // clock is paused), fire anyway so the run can't stall.
+            if self.wave_telegraph > BEAT_INTERVAL * 8.0 {
+                self.wave_armed = false;
+                self.wave_telegraph = 0.0;
+                self.advance_pattern();
+            }
         }
         Ok(())
     }

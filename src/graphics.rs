@@ -1501,6 +1501,55 @@ pub fn draw_beat_indicator(
     Ok(())
 }
 
+/// Telegraph that a fresh herd is armed and will drop on the next downbeat (bar-quantized
+/// spawns). Draws a ring around the beat indicator that tightens as the wave approaches, plus
+/// a soft cyan halo that brightens with anticipation — a clear "here it comes, on the beat" cue
+/// so the quantized arrival reads as intentional rhythm rather than a random spawn.
+pub fn draw_wave_telegraph(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    // 0..1 anticipation: climbs while the wave is armed, driving brightness/pull-in.
+    anticipation: f32,
+    // beat phase 0..1 within the current beat, so the ring throbs in time.
+    beat_phase: f32,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let a = anticipation.clamp(0.0, 1.0);
+    // Ring starts wide and tightens toward the indicator as the drop nears.
+    let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+    let ring_r = 58.0 - a * 20.0 + throb * 4.0;
+    // Soft filled halo behind the indicator — cheap, no stroke mesh needed. Brightens with
+    // anticipation so the impending drop is unmistakable.
+    let halo_alpha = ((28.0 + a * 70.0) as u8).min(140);
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(center)
+            .scale(Vec2::splat(ring_r + 6.0))
+            .color(Color::from_rgba(80, 220, 255, halo_alpha)),
+    );
+    // Thin bright leading ring, built stroked so it reads as an outline closing in.
+    let bright = ((130.0 + a * 125.0) as u8).min(255);
+    if let Ok(ring) = Mesh::new_circle(
+        ctx,
+        DrawMode::stroke(2.5 + a * 1.5),
+        [0.0, 0.0],
+        ring_r,
+        0.5,
+        Color::from_rgba(120, 235, 255, bright),
+    ) {
+        canvas.draw(&ring, DrawParam::default().dest(center));
+    }
+    Ok(())
+}
+
 pub struct FloatingText {
     pub text: String,
     pub pos: Vec2,
