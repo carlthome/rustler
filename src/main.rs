@@ -2153,8 +2153,10 @@ impl MainState {
                 0.0,
             )?;
         }
-        // Flush the batched leg draws for the march crabs above (see flush_crab_legs doc comment).
+        // Flush the batched leg/body draws for the march crabs above (see flush_crab_legs and
+        // flush_crab_bodies doc comments).
         crate::graphics::flush_crab_legs(ctx, canvas)?;
+        crate::graphics::flush_crab_bodies(ctx, canvas)?;
 
         // --- Title: "Crab Rustler" with an animated colour wave -----------------------------
         let (main_title_width, main_title_height) = MENU_TITLE_CACHE.with(|c| -> GameResult<(f32, f32)> {
@@ -3078,14 +3080,16 @@ impl MainState {
                 draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift, crab.facing_angle)?;
             }
         }
-        // Every draw_crab() call above deferred its 6 leg draws into a shared buffer instead of
-        // issuing them individually (up to 6 x 50+ crabs = 300+ draw calls). Flush them all here
-        // as one instanced batch — same legs, same positions/rotations, one GPU submission instead
-        // of hundreds. This does mean legs across all crabs now draw as one group after every
-        // crab's body/shell/glow/ring this frame, instead of interleaved per-crab; since legs are
-        // thin lines mostly beside the body and the glow/rings are soft translucent overlays, the
-        // reordering isn't perceptible in motion.
+        // Every draw_crab() call above deferred its 6 leg draws and 12 body-part (shadow, shell,
+        // claws, eyes) draws into shared buffers instead of issuing them individually (up to
+        // 18 x 50+ crabs = 900+ draw calls). Flush them both here as two instanced batches — same
+        // parts, same positions/rotations/colors, two GPU submissions instead of hundreds. This
+        // does mean legs and body parts across all crabs now draw as two groups after every crab's
+        // glow/ring this frame, instead of interleaved per-crab; since legs are thin lines mostly
+        // beside the body and the glow/rings are soft translucent overlays, the reordering isn't
+        // perceptible in motion.
         crate::graphics::flush_crab_legs(ctx, canvas)?;
+        crate::graphics::flush_crab_bodies(ctx, canvas)?;
         Ok(())
     }
 

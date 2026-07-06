@@ -114,6 +114,18 @@ thread_local! {
     // change — no visible difference, just far fewer GPU submissions.
     static CRAB_LEG_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static CRAB_LEG_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Every other round part of a crab (shadow, body, shell dome, specular glint, 2 claws, 2 claw
+    // highlights, 2 eye-whites, 2 pupils — 12 unit-circle draws) was still issued as an individual
+    // canvas.draw() call, same problem the legs had: a long conga train plus a fresh wild herd
+    // (40-50+ crabs) meant 500+ of these a frame, each its own GPU submission even though every
+    // one uses the exact same UNIT_CIRCLE mesh. draw_crab() now pushes these into this buffer
+    // instead, and flush_crab_bodies() (called right alongside flush_crab_legs()) drains it as one
+    // instanced batch. Same positions/scales/colors, same draw order relative to each other within
+    // a crab, just reordered relative to other crabs' legs/rings — invisible in motion, same as
+    // the legs batching already shipped.
+    static CRAB_BODY_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static CRAB_BODY_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -143,6 +155,34 @@ pub fn flush_crab_legs(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResu
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
             canvas.draw_instanced_mesh(unit_line, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Draw (and clear) every body-part DrawParam (shadow/body/dome/glint/claws/eyes/pupils)
+/// accumulated by draw_crab() calls since the last flush, as a single instanced batch — the same
+/// technique flush_crab_legs() uses. Call once per drawing pass, alongside flush_crab_legs().
+pub fn flush_crab_bodies(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    CRAB_BODY_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_circle = match UNIT_CIRCLE.get() {
+            Some(mesh) => mesh.clone(),
+            None => {
+                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                UNIT_CIRCLE.get_or_init(|| mesh).clone()
+            }
+        };
+        CRAB_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -969,7 +1009,12 @@ pub fn draw_rustler(
     Ok(())
 }
 
-pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32) -> ggez::GameResult {
+// `canvas` is threaded through but no longer drawn to directly: every part draw_crab() used to
+// issue immediately is now deferred into CRAB_LEG_PARAMS/CRAB_BODY_PARAMS and flushed as instanced
+// batches by flush_crab_legs()/flush_crab_bodies() (called once per drawing pass by the caller).
+// Kept in the signature so call sites don't need to change and so a future direct-draw effect
+// (e.g. a one-off overlay) has it on hand without threading it through again.
+pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32) -> ggez::GameResult {
     // Crabs previously rebuilt ~13 fresh GPU meshes every frame (shadow, body, 6 legs,
     // 2 claws, 4 eye parts) via Mesh::new_circle/new_line/new_ellipse. With a long conga
     // train this was easily 100+ mesh allocations per frame. Instead reuse the same cached
@@ -978,13 +1023,9 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     // fresh vertex buffers. A body-space offset that needs to rotate with the crab (claw
     // and eye positions, leg roots) is rotated by hand via `rotate_offset` before being
     // folded into `dest`, since DrawParam only applies one rotation after one translation.
-    let unit_circle = match UNIT_CIRCLE.get() {
-        Some(mesh) => mesh,
-        None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
-            UNIT_CIRCLE.get_or_init(|| mesh)
-        }
-    };
+    // All circle parts (shadow/body/dome/glint/claws/eyes/pupils) below are deferred into
+    // CRAB_BODY_PARAMS and flushed as one instanced batch by flush_crab_bodies() — draw_crab()
+    // itself no longer needs a mesh handle, just the per-part transforms.
     let cos_r = rotation.cos();
     let sin_r = rotation.sin();
     // Rotates a body-local offset (x, y) by the crab's facing rotation, matching what the
@@ -1008,16 +1049,19 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let shadow_offset_y = size * 0.35 + y_lift * 0.6;
     let shadow_offset_x = y_lift * 0.25;
     let shadow_alpha = ((1.0 - y_lift / 55.0) * 100.0).clamp(20.0, 100.0) as u8;
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
-            .scale(Vec2::new(
-                size * shadow_scale_x * 0.55,
-                size * shadow_scale_y * 0.55,
-            ))
-            .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
-    );
+    // Deferred into CRAB_BODY_PARAMS and flushed as one instanced batch by flush_crab_bodies(),
+    // same technique as the leg batching below (see CRAB_BODY_PARAMS doc comment).
+    CRAB_BODY_PARAMS.with(|params| {
+        params.borrow_mut().push(
+            DrawParam::default()
+                .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
+                .scale(Vec2::new(
+                    size * shadow_scale_x * 0.55,
+                    size * shadow_scale_y * 0.55,
+                ))
+                .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
+        );
+    });
 
     // Color: more red as crab ages, and different color for type
     let [r, g, b] = crab.crab_color();
@@ -1029,13 +1073,14 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let crab_color = Color::new((r + flash).min(1.0), (g + flash).min(1.0), (b + flash).min(1.0), 1.0);
 
     // Crab body (rotation-invariant, so no need to rotate the draw)
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos)
-            .scale(Vec2::splat(size / 2.0))
-            .color(crab_color),
-    );
+    CRAB_BODY_PARAMS.with(|params| {
+        params.borrow_mut().push(
+            DrawParam::default()
+                .dest(draw_pos)
+                .scale(Vec2::splat(size / 2.0))
+                .color(crab_color),
+        );
+    });
 
     // Shell shading: give the flat body circle a rounded, lit look. Light comes from a fixed
     // screen-space direction (up and slightly left) so the whole herd reads as lit from the same
@@ -1045,23 +1090,25 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     // rounded shell rather than a paper cut-out.
     let hi = |c: f32| (c + (1.0 - c) * 0.34).min(1.0);
     let dome_color = Color::new(hi(crab_color.r), hi(crab_color.g), hi(crab_color.b), 0.85);
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + light_dir * size * 0.15)
-            .scale(Vec2::splat(size / 2.0 * 0.62))
-            .color(dome_color),
-    );
+    CRAB_BODY_PARAMS.with(|params| {
+        params.borrow_mut().push(
+            DrawParam::default()
+                .dest(draw_pos + light_dir * size * 0.15)
+                .scale(Vec2::splat(size / 2.0 * 0.62))
+                .color(dome_color),
+        );
+    });
     // Glossy specular glint near the top of the shell — a tiny bright dot that catches the eye and
     // pulses faintly with the beat so the herd shimmers on the downbeat.
     let glint_a = 0.5 + beat_phase * 0.35;
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + light_dir * size * 0.26)
-            .scale(Vec2::splat(size / 2.0 * 0.2))
-            .color(Color::new(1.0, 1.0, 1.0, glint_a)),
-    );
+    CRAB_BODY_PARAMS.with(|params| {
+        params.borrow_mut().push(
+            DrawParam::default()
+                .dest(draw_pos + light_dir * size * 0.26)
+                .scale(Vec2::splat(size / 2.0 * 0.2))
+                .color(Color::new(1.0, 1.0, 1.0, glint_a)),
+        );
+    });
 
     // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
     // the whole leg (root + direction) by the crab's facing is the same as just adding
@@ -1095,29 +1142,31 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     let claw_radius = size * 0.18;
     let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3));
     let claw_r = draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3));
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(claw_l)
-            .scale(Vec2::splat(claw_radius))
-            .color(crab_color),
-    );
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(claw_r)
-            .scale(Vec2::splat(claw_radius))
-            .color(crab_color),
-    );
+    CRAB_BODY_PARAMS.with(|params| {
+        let mut params = params.borrow_mut();
+        params.push(
+            DrawParam::default()
+                .dest(claw_l)
+                .scale(Vec2::splat(claw_radius))
+                .color(crab_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(claw_r)
+                .scale(Vec2::splat(claw_radius))
+                .color(crab_color),
+        );
+    });
     // Matching lit highlight on each claw so they look like the same rounded shell as the body.
     for claw_pos in [claw_l, claw_r] {
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(claw_pos + light_dir * claw_radius * 0.5)
-                .scale(Vec2::splat(claw_radius * 0.55))
-                .color(dome_color),
-        );
+        CRAB_BODY_PARAMS.with(|params| {
+            params.borrow_mut().push(
+                DrawParam::default()
+                    .dest(claw_pos + light_dir * claw_radius * 0.5)
+                    .scale(Vec2::splat(claw_radius * 0.55))
+                    .color(dome_color),
+            );
+        });
     }
 
     // Eyes
@@ -1135,34 +1184,33 @@ pub fn draw_crab(ctx: &mut Context, canvas: &mut Canvas, crab: &EnemyCrab, draw_
     } else {
         (0.0, 0.0)
     };
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + rotate_offset(-eye_x, eye_y))
-            .scale(Vec2::splat(eye_radius))
-            .color(Color::WHITE),
-    );
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + rotate_offset(eye_x, eye_y))
-            .scale(Vec2::splat(eye_radius))
-            .color(Color::WHITE),
-    );
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + rotate_offset(-eye_x + pdx, eye_y + pdy))
-            .scale(Vec2::splat(pupil_r))
-            .color(Color::BLACK),
-    );
-    canvas.draw(
-        unit_circle,
-        DrawParam::default()
-            .dest(draw_pos + rotate_offset(eye_x + pdx, eye_y + pdy))
-            .scale(Vec2::splat(pupil_r))
-            .color(Color::BLACK),
-    );
+    CRAB_BODY_PARAMS.with(|params| {
+        let mut params = params.borrow_mut();
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + rotate_offset(-eye_x, eye_y))
+                .scale(Vec2::splat(eye_radius))
+                .color(Color::WHITE),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + rotate_offset(eye_x, eye_y))
+                .scale(Vec2::splat(eye_radius))
+                .color(Color::WHITE),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + rotate_offset(-eye_x + pdx, eye_y + pdy))
+                .scale(Vec2::splat(pupil_r))
+                .color(Color::BLACK),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + rotate_offset(eye_x + pdx, eye_y + pdy))
+                .scale(Vec2::splat(pupil_r))
+                .color(Color::BLACK),
+        );
+    });
 
     Ok(())
 }
