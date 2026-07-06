@@ -132,7 +132,7 @@ pub fn handle_key_down_event(
                         state.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
                     state.whistle_radius = 0.0;
                     state.whistle_active = 0.4;
-                    state.whistle_cooldown = crate::WHISTLE_COOLDOWN;
+                    state.whistle_cooldown = state.whistle_cooldown_dur();
                     state.floating_texts.spawn(
                         "WHISTLE!".to_string(),
                         state.whistle_center - Vec2::new(48.0, 60.0),
@@ -149,7 +149,7 @@ pub fn handle_key_down_event(
                     state.stomp_center = center;
                     state.stomp_radius = 0.0;
                     state.stomp_active = 0.32;
-                    state.stomp_cooldown = crate::STOMP_COOLDOWN;
+                    state.stomp_cooldown = state.stomp_cooldown_dur();
                     state.screen_shake = state.screen_shake.max(16.0);
                     state.zoom_punch = state.zoom_punch.max(0.05);
                     state.floating_texts.spawn(

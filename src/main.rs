@@ -518,6 +518,10 @@ impl MainState {
             beat_streak: 0,
             music_layers,
             catch_radius_upgrade: 0.0,
+            beam_rank: 0,
+            lasso_rank: 0,
+            whistle_rank: 0,
+            stomp_rank: 0,
             floating_texts: FloatingTextSystem::new(),
             combo_count: 0,
             combo_timer: 0.0,
@@ -1237,6 +1241,8 @@ impl MainState {
 
         let flashlight_cone_angle = base_cone_angle + self.flashlight.cone_upgrade;
         let flashlight_range = base_range + self.flashlight.range_upgrade;
+        // Beam-lane-scaled boss/shell drain, read once so the &mut self.crabs loop can use it.
+        let boss_drain = self.boss_drain_rate();
 
         // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
         let mut flee_pops: Vec<Vec2> = Vec::new();
@@ -1275,7 +1281,7 @@ impl MainState {
 
                 // Wearing it down under the beam is unchanged — the beam is still how you catch it.
                 if crab.boss_health > 0.0 && crab_in_light {
-                    crab.boss_health -= BOSS_DRAIN_RATE * dt;
+                    crab.boss_health -= boss_drain * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
                         boss_broke.push(crab.pos);
@@ -1379,7 +1385,7 @@ impl MainState {
                 // path — a Stomp cracks an Armored shell instantly, but the beam always works too, so
                 // no crab is ever impossible without the right tool.
                 if crab.boss_health > 0.0 && crab_in_light {
-                    crab.boss_health -= BOSS_DRAIN_RATE * dt;
+                    crab.boss_health -= boss_drain * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
                         if crab.is_boss() {
@@ -1694,6 +1700,10 @@ impl MainState {
         self.groove = 0.0;
         self.beat_streak = 0;
         self.catch_radius_upgrade = 0.0;
+        self.beam_rank = 0;
+        self.lasso_rank = 0;
+        self.whistle_rank = 0;
+        self.stomp_rank = 0;
         self.floating_texts.texts.clear();
         self.combo_count = 0;
         self.combo_timer = 0.0;
@@ -2230,7 +2240,7 @@ impl MainState {
                 canvas,
                 self.whistle_center,
                 self.whistle_radius,
-                WHISTLE_MAX_RADIUS,
+                self.whistle_max_radius(),
             )?;
         }
 
@@ -2241,7 +2251,7 @@ impl MainState {
                 canvas,
                 self.stomp_center,
                 self.stomp_radius,
-                STOMP_MAX_RADIUS,
+                self.stomp_max_radius(),
             )?;
         }
 
@@ -2358,7 +2368,7 @@ impl MainState {
         let wbar_y = bar_y + bar_height + 26.0;
         let wbar_h = 12.0;
         let ready = self.whistle_cooldown <= 0.0;
-        let charge = (1.0 - self.whistle_cooldown / WHISTLE_COOLDOWN).clamp(0.0, 1.0);
+        let charge = (1.0 - self.whistle_cooldown / self.whistle_cooldown_dur()).clamp(0.0, 1.0);
         canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
@@ -2400,7 +2410,7 @@ impl MainState {
         let sbar_y = wbar_y + wbar_h + 20.0;
         let sbar_h = 12.0;
         let sready = self.stomp_cooldown <= 0.0;
-        let scharge = (1.0 - self.stomp_cooldown / STOMP_COOLDOWN).clamp(0.0, 1.0);
+        let scharge = (1.0 - self.stomp_cooldown / self.stomp_cooldown_dur()).clamp(0.0, 1.0);
         canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
@@ -2770,19 +2780,22 @@ impl MainState {
             .dest(Vec2::new((w - hw) / 2.0, 110.0))
             .color(Color::from_rgba(210, 210, 210, 200)));
 
-        // (key, icon, name, description, r, g, b)
-        let cards: &[(&str, &str, &str, &str, u8, u8, u8)] = &[
-            ("1", ">",  "Wider Cone",   "Flashlight sweeps\na broader arc",       255, 200,  40),
-            ("2", "~",  "Longer Range", "Flashlight reaches\nfurther ahead",       80, 160, 255),
-            ("3", "*",  "Disco Laser",  "Add another\nrainbow beam",              200,  60, 255),
-            ("4", "O",  "Chain Reach",  "Catch crabs from\nfurther with chain",    60, 220, 100),
+        // Each card is a build LANE that deepens one tool, not a one-off stat bump. Pouring
+        // level-ups into a lane branches the run into a playstyle (see apply_upgrade). The current
+        // rank is shown per card so committing feels deliberate.
+        // (key, icon, name, description, r, g, b, current_rank)
+        let cards: &[(&str, &str, &str, &str, u8, u8, u8, u32)] = &[
+            ("1", ">", "Beam Focus",  "Wider, longer beam +\nfaster boss melt",    255, 200,  40, self.beam_rank),
+            ("2", "O", "Lasso Focus", "Bigger chain reach +\nwider lasso grab",      60, 220, 100, self.lasso_rank),
+            ("3", "~", "Whistle Focus","Bigger, stronger pull +\nfaster recharge",   80, 160, 255, self.whistle_rank),
+            ("4", "*", "Stomp Focus", "Wider shockwave +\nfaster recharge",         200,  60, 255, self.stomp_rank),
         ];
 
         let rects = self.upgrade_card_rects();
         let card_w = rects[0].w;
         let card_h = rects[0].h;
 
-        for (i, &(key, icon, name, desc, r, g, b)) in cards.iter().enumerate() {
+        for (i, &(key, icon, name, desc, r, g, b, rank)) in cards.iter().enumerate() {
             let cx = rects[i].x;
             let y0 = rects[i].y;
             let m = self.mouse_pos;
@@ -2821,12 +2834,31 @@ impl MainState {
                 .dest(Vec2::new(cx + (card_w - nw) / 2.0, y0 + 118.0))
                 .color(Color::WHITE));
 
+            // Lane rank badge — makes it clear you're committing to (and deepening) a lane, and
+            // that a picked lane keeps paying off. Lit in the lane accent once invested.
+            let rank_str = if rank == 0 {
+                "NEW LANE".to_string()
+            } else {
+                format!("LV {}  ->  {}", rank, rank + 1)
+            };
+            let mut rk = Text::new(rank_str);
+            rk.set_scale(16.0);
+            let rkw = rk.measure(ctx)?.x;
+            let rank_col = if rank == 0 {
+                Color::from_rgba(180, 180, 180, 200)
+            } else {
+                accent
+            };
+            canvas.draw(&rk, DrawParam::default()
+                .dest(Vec2::new(cx + (card_w - rkw) / 2.0, y0 + 146.0))
+                .color(rank_col));
+
             // Description
             let mut dsc = Text::new(desc);
             dsc.set_scale(18.0);
             let dw = dsc.measure(ctx)?.x;
             canvas.draw(&dsc, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 156.0))
+                .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 176.0))
                 .color(Color::from_rgba(205, 205, 205, 215)));
 
             // Key hint
@@ -2840,12 +2872,67 @@ impl MainState {
         Ok(())
     }
 
+    // --- Effective per-tool values, derived from the chosen upgrade lanes ---
+    // These fold each lane's rank into the base constants at the point of use, so a run that pours
+    // level-ups into one tool visibly transforms it (a whistle build sweeps the whole screen; a
+    // stomp build fires almost on demand) instead of every build feeling the same.
+
+    /// How fast the beam wears down a King Crab / cracks a shell. Ranking the beam lane turns it
+    /// into a boss-hunter tool.
+    fn boss_drain_rate(&self) -> f32 {
+        BOSS_DRAIN_RATE * (1.0 + 0.6 * self.beam_rank as f32)
+    }
+    /// Grab radius around the lasso tip. Ranking the lasso lane widens each throw so it sweeps up
+    /// whole clusters — a chain-catch build.
+    fn lasso_tip_radius(&self) -> f32 {
+        60.0 + self.lasso_rank as f32 * 22.0
+    }
+    /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
+    fn whistle_max_radius(&self) -> f32 {
+        WHISTLE_MAX_RADIUS * (1.0 + 0.28 * self.whistle_rank as f32)
+    }
+    /// Whistle recharge time. Ranking the whistle lane shortens it (floored so it can't hit zero).
+    fn whistle_cooldown_dur(&self) -> f32 {
+        WHISTLE_COOLDOWN * (1.0 - 0.14 * self.whistle_rank as f32).max(0.35)
+    }
+    /// Inward yank speed of the whistle. Ranking the whistle lane pulls even heavy crabs harder.
+    fn whistle_pull_speed(&self) -> f32 {
+        WHISTLE_PULL_SPEED * (1.0 + 0.2 * self.whistle_rank as f32)
+    }
+    /// Reach of the stomp shockwave. Ranking the stomp lane turns a melee tap into a wide slam.
+    fn stomp_max_radius(&self) -> f32 {
+        STOMP_MAX_RADIUS * (1.0 + 0.3 * self.stomp_rank as f32)
+    }
+    /// Stomp recharge time. Ranking the stomp lane shortens it (floored) toward spammable.
+    fn stomp_cooldown_dur(&self) -> f32 {
+        STOMP_COOLDOWN * (1.0 - 0.16 * self.stomp_rank as f32).max(0.3)
+    }
+
     fn apply_upgrade(&mut self, choice: u8) {
         match choice {
-            1 => self.flashlight.cone_upgrade += 0.25,
-            2 => self.flashlight.range_upgrade += 60.0,
-            3 => self.flashlight.laser_level += 1,
-            4 => self.catch_radius_upgrade += 25.0,
+            // Beam lane (boss hunter): each rank widens + lengthens the cone and speeds the boss
+            // drain (see boss_drain_rate); rank 2 also grafts on a disco laser so the lane peaks
+            // as a dedicated King-Crab melter rather than a pile of flat numbers.
+            1 => {
+                self.beam_rank += 1;
+                self.flashlight.cone_upgrade += 0.18;
+                self.flashlight.range_upgrade += 55.0;
+                if self.beam_rank == 2 || self.beam_rank == 4 {
+                    self.flashlight.laser_level += 1;
+                }
+            }
+            // Lasso lane (chain catcher): wider passive chain reach AND a bigger lasso grab window
+            // (see lasso_tip_radius), so throws sweep whole clusters into the conga train.
+            2 => {
+                self.lasso_rank += 1;
+                self.catch_radius_upgrade += 18.0;
+            }
+            // Whistle lane (crowd control): everything derives from whistle_rank — bigger pulse,
+            // stronger pull, shorter cooldown — so it grows into a screen-wide herd magnet.
+            3 => self.whistle_rank += 1,
+            // Stomp lane (shell breaker): bigger, faster shockwave via stomp_rank, turning the
+            // close-range counter into a reliable area crowd-clear.
+            4 => self.stomp_rank += 1,
             _ => {}
         }
         self.pending_upgrade = false;
@@ -3150,8 +3237,11 @@ impl EventHandler for MainState {
         // strength is per-archetype (CrabType::whistle_pull) so it's the go-to tool for skittish
         // Sneaky crabs but only nudges the heavy Big ones — a soft counter, never a hard requirement.
         if self.whistle_active > 0.0 {
+            // Whistle-lane-scaled reach + pull, read once so the &mut self.crabs loop can use them.
+            let whistle_max_r = self.whistle_max_radius();
+            let whistle_pull = self.whistle_pull_speed();
             self.whistle_active = (self.whistle_active - dt).max(0.0);
-            self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(WHISTLE_MAX_RADIUS);
+            self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
             let center = self.whistle_center;
             for crab in &mut self.crabs {
                 if crab.caught {
@@ -3166,8 +3256,8 @@ impl EventHandler for MainState {
                 if dist < self.whistle_radius {
                     let toward = (center - crab.pos).normalize_or_zero();
                     // Stronger yank the closer the crab is, scaled by its archetype's susceptibility.
-                    let proximity = 1.0 - (dist / WHISTLE_MAX_RADIUS).clamp(0.0, 1.0);
-                    let speed = WHISTLE_PULL_SPEED * pull * (0.5 + proximity * 0.5);
+                    let proximity = 1.0 - (dist / whistle_max_r).clamp(0.0, 1.0);
+                    let speed = whistle_pull * pull * (0.5 + proximity * 0.5);
                     crab.vel = toward * speed;
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
@@ -3181,8 +3271,10 @@ impl EventHandler for MainState {
         // front passes a light inward shove. Its short reach makes it a melee tool, not a ranged
         // gather like the whistle/lasso, so choosing the right verb per herd is a real decision.
         if self.stomp_active > 0.0 {
+            // Stomp-lane-scaled reach, read once so the &mut self.crabs loop can use it.
+            let stomp_max_r = self.stomp_max_radius();
             self.stomp_active = (self.stomp_active - dt).max(0.0);
-            self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(STOMP_MAX_RADIUS);
+            self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(stomp_max_r);
             let center = self.stomp_center;
             let mut cracked: Vec<Vec2> = Vec::new();
             for crab in &mut self.crabs {
@@ -3236,8 +3328,10 @@ impl EventHandler for MainState {
                 // Catch crabs while lasso is traveling outward (timer > 0.2 means elapsed < 0.3)
                 if elapsed < 0.3 {
                     let tip = new_pos;
+                    // Lasso-lane-scaled grab window: higher ranks sweep whole clusters per throw.
+                    let grab_r = self.lasso_tip_radius();
                     let to_catch: Vec<usize> = self.crabs.iter().enumerate()
-                        .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < 60.0)
+                        .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < grab_r)
                         .map(|(i, _)| i)
                         .collect();
                     let mut rng = rand::rng();
