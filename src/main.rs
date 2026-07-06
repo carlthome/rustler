@@ -3832,8 +3832,16 @@ impl EventHandler for MainState {
                 self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
                 self.on_beat_flash = self.on_beat_flash.max(0.4);
             }
-            // Beat camera shake — strength grows with chain length
-            let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+            // Beat camera shake — strength grows with chain length. Also collects caught-crab
+            // positions for the beat-pulse sparkle rings just below: both used to run their own
+            // separate `.filter(|c| c.caught)` pass over self.crabs (two counts + a fresh
+            // Vec::collect() every single beat), so fold them into one pass that reuses the
+            // persistent chain_positions_buf (already used later this frame by catch_by_chain,
+            // and not read in between) instead of allocating a new Vec.
+            self.chain_positions_buf.clear();
+            self.chain_positions_buf
+                .extend(self.crabs.iter().filter(|c| c.caught).map(|c| c.pos));
+            let chain_len = self.chain_positions_buf.len();
             if chain_len > 0 {
                 let shake_mag = (2.0 + chain_len as f32 * 0.8).min(14.0);
                 self.screen_shake = shake_mag;
@@ -3842,11 +3850,8 @@ impl EventHandler for MainState {
                 self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * shake_mag * 60.0;
             }
             // Beat-pulse sparkle rings from all caught crabs
-            {
-                let chain_len = self.crabs.iter().filter(|c| c.caught).count();
-                let positions: Vec<Vec2> = self.crabs.iter().filter(|c| c.caught).map(|c| c.pos).collect();
-                self.particle_system.spawn_beat_pulse(&positions, 1.0, chain_len, &mut rand::rng());
-            }
+            self.particle_system
+                .spawn_beat_pulse(&self.chain_positions_buf, 1.0, chain_len, &mut rand::rng());
             // Spawn ghost rings at each chain crab position. Unlike catch_shockwaves (capped at
             // 48) and fear_rings (capped at 32), this loop had no ceiling — a long conga train
             // (chain_count grows unbounded over a run, see MAX_PARTICLES's comment) would push
