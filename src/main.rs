@@ -27,7 +27,7 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, PennedMarcherSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
@@ -3903,6 +3903,23 @@ impl MainState {
                     .scale(Vec2::new(width, height))
                     .color(Color::from_rgba(pr, pg, pb, pulse_alpha)),
             );
+        }
+
+        // Ambient atmosphere: a field of slow-drifting motes over the ground (sea spray / drifting
+        // spores) that give the space between the action depth and life, tinted to the biome's accent
+        // and bobbing gently on the beat. Stateless and cheap (one batched draw), sits above the
+        // ground flash but under the tide pools and all the action.
+        {
+            let (ar, ag, ab) = biome.pulse;
+            draw_ambient_motes(
+                ctx,
+                canvas,
+                width,
+                height,
+                self.time_elapsed,
+                self.beat_intensity,
+                Color::from_rgb(ar, ag, ab),
+            )?;
         }
 
         // Tide pools — terrain hazards on the ground layer, under the crabs/rope, so the train

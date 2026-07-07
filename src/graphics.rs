@@ -1032,6 +1032,80 @@ pub fn draw_grass(
     Ok(())
 }
 
+// One reusable instance array for the ambient atmosphere motes, so the whole drifting
+// field is a single batched GPU submission per frame instead of one draw per speck.
+thread_local! {
+    static AMBIENT_MOTE_INSTANCES: RefCell<Option<InstanceArray>> = const { RefCell::new(None) };
+}
+
+// How many ambient motes drift across the field. Fixed and modest so the atmosphere layer
+// is essentially free — one batched draw of this many scaled unit-circles.
+const AMBIENT_MOTE_COUNT: usize = 46;
+
+/// Draw a field of slow-drifting ambient motes over the ground — sea spray / drifting spores
+/// that give the empty space between the action a sense of depth and living atmosphere, tinted
+/// to the current biome's accent color so each zone still reads distinctly. Purely cosmetic and
+/// stateless: every mote's motion is a deterministic function of `time` and its own index, so
+/// there's nothing to update in the game loop. Motes bob a touch on the beat so the whole
+/// atmosphere breathes with the music like everything else. One batched instanced draw.
+pub fn draw_ambient_motes(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    time: f32,
+    beat: f32,
+    accent: Color,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh.clone(),
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh).clone()
+        }
+    };
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // A gentle upward-and-sideways bob on the beat so the whole field lifts with the pulse.
+    let beat_lift = beat.clamp(0.0, 1.0) * 3.0;
+
+    AMBIENT_MOTE_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set((0..AMBIENT_MOTE_COUNT).map(|i| {
+            // Deterministic, spread-out per-mote constants from the index — no RNG, no state.
+            let fi = i as f32;
+            let seed_a = (fi * 12.9898).sin() * 43758.547;
+            let seed_b = (fi * 78.233).sin() * 12543.219;
+            let rx = seed_a - seed_a.floor(); // 0..1
+            let ry = seed_b - seed_b.floor(); // 0..1
+            // Each mote drifts diagonally and wraps around the screen so the field never empties.
+            let drift = 9.0 + rx * 14.0; // px/s, per-mote speed
+            let base_x = rx * width;
+            let base_y = ry * height;
+            let x = (base_x + time * drift) % width;
+            // Slow vertical sway layered on a slow downward drift, both wrapped to the field.
+            let sway = (time * (0.4 + ry * 0.5) + fi).sin() * 10.0;
+            let y = (base_y + time * (drift * 0.35) + sway) % height - beat_lift;
+            // Twinkle: a slow per-mote brightness pulse so the field shimmers subtly.
+            let twinkle = 0.45 + 0.4 * (time * (0.8 + rx) + fi * 1.7).sin();
+            let size = 1.4 + ry * 2.2;
+            let alpha = (0.10 + 0.14 * twinkle) + beat.clamp(0.0, 1.0) * 0.06;
+            DrawParam::default()
+                .dest(Vec2::new(x - width / 2.0, y - height / 2.0))
+                .scale(Vec2::splat(size))
+                .color(Color::new(accent.r, accent.g, accent.b, alpha))
+        }));
+        canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+        Ok(())
+    })?;
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 pub fn draw_rustler(
     ctx: &mut Context,
     canvas: &mut Canvas,
