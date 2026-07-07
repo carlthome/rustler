@@ -15,26 +15,29 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back.
 
-**Where we are.** The inner loop is deep, closed, and now has a spine and a real climax. Four
-catching tools (beam/lasso/whistle/stomp) with four upgrade playstyle lanes, the conga train
-with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring that **drives
-real mechanics**: bar-quantized spawn drops on the downbeat, on-beat PERFECT tool hits, a
-beat-stepping train, an on-beat Call that Dancers answer for a Dance Catch bonus, a full-meter
-**Downbeat Slam ultimate** (G on the beat), and now a **Groove Gamble** risk/reward layer where
-consecutive on-beat catches compound a live global multiplier that one off-beat grab snaps back
-to zero with a red sting. Pacing is no longer flat: a **staged difficulty ramp** climbs through
-named intensity stages, with Frenzy spikes and a **beat-tempo shift** that speeds the whole run
-up. Biomes **play differently** — Rocky Shore chokepoints, Neon Kelp tail-snag, Tide Pool
-wade-drag. Four enemy archetypes beyond the base crab (Armored → stomp, Dancer → rhythm, **Magnet
-→ routing**, dragging free crabs into a cluster so its catch is a two-for-one) plus **two bosses
-that now fight as set-pieces**: catching a boss clears the herd for a focused duel, the boss
-enrages into a faster final phase below 40% health, and the catch reads as a distinct victory.
-A first slice of **meta-progression** is in (persistent career + banked-crab perk shop). Slack
-diary posts read as steady positive momentum with no pushback and no fresh reactions/replies
-this cycle; Carl's last recorded steer ("more visual spectacle or a difficulty ramp tweak") is
-long since shipped. Both prior "Now" items (boss set-pieces, Groove Gamble rhythm layer) and the
-Magnet archetype shipped this cycle. The inner loop is now very close to complete — we still want
-Carl's explicit "the core feels done" call before pivoting to outer-loop work.
+**Where we are.** The inner loop is deep, closed, and has a spine, a real climax, and now genuine
+routing hazards. Four catching tools (beam/lasso/whistle/stomp) with four upgrade playstyle lanes,
+the conga train with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring
+that **drives real mechanics**: bar-quantized spawn drops on the downbeat, on-beat PERFECT tool hits,
+a beat-stepping train, an on-beat Call that Dancers answer for a Dance Catch bonus, a full-meter
+**Downbeat Slam ultimate** (G on the beat), and a **Groove Gamble** risk/reward layer with a real
+**cash-out decision** — press B to bank the live multiplier into a safe floor before an off-beat
+miss wipes it, banking on the beat locks the whole stack. Pacing is not flat: a **staged difficulty
+ramp** climbs through named intensity stages, with Frenzy spikes and a **beat-tempo shift** that
+speeds the whole run up. Biomes **play differently** — Rocky Shore chokepoints, Neon Kelp tail-snag,
+Tide Pool wade-drag. **Six enemy archetypes** now: base plus Armored → stomp, Dancer → rhythm,
+Magnet → routing, **Thief → chain pressure** (latches to the tail and peels links until you deal
+with it) and **Golden → chase decision** (rare shiny that bolts fast and pays a big lump sum). Two
+bosses fight as **arena-shifting set-pieces**: a boss catch clears the herd for a focused duel, and
+below 40% health the boss enrages and reshapes the *space* — King Crab cracks the floor into
+beat-pulsing hazard fissures that bite the tail, Tide Boss floods extra wade-drag water — so the
+final phase is something you route around, not just tank. A first slice of **meta-progression** is
+in (persistent career + banked-crab perk shop). Slack diary posts read as steady positive momentum
+with no pushback and no fresh reactions/replies this cycle; Carl's last recorded steer ("more visual
+spectacle or a difficulty ramp tweak") is long since shipped. Both prior "Now" items (arena-shifting
+boss, Groove Gamble cash-out) shipped this cycle, along with the Thief and Golden archetypes. The
+inner loop is now very close to complete — we still want Carl's explicit "the core feels done" call
+before pivoting to outer-loop work.
 
 ## Bugs (fix before anything else in Now)
 
@@ -47,19 +50,20 @@ item in "Now" below.
 
 ## Now
 
-- **A boss that changes the arena, not just its own health bar** — boss set-pieces landed well
-  (herd-clear duel, enrage phase, victory catch). Take the next step in the same set-piece spirit:
-  let a boss reshape the *space* of the duel for its final phase — the King Crab cracking the
-  floor into hazard lanes you must weave the train around, or the Tide Boss flooding the arena so
-  routing changes mid-fight. Make the enrage a moment the player has to adapt to, not just tank.
-  Deepens the existing archetype rather than adding a new one. **Top Now item — bosses are the
-  standout set-piece and this is where depth compounds most.**
-- **Make the Groove Gamble a decision, not just a streak** — the compounding on-beat multiplier is
-  live and reads great, but right now the only choice is "keep catching on-beat." Give the player
-  a real fork: a cash-out beat where banking the streak now locks in the multiplier before a miss
-  can wipe it, versus pushing it higher and risking the whole stack. Layer it onto the delivery
-  loop so the tension of *when to bank* rides the beat too — turns the gamble from a passive
-  bonus into an active call the player sweats over.
+- **Let the systems collide — emergent interactions between the archetypes we already have.**
+  This is Carl's stated Noita-inspired itch, and it's where depth compounds now that six archetypes
+  exist but mostly act in isolation. Pick one concrete crossover and make it real: a Magnet crab
+  that drags a *latched Thief* off your tail (or, worse, drags free crabs into the Thief's reach); a
+  Golden crab whose panic-flee ripples startle contagion through a tight herd on the beat; a Dancer's
+  on-beat hop startling its neighbors into a chain-reaction stampede. Not a physics rewrite — just
+  let two existing systems affect each other so the field produces situations no single rule
+  authored. **Top Now item — the archetype roster is full; the fun frontier is now their overlap.**
+- **A rhythm-native counterplay for the Thief — shake it off on the beat.** The Thief pressures the
+  train you've built, but the counter is currently a flat catch/whistle. Make dislodging it a
+  rhythm beat too: an on-beat whistle or stomp yanks it clean (and maybe flings it back into the
+  herd as a bonus catch), an off-beat one only loosens its grip. Ties the game's newest chain-threat
+  into its core rhythm layer instead of sitting beside it, so dealing with the Thief *plays* like the
+  rest of the game.
 
 ## Later (outer loop — not yet)
 
@@ -79,21 +83,12 @@ item in "Now" below.
 
 ## Also on our mind (not sequenced — no urgency, just don't lose it)
 
-- **A fifth archetype that pressures the chain itself** — Magnet (routing), Armored (crack-open),
-  Dancer (rhythm) and base are in; the remaining gap is a crab that threatens the *train you've
-  already built* rather than the herd you're chasing. E.g. a skittish Runner that bolts along
-  walls and can clip the conga tail loose as it passes, or a thief crab that latches to the tail
-  and peels links off unless you shake it. Depth via a new pressure on the chain, not breadth.
-- **Emergent system interactions** — Carl's Noita-inspired itch: the fun isn't a full physics/
-  material simulation (too big a rearchitecture for this game), it's letting the systems we
-  already have actually affect each other instead of running in isolation. Shipped so far:
-  beat-startle chain reactions (panic ripples crab-to-crab on each beat), chain-snap risk (a
-  panicking crab that hits the tail knocks the last links loose), the conga body walling off /
-  deflecting fleeing crabs back toward the beam, the whistle soothe calming a panic and
-  granting startle immunity, and lasso catches now spooking the surrounding herd like beam/chain
-  catches do. Still parked here until one earns its way up: fear rippling into new panic archetypes
-  (a Dancer's on-beat hop startling neighbors), and chain segments redirecting fleeing crabs into
-  each other. Same depth-first spirit — deepen what's there before going wide.
+- **A rhythm-duel boss — a third boss whose fight IS the beat.** King Crab (charge) and Tide Boss
+  (shockwave) are spatial/hazard fights. The gap is a boss you beat by *playing the rhythm*: it
+  opens a vulnerable window only on the downbeat, or mirrors a short call-and-response phrase you
+  have to echo back on-beat to damage it. Would make the game's best system (rhythm) carry a whole
+  set-piece rather than just modifying the others. Promote once the emergent-interaction item above
+  has proven the archetype overlap is fun.
 - **Playful bonus rounds** — Carl's Street Fighter II / Lion King (SNES) itch: a rare, surprising
   mini-challenge dropped into a run purely for spice (not for balance or progression) — a bonus
   catch-everything sprint, a rhythm-only gauntlet, something silly and short. Parked here rather
