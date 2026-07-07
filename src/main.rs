@@ -175,6 +175,14 @@ thread_local! {
     // which is free (no re-layout) since it scales the already-rasterized glyphs.
     static GAMBLE_BADGE_CACHE: RefCell<Option<(u32, Text, f32)>> = RefCell::new(None);
 
+    // The "ON BEAT! +1" bonus-catch popup rebuilt a fresh Text and re-measured its width every
+    // single frame `on_beat_flash` is active — up to ~17 frames per on-beat catch (0.85 down to
+    // 0 at dt*3.0/s), and on-beat catches are common during a hot run, so this glyph-shaping
+    // cost was firing constantly in exactly the moments the frame budget matters most. The
+    // string is a fixed literal that never changes, so build and measure it once and reuse the
+    // cached Text/width forever, same pattern as the other HUD label caches above.
+    static ON_BEAT_TEXT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
     // The menu/instructions screen's translucent rounded panel behind the controls text. Its
     // geometry only depends on window width/height (never on `menu_time`), yet
     // draw_instructions_screen was rebuilding a fresh `Mesh::new_rounded_rectangle` GPU buffer
@@ -4715,15 +4723,26 @@ impl MainState {
                     .scale(Vec2::new(width, height))
                     .color(Color::from_rgba(255, 220, 80, fa)),
             );
-            let mut bonus_text = Text::new("ON BEAT! +1");
-            bonus_text.set_scale(36.0);
-            let btw = bonus_text.measure(ctx)?.x;
-            canvas.draw(
-                &bonus_text,
-                DrawParam::default()
-                    .dest(Vec2::new((width - btw) / 2.0, height / 2.0 - 60.0))
-                    .color(Color::from_rgba(255, 220, 50, fa)),
-            );
+            let btw = ON_BEAT_TEXT_CACHE.with(|c| -> ggez::GameResult<f32> {
+                let mut cache = c.borrow_mut();
+                if cache.is_none() {
+                    let mut bonus_text = Text::new("ON BEAT! +1");
+                    bonus_text.set_scale(36.0);
+                    let btw = bonus_text.measure(ctx)?.x;
+                    *cache = Some((bonus_text, btw));
+                }
+                Ok(cache.as_ref().unwrap().1)
+            })?;
+            ON_BEAT_TEXT_CACHE.with(|c| {
+                let cache = c.borrow();
+                let (bonus_text, _) = cache.as_ref().unwrap();
+                canvas.draw(
+                    bonus_text,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - btw) / 2.0, height / 2.0 - 60.0))
+                        .color(Color::from_rgba(255, 220, 50, fa)),
+                );
+            });
         }
 
         return Ok(());
