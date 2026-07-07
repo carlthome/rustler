@@ -93,6 +93,10 @@ const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-r
 const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
 const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
 const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
+// Cinematic slow-motion (bullet time) on the biggest climax moments. Kept short so it punctuates
+// a victory without dragging the pace — the sim eases from ~35% speed back to full over this many
+// real-time seconds. Triggered by boss catches and the Downbeat Slam ultimate.
+const SLOWMO_DURATION: f32 = 0.45;
 // Delivery streak: banking crabs in quick succession stacks a payout multiplier. Each bank bumps
 // the streak (capped) and refreshes a grace window; letting the window lapse decays it a notch.
 const DELIVER_STREAK_GRACE: f32 = 14.0; // seconds a bank buys before the streak decays a notch
@@ -498,6 +502,11 @@ struct MainState {
     screen_shake_vel: Vec2,     // current shake offset velocity
     screen_shake_offset: Vec2,  // current pixel offset applied to viewport
     hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
+    slowmo_timer: f32,          // 1..0 cinematic slow-motion ramp on the biggest climax moments
+                                // (boss catches, Downbeat Slam). Unlike hitstop's hard freeze, the
+                                // sim keeps running but time is dilated, easing back to full speed
+                                // as the timer decays — so a set-piece victory lands in bullet-time
+                                // instead of just snapping past.
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
@@ -906,6 +915,7 @@ impl MainState {
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
             hitstop_timer: 0.0,
+            slowmo_timer: 0.0,
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
@@ -2054,6 +2064,9 @@ impl MainState {
         self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 30.0 * 60.0;
         self.zoom_punch = self.zoom_punch.max(0.11);
         self.hitstop_timer = self.hitstop_timer.max(0.12);
+        // The hard-freeze punch lands first; once it clears, bullet-time takes over so the whole
+        // victory — fireworks, the boss's last flail, the arena healing — plays out in slow motion.
+        self.slowmo_timer = SLOWMO_DURATION;
         self.beat_intensity = 2.0;
         self.on_beat_flash = 0.6;
         if self.catch_shockwaves.len() < 48 {
@@ -3355,6 +3368,7 @@ impl MainState {
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
         self.hitstop_timer = 0.0;
+        self.slowmo_timer = 0.0;
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
@@ -5209,6 +5223,8 @@ impl MainState {
         self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 26.0 * 60.0;
         self.zoom_punch = self.zoom_punch.max(0.12);
         self.hitstop_timer = self.hitstop_timer.max(0.12);
+        // Bullet-time the erupting slam ring as it sweeps the field and yanks the herd in.
+        self.slowmo_timer = SLOWMO_DURATION;
         self.on_beat_flash = 0.7;
         self.beat_intensity = 2.0;
         let _ = self.sounds.success2.play_detached(ctx);
@@ -5303,7 +5319,7 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
-        let dt = ctx.time.delta().as_secs_f32();
+        let mut dt = ctx.time.delta().as_secs_f32();
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -5337,6 +5353,20 @@ impl EventHandler for MainState {
         if self.hitstop_timer > 0.0 {
             self.hitstop_timer = (self.hitstop_timer - dt).max(0.0);
             return Ok(());
+        }
+
+        // Cinematic slow-motion on the biggest climax moments (boss catch, Downbeat Slam). The
+        // timer decays on REAL time so the effect is always the same wall-clock length, but the
+        // whole rest of the sim runs on a dilated `dt` that eases from ~35% speed back up to full
+        // as the timer runs out — a smooth bullet-time ramp, not a hard freeze. `time_elapsed`
+        // and everything downstream of it (beat clock, animations, particles) slow together, so
+        // the moment reads as one coherent slowed frame rather than some systems stalling.
+        if self.slowmo_timer > 0.0 {
+            self.slowmo_timer = (self.slowmo_timer - dt).max(0.0);
+            // Ease-out: strong slow at the start, ramping back to real speed as it clears.
+            let ramp = 1.0 - (self.slowmo_timer / SLOWMO_DURATION).clamp(0.0, 1.0); // 0 -> 1
+            let scale = 0.35 + 0.65 * ramp * ramp;
+            dt *= scale;
         }
 
         self.time_elapsed += dt;
