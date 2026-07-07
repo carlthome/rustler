@@ -495,6 +495,16 @@ struct MainState {
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
+    // Scratch buffers for beat_startle_contagion, mirroring the catch_by_chain/
+    // deflect_fleeing_off_chain grid pattern: carriers are bucketed into a spatial grid so each
+    // calm crab only tests nearby carriers instead of every panicking crab in the herd.
+    contagion_carriers_buf: Vec<Vec2>,
+    contagion_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    contagion_pops_buf: Vec<Vec2>,
+    // Same grid treatment for the Dancer-hop startle ripple (see the beat block in update) —
+    // dancer_hop_scratch above supplies the fear sources, this buckets them for a fast lookup.
+    dancer_startle_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    dancer_spooked_buf: Vec<Vec2>,
     // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
     // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
@@ -802,6 +812,11 @@ impl MainState {
             tide_fires_buf: Vec::new(),
             tide_swells_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
+            contagion_carriers_buf: Vec::new(),
+            contagion_grid_buf: std::collections::HashMap::new(),
+            contagion_pops_buf: Vec::new(),
+            dancer_startle_grid_buf: std::collections::HashMap::new(),
+            dancer_spooked_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -877,17 +892,39 @@ impl MainState {
     fn beat_startle_contagion(&mut self) {
         const CONTAGION_RADIUS: f32 = 110.0;
         const MAX_INFECTIONS_PER_BEAT: usize = 8;
-        // Snapshot of panicking crabs whose fear can jump to a neighbour this beat.
-        let carriers: Vec<Vec2> = self
-            .crabs
-            .iter()
-            .filter(|c| !c.caught && !c.is_boss() && (c.fleeing || c.startle_timer > 0.0))
-            .map(|c| c.pos)
-            .collect();
+        // Snapshot of panicking crabs whose fear can jump to a neighbour this beat, into a
+        // reused buffer instead of a fresh collect() every beat.
+        let mut carriers = std::mem::take(&mut self.contagion_carriers_buf);
+        carriers.clear();
+        carriers.extend(
+            self.crabs
+                .iter()
+                .filter(|c| !c.caught && !c.is_boss() && (c.fleeing || c.startle_timer > 0.0))
+                .map(|c| c.pos),
+        );
         if carriers.is_empty() {
+            self.contagion_carriers_buf = carriers;
             return;
         }
-        let mut infected_pops: Vec<Vec2> = Vec::new();
+
+        // Bucket carriers into a spatial grid (same pattern as catch_by_chain and
+        // deflect_fleeing_off_chain) so each calm crab only tests nearby carriers instead of the
+        // whole panicking set — the herd has no size cap, so a flat scan here got slower the
+        // longer a session ran and the bigger a stampede got, which is exactly when frame time
+        // matters most for game feel.
+        let cell_size = CONTAGION_RADIUS.max(1.0);
+        let cell_of = |p: Vec2| -> (i32, i32) {
+            ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+        };
+        for bucket in self.contagion_grid_buf.values_mut() {
+            bucket.clear();
+        }
+        for (i, &pos) in carriers.iter().enumerate() {
+            self.contagion_grid_buf.entry(cell_of(pos)).or_default().push(i);
+        }
+
+        let mut infected_pops = std::mem::take(&mut self.contagion_pops_buf);
+        infected_pops.clear();
         for crab in &mut self.crabs {
             if infected_pops.len() >= MAX_INFECTIONS_PER_BEAT {
                 break;
@@ -904,12 +941,21 @@ impl MainState {
             {
                 continue;
             }
-            // Nearest carrier within reach becomes the source the crab bolts away from.
+            // Nearest carrier within reach becomes the source the crab bolts away from,
+            // restricted to the 3x3 neighbourhood of grid cells around the crab.
+            let (cx, cy) = cell_of(crab.pos);
             let mut nearest: Option<(f32, Vec2)> = None;
-            for &source in &carriers {
-                let d = source.distance(crab.pos);
-                if d < CONTAGION_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
-                    nearest = Some((d, source));
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(candidates) = self.contagion_grid_buf.get(&(cx + dx, cy + dy)) {
+                        for &i in candidates {
+                            let source = carriers[i];
+                            let d = source.distance(crab.pos);
+                            if d < CONTAGION_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
+                                nearest = Some((d, source));
+                            }
+                        }
+                    }
                 }
             }
             if let Some((d, source)) = nearest {
@@ -924,7 +970,7 @@ impl MainState {
             }
         }
         // Cold alarm rings + "!" pops so the crab-to-crab ripple reads at a glance.
-        for pos in infected_pops {
+        for &pos in &infected_pops {
             if self.fear_rings.len() < 32 {
                 self.fear_rings.push((pos, 0.0));
             }
@@ -935,6 +981,8 @@ impl MainState {
                 [0.6, 0.9, 1.0, 1.0],
             );
         }
+        self.contagion_carriers_buf = carriers;
+        self.contagion_pops_buf = infected_pops;
     }
 
     /// The terrain wrinkle of the zone currently in play — decides what the terrain patches do
@@ -4422,7 +4470,23 @@ impl EventHandler for MainState {
             if !dancer_hops.is_empty() {
                 const DANCER_STARTLE_RADIUS: f32 = 78.0;
                 const MAX_DANCER_STARTLES: usize = 5;
-                let mut spooked: Vec<Vec2> = Vec::new();
+
+                // Same grid treatment as beat_startle_contagion: bucket the (usually small, but
+                // unbounded as Dancer count grows) set of hop sources so each crab only tests
+                // nearby ones instead of every Dancer that hopped this beat.
+                let cell_size = DANCER_STARTLE_RADIUS.max(1.0);
+                let cell_of = |p: Vec2| -> (i32, i32) {
+                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+                };
+                for bucket in self.dancer_startle_grid_buf.values_mut() {
+                    bucket.clear();
+                }
+                for (i, &pos) in dancer_hops.iter().enumerate() {
+                    self.dancer_startle_grid_buf.entry(cell_of(pos)).or_default().push(i);
+                }
+
+                let mut spooked = std::mem::take(&mut self.dancer_spooked_buf);
+                spooked.clear();
                 for crab in self.crabs.iter_mut() {
                     if spooked.len() >= MAX_DANCER_STARTLES {
                         break;
@@ -4439,11 +4503,19 @@ impl EventHandler for MainState {
                     {
                         continue;
                     }
+                    let (cx, cy) = cell_of(crab.pos);
                     let mut nearest: Option<(f32, Vec2)> = None;
-                    for &src in &dancer_hops {
-                        let d = src.distance(crab.pos);
-                        if d < DANCER_STARTLE_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
-                            nearest = Some((d, src));
+                    for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                for &i in candidates {
+                                    let src = dancer_hops[i];
+                                    let d = src.distance(crab.pos);
+                                    if d < DANCER_STARTLE_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
+                                        nearest = Some((d, src));
+                                    }
+                                }
+                            }
                         }
                     }
                     if let Some((d, src)) = nearest {
@@ -4457,7 +4529,7 @@ impl EventHandler for MainState {
                         spooked.push(crab.pos);
                     }
                 }
-                for pos in spooked {
+                for &pos in &spooked {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
                     }
@@ -4468,6 +4540,7 @@ impl EventHandler for MainState {
                         [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink "!" so the source reads at a glance
                     );
                 }
+                self.dancer_spooked_buf = spooked;
             }
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
         }
