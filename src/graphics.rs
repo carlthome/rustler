@@ -126,6 +126,15 @@ thread_local! {
     // the legs batching already shipped.
     static CRAB_BODY_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static CRAB_BODY_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Reusable instance buffers for draw_catch_trails' two line passes (soft glow underlay +
+    // bright core) and its spark pass. Up to 48 live trails, each issuing 3 individual
+    // canvas.draw() calls, was up to 144 GPU submissions a frame during any catch-heavy stretch —
+    // the same per-call overhead the particle/leg/body batching above already eliminated
+    // elsewhere. Same two meshes (unit_line, unit_circle) reused via InstanceArray instead.
+    static TRAIL_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static TRAIL_CORE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static TRAIL_SPARK_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -2079,61 +2088,91 @@ pub fn draw_catch_trails(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    for &(from, to, age, color) in trails {
-        // A short lead-in (negative age from on-beat catches) reads as a fully-drawn streak before
-        // it starts retracting. Clamp so nothing draws off the front of the animation.
-        let a = age.clamp(0.0, 1.0);
-        let fade = 1.0 - a;
-        let delta = to - from;
-        let len = delta.length();
-        if len < 1.0 {
-            continue;
-        }
-        let angle = delta.y.atan2(delta.x);
-        // The tail retracts toward the head as the crab arrives: at a=0 the whole line shows, near
-        // a=1 only the last sliver by the head remains. Ease-in so the snap accelerates inward.
-        let head_frac = a * a;
-        let tail = from + delta * head_frac;
-        let seg_len = len * (1.0 - head_frac);
-        if seg_len < 1.0 {
-            continue;
-        }
-        let thickness = (2.0 + fade * 5.0).max(1.0);
+    TRAIL_GLOW_INSTANCES.with(|glow_cell| -> ggez::GameResult {
+        TRAIL_CORE_INSTANCES.with(|core_cell| -> ggez::GameResult {
+            TRAIL_SPARK_INSTANCES.with(|spark_cell| -> ggez::GameResult {
+                let mut glow_slot = glow_cell.borrow_mut();
+                let mut core_slot = core_cell.borrow_mut();
+                let mut spark_slot = spark_cell.borrow_mut();
+                let glow = glow_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                let core = core_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                let sparks = spark_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
 
-        // Soft wide glow underlay for body.
-        canvas.draw(
-            line,
-            DrawParam::default()
-                .dest(tail)
-                .rotation(angle)
-                .scale(Vec2::new(seg_len, thickness * 2.4))
-                .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
-        );
-        // Bright core line, blending from the crab color toward white-hot.
-        let cr = (color[0] * 0.5 + 0.5).min(1.0);
-        let cg = (color[1] * 0.5 + 0.5).min(1.0);
-        let cb = (color[2] * 0.5 + 0.5).min(1.0);
-        canvas.draw(
-            line,
-            DrawParam::default()
-                .dest(tail)
-                .rotation(angle)
-                .scale(Vec2::new(seg_len, thickness))
-                .color(Color::new(cr, cg, cb, fade * 0.85)),
-        );
-        // White-hot spark riding the retracting tail — the crab being reeled in.
-        let spark_r = (2.5 + fade * 5.0).max(1.0);
-        canvas.draw(
-            spark,
-            DrawParam::default()
-                .dest(tail)
-                .scale(Vec2::splat(spark_r))
-                .color(Color::new(1.0, 1.0, 1.0, fade * 0.9)),
-        );
-    }
+                glow.set(trails.iter().filter_map(|&(from, to, age, color)| {
+                    let (tail, seg_len, angle, fade) = trail_geometry(from, to, age)?;
+                    let thickness = (2.0 + fade * 5.0).max(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .rotation(angle)
+                            .scale(Vec2::new(seg_len, thickness * 2.4))
+                            .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
+                    )
+                }));
+                core.set(trails.iter().filter_map(|&(from, to, age, color)| {
+                    let (tail, seg_len, angle, fade) = trail_geometry(from, to, age)?;
+                    let thickness = (2.0 + fade * 5.0).max(1.0);
+                    // Bright core line, blending from the crab color toward white-hot.
+                    let cr = (color[0] * 0.5 + 0.5).min(1.0);
+                    let cg = (color[1] * 0.5 + 0.5).min(1.0);
+                    let cb = (color[2] * 0.5 + 0.5).min(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .rotation(angle)
+                            .scale(Vec2::new(seg_len, thickness))
+                            .color(Color::new(cr, cg, cb, fade * 0.85)),
+                    )
+                }));
+                sparks.set(trails.iter().filter_map(|&(from, to, age, _)| {
+                    let (tail, _, _, fade) = trail_geometry(from, to, age)?;
+                    // White-hot spark riding the retracting tail — the crab being reeled in.
+                    let spark_r = (2.5 + fade * 5.0).max(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .scale(Vec2::splat(spark_r))
+                            .color(Color::new(1.0, 1.0, 1.0, fade * 0.9)),
+                    )
+                }));
+
+                canvas.draw_instanced_mesh(line.clone(), glow, DrawParam::default());
+                canvas.draw_instanced_mesh(line.clone(), core, DrawParam::default());
+                canvas.draw_instanced_mesh(spark.clone(), sparks, DrawParam::default());
+                Ok(())
+            })
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
     Ok(())
+}
+
+/// Shared per-trail geometry for `draw_catch_trails`' three instanced passes: the retracting
+/// tail position, the remaining segment length, the line's rotation angle, and the fade (1 =
+/// just spawned, 0 = fully arrived). Returns `None` for trails too short/far-retracted to draw
+/// (kept as a filter so each pass skips them identically, matching the old per-trail `continue`s).
+#[inline]
+fn trail_geometry(from: Vec2, to: Vec2, age: f32) -> Option<(Vec2, f32, f32, f32)> {
+    // A short lead-in (negative age from on-beat catches) reads as a fully-drawn streak before
+    // it starts retracting. Clamp so nothing draws off the front of the animation.
+    let a = age.clamp(0.0, 1.0);
+    let fade = 1.0 - a;
+    let delta = to - from;
+    let len = delta.length();
+    if len < 1.0 {
+        return None;
+    }
+    let angle = delta.y.atan2(delta.x);
+    // The tail retracts toward the head as the crab arrives: at a=0 the whole line shows, near
+    // a=1 only the last sliver by the head remains. Ease-in so the snap accelerates inward.
+    let head_frac = a * a;
+    let tail = from + delta * head_frac;
+    let seg_len = len * (1.0 - head_frac);
+    if seg_len < 1.0 {
+        return None;
+    }
+    Some((tail, seg_len, angle, fade))
 }
 
 /// Draw the cold "alarm" rings kicked off when a catch startles the surrounding herd
