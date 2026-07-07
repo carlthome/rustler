@@ -101,6 +101,16 @@ thread_local! {
     // graphics.rs.
     static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());
 
+    // The FRENZY!/stage-name shout banners (draw_frenzy_banner / draw_stage_banner) rebuilt a
+    // fresh `Text` plus a `.measure()` glyph-layout pass every single frame they're visible —
+    // 1.6-2.0s each, i.e. ~100 frames of unnecessary text shaping per banner. The frenzy banner's
+    // text is always the literal "FRENZY!" (never varies), and the stage banner's text only
+    // changes on the rare frame the run climbs to a new named stage. Cache the built Text plus
+    // its measured size; only the throb/fade (DrawParam scale/color, computed fresh every frame
+    // as before) actually needs to change per frame.
+    static FRENZY_BANNER_CACHE: RefCell<Option<(Text, Vec2)>> = RefCell::new(None);
+    static STAGE_BANNER_CACHE: RefCell<Option<(&'static str, Text, Vec2)>> = RefCell::new(None);
+
     // Cache for the top-left "Score / Train / Combo" HUD line. draw_game runs every frame but
     // takes &self, so — same as LEVEL_LABEL_CACHE above — this lives in a thread_local RefCell
     // rather than a struct field. Keyed by the actual (score, chain_len, combo_count, mult)
@@ -3450,31 +3460,42 @@ impl MainState {
         // Slightly larger right as it lands, settling to a gently throbbing size.
         let scale = 1.15 - life * 0.15 + throb * 0.06;
 
-        let mut banner = Text::new("FRENZY!");
-        banner.set_scale(84.0);
-        let dims = banner.measure(ctx)?;
+        let dims = FRENZY_BANNER_CACHE.with(|cache_cell| -> Result<Vec2, ggez::GameError> {
+            let mut cache = cache_cell.borrow_mut();
+            if cache.is_none() {
+                let mut banner = Text::new("FRENZY!");
+                banner.set_scale(84.0);
+                let dims: Vec2 = banner.measure(ctx)?.into();
+                *cache = Some((banner, dims));
+            }
+            Ok(cache.as_ref().unwrap().1)
+        })?;
         let dest = Vec2::new(
             width / 2.0 - dims.x * scale / 2.0,
             height * 0.16 - dims.y * scale / 2.0,
         );
         let a = (alpha * 255.0) as u8;
-        // Dark drop-shadow behind for legibility over any biome.
-        canvas.draw(
-            &banner,
-            DrawParam::default()
-                .dest(dest + Vec2::splat(3.0))
-                .scale(Vec2::splat(scale))
-                .color(Color::from_rgba(20, 12, 0, (a as f32 * 0.7) as u8)),
-        );
-        // Gold body, brightening on the beat.
         let g = (200.0 + throb * 55.0) as u8;
-        canvas.draw(
-            &banner,
-            DrawParam::default()
-                .dest(dest)
-                .scale(Vec2::splat(scale))
-                .color(Color::from_rgba(255, g, 60, a)),
-        );
+        FRENZY_BANNER_CACHE.with(|cache_cell| {
+            let cache = cache_cell.borrow();
+            let banner = &cache.as_ref().unwrap().0;
+            // Dark drop-shadow behind for legibility over any biome.
+            canvas.draw(
+                banner,
+                DrawParam::default()
+                    .dest(dest + Vec2::splat(3.0))
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgba(20, 12, 0, (a as f32 * 0.7) as u8)),
+            );
+            // Gold body, brightening on the beat.
+            canvas.draw(
+                banner,
+                DrawParam::default()
+                    .dest(dest)
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgba(255, g, 60, a)),
+            );
+        });
         Ok(())
     }
 
@@ -3494,30 +3515,46 @@ impl MainState {
         let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
         let scale = 1.1 - life * 0.12 + throb * 0.05;
 
-        let mut banner = Text::new(self.stage_banner_name);
-        banner.set_scale(64.0);
-        let dims = banner.measure(ctx)?;
+        let name = self.stage_banner_name;
+        let dims = STAGE_BANNER_CACHE.with(|cache_cell| -> Result<Vec2, ggez::GameError> {
+            let mut cache = cache_cell.borrow_mut();
+            let needs_rebuild = match cache.as_ref() {
+                Some((cached_name, _, _)) => *cached_name != name,
+                None => true,
+            };
+            if needs_rebuild {
+                let mut banner = Text::new(name);
+                banner.set_scale(64.0);
+                let dims: Vec2 = banner.measure(ctx)?.into();
+                *cache = Some((name, banner, dims));
+            }
+            Ok(cache.as_ref().unwrap().2)
+        })?;
         let dest = Vec2::new(
             width / 2.0 - dims.x * scale / 2.0,
             height * 0.27 - dims.y * scale / 2.0,
         );
         let a = (alpha * 255.0) as u8;
-        canvas.draw(
-            &banner,
-            DrawParam::default()
-                .dest(dest + Vec2::splat(3.0))
-                .scale(Vec2::splat(scale))
-                .color(Color::from_rgba(4, 16, 20, (a as f32 * 0.7) as u8)),
-        );
-        // Cyan body, brightening on the beat.
         let b = (200.0 + throb * 55.0) as u8;
-        canvas.draw(
-            &banner,
-            DrawParam::default()
-                .dest(dest)
-                .scale(Vec2::splat(scale))
-                .color(Color::from_rgba(90, 230, b, a)),
-        );
+        STAGE_BANNER_CACHE.with(|cache_cell| {
+            let cache = cache_cell.borrow();
+            let banner = &cache.as_ref().unwrap().1;
+            canvas.draw(
+                banner,
+                DrawParam::default()
+                    .dest(dest + Vec2::splat(3.0))
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgba(4, 16, 20, (a as f32 * 0.7) as u8)),
+            );
+            // Cyan body, brightening on the beat.
+            canvas.draw(
+                banner,
+                DrawParam::default()
+                    .dest(dest)
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgba(90, 230, b, a)),
+            );
+        });
         Ok(())
     }
 
