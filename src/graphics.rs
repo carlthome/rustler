@@ -145,6 +145,14 @@ thread_local! {
     static MARCHER_SHADOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static MARCHER_BODY_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static MARCHER_RIM_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // draw_grass tiled its texture across the whole window with one canvas.draw() per tile — at
+    // the default 800x600 window and a 4x4 grass tile, that's 200x150 = 30,000 individual GPU
+    // submissions every single frame just for the ground, dwarfing every other draw-call cost in
+    // the game combined. Same batching technique as the instances above: fill one InstanceArray
+    // with a DrawParam per tile position and issue a single draw_instanced_mesh. Same texture,
+    // same positions, identical on-screen output.
+    static GRASS_TILE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -976,17 +984,22 @@ pub fn draw_grass(
     canvas.set_default_shader();
     canvas.set_blend_mode(BlendMode::MULTIPLY);
 
-    // Repeat a tiled grass texture across the screen.
+    // Repeat a tiled grass texture across the screen. Batched into a single InstanceArray draw
+    // (see GRASS_TILE_INSTANCES) instead of one canvas.draw() per tile — at the default window
+    // size and a 4x4 grass tile that was up to 30,000 individual GPU submissions a frame.
     let tile_w = texture.width() as f32;
     let tile_h = texture.height() as f32;
     let tiles_x = (width / tile_w).ceil() as i32;
     let tiles_y = (height / tile_h).ceil() as i32;
-    for y in 0..tiles_y {
-        for x in 0..tiles_x {
-            let dest = [x as f32 * tile_w, y as f32 * tile_h];
-            canvas.draw(texture, DrawParam::default().dest(dest));
-        }
-    }
+    GRASS_TILE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+        let mut inst_slot = inst_cell.borrow_mut();
+        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, texture.clone()));
+        instances.set((0..tiles_y).flat_map(|y| (0..tiles_x).map(move |x| (x, y))).map(
+            |(x, y)| DrawParam::default().dest([x as f32 * tile_w, y as f32 * tile_h]),
+        ));
+        canvas.draw(instances, DrawParam::default());
+        Ok(())
+    })?;
 
     // Biome color grade: a full-screen multiply pass that recolors the whole ground so each
     // level reads as a distinct zone (warm meadow, cool tide pools, stony shore, neon kelp).
