@@ -5254,6 +5254,42 @@ impl MainState {
             1.0
         }
     }
+    /// On-beat Thief shake payoff: an on-beat whistle/stomp that rips a latched Thief loose doesn't
+    /// just free the tail — it flings the Thief straight into the train as a bonus catch. Enlists the
+    /// crab at `idx` (mark caught, assign the next chain_index, bump chain_count), banks a bonus via
+    /// register_catch, and throws celebratory feedback so nailing the timing on the game's newest
+    /// chain-threat *reads* and *pays*. Ties the Thief counter into the rhythm layer instead of a flat
+    /// toggle. Safe to call after the &mut self.crabs sweep since it takes an index, not a borrow.
+    fn snatch_thief_on_beat(&mut self, idx: usize, pos: Vec2) {
+        let Some(crab) = self.crabs.get_mut(idx) else { return };
+        // Guard: only a still-free, still-catchable crab can be enlisted (it may have been grabbed
+        // by another effect this same frame).
+        if !crab.is_catchable() {
+            return;
+        }
+        let crab_color = crab.crab_color();
+        let crab_type = crab.crab_type;
+        crab.caught = true;
+        crab.chain_index = Some(self.chain_count);
+        crab.latch_timer = 0.0;
+        crab.fleeing = false;
+        crab.startle_timer = 0.0;
+        self.chain_count += 1;
+        // A meaty bonus — pulling off a rhythm counter on the Thief is worth more than a plain catch.
+        self.register_catch(pos, 2);
+        let mut rng = rand::rng();
+        self.particle_system
+            .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+        self.spawn_catch_shockwave(pos, crab_color);
+        self.floating_texts.spawn(
+            "THIEF NABBED!".to_string(),
+            pos - Vec2::new(60.0, 62.0),
+            27.0,
+            [0.5, 1.0, 0.6, 1.0],
+        );
+        // A little extra groove for landing the counter in the pocket.
+        self.groove = (self.groove + 0.08).min(1.0);
+    }
     /// Issue a rhythm "Call" (F). This is the player's on-beat action that Dancer crabs answer to:
     /// on the beat, it charms every nearby Dancer into hopping TOWARD the player on the next beat
     /// (see the beat-fire Dancer block) instead of fleeing, opening a catch window. Off the beat it
@@ -6130,6 +6166,9 @@ impl EventHandler for MainState {
             // Whistle-lane-scaled reach + pull, read once so the &mut self.crabs loop can use them.
             let whistle_max_r = self.whistle_max_radius() * self.whistle_beat_bonus;
             let whistle_pull = self.whistle_pull_speed() * self.whistle_beat_bonus;
+            // The beat_bonus is only >1.0 when this cast landed on the beat (see reward_on_beat_tool),
+            // so it doubles as our "was this an on-beat cast?" flag for the rhythm-native Thief shake.
+            let on_beat_cast = self.whistle_beat_bonus > 1.0;
             self.whistle_active = (self.whistle_active - dt).max(0.0);
             self.whistle_radius = (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
             let center = self.whistle_center;
@@ -6139,7 +6178,10 @@ impl EventHandler for MainState {
             let charm_dur = 1.4 + 0.5 * self.whistle_rank as f32;
             let mut soothed = std::mem::take(&mut self.whistle_soothed_buf);
             soothed.clear();
-            for crab in &mut self.crabs {
+            // On-beat casts that rip a latched Thief clean off get to CATCH it as a bonus — collected
+            // here (index + pos) and processed after the &mut self.crabs loop, like `soothed`/`cracked`.
+            let mut thief_snatched: Vec<(usize, Vec2)> = Vec::new();
+            for (i, crab) in self.crabs.iter_mut().enumerate() {
                 if crab.caught {
                     continue;
                 }
@@ -6165,10 +6207,26 @@ impl EventHandler for MainState {
                     crab.fleeing = false;
                     crab.startle_timer = 0.0;
                     crab.charm_timer = crab.charm_timer.max(charm_dur);
-                    // A whistle pops a latched Thief off the tail — it lets go and gets yanked in
-                    // with the rest of the gathered herd. This is *the* clean counter to a Thief.
-                    crab.latch_timer = 0.0;
+                    // Rhythm-native Thief counterplay: shaking off a latched Thief now *plays* like
+                    // the rest of the game rather than being a flat toggle.
+                    //   - ON BEAT: the whistle rips it clean off AND flings it into the train as a
+                    //     bonus catch — the peak payoff for timing the counter.
+                    //   - OFF BEAT: it only loosens the grip — the latch timer is pushed back so you
+                    //     buy a beat, but the Thief stays on your tail and will bite again.
+                    if crab.is_latched() {
+                        if on_beat_cast {
+                            crab.latch_timer = 0.0;
+                            thief_snatched.push((i, crab.pos));
+                        } else {
+                            // Loosen: delay the next peel without removing the threat.
+                            crab.latch_timer = crab.latch_timer.max(0.75);
+                        }
+                    }
                 }
+            }
+            // On-beat whistle catches its shaken Thieves: enlist each into the train and pay a bonus.
+            for (i, pos) in thief_snatched.drain(..) {
+                self.snatch_thief_on_beat(i, pos);
             }
             // Warm puffs rising off the crabs the pulse just calmed — the visual counterpart to
             // the cold "!" alarm rings the panic contagion throws.
@@ -6188,12 +6246,15 @@ impl EventHandler for MainState {
         if self.stomp_active > 0.0 {
             // Stomp-lane-scaled reach, read once so the &mut self.crabs loop can use it.
             let stomp_max_r = self.stomp_max_radius() * self.stomp_beat_bonus;
+            // beat_bonus >1.0 only on an on-beat cast — same on-beat flag the whistle uses.
+            let on_beat_cast = self.stomp_beat_bonus > 1.0;
             self.stomp_active = (self.stomp_active - dt).max(0.0);
             self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(stomp_max_r);
             let center = self.stomp_center;
             let mut cracked = std::mem::take(&mut self.stomp_cracked_buf);
             cracked.clear();
-            for crab in &mut self.crabs {
+            let mut thief_snatched: Vec<(usize, Vec2)> = Vec::new();
+            for (i, crab) in self.crabs.iter_mut().enumerate() {
                 if crab.caught || crab.is_boss() {
                     continue; // the King Crab shrugs off a Stomp — it needs the beam
                 }
@@ -6206,14 +6267,25 @@ impl EventHandler for MainState {
                     crab.boss_health = 0.0;
                     cracked.push(crab.pos);
                 }
-                // A Stomp near the tail also shakes a latched Thief loose — the ground-pound is a
-                // second, close-range counter to the Thief on top of the whistle.
-                crab.latch_timer = 0.0;
+                // A Stomp near the tail is the second, close-range Thief counter — and it plays the
+                // same rhythm-native way the whistle does: on-beat rips a latched Thief clean off and
+                // banks it as a bonus catch; off-beat only loosens its grip so it bites again.
+                if crab.is_latched() {
+                    if on_beat_cast {
+                        crab.latch_timer = 0.0;
+                        thief_snatched.push((i, crab.pos));
+                    } else {
+                        crab.latch_timer = crab.latch_timer.max(0.75);
+                    }
+                }
                 // Light inward shove + brief calm so the shaken crab doesn't immediately bolt.
                 let toward = (center - crab.pos).normalize_or_zero();
                 crab.vel = toward * (WHISTLE_PULL_SPEED * 0.6);
                 crab.spooked_timer = crab.spooked_timer.max(0.4);
                 crab.fleeing = false;
+            }
+            for (i, pos) in thief_snatched.drain(..) {
+                self.snatch_thief_on_beat(i, pos);
             }
             for &pos in cracked.iter() {
                 self.floating_texts.spawn(
