@@ -653,9 +653,13 @@ struct MainState {
     // Scratch buffers for beat_startle_contagion, mirroring the catch_by_chain/
     // deflect_fleeing_off_chain grid pattern: carriers are bucketed into a spatial grid so each
     // calm crab only tests nearby carriers instead of every panicking crab in the herd.
-    contagion_carriers_buf: Vec<Vec2>,
+    // Each carrier is (pos, panic amplitude): a fleeing Golden crab carries an amplified fear
+    // that ripples through the herd harder than an ordinary panicking crab (see below).
+    contagion_carriers_buf: Vec<(Vec2, f32)>,
     contagion_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
-    contagion_pops_buf: Vec<Vec2>,
+    // (pos, amplified?) — amplified pops came from a Golden's panic bomb and get a hot golden
+    // "!" so the player sees the shiny prize detonating the herd, not just an ordinary scare.
+    contagion_pops_buf: Vec<(Vec2, bool)>,
     // Same grid treatment for the Dancer-hop startle ripple (see the beat block in update) —
     // dancer_hop_scratch above supplies the fear sources, this buckets them for a fast lookup.
     dancer_startle_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
@@ -1103,18 +1107,32 @@ impl MainState {
     /// Self-limiting: only calm crabs can catch it (a crab already panicking isn't re-triggered),
     /// the startle bolt decays in ~one beat, and infections are capped per beat, so the wave dies
     /// down instead of locking the whole herd in permanent flight.
+    ///
+    /// Emergent crossover — the Golden Crab is a panic bomb: when the rare shiny prize is on the
+    /// run its fear carries an amplified amplitude (`GOLDEN_PANIC_AMP`), reaching farther and kicking
+    /// harder, and it *tags the crabs it infects as amplified carriers too*, so a fleeing Golden
+    /// shatters a tight herd into a rolling stampede over the next few beats. This gives the
+    /// chase-or-let-it-go decision real teeth: sprinting after the Golden through a packed crowd
+    /// can scatter the very herd you were building.
     fn beat_startle_contagion(&mut self) {
         const CONTAGION_RADIUS: f32 = 110.0;
         const MAX_INFECTIONS_PER_BEAT: usize = 8;
+        // How much harder a fleeing Golden crab's fear ripples than an ordinary panicking crab.
+        const GOLDEN_PANIC_AMP: f32 = 1.6;
         // Snapshot of panicking crabs whose fear can jump to a neighbour this beat, into a
-        // reused buffer instead of a fresh collect() every beat.
+        // reused buffer instead of a fresh collect() every beat. Each carrier remembers a panic
+        // amplitude so a Golden's amplified fear (and the amplified crabs it already startled)
+        // keeps rippling harder than the baseline as the wave marches on.
         let mut carriers = std::mem::take(&mut self.contagion_carriers_buf);
         carriers.clear();
         carriers.extend(
             self.crabs
                 .iter()
                 .filter(|c| !c.caught && !c.is_boss() && (c.fleeing || c.startle_timer > 0.0))
-                .map(|c| c.pos),
+                .map(|c| {
+                    let amp = if c.is_golden() { GOLDEN_PANIC_AMP } else { c.panic_amp.max(1.0) };
+                    (c.pos, amp)
+                }),
         );
         if carriers.is_empty() {
             self.contagion_carriers_buf = carriers;
@@ -1133,7 +1151,7 @@ impl MainState {
         for bucket in self.contagion_grid_buf.values_mut() {
             bucket.clear();
         }
-        for (i, &pos) in carriers.iter().enumerate() {
+        for (i, &(pos, _)) in carriers.iter().enumerate() {
             self.contagion_grid_buf.entry(cell_of(pos)).or_default().push(i);
         }
 
@@ -1157,42 +1175,61 @@ impl MainState {
             }
             // Nearest carrier within reach becomes the source the crab bolts away from,
             // restricted to the 3x3 neighbourhood of grid cells around the crab.
+            // A Golden's amplified fear reaches beyond the baseline radius, so the closest carrier
+            // is scored by how far its own reach extends, not just raw distance — an amplified
+            // carrier can out-pull a nearer ordinary one and grab crabs an ordinary crab couldn't.
             let (cx, cy) = cell_of(crab.pos);
-            let mut nearest: Option<(f32, Vec2)> = None;
+            let mut nearest: Option<(f32, Vec2, f32)> = None; // (reach-score, source pos, amp)
             for dx in -1..=1 {
                 for dy in -1..=1 {
                     if let Some(candidates) = self.contagion_grid_buf.get(&(cx + dx, cy + dy)) {
                         for &i in candidates {
-                            let source = carriers[i];
+                            let (source, amp) = carriers[i];
                             let d = source.distance(crab.pos);
-                            if d < CONTAGION_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
-                                nearest = Some((d, source));
+                            let reach = CONTAGION_RADIUS * amp;
+                            if d < reach {
+                                // Lower score = stronger pull: normalize distance by the carrier's
+                                // own reach so amplified carriers win ties within their bigger radius.
+                                let score = d / amp;
+                                if nearest.map_or(true, |(ns, _, _)| score < ns) {
+                                    nearest = Some((score, source, amp));
+                                }
                             }
                         }
                     }
                 }
             }
-            if let Some((d, source)) = nearest {
+            if let Some((score, source, amp)) = nearest {
                 let outward = (crab.pos - source).normalize_or_zero();
                 let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
-                let prox = 1.0 - d / CONTAGION_RADIUS; // 1 right on the carrier, 0 at the rim
-                let kick = crab.crab_type.speed_range().end * (1.1 + prox * 0.9);
+                // score is d/amp in [0, CONTAGION_RADIUS); turn it back into a 1-at-source proximity.
+                let prox = 1.0 - (score / CONTAGION_RADIUS).clamp(0.0, 1.0);
+                let kick = crab.crab_type.speed_range().end * (1.1 + prox * 0.9) * amp;
                 crab.vel = outward * kick;
                 crab.speed = 1.0; // vel now encodes full speed, matching the flee/startle convention
                 crab.startle_timer = 0.45;
-                infected_pops.push(crab.pos);
+                // Carry a decayed slice of the source's amplitude forward, so the Golden's panic
+                // stays hotter than baseline for a couple more hops before fading to ordinary fear.
+                crab.panic_amp = (1.0 + (amp - 1.0) * 0.7).max(1.0);
+                infected_pops.push((crab.pos, amp > 1.05));
             }
         }
-        // Cold alarm rings + "!" pops so the crab-to-crab ripple reads at a glance.
-        for &pos in &infected_pops {
+        // Alarm rings + "!" pops so the crab-to-crab ripple reads at a glance. Amplified
+        // (Golden-driven) infections get a bigger, hot-gold "!" so a panic bomb looks like one.
+        for &(pos, amplified) in &infected_pops {
             if self.fear_rings.len() < 32 {
                 self.fear_rings.push((pos, 0.0));
             }
+            let (size, color) = if amplified {
+                (28.0, [1.0, 0.82, 0.24, 1.0])
+            } else {
+                (22.0, [0.6, 0.9, 1.0, 1.0])
+            };
             self.floating_texts.spawn(
                 "!".to_string(),
                 pos - Vec2::new(0.0, 24.0),
-                22.0,
-                [0.6, 0.9, 1.0, 1.0],
+                size,
+                color,
             );
         }
         self.contagion_carriers_buf = carriers;
@@ -2965,6 +3002,13 @@ impl MainState {
                     }
                 }
 
+                // Amplified Golden panic bleeds back toward ordinary fear as the crab settles,
+                // so the panic bomb's extra kick spans only the next few beats rather than
+                // permanently supercharging every crab it touched.
+                if crab.panic_amp > 1.0 {
+                    crab.panic_amp = (crab.panic_amp - dt * 1.2).max(1.0);
+                }
+
                 // Whistle charm wears off after a beat or two, at which point the crab is fair
                 // game for the panic contagion again.
                 if crab.charm_timer > 0.0 {
@@ -3718,6 +3762,7 @@ impl MainState {
                 charge_state: BossCharge::Idle,
                 charge_cooldown: 0.0,
                 latch_timer: 0.0,
+                panic_amp: 1.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(

@@ -143,6 +143,7 @@ pub struct EnemyCrab {
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
     pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
+    pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
 }
 
 impl EnemyCrab {
