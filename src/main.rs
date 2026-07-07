@@ -24,11 +24,11 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
-    FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
+    FloatingTextSystem, ParticleSystem, PennedMarcherSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -414,6 +414,8 @@ struct MainState {
     whistle_rank: u32,
     stomp_rank: u32,
     floating_texts: FloatingTextSystem,
+    // Cosmetic parade of just-banked crabs filing into the delivery pen (see try_deliver_train).
+    penned_marchers: PennedMarcherSystem,
     combo_count: usize,
     combo_timer: f32,
     textures: GameTextures,                    // Textures for grass, sand, and player
@@ -837,6 +839,7 @@ impl MainState {
             whistle_rank: start_whistle_rank,
             stomp_rank: start_stomp_rank,
             floating_texts: FloatingTextSystem::new(),
+            penned_marchers: PennedMarcherSystem::new(),
             combo_count: 0,
             combo_timer: 0.0,
             beat_count: 0,
@@ -1646,6 +1649,19 @@ impl MainState {
         // the pen instead of grabbing sloppily on the way in.
         let bank = (base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
         self.score += bank;
+
+        // Before the delivered crabs leave the field, snapshot them (in chain order, head first)
+        // so they can visibly march into the pen instead of blinking out — the parade is purely
+        // cosmetic; the score above is already banked.
+        let mut delivered_crabs: Vec<&EnemyCrab> =
+            self.crabs.iter().filter(|c| c.caught).collect();
+        // File them in in chain order (head of the train first) so the parade rolls down the line.
+        delivered_crabs.sort_by_key(|c| c.chain_index.unwrap_or(usize::MAX));
+        let marching: Vec<(Vec2, [f32; 3], f32)> = delivered_crabs
+            .iter()
+            .map(|c| (c.pos, c.crab_color(), c.scale))
+            .collect();
+        self.penned_marchers.spawn_train(self.pen_pos, &marching);
 
         // The delivered crabs leave the field for good — they've been penned.
         self.crabs.retain(|c| !c.caught);
@@ -3203,6 +3219,7 @@ impl MainState {
         self.next_boss_score = BOSS_SCORE_INTERVAL;
         self.next_boss_is_tide = false;
         self.deliver_flash = 0.0;
+        self.penned_marchers.marchers.clear();
         self.pen_pos = pick_pen_pos(
             self.width,
             self.height,
@@ -3778,6 +3795,10 @@ impl MainState {
             self.chain_count > 0,
             self.deliver_flash,
         )?;
+
+        // Just-banked crabs marching into the pen — drawn over the pen ground so the parade files
+        // in on top of the corral. Empty and free when no bank just happened.
+        draw_penned_marchers(ctx, canvas, &self.penned_marchers, self.time_elapsed)?;
 
         // Draw beat ghost rings under the rope and crabs
         draw_chain_rings(ctx, canvas, &self.chain_rings)?;
@@ -5587,6 +5608,12 @@ impl EventHandler for MainState {
         self.try_deliver_train(ctx);
         if self.deliver_flash > 0.0 {
             self.deliver_flash = (self.deliver_flash - dt * 1.6).max(0.0);
+        }
+        // Advance the pen parade: each marcher that reaches the pen this frame pops a small
+        // sparkle burst in its own color, so the train files in one crab at a time.
+        for (pos, color) in self.penned_marchers.update(dt) {
+            self.particle_system
+                .spawn_catch_effect(pos, color, CrabType::Normal, &mut rand::rng());
         }
         // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the
         // multiplier tracks recent cashing tempo. Each notch grants a fresh grace window.
