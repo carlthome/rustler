@@ -18,32 +18,36 @@ this for direction before picking their next task; they don't edit it themselves
 **Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/
 stomp) with four upgrade playstyle lanes, the conga train with chain-snap downside and a
 delivery-pen jackpot, rhythm/groove scoring that now **drives real mechanics** (bar-quantized
-spawn drops on the downbeat, on-beat PERFECT tool hits, a beat-stepping train), biomes with
-terrain hazards, and two enemy archetypes beyond the base crab (Armored → stomp, Dancer →
-rhythm). A first slice of **meta-progression has shipped too**: runs bank into a persistent
-career (best score, lifetime crabs, run count) and banked crabs buy permanent starting tool
-ranks in a title-screen perk shop, so a loss still buys progress. Both prior "Now" items are
-done. We're NOT declaring the inner loop finished and pivoting wholesale to outer-loop work
-until Carl says the core feels done — the Dancer crab shows fresh archetypes land well, and
-boss/biome variety is still thin. So this run keeps depth-first targets in Now and leaves the
-meta-progression expansion in Later where it can grow once Carl weighs in.
+spawn drops on the downbeat, on-beat PERFECT tool hits, a beat-stepping train, an on-beat Call
+that Dancers answer for a Dance Catch bonus), biomes with terrain hazards, and three enemy
+archetypes beyond the base crab (Armored → stomp, Dancer → rhythm) plus **two bosses** (King
+Crab charge, Tide Boss shockwave that alternate). A first slice of **meta-progression has
+shipped too**: runs bank into a persistent career (best score, lifetime crabs, run count) and
+banked crabs buy permanent starting tool ranks in a title-screen perk shop, so a loss still buys
+progress. The prior "Now" boss/rhythm/upgrade-UI items are all done. We're NOT declaring the
+inner loop finished and pivoting wholesale to outer-loop work until Carl says the core feels
+done — fresh archetypes and bosses land well, but **pacing** is still flat (static per-zone
+difficulty) and biomes are still only color-grading skins. So this run keeps depth-first targets
+in Now and leaves the meta-progression expansion in Later.
 
 ## Now
 
-- **A second boss, not just a second King Crab** — the King Crab charge is the game's only
-  climax beat and it's a single pattern. Add one more boss archetype with a distinct threat and
-  counter-play (e.g. a Hermit Crab that hides in a shell you must beat-crack, or a Tide Boss that
-  floods lanes and forces routing), so the run has more than one memorable spike. Depth: makes
-  every long run's peak moment less repetitive.
-- **Deepen the Dancer/rhythm enemy line into an ability, not just a foe** — the Dancer crab that
-  freezes off-beat and hops on-beat is the most rhythm-native thing in the game. Push it further
-  into player-facing mechanics: a catch window that only opens on the beat for certain crabs, or
-  a "call" the player issues on-beat that a Dancer answers, so the rhythm is something the player
-  actively plays with, not just watches. Doubles down on what's most distinctive about this game.
-- **Mouse-clickable upgrade screen** — upgrade cards currently only accept keyboard number keys;
-  add mouse click (and hover highlight) as an equal alternative to picking by number. Small,
-  low-risk polish fix, but it's the kind of friction that makes the game feel unfinished on
-  first impression.
+- **Staged difficulty ramp with special spikes** — difficulty is currently static per zone (fixed
+  values in levels.rs); a run has no rising tension arc within a zone. Make it escalate in stages
+  over elapsed time, with occasional standout moments (a tougher wave, a denser spawn, a beat-tempo
+  shift) that feel special and earned rather than a flat curve. Deepens pacing of the existing core
+  loop without adding a new system. **Highest-leverage Now item — it's the missing spine of a run.**
+- **Make biomes matter mechanically, not just visually** — the four biomes (Sunny Meadow, Tide
+  Pools, Rocky Shore, Neon Kelp) currently differ only in color grading and beat-pulse tint. Give
+  each one a distinct gameplay wrinkle that changes how you catch or route (e.g. Neon Kelp fronds
+  that snag the conga tail, Rocky Shore chokepoints, a Tide Pool that periodically floods the
+  whole lane on the bar), so moving between zones feels like a real change of terrain, not a
+  reskin. Depth: turns existing scenery into a system.
+- **A rhythm-native player ability with real teeth** — the on-beat Call + Dance Catch loop proved
+  players enjoy actively *playing* the rhythm, not just watching it. Build on it with a chargeable
+  on-beat power: e.g. a "Downbeat Slam" that, timed to a PERFECT, yanks and banks a cluster at
+  once, or a groove-meter ultimate that only fires clean on the bar. Rewards rhythm mastery with a
+  spectacle payoff — leans into the game's most distinctive hook.
 
 ## Later (outer loop — not yet)
 
@@ -73,3 +77,8 @@ meta-progression expansion in Later where it can grow once Carl weighs in.
   catches do. Still parked here until one earns its way up: fear rippling into new panic archetypes
   (a Dancer's on-beat hop startling neighbors), and chain segments redirecting fleeing crabs into
   each other. Same depth-first spirit — deepen what's there before going wide.
+- **Playful bonus rounds** — Carl's Street Fighter II / Lion King (SNES) itch: a rare, surprising
+  mini-challenge dropped into a run purely for spice (not for balance or progression) — a bonus
+  catch-everything sprint, a rhythm-only gauntlet, something silly and short. Parked here rather
+  than in "Now" since it's a side-system/breadth item by nature, same category as alternate game
+  modes — worth revisiting once the core loop itself feels done.
