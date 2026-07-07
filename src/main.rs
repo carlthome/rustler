@@ -3195,6 +3195,12 @@ impl MainState {
             self.draw_level_title(ctx, canvas, width, height)?;
         }
 
+        // Frenzy banner — the staged difficulty spike's on-screen shout. Rides in high so it
+        // doesn't collide with the centered level title, fades with its timer, and pulses gold.
+        if self.frenzy_banner_timer > 0.0 {
+            self.draw_frenzy_banner(ctx, canvas, width, height)?;
+        }
+
         if self.debug_mode {
             let level = &self.levels[self.current_level];
             let pat = &level.patterns[self.current_pattern];
@@ -3378,6 +3384,52 @@ impl MainState {
             DrawParam::default()
                 .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
                 .color(Color::from_rgb(pr, pg, pb)),
+        );
+        Ok(())
+    }
+
+    /// Big gold "FRENZY!" shout when a frenzy wave lands. Pops in with a scale punch and fades
+    /// out with `frenzy_banner_timer`; sits high on screen so it never fights the level title.
+    fn draw_frenzy_banner(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        width: f32,
+        height: f32,
+    ) -> Result<(), ggez::GameError> {
+        // Normalized life 0..1 (1 = just landed). Fade over the last third; punch scale early.
+        let life = (self.frenzy_banner_timer / 1.6).clamp(0.0, 1.0);
+        let alpha = (life * 3.0).min(1.0); // hold, then fade only in the final third
+        // Beat-synced throb so it pulses with the music like everything else.
+        let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+        // Slightly larger right as it lands, settling to a gently throbbing size.
+        let scale = 1.15 - life * 0.15 + throb * 0.06;
+
+        let mut banner = Text::new("FRENZY!");
+        banner.set_scale(84.0);
+        let dims = banner.measure(ctx)?;
+        let dest = Vec2::new(
+            width / 2.0 - dims.x * scale / 2.0,
+            height * 0.16 - dims.y * scale / 2.0,
+        );
+        let a = (alpha * 255.0) as u8;
+        // Dark drop-shadow behind for legibility over any biome.
+        canvas.draw(
+            &banner,
+            DrawParam::default()
+                .dest(dest + Vec2::splat(3.0))
+                .scale(Vec2::splat(scale))
+                .color(Color::from_rgba(20, 12, 0, (a as f32 * 0.7) as u8)),
+        );
+        // Gold body, brightening on the beat.
+        let g = (200.0 + throb * 55.0) as u8;
+        canvas.draw(
+            &banner,
+            DrawParam::default()
+                .dest(dest)
+                .scale(Vec2::splat(scale))
+                .color(Color::from_rgba(255, g, 60, a)),
         );
         Ok(())
     }
@@ -4074,6 +4126,11 @@ impl EventHandler for MainState {
 
         if self.on_beat_flash > 0.0 {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
+        }
+
+        // Frenzy banner fades out over its lifetime after a frenzy wave lands.
+        if self.frenzy_banner_timer > 0.0 {
+            self.frenzy_banner_timer = (self.frenzy_banner_timer - dt).max(0.0);
         }
 
         // Groove meter decays over time; when it empties the on-beat streak lapses too.
