@@ -43,14 +43,16 @@ static UNIT_TRIANGLE: OnceLock<Mesh> = OnceLock::new();
 
 thread_local! {
     // Cache of stroke-circle meshes keyed by (radius, thickness) quantized to the nearest
-    // pixel/quarter-pixel. Ring-style effects (beat ghost rings, catch shockwaves, attraction
-    // glow) can't reuse a single unit-circle scaled via DrawParam like fill circles do, because
-    // scaling a stroke ring scales its line thickness along with its radius, distorting the
-    // taper these effects rely on. Instead we memoize the actual built mesh per rounded
-    // (radius, thickness) pair. This matters most for beat ghost rings: every crab in the conga
-    // chain gets a ring on each beat, and since they're all spawned in lockstep they share the
-    // same age every frame, so in practice one cache entry is reused by every ring in the chain
-    // instead of the whole chain rebuilding a fresh GPU mesh each frame.
+    // 2px/1px (see cached_stroke_circle). Ring-style effects (beat ghost rings, catch
+    // shockwaves, attraction glow, magnet/thief/golden auras, the delivery pen) can't reuse a
+    // single unit-circle scaled via DrawParam like fill circles do, because scaling a stroke
+    // ring scales its line thickness along with its radius, distorting the taper these effects
+    // rely on. Instead we memoize the actual built mesh per rounded (radius, thickness) pair.
+    // This matters most for beat ghost rings: every crab in the conga chain gets a ring on each
+    // beat, and since they're all spawned in lockstep they share the same age every frame, so in
+    // practice one cache entry is reused by every ring in the chain instead of the whole chain
+    // rebuilding a fresh GPU mesh each frame. Size-capped in cached_stroke_circle so a long play
+    // session sweeping many distinct radii can't grow this without bound.
     static STROKE_CIRCLE_CACHE: RefCell<HashMap<(i32, i32), Mesh>> = RefCell::new(HashMap::new());
 
     // Same idea as STROKE_CIRCLE_CACHE but for axis-aligned stroke rectangles (bar borders,
@@ -288,6 +290,26 @@ fn cached_stroke_arc(
     Ok(mesh)
 }
 
+/// Quantization used to key `STROKE_CIRCLE_CACHE`, shared by `cached_stroke_circle` and any
+/// caller (like `draw_chain_rings`'s instancing groups) that needs to compute the *same* key
+/// independently to look up a mesh `cached_stroke_circle` already inserted. Keeping this in one
+/// place avoids the two sides drifting out of sync — they used to duplicate the rounding formula
+/// inline, and a change to one without the other silently turned every cache lookup into a miss
+/// (the mesh existed under a different key, so the ring just never got drawn).
+///
+/// Quantized to the nearest 2px of radius / 1px of thickness. Most callers drive radius/
+/// thickness off continuous per-frame values (time, beat pulse, per-crab jitter), so a
+/// fine-grained key meant almost every call rounded to a *new* bucket every frame — the cache
+/// almost never hit, silently defeating the whole point of memoizing. A stroke ring's outline
+/// doesn't need sub-pixel precision, so this coarseness is visually indistinguishable but turns
+/// "rebuild a GPU mesh nearly every call" into "reuse the same handful of meshes across a run of
+/// nearby frames".
+pub fn stroke_circle_key(radius: f32, thickness: f32) -> (i32, i32) {
+    let radius = radius.max(0.5);
+    let thickness = thickness.max(0.25);
+    ((radius * 0.5).round() as i32, thickness.round() as i32)
+}
+
 /// Fetch a cached stroke-circle mesh for the given radius/thickness (built once per rounded
 /// key, reused after that), instead of calling `Mesh::new_circle` fresh every draw. The mesh is
 /// baked with `Color::WHITE` — callers should tint it via `DrawParam::color`, exactly like the
@@ -297,11 +319,25 @@ fn cached_stroke_arc(
 pub fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
     let radius = radius.max(0.5);
     let thickness = thickness.max(0.25);
-    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32);
+    let key = stroke_circle_key(radius, thickness);
 
     if let Some(mesh) = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return Ok(mesh);
     }
+
+    // Even with coarser buckets, a long play session sweeping many distinct crab sizes/radii
+    // over time would otherwise let this HashMap grow without bound (entries are never
+    // evicted). Cap it: if it's gotten large, clear it and let it repopulate from the
+    // (now coarser, so cheap to rebuild) working set instead of accreting stale meshes
+    // forever. In practice the live working set is tiny (a few dozen distinct rings on
+    // screen at once), so this almost never triggers during normal play.
+    const MAX_STROKE_CIRCLE_CACHE: usize = 512;
+    STROKE_CIRCLE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() >= MAX_STROKE_CIRCLE_CACHE {
+            c.clear();
+        }
+    });
 
     let mesh = Mesh::new_circle(
         ctx,
@@ -2478,12 +2514,10 @@ pub fn draw_chain_rings(
             let thickness = 3.5 * (1.0 - age * 0.7);
 
             // Main ring. Ensures the mesh is built/cached, then groups its DrawParam under the
-            // same key cached_stroke_circle used, so this ring instances alongside every other
+            // same key cached_stroke_circle used (via the shared stroke_circle_key helper, so
+            // the two can never drift out of sync), so this ring instances alongside every other
             // ring sharing that exact (radius, thickness) bucket this frame.
-            let key = (
-                (radius.max(0.5) * 2.0).round() as i32,
-                (thickness.max(0.25) * 4.0).round() as i32,
-            );
+            let key = stroke_circle_key(radius, thickness);
             cached_stroke_circle(ctx, radius, thickness)?;
             groups.entry(key).or_default().push(
                 DrawParam::default()
@@ -2496,10 +2530,7 @@ pub fn draw_chain_rings(
                 let glow_alpha = alpha * 0.3;
                 let glow_radius = radius + 4.0;
                 let glow_thickness = thickness * 2.0;
-                let glow_key = (
-                    (glow_radius.max(0.5) * 2.0).round() as i32,
-                    (glow_thickness.max(0.25) * 4.0).round() as i32,
-                );
+                let glow_key = stroke_circle_key(glow_radius, glow_thickness);
                 cached_stroke_circle(ctx, glow_radius, glow_thickness)?;
                 groups.entry(glow_key).or_default().push(
                     DrawParam::default()
