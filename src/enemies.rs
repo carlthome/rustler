@@ -19,6 +19,7 @@ pub enum CrabType {
     Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
     Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
     Magnet,  // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
+    Thief,   // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
 }
@@ -34,14 +35,18 @@ impl CrabType {
         // Magnet crabs are the rarest of the herd (~8%): each one reshapes routing by clustering
         // free crabs around it, so a couple per run is plenty of pull without the whole herd
         // collapsing into magnet-led blobs.
-        match rng.random_range(0..12) {
+        // Thief crabs are rare too (~8%): each one latches onto the conga tail and peels links
+        // loose, so a couple per run keeps you defending the train you built without the herd
+        // constantly gnawing it apart.
+        match rng.random_range(0..13) {
             0 | 1 => Normal,
             2 | 3 => Fast,
-            4 | 5 => Big,
-            6 | 7 => Sneaky,
-            8 => Armored,
-            9 | 10 => Dancer,
-            _ => Magnet,
+            4 => Big,
+            5 | 6 => Sneaky,
+            7 => Armored,
+            8 | 9 => Dancer,
+            10 | 11 => Magnet,
+            _ => Thief,
         }
     }
     pub fn speed_range(&self) -> std::ops::Range<f32> {
@@ -53,6 +58,7 @@ impl CrabType {
             CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
             CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
             CrabType::Magnet => 26.0..48.0,  // roams steadily — you chase it because the herd trails it
+            CrabType::Thief => 55.0..95.0,   // quick and darty — it makes a beeline for your tail
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
         }
@@ -80,6 +86,7 @@ impl CrabType {
             CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Magnet => 0.9, // a touch heavy from all the crabs it's dragging along
+            CrabType::Thief => 1.3,  // light and skittish — a whistle yanks it off your tail nicely
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
         }
@@ -94,6 +101,7 @@ impl CrabType {
             CrabType::Armored => 0.42..=0.62, // stocky, tank-like
             CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
             CrabType::Magnet => 0.40..=0.56,  // chunky, so its aura reads at a glance
+            CrabType::Thief => 0.26..=0.38,   // small and wiry — easy to lose against the herd until it's on your tail
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
         }
@@ -124,6 +132,7 @@ pub struct EnemyCrab {
     pub enraged: bool,        // latched true once a boss crosses into its final enrage phase — drives the one-shot telegraph
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
+    pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
 }
 
 impl EnemyCrab {
@@ -141,6 +150,7 @@ impl EnemyCrab {
             CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Magnet => [0.95, 0.30 + 0.15 * t, 0.20],  // magnetic lodestone red-orange
+            CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t],    // sly poison-green — reads as "trouble" against the herd
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
         }
@@ -181,6 +191,20 @@ impl EnemyCrab {
     /// gathered — a two-for-one that rewards chasing it (see the magnet-pull pass in main.rs).
     pub fn is_magnet(&self) -> bool {
         matches!(self.crab_type, CrabType::Magnet)
+    }
+
+    /// A "Thief" crab: a skittish parasite that ignores the herd and darts straight for your conga
+    /// tail. Once it reaches the tail it latches on (`latch_timer` counts down) and peels a link
+    /// loose every time the timer fires — pressuring the train you've already built rather than the
+    /// herd you're chasing. Catch it or dislodge it (whistle/stomp/beam) to stop the bleed
+    /// (see the thief-latch pass in main.rs).
+    pub fn is_thief(&self) -> bool {
+        matches!(self.crab_type, CrabType::Thief)
+    }
+
+    /// True while a Thief is actively clamped onto the tail (used to drive its "gnawing" visual).
+    pub fn is_latched(&self) -> bool {
+        self.is_thief() && self.latch_timer > 0.0
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

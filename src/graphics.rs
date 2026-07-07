@@ -523,6 +523,7 @@ impl ParticleSystem {
             CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
             CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
             CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true),  // Chunky lodestone burst — the cluster pops with it
+            CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true),  // Wiry poison-green burst — catching it feels like relief
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
         };
@@ -561,6 +562,7 @@ impl ParticleSystem {
                 CrabType::Sneaky => 8,
                 CrabType::Dancer => 14,
                 CrabType::Magnet => 12,
+                CrabType::Thief => 10,
                 _ => 0,
             };
             
@@ -576,6 +578,7 @@ impl ParticleSystem {
                     CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
                     CrabType::Dancer => [1.0, 0.5, 0.95], // Hot-pink disco confetti
                     CrabType::Magnet => [1.0, 0.55, 0.2], // Molten lodestone sparks
+                    CrabType::Thief => [0.5, 1.0, 0.6],   // Poison-green thief sparks
                     _ => [1.0, 1.0, 0.9],
                 };
                 
@@ -3267,6 +3270,59 @@ pub fn draw_magnet_aura(
             .dest(pos)
             .color(Color::new(1.0, 0.55 + core_pulse * 0.2, 0.3, 0.55)),
     );
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Thief crab marker: a sly poison-green ring so a Thief stands out from the herd as "trouble
+/// heading for your tail", plus a sharper jittering gnaw-ring when it's latched and actively
+/// peeling links (`latched` = true). The latched state pulses fast and bright so the theft in
+/// progress reads at a glance and the player knows to whistle/stomp it off.
+pub fn draw_thief_aura(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    latched: bool,
+    time: f32,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Poison-green, matching the crab's own color.
+    let (r, g, b) = (0.35, 0.95, 0.5);
+
+    if latched {
+        // Actively gnawing: a fast, bright, slightly jittering double ring so the theft screams
+        // for attention. The jitter fakes the crab tearing at the link.
+        let pulse = (time * 18.0).sin() * 0.5 + 0.5;
+        let jitter = (time * 40.0).sin() * 2.5;
+        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + jitter, 3.0)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, 0.5 + pulse * 0.4)),
+        );
+        let ring2 = cached_stroke_circle(ctx, size * 1.25 + pulse * 6.0, 2.0)?;
+        canvas.draw(
+            &ring2,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(0.6, 1.0, 0.5, 0.25 + pulse * 0.25)),
+        );
+    } else {
+        // Prowling: a steady soft ring that just marks it out, calmer than the latched frenzy.
+        let pulse = (time * 3.0).sin() * 0.5 + 0.5;
+        let ring = cached_stroke_circle(ctx, size * 0.85 + 3.0 + pulse * 3.0, 2.0)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, 0.35 + pulse * 0.2)),
+        );
+    }
 
     canvas.set_blend_mode(original_blend);
     Ok(())

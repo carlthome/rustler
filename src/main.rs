@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -1274,6 +1274,116 @@ impl MainState {
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
     }
 
+    /// Thief archetype: a skittish parasite that pressures the *train you've already built* rather
+    /// than the herd you're chasing. A free Thief ignores the flee/attract logic and beelines for
+    /// your conga tail (its homing is done in update_crabs). Once it reaches the tail it *latches*
+    /// on and, on a repeating timer, peels the trailing link loose — that crab reverts to the wild
+    /// and bolts, and the Thief keeps gnawing the new tail until you deal with it. Counterplay:
+    /// catch the Thief (beam/lasso/chain), whistle it off (whistle_pull is high for Thieves), or
+    /// stomp near it — any of those clears the latch. Self-limiting like the other tail risks:
+    /// short trains are immune, only the tail goes, never the head, and it shares the chain-snap
+    /// cooldown so it can't strip everything in one beat.
+    fn steal_chain_thief(&mut self, dt: f32) {
+        const MIN_TRAIN_TO_STEAL: usize = 4; // a little shorter than snap — the Thief is a dedicated threat
+        const LATCH_DIST: f32 = CRAB_SIZE * 1.1; // how close a Thief must get to the tail to clamp on
+        const UNLATCH_DIST: f32 = CRAB_SIZE * 2.4; // if the tail pulls this far away, the clamp breaks
+        const PEEL_INTERVAL: f32 = 1.15; // seconds between links peeled while latched
+
+        // Where's the current tail? (highest chain_index). If the train is too short, no Thief can
+        // latch, and any that were latched should let go.
+        if self.chain_count < MIN_TRAIN_TO_STEAL {
+            for c in &mut self.crabs {
+                if c.is_thief() {
+                    c.latch_timer = 0.0;
+                }
+            }
+            return;
+        }
+        let tail_index = self.chain_count - 1;
+        let Some(tail_pos) = self
+            .crabs
+            .iter()
+            .find(|c| c.caught && c.chain_index == Some(tail_index))
+            .map(|c| c.pos)
+        else {
+            return;
+        };
+
+        // Advance every Thief's latch state; collect whether any peel fired this frame.
+        let mut peel_from: Option<Vec2> = None;
+        for c in &mut self.crabs {
+            if !c.is_thief() || c.caught {
+                if c.is_thief() {
+                    c.latch_timer = 0.0; // caught Thieves stop stealing
+                }
+                continue;
+            }
+            let d = c.pos.distance(tail_pos);
+            if c.latch_timer > 0.0 {
+                // Already clamped. Ride the tail so it visually hangs off the back of the train.
+                if d > UNLATCH_DIST {
+                    c.latch_timer = 0.0; // the train outran it — it drops off
+                    continue;
+                }
+                c.pos = c.pos.lerp(tail_pos, 0.35); // cling to the tail
+                c.vel = Vec2::ZERO;
+                c.latch_timer -= dt;
+                if c.latch_timer <= 0.0 {
+                    // Timer fired — this Thief peels a link. Only the first Thief to fire this
+                    // frame actually pulls one (peel_from records it); any others just rearm, so a
+                    // cluster of Thieves can't strip several links in a single frame.
+                    if peel_from.is_none() {
+                        peel_from = Some(tail_pos);
+                    }
+                    c.latch_timer = PEEL_INTERVAL; // rearm for the next peel
+                }
+            } else if d < LATCH_DIST {
+                // Just reached the tail — clamp on. First peel comes after a full interval so the
+                // player gets a beat to react to the latch before losing a link.
+                c.latch_timer = PEEL_INTERVAL;
+            }
+        }
+
+        let Some(tail_pos) = peel_from else { return };
+        if self.chain_snap_cooldown > 0.0 {
+            return; // respect the shared grace period, but the timer already rearmed above
+        }
+
+        // Peel the single trailing link loose — always leave the head attached.
+        let keep = self.chain_count.saturating_sub(1).max(1);
+        if keep >= self.chain_count {
+            return;
+        }
+        for crab in &mut self.crabs {
+            let Some(ci) = crab.chain_index else { continue };
+            if ci >= keep {
+                crab.caught = false;
+                crab.chain_index = None;
+                crab.fleeing = true;
+                crab.startle_timer = 0.5;
+                let outward = (crab.pos - tail_pos).normalize_or_zero();
+                let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+                crab.vel = outward * crab.crab_type.speed_range().end * 1.8;
+                crab.speed = 1.0;
+            }
+        }
+        self.chain_count = keep;
+        self.chain_snap_cooldown = 0.9; // shorter than a panic snap: the Thief keeps nibbling
+
+        // Feedback: a sly green pop and a STOLEN! callout at the tail so the theft reads clearly.
+        if self.fear_rings.len() < 32 {
+            self.fear_rings.push((tail_pos, 0.0));
+        }
+        self.floating_texts.spawn(
+            "STOLEN! -1".to_string(),
+            tail_pos - Vec2::new(28.0, 30.0),
+            28.0,
+            [0.4, 0.95, 0.5, 1.0],
+        );
+        self.spawn_catch_shockwave(tail_pos, [0.35, 0.9, 0.45]);
+        self.screen_shake = self.screen_shake.max(5.0);
+    }
+
     /// Emergent herding: the solid *body* of the conga train physically deflects panicking wild
     /// crabs, bouncing them off instead of letting them phase through. Slide your line between a
     /// spooked herd and open water and you can corral fleeing crabs back toward your beam for a
@@ -2256,6 +2366,19 @@ impl MainState {
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
         const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
 
+        // Snapshot the current conga tail position so free Thief crabs can home in on it below
+        // (they ignore the herd and beeline for the train's exposed end). Only meaningful once the
+        // train is long enough for the Thief's steal to bite; otherwise Thieves just roam.
+        let thief_tail_pos: Option<Vec2> = if self.chain_count >= 4 {
+            let tail_index = self.chain_count - 1;
+            self.crabs
+                .iter()
+                .find(|c| c.caught && c.chain_index == Some(tail_index))
+                .map(|c| c.pos)
+        } else {
+            None
+        };
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -2476,10 +2599,15 @@ impl MainState {
                 // Dancer crabs don't panic-flee continuously — their escape is the beat hop
                 // (handled in the beat-fire block), so between beats they hold still instead of
                 // streaming away. This is what makes them a rhythm-timed grab rather than a chase.
+                // A Thief on the hunt for your tail doesn't panic-flee the player between latches —
+                // it's single-minded about reaching the train. (A whistle charm still stops it, and
+                // once latched it's handled in steal_chain_thief.) This keeps it a committed threat
+                // rather than one more crab that scatters when you sweep the beam past it.
                 let now_fleeing = !crab_in_light
                     && distance < FLEE_RADIUS
                     && !crab.is_boss()
                     && !crab.is_dancer()
+                    && !(crab.is_thief() && self.chain_count >= 4)
                     && crab.charm_timer <= 0.0;
 
                 if crab_in_light {
@@ -2578,6 +2706,26 @@ impl MainState {
                         let pull = (1.0 - d / MAGNET_RADIUS) * 34.0;
                         let dir = (mp - crab.pos).normalize_or_zero();
                         crab.pos += dir * pull * dt;
+                    }
+                }
+
+                // Thief homing: a free Thief that isn't in the beam (being caught) or charmed
+                // (whistled off) steers hard toward the conga tail so it can latch on and start
+                // peeling links. Only the tail — never the head — so it always attacks the exposed
+                // end. Once latched (latch_timer > 0) steal_chain_thief pins it to the tail, so we
+                // stop steering here to avoid fighting that.
+                if crab.is_thief()
+                    && !crab_in_light
+                    && crab.charm_timer <= 0.0
+                    && crab.latch_timer <= 0.0
+                {
+                    if let Some(tp) = thief_tail_pos {
+                        let dir = (tp - crab.pos).normalize_or_zero();
+                        // Drive it in at a good clip so a Thief spawning across the arena still
+                        // reaches your tail while the train is worth stealing from.
+                        let home_speed = crab.crab_type.speed_range().end * 1.4;
+                        crab.vel = crab.vel.lerp(dir * home_speed, 0.08);
+                        crab.speed = 1.0;
                     }
                 }
 
@@ -3253,6 +3401,7 @@ impl MainState {
                 enraged: false,
                 charge_state: BossCharge::Idle,
                 charge_cooldown: 0.0,
+                latch_timer: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -4480,6 +4629,11 @@ impl MainState {
                     // player can see the catchment and chase it for the two-for-one cluster catch.
                     let size = crab.scale * CRAB_SIZE;
                     draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed)?;
+                } else if crab.is_thief() {
+                    // Thief marker — a sly green ring while it prowls, flaring into a fast gnaw-ring
+                    // once it's latched onto the tail so the theft-in-progress reads at a glance.
+                    let size = crab.scale * CRAB_SIZE;
+                    draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), self.time_elapsed)?;
                 }
             }
         }
@@ -5412,6 +5566,13 @@ impl EventHandler for MainState {
         // route a long train through the weeds instead of around them.
         self.snag_chain_on_kelp(dt);
 
+        // Thief archetype: a parasite crab clamped onto the tail steadily peels links loose on a
+        // timer until you catch or dislodge it — pressure on the train you've already built.
+        self.steal_chain_thief(dt);
+        // A whistle or a nearby stomp shakes a latched Thief off the tail (both raise/consume
+        // charm below); handled inside update_crabs' charm application for the whistle, and the
+        // stomp clears it via its blast radius. The latch state is otherwise self-limiting.
+
         // Boss enrage set-piece (King Crab): the cracked-floor fissures bite the tail if you drag it
         // through one, so the arena reshape has real teeth. Fissures also finish opening here.
         for (_, _, age) in self.boss_fissures.iter_mut() {
@@ -5556,6 +5717,9 @@ impl EventHandler for MainState {
                     crab.fleeing = false;
                     crab.startle_timer = 0.0;
                     crab.charm_timer = crab.charm_timer.max(charm_dur);
+                    // A whistle pops a latched Thief off the tail — it lets go and gets yanked in
+                    // with the rest of the gathered herd. This is *the* clean counter to a Thief.
+                    crab.latch_timer = 0.0;
                 }
             }
             // Warm puffs rising off the crabs the pulse just calmed — the visual counterpart to
@@ -5594,6 +5758,9 @@ impl EventHandler for MainState {
                     crab.boss_health = 0.0;
                     cracked.push(crab.pos);
                 }
+                // A Stomp near the tail also shakes a latched Thief loose — the ground-pound is a
+                // second, close-range counter to the Thief on top of the whistle.
+                crab.latch_timer = 0.0;
                 // Light inward shove + brief calm so the shaken crab doesn't immediately bolt.
                 let toward = (center - crab.pos).normalize_or_zero();
                 crab.vel = toward * (WHISTLE_PULL_SPEED * 0.6);
