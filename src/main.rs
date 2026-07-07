@@ -3755,6 +3755,9 @@ impl MainState {
             texture,
             &self.shader,
             self.time_elapsed,
+            // Beat phase 0→1 across a beat (0 the instant one lands), so the grass shader can
+            // fire a ripple of light outward from center on every downbeat.
+            (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0),
             Color::from_rgb(tr, tg, tb),
         )?;
 

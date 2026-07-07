@@ -459,6 +459,10 @@ pub struct ResolutionUniform {
     pub width: f32,
     pub height: f32,
     pub time: f32,
+    // Beat phase in [0,1): 0.0 the instant a beat lands, climbing to ~1.0 just before the next.
+    // The grass shader uses it to fire a concentric ripple of light out from screen center on
+    // each downbeat, so the whole ground breathes in time with the music.
+    pub beat: f32,
 }
 
 #[derive(Copy, Clone, Debug, AsStd140)]
@@ -945,6 +949,7 @@ pub fn draw_grass(
     texture: &Image,
     shader: &Shader,
     time: f32,
+    beat: f32,
     biome_tint: Color,
 ) -> ggez::GameResult {
     let blend_mode = canvas.blend_mode();
@@ -961,6 +966,7 @@ pub fn draw_grass(
         width,
         height,
         time,
+        beat,
     })
     .build(ctx);
     canvas.set_shader_params(&params);

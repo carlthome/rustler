@@ -8,6 +8,8 @@ struct ResolutionUniform {
     width: f32,
     height: f32,
     time: f32,
+    // Beat phase in [0,1): 0.0 the instant a beat lands, climbing toward 1.0 before the next.
+    beat: f32,
 }
 
 @group(1) @binding(0)
@@ -120,6 +122,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Tiny highlight speck at each tuft tip for a bit of sparkle in the field.
     let tip = (1.0 - smoothstep(0.0, 0.035, td)) * present;
     color += vec3<f32>(0.12, 0.16, 0.08) * tip;
+
+    // --- Beat ripple: a ring of light rides outward from screen center on every downbeat,
+    // so the whole ground pulses in time with the music. `beat` is 0 the instant a beat lands
+    // and climbs toward 1 before the next, so the ring's radius tracks the phase directly.
+    let center = vec2<f32>(0.5 * aspect, 0.5);
+    let r = distance(uv, center);
+    // Ring radius sweeps out with the beat phase; a smooth band chases it.
+    let ring_r = resolution.beat * 1.3;
+    let ring = 1.0 - smoothstep(0.0, 0.16, abs(r - ring_r));
+    // Fade the ring as it expands so it dissolves at the edges rather than snapping off.
+    let ring_fade = 1.0 - smoothstep(0.5, 1.3, ring_r);
+    // Warm gold pulse, brightest at the leading edge and on the tufts it washes over.
+    let pulse = ring * ring_fade;
+    color += vec3<f32>(0.16, 0.13, 0.05) * pulse;
+    color += tuft_color * tuft * pulse * 0.9;
+
+    // A gentle full-field breath right on the beat (strongest at beat==0), so even far from
+    // the ring the ground lifts a touch with each hit.
+    let breath = pow(1.0 - resolution.beat, 3.0);
+    color += vec3<f32>(0.03, 0.045, 0.02) * breath;
 
     return vec4<f32>(color, 1.0);
 }
