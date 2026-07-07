@@ -1116,9 +1116,13 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // `rotation` to `angle` before computing everything in world space directly.
     let leg_len = size * 0.7;
     let leg_color = Color::from_rgb(200, 50, 50);
+    // Hoisted out of the loop: `time_since_start()` reads the system clock (Instant::now())
+    // every call, and the value is identical across all 6 legs — with a long conga train this
+    // was 6 redundant clock reads per crab per frame (1000s/frame at high crab counts) for a
+    // value that never changes within the loop.
+    let time = ctx.time.time_since_start().as_secs_f32();
     for i in 0..6 {
         let base_angle = std::f32::consts::PI * (0.25 + i as f32 / 6.0);
-        let time = ctx.time.time_since_start().as_secs_f32();
         let phase = (crab.pos.x + crab.pos.y) * 0.05;
         let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
         let wiggle_amp = 0.18 + beat_phase * 0.12;
