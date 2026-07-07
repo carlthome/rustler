@@ -83,6 +83,13 @@ const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-r
 const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
 const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
 const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
+// Delivery streak: banking crabs in quick succession stacks a payout multiplier. Each bank bumps
+// the streak (capped) and refreshes a grace window; letting the window lapse decays it a notch.
+const DELIVER_STREAK_GRACE: f32 = 14.0; // seconds a bank buys before the streak decays a notch
+const DELIVER_STREAK_MAX: u32 = 8;      // cap so the multiplier can't run away
+// Banking on the beat lands a PERFECT DELIVERY: a flat percentage bonus on the bank, stacking on
+// top of the streak multiplier — the game's rhythm hook applied to its biggest payoff.
+const PERFECT_DELIVERY_BONUS: f32 = 0.5; // +50% on a bank that lands on the beat
 
 // --- Meta-progression shop (spend side) ---------------------------------------------------
 // Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
@@ -448,6 +455,14 @@ struct MainState {
     // each level so routing the train there stays a fresh decision.
     pen_pos: Vec2,                       // center of the delivery pen on the field
     deliver_flash: f32,                  // 1..0 bloom timer after a successful bank (visual only)
+    // Delivery streak — consecutive banks escalate a payout multiplier so cashing in repeatedly
+    // (rather than hoarding one giant train) builds its own rising reward, and banking *on the
+    // beat* stacks a "PERFECT DELIVERY" rhythm bonus on top. Closes the rhythm hook over the
+    // game's single biggest payoff moment. `deliver_streak` counts banks in a row; it never
+    // resets on its own (there's no fail state for banking) but a long dry spell decays it via
+    // `deliver_streak_timer` so the multiplier reflects *recent* cashing tempo, not lifetime.
+    deliver_streak: u32,
+    deliver_streak_timer: f32,           // seconds of grace left before an idle streak decays a notch
     // Tide pools — terrain that shapes where the train can go. Each pool is a patch of shallow
     // water (center, radius) that drags on movement: crossing one slows the player to a wade, and
     // because the whole conga tail replays the player's path, hauling a long train through open
@@ -788,6 +803,8 @@ impl MainState {
             next_boss_is_tide: false,
             pen_pos: init_pen,
             deliver_flash: 0.0,
+            deliver_streak: 0,
+            deliver_streak_timer: 0.0,
             tide_pools: init_tide_pools,
             in_tide_pool: false,
             chain_rings: Vec::new(),
@@ -1380,9 +1397,23 @@ impl MainState {
             return;
         }
 
-        // Super-linear payout: triangular sum so crab #n adds n points, times a flat handler.
+        // Super-linear base payout: triangular sum so crab #n adds n points, times a flat handler.
         let n = delivered;
-        let bank = (n * (n + 1) / 2) * 3;
+        let base = (n * (n + 1) / 2) * 3;
+
+        // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
+        // window; the streak multiplier escalates the payout so cashing in repeatedly at tempo pays
+        // off, not just hoarding one giant train.
+        self.deliver_streak = (self.deliver_streak + 1).min(DELIVER_STREAK_MAX);
+        self.deliver_streak_timer = DELIVER_STREAK_GRACE;
+        // Streak 1 = 1.0x, then +0.25x per bank: 1.25x, 1.5x, ... up to 2.75x at the cap.
+        let streak_mult = 1.0 + (self.deliver_streak.saturating_sub(1) as f32) * 0.25;
+
+        // Banking on the beat lands a PERFECT DELIVERY: a flat percentage bonus on top of the streak.
+        let perfect = self.on_beat_now();
+        let perfect_mult = if perfect { 1.0 + PERFECT_DELIVERY_BONUS } else { 1.0 };
+
+        let bank = (base as f32 * streak_mult * perfect_mult).round() as usize;
         self.score += bank;
 
         // The delivered crabs leave the field for good — they've been penned.
@@ -1393,26 +1424,58 @@ impl MainState {
         // Big celebratory feedback so banking feels like a real payoff, not just a number ticking.
         let mut rng = rand::rng();
         self.particle_system.spawn_milestone_fireworks(self.pen_pos, n, &mut rng);
-        self.spawn_catch_shockwave(self.pen_pos, [0.5, 1.0, 0.5]);
+        // A perfect on-beat bank gets a gold rhythm ring; a plain bank stays green.
+        self.spawn_catch_shockwave(
+            self.pen_pos,
+            if perfect { [1.0, 0.85, 0.3] } else { [0.5, 1.0, 0.5] },
+        );
+        // A hot streak throws a second, larger firework burst so the escalation reads on screen.
+        if self.deliver_streak >= 3 {
+            self.particle_system
+                .spawn_milestone_fireworks(self.pen_pos, n + self.deliver_streak as usize * 4, &mut rng);
+        }
         self.floating_texts.spawn(
             format!("BANKED +{}", bank),
             self.pen_pos - Vec2::new(60.0, 40.0),
             48.0,
             [0.4, 1.0, 0.5, 1.0],
         );
+        // Perfect-on-beat and streak callouts stack above the bank number so the player sees *why*
+        // this bank paid more.
+        let mut callout_y = 4.0;
+        if perfect {
+            self.floating_texts.spawn(
+                "PERFECT DELIVERY!".to_string(),
+                self.pen_pos - Vec2::new(95.0, callout_y),
+                30.0,
+                [1.0, 0.9, 0.35, 1.0],
+            );
+            callout_y += 30.0;
+        }
+        if self.deliver_streak >= 2 {
+            self.floating_texts.spawn(
+                format!("x{} STREAK  ({:.2}x)", self.deliver_streak, streak_mult),
+                self.pen_pos - Vec2::new(85.0, callout_y),
+                26.0,
+                [1.0, 0.55, 0.9, 1.0],
+            );
+            callout_y += 26.0;
+        }
         self.floating_texts.spawn(
             format!("{} crabs delivered!", n),
-            self.pen_pos - Vec2::new(70.0, 4.0),
+            self.pen_pos - Vec2::new(70.0, callout_y),
             26.0,
             [1.0, 0.95, 0.6, 1.0],
         );
         self.deliver_flash = 1.0;
-        self.zoom_punch = self.zoom_punch.max(0.11);
-        self.screen_shake = self.screen_shake.max(18.0);
+        // A perfect / hot-streak bank hits harder: more zoom, more shake, a fuller groove kick.
+        let intensity = streak_mult * perfect_mult;
+        self.zoom_punch = self.zoom_punch.max(0.11 * intensity);
+        self.screen_shake = self.screen_shake.max(18.0 * intensity);
         let kick_angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
-        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 18.0 * 60.0;
-        self.on_beat_flash = 0.6;
-        self.groove = (self.groove + 0.35).min(1.0);
+        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 18.0 * intensity * 60.0;
+        self.on_beat_flash = if perfect { 0.85 } else { 0.6 };
+        self.groove = (self.groove + if perfect { 0.5 } else { 0.35 }).min(1.0);
         let _ = self.sounds.success2.play_detached(ctx);
 
         // Move the pen so the next bank is a fresh routing decision, not a treadmill loop.
@@ -2461,6 +2524,8 @@ impl MainState {
         self.slam_radius = 0.0;
         self.slam_flash = 0.0;
         self.beat_streak = 0;
+        self.deliver_streak = 0;
+        self.deliver_streak_timer = 0.0;
         self.catch_radius_upgrade = 0.0;
         // Seed tool ranks from the permanently-purchased starting ranks, not zero, so bought perks
         // carry into every fresh run.
@@ -4677,6 +4742,17 @@ impl EventHandler for MainState {
         self.try_deliver_train(ctx);
         if self.deliver_flash > 0.0 {
             self.deliver_flash = (self.deliver_flash - dt * 1.6).max(0.0);
+        }
+        // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the
+        // multiplier tracks recent cashing tempo. Each notch grants a fresh grace window.
+        if self.deliver_streak > 0 {
+            self.deliver_streak_timer = (self.deliver_streak_timer - dt).max(0.0);
+            if self.deliver_streak_timer <= 0.0 {
+                self.deliver_streak -= 1;
+                if self.deliver_streak > 0 {
+                    self.deliver_streak_timer = DELIVER_STREAK_GRACE;
+                }
+            }
         }
 
         // Decay join_pulse ripple timers
