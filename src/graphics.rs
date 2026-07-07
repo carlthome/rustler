@@ -34,6 +34,13 @@ static UNIT_LINE: OnceLock<Mesh> = OnceLock::new();
 // every single frame regardless of whether any effect is active.
 static UNIT_SQUARE: OnceLock<Mesh> = OnceLock::new();
 
+// A unit equilateral-ish triangle pointing along +x (tip at (1,0), base corners at roughly
+// (-0.5, +-0.75)), built once and reused for every screen-edge radar arrow via `DrawParam`
+// rotation + scale instead of baking each arrow's rotated tip/base points into two fresh
+// `Mesh::new_polygon` GPU buffers (arrow + glow) every frame. Every uncaught crab near a
+// screen edge was allocating two brand-new GPU meshes per frame it stayed there.
+static UNIT_TRIANGLE: OnceLock<Mesh> = OnceLock::new();
+
 thread_local! {
     // Cache of stroke-circle meshes keyed by (radius, thickness) quantized to the nearest
     // pixel/quarter-pixel. Ring-style effects (beat ghost rings, catch shockwaves, attraction
@@ -2148,6 +2155,15 @@ pub fn draw_crab_radar(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
+    let triangle = match UNIT_TRIANGLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let pts = [[1.0_f32, 0.0], [-0.5, 0.75], [-0.5, -0.75]];
+            let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &pts, Color::WHITE)?;
+            UNIT_TRIANGLE.get_or_init(|| mesh)
+        }
+    };
+
     for crab in crabs {
         if crab.caught {
             continue;
@@ -2178,11 +2194,10 @@ pub fn draw_crab_radar(
             dy.atan2(dx)
         };
 
-        // Build a small equilateral triangle pointing in `angle` direction
-        // tip is at (arrow_size, 0) in local space, base at (-arrow_size/2, ±arrow_size*0.75)
-        let tip   = Vec2::new(angle.cos(), angle.sin()) * arrow_size;
-        let left  = Vec2::new((angle + 2.2).cos(), (angle + 2.2).sin()) * arrow_size * 0.75;
-        let right = Vec2::new((angle - 2.2).cos(), (angle - 2.2).sin()) * arrow_size * 0.75;
+        // Arrow points toward `angle` from the edge position — the cached unit triangle already
+        // points along +x with its tip at local (1,0), so a rotation to `angle` plus a scale by
+        // `arrow_size` reproduces the old per-crab tip/left/right geometry exactly, without
+        // rebuilding it.
         let origin = Vec2::new(edge_x, edge_y);
 
         let [r, g, b] = crab.crab_color();
@@ -2194,24 +2209,25 @@ pub fn draw_crab_radar(
             (b + brightness).min(1.0),
             0.75 + beat_intensity * 0.2,
         );
+        canvas.draw(
+            triangle,
+            DrawParam::default()
+                .dest(origin)
+                .rotation(angle)
+                .scale(Vec2::splat(arrow_size))
+                .color(color),
+        );
 
-        let pts = [
-            [origin.x + tip.x,   origin.y + tip.y],
-            [origin.x + left.x,  origin.y + left.y],
-            [origin.x + right.x, origin.y + right.y],
-        ];
-        let triangle = Mesh::new_polygon(ctx, DrawMode::fill(), &pts, color)?;
-        canvas.draw(&triangle, DrawParam::default());
-
-        // Glow outline
+        // Glow outline — same shape at 1.5x scale, matching the old glow_pts geometry.
         let glow_color = Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 0.35 + beat_intensity * 0.15);
-        let glow_pts = [
-            [origin.x + tip.x   * 1.5, origin.y + tip.y   * 1.5],
-            [origin.x + left.x  * 1.5, origin.y + left.y  * 1.5],
-            [origin.x + right.x * 1.5, origin.y + right.y * 1.5],
-        ];
-        let glow = Mesh::new_polygon(ctx, DrawMode::fill(), &glow_pts, glow_color)?;
-        canvas.draw(&glow, DrawParam::default());
+        canvas.draw(
+            triangle,
+            DrawParam::default()
+                .dest(origin)
+                .rotation(angle)
+                .scale(Vec2::splat(arrow_size * 1.5))
+                .color(glow_color),
+        );
     }
 
     canvas.set_blend_mode(original_blend);
