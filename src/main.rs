@@ -154,6 +154,15 @@ thread_local! {
     // re-measured) on the rare frame that flag actually changes.
     static GROOVE_LABEL_CACHE: RefCell<Option<(bool, Text, f32)>> = RefCell::new(None);
 
+    // The Groove Gamble multiplier badge ("GROOVE GAMBLE  xN.NN") was rebuilding a fresh Text
+    // AND baking a pulsing "pop" scale into the font size itself (Text::set_scale) every frame
+    // the multiplier is live — a glyph-layout pass ~60 times/sec during any hot streak, the exact
+    // pattern already fixed for the groove meter label above. The multiplier only steps in fixed
+    // +0.25 increments, so key the cache on that rounded value (in hundredths) and only re-measure
+    // when it actually changes; the per-frame "pop" pulse is applied as a DrawParam scale instead,
+    // which is free (no re-layout) since it scales the already-rasterized glyphs.
+    static GAMBLE_BADGE_CACHE: RefCell<Option<(u32, Text, f32)>> = RefCell::new(None);
+
     // The menu/instructions screen's translucent rounded panel behind the controls text. Its
     // geometry only depends on window width/height (never on `menu_time`), yet
     // draw_instructions_screen was rebuilding a fresh `Mesh::new_rounded_rectangle` GPU buffer
@@ -3784,15 +3793,31 @@ impl MainState {
             // Cyan-green when warming, to gold, to hot red at the cap — matches the callout tiers.
             let (r, g, b) = (0.4 + t * 0.6, 1.0 - t * 0.7, 0.6 - t * 0.5);
             let pop = 1.0 + self.beat_gamble_flash * 0.6 + self.beat_intensity * 0.2;
-            let mut badge = Text::new(format!("GROOVE GAMBLE  x{:.2}", self.beat_gamble_mult));
-            badge.set_scale(20.0 * pop.min(1.4));
-            let bw = badge.measure(ctx)?.x;
-            canvas.draw(
-                &badge,
-                DrawParam::default()
-                    .dest(Vec2::new((width - bw) / 2.0, 56.0))
-                    .color(Color::new((r * pop).min(1.0), (g * pop).min(1.0), (b * pop).min(1.0), 1.0)),
-            );
+            // Text/width only change when the multiplier steps (every +0.25) — cache both and
+            // apply the per-frame "pop" pulse as a DrawParam scale (cheap) instead of baking it
+            // into the font size (forces a re-measure every frame).
+            let key = (self.beat_gamble_mult * 100.0).round() as u32;
+            GAMBLE_BADGE_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = !matches!(&*cache, Some((k, _, _)) if *k == key);
+                if needs_rebuild {
+                    let mut badge = Text::new(format!("GROOVE GAMBLE  x{:.2}", self.beat_gamble_mult));
+                    badge.set_scale(20.0);
+                    let bw = badge.measure(ctx)?.x;
+                    *cache = Some((key, badge, bw));
+                }
+                let (_, badge, bw) = cache.as_ref().unwrap();
+                let scale = pop.min(1.4);
+                let dw = bw * scale;
+                canvas.draw(
+                    badge,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - dw) / 2.0, 56.0))
+                        .scale(Vec2::new(scale, scale))
+                        .color(Color::new((r * pop).min(1.0), (g * pop).min(1.0), (b * pop).min(1.0), 1.0)),
+                );
+                Ok(())
+            })?;
         }
 
         // Streak-lost sting — a brief red screen wash when a hot Gamble breaks, so the cost of a
