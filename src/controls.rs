@@ -65,11 +65,21 @@ pub fn handle_player_movement(
     use crate::levels::TerrainKind;
     let terrain = state.current_terrain();
     let player_center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
-    let touching = state
+    // The biome's native patches are all but the last `boss_flood_pools` entries; those trailing
+    // entries are Tide Boss surge water (see main.rs) and always drag like water regardless of the
+    // biome terrain, so a flood on a Rock/Open zone is a real routing change, not just a visual.
+    let native_count = state
         .tide_pools
+        .len()
+        .saturating_sub(state.boss_flood_pools);
+    let touching = state.tide_pools[..native_count]
         .iter()
         .any(|(c, r)| player_center.distance(*c) < *r);
-    state.in_tide_pool = touching && matches!(terrain, TerrainKind::Water | TerrainKind::Kelp);
+    let in_flood = state.tide_pools[native_count..]
+        .iter()
+        .any(|(c, r)| player_center.distance(*c) < *r);
+    state.in_tide_pool =
+        in_flood || (touching && matches!(terrain, TerrainKind::Water | TerrainKind::Kelp));
     match terrain {
         TerrainKind::Water if touching => {
             // Cut top speed and bleed off momentum faster while submerged.
@@ -82,6 +92,11 @@ pub fn handle_player_movement(
             friction *= 0.9;
         }
         _ => {}
+    }
+    // Tide Boss flood water: same wade-drag as native water, applied on any biome.
+    if in_flood {
+        move_speed *= 0.5;
+        friction *= 0.82;
     }
 
     if dir != Vec2::ZERO {
@@ -109,7 +124,8 @@ pub fn handle_player_movement(
     // rather than terrain you can wade through.
     if terrain == TerrainKind::Rock {
         let mut center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
-        for (c, r) in &state.tide_pools {
+        // Only the biome's native patches are solid rock; trailing flood pools are water, not walls.
+        for (c, r) in &state.tide_pools[..native_count] {
             let to_player = center - *c;
             let dist = to_player.length();
             if dist < *r && dist > 0.0001 {

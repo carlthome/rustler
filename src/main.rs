@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -509,6 +509,15 @@ struct MainState {
     // — skirt the pools or dash across them — stays a live, geography-driven decision.
     tide_pools: Vec<(Vec2, f32)>,        // (center, radius) of each shallow-water drag zone
     in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
+    // Arena-shifting boss enrage: when a boss crosses its enrage threshold it reshapes the space of
+    // the duel. A King Crab CRACKS THE FLOOR into these fissures — (center, radius, age) hazard pits
+    // that snap the conga tail if it lingers in one, so the finale is a routing gauntlet, not just a
+    // faster charger. `age` counts up from 0 (crack tearing open) toward 1 (settled hazard). The
+    // Tide Boss instead FLOODS the arena by appending extra drag pools to `tide_pools`; we remember
+    // how many it added in `boss_flood_pools` so `on_boss_caught` can drain exactly those back off
+    // without disturbing the level's own water. Both clear when the boss is caught.
+    boss_fissures: Vec<(Vec2, f32, f32)>,
+    boss_flood_pools: usize,             // count of extra pools a Tide Boss flooded in on enrage
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
     // A bright whip-streak that arcs from where a crab was caught to the head of the train, so a
@@ -867,6 +876,8 @@ impl MainState {
             deliver_streak_timer: 0.0,
             tide_pools: init_tide_pools,
             in_tide_pool: false,
+            boss_fissures: Vec::new(),
+            boss_flood_pools: 0,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             catch_trails: Vec::new(),
@@ -1105,7 +1116,11 @@ impl MainState {
         else {
             return;
         };
-        let tail_in_kelp = self.tide_pools.iter().any(|(c, r)| tail_pos.distance(*c) < *r);
+        // Only the biome's native kelp patches snag — trailing flood pools are Tide Boss water.
+        let native_count = self.tide_pools.len().saturating_sub(self.boss_flood_pools);
+        let tail_in_kelp = self.tide_pools[..native_count]
+            .iter()
+            .any(|(c, r)| tail_pos.distance(*c) < *r);
         if !tail_in_kelp {
             return;
         }
@@ -1753,6 +1768,190 @@ impl MainState {
         if self.catch_shockwaves.len() < 48 {
             self.catch_shockwaves.push((pos, 0.0, shock_color));
         }
+
+        // The duel's over: the arena the boss reshaped heals. King Crab fissures seal (with a puff
+        // of receding light) and any flood water the Tide Boss surged in recedes back off, leaving
+        // only the biome's own pools. Recede exactly `boss_flood_pools` from the tail of the vec —
+        // flood pools are always appended, so they're the last N entries.
+        for &(fc, _, _) in &self.boss_fissures {
+            if self.catch_shockwaves.len() < 48 {
+                self.catch_shockwaves.push((fc, 0.0, [1.0, 0.6, 0.2]));
+            }
+        }
+        self.boss_fissures.clear();
+        if self.boss_flood_pools > 0 {
+            let drain = self.boss_flood_pools.min(self.tide_pools.len());
+            let new_len = self.tide_pools.len() - drain;
+            self.tide_pools.truncate(new_len);
+            self.boss_flood_pools = 0;
+        }
+    }
+
+    /// King Crab enrage set-piece: the boss slams the seabed and CRACKS THE FLOOR, splitting the
+    /// arena into a scatter of glowing fissures the player must weave the conga tail around for the
+    /// rest of the duel (see `damage_tail_in_fissures`). Fissures are kept off the delivery pen (so
+    /// banking never becomes a coin flip), off the boss's own spot, and spaced apart so they read as
+    /// distinct lanes to thread rather than one big kill zone. Cleared when the boss is caught.
+    fn crack_arena_fissures(&mut self, boss_pos: Vec2) {
+        let mut rng = rand::rng();
+        let count = 5;
+        let mut placed = 0;
+        let mut attempts = 0;
+        while placed < count && attempts < 60 {
+            attempts += 1;
+            let radius = rng.random_range(56.0..92.0);
+            let margin = radius + 30.0;
+            let c = Vec2::new(
+                rng.random_range(margin..(self.width - margin)),
+                rng.random_range(margin..(self.height - margin)),
+            );
+            if c.distance(self.pen_pos) < radius + PEN_RADIUS + 50.0 {
+                continue;
+            }
+            if c.distance(boss_pos) < radius + 90.0 {
+                continue;
+            }
+            if self
+                .boss_fissures
+                .iter()
+                .any(|(fc, fr, _)| c.distance(*fc) < radius + fr + 60.0)
+            {
+                continue;
+            }
+            self.boss_fissures.push((c, radius, 0.0));
+            placed += 1;
+        }
+        // A loud callout so the player reads the arena change, not just "the boss got faster".
+        self.floating_texts.spawn(
+            "THE FLOOR CRACKS!".to_string(),
+            boss_pos - Vec2::new(120.0, 92.0),
+            34.0,
+            [1.0, 0.5, 0.15, 1.0],
+        );
+    }
+
+    /// Tide Boss enrage set-piece: the arena FLOODS. The boss surges the water level, appending a
+    /// handful of extra wade-drag pools to the level's own `tide_pools` so the whole space suddenly
+    /// routes differently — the safe lanes you'd learned are underwater now. We remember how many we
+    /// added (`boss_flood_pools`) so catching the boss can recede exactly the flood water without
+    /// disturbing the biome's native pools. Flood pools avoid the pen and the boss's own position.
+    fn flood_arena(&mut self, boss_pos: Vec2) {
+        let mut rng = rand::rng();
+        let count = 4;
+        let mut placed = 0;
+        let mut attempts = 0;
+        while placed < count && attempts < 60 {
+            attempts += 1;
+            let radius = rng.random_range(80.0..130.0);
+            let margin = radius + 30.0;
+            let c = Vec2::new(
+                rng.random_range(margin..(self.width - margin)),
+                rng.random_range(margin..(self.height - margin)),
+            );
+            if c.distance(self.pen_pos) < radius + PEN_RADIUS + 40.0 {
+                continue;
+            }
+            if c.distance(boss_pos) < radius + 80.0 {
+                continue;
+            }
+            if self
+                .tide_pools
+                .iter()
+                .any(|(pc, pr)| c.distance(*pc) < radius + pr + 40.0)
+            {
+                continue;
+            }
+            self.tide_pools.push((c, radius));
+            self.boss_flood_pools += 1;
+            placed += 1;
+            // A cold burst of splash where each new pool wells up.
+            self.spawn_catch_shockwave(c, [0.3, 0.7, 1.0]);
+        }
+        self.floating_texts.spawn(
+            "THE ARENA FLOODS!".to_string(),
+            boss_pos - Vec2::new(120.0, 92.0),
+            34.0,
+            [0.4, 0.85, 1.0, 1.0],
+        );
+    }
+
+    /// While a King Crab's enrage fissures are open, the conga tail is at risk if it's dragged
+    /// through one — the cracked floor bites off the last few links, the same self-limiting way the
+    /// panic snap and kelp snag do (only long trains, only the tail, gated by the shared cooldown).
+    /// This is the teeth behind the arena-crack set-piece: the fissures aren't decoration, they make
+    /// routing the train the thing you sweat over in the boss's final phase.
+    fn damage_tail_in_fissures(&mut self, dt: f32) {
+        const MIN_TRAIN_TO_SNAP: usize = 5;
+        const SNAP_LINKS: usize = 2;
+        const SNAP_COOLDOWN: f32 = 1.8;
+        const SNAP_CHANCE_PER_SEC: f32 = 0.8;
+
+        if self.boss_fissures.is_empty()
+            || self.chain_snap_cooldown > 0.0
+            || self.chain_count < MIN_TRAIN_TO_SNAP
+        {
+            return;
+        }
+        let tail_index = self.chain_count - 1;
+        let Some(tail_pos) = self
+            .crabs
+            .iter()
+            .find(|c| c.caught && c.chain_index == Some(tail_index))
+            .map(|c| c.pos)
+        else {
+            return;
+        };
+        // Only bite if the tail is actually inside a fully-open fissure — weave around and you're safe.
+        let in_fissure = self
+            .boss_fissures
+            .iter()
+            .any(|(c, r, age)| *age > 0.6 && tail_pos.distance(*c) < *r);
+        if !in_fissure {
+            return;
+        }
+        if rand::random::<f32>() > SNAP_CHANCE_PER_SEC * dt {
+            return;
+        }
+
+        let keep = self.chain_count.saturating_sub(SNAP_LINKS).max(1);
+        let snapped = self.chain_count - keep;
+        let mut snapped_positions: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            let Some(ci) = crab.chain_index else { continue };
+            if ci >= keep {
+                crab.caught = false;
+                crab.chain_index = None;
+                crab.fleeing = true;
+                crab.startle_timer = 0.6;
+                let outward = (crab.pos - tail_pos).normalize_or_zero();
+                let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+                crab.vel = outward * crab.crab_type.speed_range().end * 1.8;
+                crab.speed = 1.0;
+                snapped_positions.push(crab.pos);
+            }
+        }
+        self.chain_count = keep;
+        self.chain_snap_cooldown = SNAP_COOLDOWN;
+
+        for pos in &snapped_positions {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                *pos - Vec2::new(0.0, 24.0),
+                24.0,
+                [1.0, 0.55, 0.2, 1.0],
+            );
+        }
+        self.floating_texts.spawn(
+            format!("SWALLOWED!  -{}", snapped),
+            tail_pos - Vec2::new(40.0, 32.0),
+            30.0,
+            [1.0, 0.5, 0.15, 1.0],
+        );
+        self.spawn_catch_shockwave(tail_pos, [1.0, 0.5, 0.15]);
+        self.screen_shake = self.screen_shake.max(6.0);
     }
 
     /// A Tide Boss pulse detonates at `center`: an expanding shockwave ring that shoves every
@@ -2418,6 +2617,15 @@ impl MainState {
             let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 20.0 * 60.0;
             self.on_beat_flash = self.on_beat_flash.max(0.5);
+
+            // Arena-shifting enrage: the boss doesn't just get angrier, it reshapes the duel space
+            // for its final act. A King Crab cracks the floor into hazard fissures to weave around;
+            // a Tide Boss floods the arena with extra wade-drag pools so routing changes mid-fight.
+            if is_tide {
+                self.flood_arena(pos);
+            } else {
+                self.crack_arena_fissures(pos);
+            }
         }
 
         // King Crab winding up a charge: red alarm ring + shouted warning so the player has time
@@ -2625,6 +2833,9 @@ impl MainState {
                 difficulty,
                 &mut rand::rng(),
             );
+            // New zone wipes any boss-flooded water/fissures — the fresh pools are the level's own.
+            self.boss_flood_pools = 0;
+            self.boss_fissures.clear();
         }
         if self.current_level >= self.levels.len() {
             // Game completed, show game over screen.
@@ -2811,6 +3022,8 @@ impl MainState {
             &mut rand::rng(),
         );
         self.in_tide_pool = false;
+        self.boss_fissures.clear();
+        self.boss_flood_pools = 0;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
         self.catch_trails.clear();
@@ -3320,15 +3533,40 @@ impl MainState {
         }
 
         // Tide pools — terrain hazards on the ground layer, under the crabs/rope, so the train
-        // visibly wades through the water it's being routed around.
+        // visibly wades through the water it's being routed around. When a Tide Boss has flooded the
+        // arena, the last `boss_flood_pools` entries are its surge water: they always read as water
+        // regardless of the biome's native terrain skin (rock/kelp/open), so we draw the biome's own
+        // pools with the biome terrain, then the flood slice explicitly as water on top.
+        let native_pool_count = self.tide_pools.len().saturating_sub(self.boss_flood_pools);
         draw_tide_pools(
             ctx,
             canvas,
-            &self.tide_pools,
+            &self.tide_pools[..native_pool_count],
             self.time_elapsed,
             self.beat_intensity,
             self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             biome.terrain,
+        )?;
+        if self.boss_flood_pools > 0 {
+            draw_tide_pools(
+                ctx,
+                canvas,
+                &self.tide_pools[native_pool_count..],
+                self.time_elapsed,
+                self.beat_intensity,
+                self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+                crate::levels::TerrainKind::Water,
+            )?;
+        }
+
+        // King Crab enrage set-piece: the cracked-floor fissures the boss split the arena into.
+        // Drawn over the water so they read as hot hazards welling up through the ground.
+        draw_boss_fissures(
+            ctx,
+            canvas,
+            &self.boss_fissures,
+            self.time_elapsed,
+            self.beat_intensity,
         )?;
 
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
@@ -5066,6 +5304,13 @@ impl EventHandler for MainState {
         // Biome wrinkle (Neon Kelp Forest): clinging fronds can snag and strip the tail if you
         // route a long train through the weeds instead of around them.
         self.snag_chain_on_kelp(dt);
+
+        // Boss enrage set-piece (King Crab): the cracked-floor fissures bite the tail if you drag it
+        // through one, so the arena reshape has real teeth. Fissures also finish opening here.
+        for (_, _, age) in self.boss_fissures.iter_mut() {
+            *age = (*age + dt * 2.5).min(1.0);
+        }
+        self.damage_tail_in_fissures(dt);
 
         // Cash in the train: drive the conga head into the delivery pen to bank it for score.
         self.try_deliver_train(ctx);

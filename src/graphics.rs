@@ -2767,6 +2767,94 @@ pub fn draw_tide_pools(
     Ok(())
 }
 
+/// Draw the King Crab's enrage-phase floor fissures — cracked, glowing hazard circles that the
+/// boss splits the arena into when it enrages, forcing the player to weave the conga tail between
+/// them. Each entry is (center, radius, age): `age` counts up from 0 while the crack is still
+/// opening (a quick tearing flash) and settles at 1 once it's a steady hazard. Rendered hot
+/// orange-red so it reads as danger, not water, with a jagged inner glow that pulses on the beat.
+pub fn draw_boss_fissures(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    fissures: &[(Vec2, f32, f32)],
+    time: f32,
+    beat_intensity: f32,
+) -> ggez::GameResult {
+    if fissures.is_empty() {
+        return Ok(());
+    }
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let beat = beat_intensity.clamp(0.0, 1.0);
+
+    for (i, &(center, radius, age)) in fissures.iter().enumerate() {
+        // `open` eases the crack from a bright hot slit to a settled hazard as it forms.
+        let open = age.clamp(0.0, 1.0);
+        let phase = i as f32 * 1.9;
+        let glow = 0.5 + 0.5 * (time * 4.0 + phase).sin();
+
+        // Dark scorched pit so the ground reads as broken, under an additive molten glow.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius * open))
+                .color(Color::new(0.12, 0.03, 0.02, 0.5)),
+        );
+
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+
+        // Molten inner core, hotter on the beat — the "lava" welling up through the crack.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius * 0.55 * open))
+                .color(Color::new(
+                    1.0,
+                    0.35 + 0.2 * glow + 0.15 * beat,
+                    0.08,
+                    (0.28 + 0.18 * glow) * open,
+                )),
+        );
+
+        // Hard hazard rim so the edge you route around reads clearly, flaring on formation.
+        let rim_a = (0.4 + 0.35 * glow) * open + (1.0 - open) * 0.9;
+        let rim = cached_stroke_circle(ctx, radius * open.max(0.05), 3.0)?;
+        canvas.draw(
+            &rim,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(1.0, 0.5 + 0.3 * beat, 0.12, rim_a.clamp(0.0, 1.0))),
+        );
+
+        // Jagged radial cracks spidering out from the pit, flickering with the molten glow.
+        let spokes = 7;
+        for s in 0..spokes {
+            let a = s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
+            let jitter = (time * 3.0 + s as f32 * 2.1).sin() * 0.15;
+            let dir = Vec2::new((a + jitter).cos(), (a + jitter).sin());
+            let inner = center + dir * radius * 0.35 * open;
+            let outer = center + dir * radius * (0.9 + 0.15 * glow) * open;
+            let crack = Mesh::new_line(ctx, &[inner, outer], 2.0 + 1.5 * beat, Color::new(
+                1.0,
+                0.55 + 0.25 * glow,
+                0.15,
+                (0.45 + 0.3 * glow) * open,
+            ))?;
+            canvas.draw(&crack, DrawParam::default());
+        }
+
+        canvas.set_blend_mode(orig_blend);
+    }
+    Ok(())
+}
+
 /// Rocky Shore terrain: solid stone the player must route around. Rendered as a chunky grey
 /// boulder with a lighter top face and a hard rim, so it reads as an obstacle you *can't* enter
 /// (unlike the translucent water/kelp patches you can wade into). Reuses the shared pool geometry.
