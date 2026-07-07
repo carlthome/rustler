@@ -136,6 +136,14 @@ thread_local! {
     static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
     static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
 
+    // The groove-meter label ("GROOVE" / "IN THE GROOVE! — [G] SLAM on beat") was rebuilding a
+    // fresh Text plus a .measure() glyph-layout pass every single frame the groove bar is visible
+    // — which is most of active play, since the bar shows as soon as groove > 0.01. Its text only
+    // flips between two fixed strings based on whether the meter is maxed, so cache it the same
+    // way as the whistle/stomp ability labels above: keyed by the `maxed` bool, only rebuilt (and
+    // re-measured) on the rare frame that flag actually changes.
+    static GROOVE_LABEL_CACHE: RefCell<Option<(bool, Text, f32)>> = RefCell::new(None);
+
     // The menu/instructions screen's translucent rounded panel behind the controls text. Its
     // geometry only depends on window width/height (never on `menu_time`), yet
     // draw_instructions_screen was rebuilding a fresh `Mesh::new_rounded_rectangle` GPU buffer
@@ -3582,21 +3590,35 @@ impl MainState {
                     .dest(Vec2::new(gx, gy))
                     .color(Color::from_rgba(255, 255, 255, if maxed { 255 } else { 160 })),
             );
-            // Label
-            let (ltext, lcol) = if maxed {
-                ("IN THE GROOVE! — [G] SLAM on beat", Color::from_rgb(255, 240, 120))
+            // Label — text/width only change when `maxed` flips, so cache both instead of
+            // rebuilding and re-measuring a Text every frame the bar is on screen.
+            let lcol = if maxed {
+                Color::from_rgb(255, 240, 120)
             } else {
-                ("GROOVE", Color::from_rgba(200, 230, 240, 200))
+                Color::from_rgba(200, 230, 240, 200)
             };
-            let mut glabel = Text::new(ltext);
-            glabel.set_scale(16.0);
-            let glw = glabel.measure(ctx)?.x;
-            canvas.draw(
-                &glabel,
-                DrawParam::default()
-                    .dest(Vec2::new((width - glw) / 2.0, gy + gh + 3.0))
-                    .color(lcol),
-            );
+            GROOVE_LABEL_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = !matches!(&*cache, Some((m, _, _)) if *m == maxed);
+                if needs_rebuild {
+                    let mut glabel = Text::new(if maxed {
+                        "IN THE GROOVE! — [G] SLAM on beat"
+                    } else {
+                        "GROOVE"
+                    });
+                    glabel.set_scale(16.0);
+                    let glw = glabel.measure(ctx)?.x;
+                    *cache = Some((maxed, glabel, glw));
+                }
+                let (_, glabel, glw) = cache.as_ref().unwrap();
+                canvas.draw(
+                    glabel,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - glw) / 2.0, gy + gh + 3.0))
+                        .color(lcol),
+                );
+                Ok(())
+            })?;
         }
 
         // Dash flash — cyan burst when Space is pressed
