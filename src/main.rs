@@ -2342,7 +2342,10 @@ impl MainState {
         tide_swells.clear();
 
         // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
-        // player. Computed before the mutable loop so the boss branch can read it freely.
+        // player. Computed before the mutable loop so the boss branch can read it freely. This is
+        // also exactly the position a free Thief homes in on (see thief_tail_pos below) — both
+        // want "whoever currently holds the highest chain_index" — so we compute it once here and
+        // share it, instead of two separate full scans over self.crabs for the same crab.
         let chain_tail_pos = self
             .crabs
             .iter()
@@ -2368,16 +2371,10 @@ impl MainState {
 
         // Snapshot the current conga tail position so free Thief crabs can home in on it below
         // (they ignore the herd and beeline for the train's exposed end). Only meaningful once the
-        // train is long enough for the Thief's steal to bite; otherwise Thieves just roam.
-        let thief_tail_pos: Option<Vec2> = if self.chain_count >= 4 {
-            let tail_index = self.chain_count - 1;
-            self.crabs
-                .iter()
-                .find(|c| c.caught && c.chain_index == Some(tail_index))
-                .map(|c| c.pos)
-        } else {
-            None
-        };
+        // train is long enough for the Thief's steal to bite; otherwise Thieves just roam. This is
+        // the same crab chain_tail_pos already found above (highest chain_index), so reuse it
+        // instead of a second scan.
+        let thief_tail_pos: Option<Vec2> = if self.chain_count >= 4 { chain_tail_pos } else { None };
 
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
