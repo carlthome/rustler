@@ -43,16 +43,20 @@ const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 // Staged difficulty ramp: a run escalates in named stages over elapsed time so tension rises
 // within a zone instead of staying flat. Each entry is (elapsed-seconds threshold to enter the
-// stage, its shout name, its density multiplier applied to every wave's crab count). Durations
-// shrink in step (see STAGE_DURATION_SCALE) so later stages also arrive faster. Stage 0 is the
-// warm-up baseline (1.0x, no banner); crossing into any later stage fires a telegraphed banner
-// and a musical punch, a standout moment distinct from the every-4th Frenzy spike.
-const INTENSITY_STAGES: &[(f32, &str, f32)] = &[
-    (0.0, "WARM-UP", 1.0),
-    (45.0, "BUILDING", 1.25),
-    (100.0, "HEATED", 1.55),
-    (170.0, "FEVER", 1.9),
-    (260.0, "OVERDRIVE", 2.3),
+// stage, its shout name, its density multiplier applied to every wave's crab count, its tempo
+// multiplier applied to the beat rate). Durations shrink in step (see STAGE_DURATION_SCALE) so
+// later stages also arrive faster, AND the music/beat literally speeds up — the "beat-tempo
+// shift" standout the roadmap calls for. A higher tempo mul = faster beats = everything synced to
+// the beat (spawns, train step, wobble, pulses) quickens, so a late-run stage physically feels
+// more frantic, not just denser. Stage 0 is the warm-up baseline (1.0x count, 1.0x tempo, no
+// banner); crossing into any later stage fires a telegraphed banner and a musical punch, a
+// standout moment distinct from the every-4th Frenzy spike.
+const INTENSITY_STAGES: &[(f32, &str, f32, f32)] = &[
+    (0.0, "WARM-UP", 1.0, 1.0),
+    (45.0, "BUILDING", 1.25, 1.08),
+    (100.0, "HEATED", 1.55, 1.16),
+    (170.0, "FEVER", 1.9, 1.26),
+    (260.0, "OVERDRIVE", 2.3, 1.38),
 ];
 // How much each stage past the first shortens wave durations (multiplied per stage index), so a
 // rising run also gives less breathing room between waves. Floored so it never gets frantic.
@@ -359,6 +363,11 @@ struct MainState {
     position_history: VecDeque<Vec2>,
     chain_count: usize,
     beat_timer: f32,
+    // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
+    // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
+    // keyed off beat_timer, spawn quantization) speeds up in step with the difficulty ramp. All
+    // per-frame reads use this, not the BEAT_INTERVAL const, so tempo shifts stay in sync.
+    beat_interval: f32,
     beat_intensity: f32,
     music_intensity: f32,
     on_beat_flash: f32,
@@ -755,6 +764,7 @@ impl MainState {
             position_history,
             chain_count: 0,
             beat_timer: BEAT_INTERVAL,
+            beat_interval: BEAT_INTERVAL,
             beat_intensity: 0.0,
             music_intensity: 0.0,
             on_beat_flash: 0.0,
@@ -1536,7 +1546,7 @@ impl MainState {
                 crab.chain_index = Some(self.chain_count);
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
-                    || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW;
+                    || self.beat_timer > self.beat_interval - BEAT_WINDOW;
                 let bonus;
                 if on_beat {
                     // On-beat catch: build the groove. Consecutive on-beat catches escalate the
@@ -2150,7 +2160,7 @@ impl MainState {
 
                 // Beat-synced positional wobble for idle (non-spooked) crabs.
                 if crab.spooked_timer == 0.0 {
-                    let beat_phase = (1.0 - self.beat_timer / BEAT_INTERVAL)
+                    let beat_phase = (1.0 - self.beat_timer / self.beat_interval)
                         * std::f32::consts::TAU
                         + crab.beat_phase_offset;
                     let perp = Vec2::new(-crab.vel.y, crab.vel.x).normalize_or_zero();
@@ -2355,7 +2365,7 @@ impl MainState {
             // train off its path.
             let travel = move_dir.normalize_or_zero();
             if travel != Vec2::ZERO {
-                let step_phase = (1.0 - self.beat_timer / BEAT_INTERVAL) * std::f32::consts::TAU
+                let step_phase = (1.0 - self.beat_timer / self.beat_interval) * std::f32::consts::TAU
                     - ci as f32 * 0.7;
                 let hop = step_phase.sin().max(0.0); // forward-only footfall each beat
                 crab.pos += travel * hop * 4.0;
@@ -2565,6 +2575,7 @@ impl MainState {
         self.frenzy_wave = false;
         self.frenzy_banner_timer = 0.0;
         self.intensity_stage = 0;
+        self.beat_interval = BEAT_INTERVAL;
         self.stage_banner_timer = 0.0;
         self.stage_banner_name = "";
         self.lasso_pos = None;
@@ -3535,13 +3546,13 @@ impl MainState {
         // sees the next herd will land on the coming downbeat. Anticipation climbs across the
         // couple of beats before the drop; the ring throbs with the beat phase.
         if self.wave_armed {
-            let anticipation = (self.wave_telegraph / (BEAT_INTERVAL * 4.0)).min(1.0);
-            let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+            let anticipation = (self.wave_telegraph / (self.beat_interval * 4.0)).min(1.0);
+            let beat_phase = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
             draw_wave_telegraph(ctx, canvas, beat_center, anticipation, beat_phase, self.frenzy_wave)?;
         }
-        // beat_timer counts down from BEAT_INTERVAL to 0, so progress toward the next beat is
+        // beat_timer counts down from beat_interval to 0, so progress toward the next beat is
         // 1 - (timer / interval). Feeds the approach ring so the player can anticipate the downbeat.
-        let beat_progress = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        let beat_progress = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         draw_beat_indicator(
             ctx,
             canvas,
@@ -3731,7 +3742,7 @@ impl MainState {
         let life = (self.frenzy_banner_timer / 1.6).clamp(0.0, 1.0);
         let alpha = (life * 3.0).min(1.0); // hold, then fade only in the final third
         // Beat-synced throb so it pulses with the music like everything else.
-        let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        let beat_phase = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
         // Slightly larger right as it lands, settling to a gently throbbing size.
         let scale = 1.15 - life * 0.15 + throb * 0.06;
@@ -3787,7 +3798,7 @@ impl MainState {
     ) -> Result<(), ggez::GameError> {
         let life = (self.stage_banner_timer / 2.0).clamp(0.0, 1.0);
         let alpha = (life * 3.0).min(1.0); // hold, then fade only in the final third
-        let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        let beat_phase = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
         let scale = 1.1 - life * 0.12 + throb * 0.05;
 
@@ -4101,7 +4112,7 @@ impl MainState {
     /// the same window that gates on-beat catches, so the timing the player already feels for
     /// catching also pays off for whistle/stomp/dash/beat-wave.
     fn on_beat_now(&self) -> bool {
-        self.beat_timer < BEAT_WINDOW || self.beat_timer > BEAT_INTERVAL - BEAT_WINDOW
+        self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW
     }
     /// A tool was fired on the beat: bank a "PERFECT!" flash, feed the groove meter, and punch up
     /// the juice (extra beat flash + a hair of zoom). Returns the on-beat multiplier the caller can
@@ -4415,11 +4426,21 @@ impl EventHandler for MainState {
         // the density/duration scaling itself is read per-wave in start_current_pattern.
         self.stage_banner_timer = (self.stage_banner_timer - dt).max(0.0);
         if self.intensity_stage + 1 < INTENSITY_STAGES.len() {
-            let (next_threshold, next_name, _) = INTENSITY_STAGES[self.intensity_stage + 1];
+            let (next_threshold, next_name, _, _) = INTENSITY_STAGES[self.intensity_stage + 1];
             if self.time_elapsed >= next_threshold {
                 self.intensity_stage += 1;
                 self.stage_banner_name = next_name;
                 self.stage_banner_timer = 2.0;
+                // Speed the music/beat up for this stage — the felt "beat-tempo shift". Everything
+                // synced to the beat (spawns, train step, wobble, pulses) quickens with it. Rescale
+                // the in-flight beat_timer by the same ratio so the current beat's phase is preserved
+                // (no jarring skip) but the next beat arrives sooner.
+                let tempo_mul = INTENSITY_STAGES[self.intensity_stage].3;
+                let new_interval = BEAT_INTERVAL / tempo_mul;
+                if self.beat_interval > 0.0 {
+                    self.beat_timer *= new_interval / self.beat_interval;
+                }
+                self.beat_interval = new_interval;
                 // Musical punch so the escalation lands as a moment: brighten the beat, flash, a
                 // short shake, and a rising-tension chime.
                 self.beat_intensity = 2.0;
@@ -4437,10 +4458,10 @@ impl EventHandler for MainState {
             self.position_history.pop_back();
         }
 
-        // Beat timer (120 BPM)
+        // Beat timer — interval speeds up with the intensity stage (see beat_interval).
         self.beat_timer -= dt;
         if self.beat_timer <= 0.0 {
-            self.beat_timer += BEAT_INTERVAL;
+            self.beat_timer += self.beat_interval;
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
@@ -5143,7 +5164,7 @@ impl EventHandler for MainState {
             self.wave_telegraph += dt;
             // Safety valve: if a downbeat somehow doesn't arrive within two bars (e.g. the beat
             // clock is paused), fire anyway so the run can't stall.
-            if self.wave_telegraph > BEAT_INTERVAL * 8.0 {
+            if self.wave_telegraph > self.beat_interval * 8.0 {
                 self.wave_armed = false;
                 self.wave_telegraph = 0.0;
                 self.advance_pattern();
