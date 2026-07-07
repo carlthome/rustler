@@ -379,6 +379,13 @@ struct MainState {
     on_beat_flash: f32,
     groove: f32,         // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
     beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
+    // Groove Gamble — the rhythm risk/reward layer. Consecutive on-beat catches compound a live
+    // GLOBAL score multiplier (beat_streak drives beat_gamble_mult); a single off-beat catch breaks
+    // the run and resets it to 1x. It's a tension the player is actively managing: keep nailing the
+    // beat and every point is worth more, but one greedy off-beat grab throws the whole heat away.
+    beat_gamble_mult: f32,   // current compounding multiplier from the on-beat streak (>= 1.0)
+    beat_gamble_flash: f32,  // green pulse when the multiplier steps up
+    streak_lost_flash: f32,  // red pulse + callout when an off-beat catch breaks a hot streak
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
     // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
@@ -784,6 +791,9 @@ impl MainState {
             beat_intensity: 0.0,
             music_intensity: 0.0,
             on_beat_flash: 0.0,
+            beat_gamble_mult: 1.0,
+            beat_gamble_flash: 0.0,
+            streak_lost_flash: 0.0,
             groove: 0.0,
             beat_streak: 0,
             music_layers,
@@ -1456,7 +1466,10 @@ impl MainState {
         let perfect = self.on_beat_now();
         let perfect_mult = if perfect { 1.0 + PERFECT_DELIVERY_BONUS } else { 1.0 };
 
-        let bank = (base as f32 * streak_mult * perfect_mult).round() as usize;
+        // The Groove Gamble multiplier rides through to the bank too — a hot on-beat streak makes
+        // the delivery jackpot pay out even bigger, so it's worth protecting the heat right up to
+        // the pen instead of grabbing sloppily on the way in.
+        let bank = (base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
         self.score += bank;
 
         // The delivered crabs leave the field for good — they've been penned.
@@ -1581,17 +1594,46 @@ impl MainState {
                     self.groove = (self.groove + 0.22).min(1.0);
                     bonus = self.beat_streak.min(5) as usize;
                     self.on_beat_flash = (0.25 + self.beat_streak as f32 * 0.06).min(0.6);
+                    // Groove Gamble: the streak compounds a live global score multiplier. Each
+                    // on-beat catch bumps it +0.25x (capped at 5x), so the deeper you ride the beat
+                    // the more every point — catches AND deliveries — is worth. The catch mid-streak
+                    // feels louder: the multiplier only exists while the run is unbroken.
+                    let prev_mult = self.beat_gamble_mult;
+                    self.beat_gamble_mult = (self.beat_gamble_mult + 0.25).min(5.0);
+                    if self.beat_gamble_mult > prev_mult {
+                        self.beat_gamble_flash = 1.0;
+                    }
+                    // Escalating callouts as the heat tiers up, so the rising stakes read on screen.
                     if self.beat_streak >= 3 {
+                        let (label, col, size) = match self.beat_streak {
+                            3..=4 => ("HEATING UP", [0.4, 1.0, 0.85, 1.0], 34.0),
+                            5..=7 => ("ON FIRE!", [1.0, 0.7, 0.2, 1.0], 40.0),
+                            8..=11 => ("BLAZING!", [1.0, 0.35, 0.15, 1.0], 46.0),
+                            _ => ("INFERNO!!", [1.0, 0.2, 0.5, 1.0], 52.0),
+                        };
                         self.floating_texts.spawn(
-                            format!("GROOVE x{}!", self.beat_streak),
+                            format!("{}  x{:.2}", label, self.beat_gamble_mult),
                             self.player_pos - Vec2::new(0.0, 80.0),
-                            34.0,
-                            [0.4, 1.0, 0.85, 1.0],
+                            size,
+                            col,
                         );
                     }
                 } else {
-                    // Off-beat catch breaks the streak and drains the groove.
+                    // Off-beat catch breaks the streak and drains the groove. If a hot Gamble was
+                    // riding, throwing it away is a real loss — punch a red flash + callout so the
+                    // player feels the greedy grab cost them, then reset the multiplier to 1x.
+                    if self.beat_gamble_mult > 1.5 {
+                        self.streak_lost_flash = 1.0;
+                        self.shake_timer = self.shake_timer.max(0.3);
+                        self.floating_texts.spawn(
+                            format!("STREAK LOST!  x{:.2} gone", self.beat_gamble_mult),
+                            self.player_pos - Vec2::new(0.0, 80.0),
+                            40.0,
+                            [1.0, 0.35, 0.3, 1.0],
+                        );
+                    }
                     self.beat_streak = 0;
+                    self.beat_gamble_mult = 1.0;
                     self.groove = (self.groove - 0.3).max(0.0);
                     bonus = 0;
                 }
@@ -1604,12 +1646,20 @@ impl MainState {
                     let start = if on_beat { -0.25 } else { 0.0 }; // on-beat trails linger a hair longer
                     self.catch_trails.push((crab.pos, head, start, crab_color));
                 }
-                // Inline register_catch to avoid &mut self conflict with the crabs loop
-                self.score += (1 + bonus) * mult;
+                // Inline register_catch to avoid &mut self conflict with the crabs loop.
+                // The Groove Gamble multiplier scales the whole award, so a hot streak makes every
+                // catch worth dramatically more — the payoff for riding the beat unbroken.
+                let pts = (((1 + bonus) * mult) as f32 * self.beat_gamble_mult).round() as usize;
+                self.score += pts;
                 self.combo_count += 1;
                 self.combo_timer = 1.8;
-                let pts = (1 + bonus) * mult;
-                let score_str = if pts > 1 { format!("+{}  ON BEAT!", pts) } else { format!("+{}", pts) };
+                let score_str = if self.beat_gamble_mult > 1.01 {
+                    format!("+{}  x{:.2}!", pts, self.beat_gamble_mult)
+                } else if pts > 1 {
+                    format!("+{}  ON BEAT!", pts)
+                } else {
+                    format!("+{}", pts)
+                };
                 let score_col = if pts > 1 { [1.0, 0.95, 0.3, 1.0] } else { [1.0, 1.0, 1.0, 0.9] };
                 self.floating_texts.spawn(score_str, pos - Vec2::new(10.0, 20.0), 28.0, score_col);
                 if self.combo_count >= 3 {
@@ -2643,6 +2693,9 @@ impl MainState {
         self.slam_radius = 0.0;
         self.slam_flash = 0.0;
         self.beat_streak = 0;
+        self.beat_gamble_mult = 1.0;
+        self.beat_gamble_flash = 0.0;
+        self.streak_lost_flash = 0.0;
         self.deliver_streak = 0;
         self.deliver_streak_timer = 0.0;
         self.catch_radius_upgrade = 0.0;
@@ -3721,6 +3774,37 @@ impl MainState {
                 );
                 Ok(())
             })?;
+        }
+
+        // Groove Gamble multiplier badge — while a hot on-beat streak is live, show the compounding
+        // multiplier below the groove meter, glowing hotter the higher it climbs, so the player can
+        // see at a glance exactly how much heat is riding on their next catch.
+        if self.beat_gamble_mult > 1.01 {
+            let t = ((self.beat_gamble_mult - 1.0) / 4.0).clamp(0.0, 1.0); // 0 at 1x, 1 at 5x cap
+            // Cyan-green when warming, to gold, to hot red at the cap — matches the callout tiers.
+            let (r, g, b) = (0.4 + t * 0.6, 1.0 - t * 0.7, 0.6 - t * 0.5);
+            let pop = 1.0 + self.beat_gamble_flash * 0.6 + self.beat_intensity * 0.2;
+            let mut badge = Text::new(format!("GROOVE GAMBLE  x{:.2}", self.beat_gamble_mult));
+            badge.set_scale(20.0 * pop.min(1.4));
+            let bw = badge.measure(ctx)?.x;
+            canvas.draw(
+                &badge,
+                DrawParam::default()
+                    .dest(Vec2::new((width - bw) / 2.0, 56.0))
+                    .color(Color::new((r * pop).min(1.0), (g * pop).min(1.0), (b * pop).min(1.0), 1.0)),
+            );
+        }
+
+        // Streak-lost sting — a brief red screen wash when a hot Gamble breaks, so the cost of a
+        // greedy off-beat grab lands viscerally, not just as a vanished number.
+        if self.streak_lost_flash > 0.0 {
+            let alpha = (self.streak_lost_flash * 90.0) as u8;
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::from_rgba(200, 40, 40, alpha)),
+            );
         }
 
         // Dash flash — cyan burst when Space is pressed
@@ -4806,6 +4890,13 @@ impl EventHandler for MainState {
         if self.on_beat_flash > 0.0 {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
         }
+        // Groove Gamble feedback pulses decay each frame.
+        if self.beat_gamble_flash > 0.0 {
+            self.beat_gamble_flash = (self.beat_gamble_flash - dt * 3.5).max(0.0);
+        }
+        if self.streak_lost_flash > 0.0 {
+            self.streak_lost_flash = (self.streak_lost_flash - dt * 2.2).max(0.0);
+        }
 
         // Frenzy banner fades out over its lifetime after a frenzy wave lands.
         if self.frenzy_banner_timer > 0.0 {
@@ -4817,6 +4908,9 @@ impl EventHandler for MainState {
             self.groove = (self.groove - dt * 0.18).max(0.0);
             if self.groove <= 0.0 {
                 self.beat_streak = 0;
+                // The Gamble heat fades with the groove — a quiet lapse, not a punished break, so
+                // idling loses the multiplier gracefully without the red streak-lost sting.
+                self.beat_gamble_mult = 1.0;
             }
         }
 
