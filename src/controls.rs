@@ -57,20 +57,31 @@ pub fn handle_player_movement(
         acceleration *= handling;
     }
 
-    // Tide-pool drag: wading through shallow water slows you to a crawl and adds extra drag, so
-    // hauling a long conga train straight across a pool costs real time and exposure. A dash still
-    // punches through faster than a wade (its speed cap is huge), rewarding routing skill — skirt
-    // the water or dash across it. `in_tide_pool` is remembered so the draw pass can splash.
+    // Biome terrain: the same patch geometry means different things per zone (see levels.rs).
+    // Water drags you to a wade, Kelp clings (a lighter drag, plus a tail-snag risk handled in
+    // main.rs), Rock is a solid obstacle that shoves you out, and Open has no patches at all. A
+    // dash still punches through drag faster than a wade (its speed cap is huge), rewarding routing
+    // skill. `in_tide_pool` is remembered so the draw pass can splash on wet terrain.
+    use crate::levels::TerrainKind;
+    let terrain = state.current_terrain();
     let player_center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
-    let wading = state
+    let touching = state
         .tide_pools
         .iter()
         .any(|(c, r)| player_center.distance(*c) < *r);
-    state.in_tide_pool = wading;
-    if wading {
-        // Cut top speed and bleed off momentum faster while submerged.
-        move_speed *= 0.5;
-        friction *= 0.82;
+    state.in_tide_pool = touching && matches!(terrain, TerrainKind::Water | TerrainKind::Kelp);
+    match terrain {
+        TerrainKind::Water if touching => {
+            // Cut top speed and bleed off momentum faster while submerged.
+            move_speed *= 0.5;
+            friction *= 0.82;
+        }
+        TerrainKind::Kelp if touching => {
+            // Weeds cling — a lighter drag than open water; the real bite is the tail-snag risk.
+            move_speed *= 0.7;
+            friction *= 0.9;
+        }
+        _ => {}
     }
 
     if dir != Vec2::ZERO {
@@ -92,6 +103,30 @@ pub fn handle_player_movement(
     state.player_pos += state.player_vel * dt;
     state.player_pos.x = state.player_pos.x.clamp(0.0, width - crate::PLAYER_SIZE);
     state.player_pos.y = state.player_pos.y.clamp(0.0, height - crate::PLAYER_SIZE);
+
+    // Rock chokepoints: patches are solid on the Rocky Shore. Push the player back out of any rock
+    // they've overlapped and kill the inward velocity, so rocks read as walls to thread between
+    // rather than terrain you can wade through.
+    if terrain == TerrainKind::Rock {
+        let mut center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+        for (c, r) in &state.tide_pools {
+            let to_player = center - *c;
+            let dist = to_player.length();
+            if dist < *r && dist > 0.0001 {
+                let push = to_player / dist * (*r - dist);
+                state.player_pos += push;
+                // Cancel the component of velocity heading into the rock so you don't stick to it.
+                let normal = to_player / dist;
+                let into = state.player_vel.dot(normal);
+                if into < 0.0 {
+                    state.player_vel -= normal * into;
+                }
+                center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+            }
+        }
+        state.player_pos.x = state.player_pos.x.clamp(0.0, width - crate::PLAYER_SIZE);
+        state.player_pos.y = state.player_pos.y.clamp(0.0, height - crate::PLAYER_SIZE);
+    }
 }
 
 pub fn handle_key_down_event(

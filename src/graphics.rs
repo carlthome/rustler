@@ -2475,8 +2475,10 @@ pub fn draw_tide_pools(
     time: f32,
     beat_intensity: f32,
     player_center: Vec2,
+    terrain: crate::levels::TerrainKind,
 ) -> ggez::GameResult {
-    if pools.is_empty() {
+    use crate::levels::TerrainKind;
+    if pools.is_empty() || terrain == TerrainKind::Open {
         return Ok(());
     }
     let unit_circle = match UNIT_CIRCLE.get() {
@@ -2487,6 +2489,16 @@ pub fn draw_tide_pools(
         }
     };
     let beat = beat_intensity.clamp(0.0, 1.0);
+
+    // Rock and Kelp reuse the same patch geometry as water but read completely differently, so the
+    // player sees at a glance what a patch will do to them in this zone.
+    match terrain {
+        TerrainKind::Rock => return draw_rock_patches(ctx, canvas, pools, unit_circle, beat),
+        TerrainKind::Kelp => {
+            return draw_kelp_patches(ctx, canvas, pools, unit_circle, time, beat, player_center);
+        }
+        _ => {}
+    }
 
     for (i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
@@ -2557,6 +2569,154 @@ pub fn draw_tide_pools(
         );
 
         canvas.set_blend_mode(orig_blend);
+    }
+    Ok(())
+}
+
+/// Rocky Shore terrain: solid stone the player must route around. Rendered as a chunky grey
+/// boulder with a lighter top face and a hard rim, so it reads as an obstacle you *can't* enter
+/// (unlike the translucent water/kelp patches you can wade into). Reuses the shared pool geometry.
+fn draw_rock_patches(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pools: &[(Vec2, f32)],
+    unit_circle: &Mesh,
+    beat: f32,
+) -> ggez::GameResult {
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        let phase = i as f32 * 2.3;
+        // Dark base shadow, offset down a touch to sit the rock on the ground.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center + Vec2::new(0.0, radius * 0.12))
+                .scale(Vec2::splat(radius))
+                .color(Color::new(0.10, 0.11, 0.13, 0.55)),
+        );
+        // Main stone body — opaque so it reads as impassable.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius * 0.96))
+                .color(Color::new(0.34, 0.36, 0.40, 0.95)),
+        );
+        // Lighter top face, offset up, for a lit-from-above boulder read.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center - Vec2::new(radius * 0.12, radius * 0.16))
+                .scale(Vec2::splat(radius * 0.6))
+                .color(Color::new(0.52, 0.54, 0.58, 0.9)),
+        );
+        // Hard rim so the collision edge you route around is unmistakable.
+        let rim = cached_stroke_circle(ctx, radius * 0.96, 3.0)?;
+        canvas.draw(
+            &rim,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(0.18, 0.19, 0.22, 0.9)),
+        );
+        // A faint beat-lit sparkle of mineral flecks on top so rocks aren't dead on the beat.
+        if beat > 0.05 {
+            let ang = phase;
+            let fleck = center + Vec2::new(ang.cos(), ang.sin() * 0.5) * radius * 0.35;
+            let orig = canvas.blend_mode();
+            canvas.set_blend_mode(BlendMode::ADD);
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(fleck)
+                    .scale(Vec2::splat(4.0 + 3.0 * beat))
+                    .color(Color::new(0.7, 0.72, 0.8, 0.25 * beat)),
+            );
+            canvas.set_blend_mode(orig);
+        }
+    }
+    Ok(())
+}
+
+/// Neon Kelp Forest terrain: clinging weed patches that snag the conga tail. Rendered as a
+/// translucent green bed with swaying frond strokes and a pulsing neon rim, so it reads as
+/// something you *can* enter but shouldn't drag a long train through. Reuses the shared geometry.
+fn draw_kelp_patches(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pools: &[(Vec2, f32)],
+    unit_circle: &Mesh,
+    time: f32,
+    beat: f32,
+    player_center: Vec2,
+) -> ggez::GameResult {
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        let phase = i as f32 * 1.9;
+        let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
+        let inside = player_center.distance(center) < radius;
+
+        // Dark weed bed — normal blend, a shade of murky green.
+        let fill_a = 0.28 + 0.05 * breathe + if inside { 0.12 } else { 0.0 };
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(center)
+                .scale(Vec2::splat(radius))
+                .color(Color::new(0.10, 0.30, 0.16, fill_a)),
+        );
+
+        let orig = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+
+        // Swaying frond strokes radiating from the center, drifting with time so the bed feels alive.
+        let unit_line = match UNIT_LINE.get() {
+            Some(mesh) => mesh,
+            None => {
+                let mesh = Mesh::new_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    Rect::new(0.0, -0.5, 1.0, 1.0),
+                    Color::WHITE,
+                )?;
+                UNIT_LINE.get_or_init(|| mesh)
+            }
+        };
+        let fronds = 7;
+        for f in 0..fronds {
+            let base_ang = f as f32 / fronds as f32 * std::f32::consts::TAU + phase;
+            let sway = (time * 1.6 + f as f32 * 0.9).sin() * 0.25;
+            let ang = base_ang + sway;
+            let len = radius * (0.55 + 0.25 * breathe);
+            let start = center + Vec2::new(base_ang.cos(), base_ang.sin() * 0.6) * radius * 0.15;
+            let end = center + Vec2::new(ang.cos(), ang.sin() * 0.6) * len;
+            let dir = end - start;
+            let dist = dir.length().max(0.001);
+            let rot = dir.y.atan2(dir.x);
+            canvas.draw(
+                unit_line,
+                DrawParam::default()
+                    .dest(start)
+                    .rotation(rot)
+                    .scale(Vec2::new(dist, 2.5))
+                    .color(Color::new(0.35, 1.0, 0.55, 0.30 + 0.2 * beat)),
+            );
+        }
+
+        // Pulsing neon rim so the snag-risk edge is legible and on-theme with the disco zone.
+        let rim = cached_stroke_circle(ctx, radius, 2.5)?;
+        canvas.draw(
+            &rim,
+            DrawParam::default().dest(center).color(Color::new(
+                0.4,
+                1.0,
+                0.6,
+                (0.22 + 0.2 * breathe + if inside { 0.28 } else { 0.0 }).clamp(0.0, 1.0),
+            )),
+        );
+
+        canvas.set_blend_mode(orig);
     }
     Ok(())
 }

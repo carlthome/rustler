@@ -7,14 +7,33 @@ pub struct LevelPattern {
     pub centroid: (f32, f32),
 }
 
+/// What the terrain patches in a biome physically *do* — the mechanical wrinkle that makes each
+/// zone route differently, not just look different. The same patch geometry (see `pick_tide_pools`)
+/// is reused for all of them; the kind decides how the player and train interact with a patch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TerrainKind {
+    /// No terrain hazard — an open, gentle field. The beginner zone.
+    Open,
+    /// Shallow water that drags: wading slows the player to a crawl and bleeds momentum.
+    Water,
+    /// Solid rock that blocks: the player can't enter a patch, so they read as chokepoints to
+    /// thread the train around.
+    Rock,
+    /// Clinging kelp that snags the conga tail: crossing a patch slows the player *and* risks
+    /// stripping a trailing crab loose, adding chain-snap tension to the route.
+    Kelp,
+}
+
 /// A visual "zone" a level takes place in. Gives each level a distinct read so runs feel like
 /// they travel somewhere instead of one continuous space. `tint` is a multiply grade laid over
-/// the whole ground; `pulse` recolors the on-beat flash to match the zone's mood.
+/// the whole ground; `pulse` recolors the on-beat flash to match the zone's mood; `terrain` is the
+/// mechanical wrinkle its patches carry.
 #[derive(Clone, Copy)]
 pub struct Biome {
     pub name: &'static str,
     pub tint: (u8, u8, u8),
     pub pulse: (u8, u8, u8),
+    pub terrain: TerrainKind,
 }
 
 pub struct Level {
@@ -35,6 +54,7 @@ pub fn get_levels() -> Vec<Level> {
                 name: "Sunny Meadow",
                 tint: (255, 248, 214),
                 pulse: (120, 255, 120),
+                terrain: TerrainKind::Open,
             },
             patterns: vec![
                 LevelPattern {
@@ -59,6 +79,7 @@ pub fn get_levels() -> Vec<Level> {
                 name: "Tide Pools",
                 tint: (150, 215, 255),
                 pulse: (90, 200, 255),
+                terrain: TerrainKind::Water,
             },
             patterns: vec![
                 LevelPattern {
@@ -101,6 +122,7 @@ pub fn get_levels() -> Vec<Level> {
                 name: "Rocky Shore",
                 tint: (178, 192, 208),
                 pulse: (205, 222, 235),
+                terrain: TerrainKind::Rock,
             },
             patterns: vec![
                 LevelPattern {
@@ -143,6 +165,7 @@ pub fn get_levels() -> Vec<Level> {
                 name: "Neon Kelp Forest",
                 tint: (120, 185, 150),
                 pulse: (255, 90, 220),
+                terrain: TerrainKind::Kelp,
             },
             patterns: vec![
                 LevelPattern {

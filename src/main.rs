@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
-use crate::levels::{Level, get_levels};
+use crate::levels::{Level, TerrainKind, get_levels};
 use crate::spawnings::{spawn_boss, spawn_tide_boss, spawn_enemies};
 
 const PLAYER_SIZE: f32 = 48.0;
@@ -919,6 +919,95 @@ impl MainState {
                 [0.6, 0.9, 1.0, 1.0],
             );
         }
+    }
+
+    /// The terrain wrinkle of the zone currently in play — decides what the terrain patches do
+    /// (open field, wade-drag water, solid rock chokepoints, or crab-snagging kelp). Clamped so a
+    /// finished run doesn't index past the last level.
+    fn current_terrain(&self) -> TerrainKind {
+        self.levels[self.current_level.min(self.levels.len() - 1)]
+            .biome
+            .terrain
+    }
+
+    /// Kelp snag: while the conga tail sits in a kelp patch, the fronds can catch and strip a link
+    /// or two loose — the Neon Kelp Forest's take on chain-snap. Rolls probabilistically (dt-scaled
+    /// so it's framerate-independent) and is gated by the shared chain-snap cooldown, so routing a
+    /// long train through the weeds is a real risk to weigh rather than a guaranteed loss. Mirrors
+    /// `snap_chain_on_panic`: only long trains are vulnerable, only the tail goes, never the head.
+    fn snag_chain_on_kelp(&mut self, dt: f32) {
+        const MIN_TRAIN_TO_SNAG: usize = 5;
+        const SNAG_LINKS: usize = 2; // gentler than a panic snap — the weeds nibble, they don't tear
+        const SNAG_COOLDOWN: f32 = 2.2;
+        const SNAG_CHANCE_PER_SEC: f32 = 0.6; // expected snags/sec while the tail sits in kelp
+
+        if self.current_terrain() != TerrainKind::Kelp {
+            return;
+        }
+        if self.chain_snap_cooldown > 0.0 || self.chain_count < MIN_TRAIN_TO_SNAG {
+            return;
+        }
+
+        // Only bite if the tail link is actually inside a kelp patch — route around and you're safe.
+        let tail_index = self.chain_count - 1;
+        let Some(tail_pos) = self
+            .crabs
+            .iter()
+            .find(|c| c.caught && c.chain_index == Some(tail_index))
+            .map(|c| c.pos)
+        else {
+            return;
+        };
+        let tail_in_kelp = self.tide_pools.iter().any(|(c, r)| tail_pos.distance(*c) < *r);
+        if !tail_in_kelp {
+            return;
+        }
+
+        // Probabilistic per-frame roll scaled by dt so the risk is framerate-independent.
+        if rand::random::<f32>() > SNAG_CHANCE_PER_SEC * dt {
+            return;
+        }
+
+        let keep = self.chain_count.saturating_sub(SNAG_LINKS).max(1);
+        let snapped = self.chain_count - keep;
+        let mut snapped_positions: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            let Some(ci) = crab.chain_index else { continue };
+            if ci >= keep {
+                crab.caught = false;
+                crab.chain_index = None;
+                crab.fleeing = true;
+                crab.startle_timer = 0.6;
+                let outward = (crab.pos - tail_pos).normalize_or_zero();
+                let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
+                crab.vel = outward * crab.crab_type.speed_range().end * 1.8;
+                crab.speed = 1.0;
+                snapped_positions.push(crab.pos);
+            }
+        }
+        self.chain_count = keep;
+        self.chain_snap_cooldown = SNAG_COOLDOWN;
+
+        // Feedback: green weed-tinted pops on the stripped crabs and a SNAGGED! callout at the tail.
+        for pos in &snapped_positions {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                *pos - Vec2::new(0.0, 24.0),
+                24.0,
+                [0.5, 1.0, 0.6, 1.0],
+            );
+        }
+        self.floating_texts.spawn(
+            format!("SNAGGED!  -{}", snapped),
+            tail_pos - Vec2::new(30.0, 32.0),
+            30.0,
+            [0.5, 1.0, 0.6, 1.0],
+        );
+        self.spawn_catch_shockwave(tail_pos, [0.4, 0.95, 0.5]);
+        self.screen_shake = self.screen_shake.max(5.0);
     }
 
     /// Chain-as-risk: the trailing end of the conga train is exposed and can be knocked loose.
@@ -2879,6 +2968,7 @@ impl MainState {
             self.time_elapsed,
             self.beat_intensity,
             self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+            biome.terrain,
         )?;
 
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
@@ -4354,6 +4444,10 @@ impl EventHandler for MainState {
 
         // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
         self.snap_chain_on_panic();
+
+        // Biome wrinkle (Neon Kelp Forest): clinging fronds can snag and strip the tail if you
+        // route a long train through the weeds instead of around them.
+        self.snag_chain_on_kelp(dt);
 
         // Cash in the train: drive the conga head into the delivery pen to bank it for score.
         self.try_deliver_train(ctx);
