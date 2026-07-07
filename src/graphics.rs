@@ -877,7 +877,12 @@ pub fn draw_particles(
             }));
 
             canvas.draw_instanced_mesh(unit_circle.clone(), main, DrawParam::default());
-            canvas.draw_instanced_mesh(unit_circle, glow, DrawParam::default());
+            // The glow pass only takes larger particles (size > 4.0); if none qualify this frame
+            // it's an empty array, and ggez's instanced flush asserts capacity > 0 on draw. Skip
+            // it when empty. (main always has ≥1 here — we returned early on no particles above.)
+            if !glow.instances().is_empty() {
+                canvas.draw_instanced_mesh(unit_circle, glow, DrawParam::default());
+            }
             Ok(())
         })
     })?;
@@ -2136,9 +2141,19 @@ pub fn draw_catch_trails(
                     )
                 }));
 
-                canvas.draw_instanced_mesh(line.clone(), glow, DrawParam::default());
-                canvas.draw_instanced_mesh(line.clone(), core, DrawParam::default());
-                canvas.draw_instanced_mesh(spark.clone(), sparks, DrawParam::default());
+                // Every trail can filter out (short/fully-retracted segments return None from
+                // trail_geometry), leaving an InstanceArray that `.set()` shrank to zero capacity.
+                // ggez's draw_instanced flush rebuilds the buffer at len and asserts capacity > 0,
+                // so drawing an empty array panics — guard each pass to skip when it's empty.
+                if !glow.instances().is_empty() {
+                    canvas.draw_instanced_mesh(line.clone(), glow, DrawParam::default());
+                }
+                if !core.instances().is_empty() {
+                    canvas.draw_instanced_mesh(line.clone(), core, DrawParam::default());
+                }
+                if !sparks.instances().is_empty() {
+                    canvas.draw_instanced_mesh(spark.clone(), sparks, DrawParam::default());
+                }
                 Ok(())
             })
         })
