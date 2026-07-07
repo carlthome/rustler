@@ -135,6 +135,16 @@ thread_local! {
     static TRAIL_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static TRAIL_CORE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static TRAIL_SPARK_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Reusable instance buffers for draw_penned_marchers' three passes (shadow, body, rim
+    // highlight) — same batching technique as the particle/leg/body/trail instances above. A big
+    // bank can queue up to 40 marchers at once, each previously issuing 3 individual canvas.draw()
+    // calls (shadow + body + rim), i.e. up to 120 separate GPU submissions for a purely cosmetic
+    // parade. Filling one InstanceArray per pass collapses that to 3 draw calls total regardless
+    // of marcher count, with identical on-screen output.
+    static MARCHER_SHADOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static MARCHER_BODY_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static MARCHER_RIM_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -1894,6 +1904,9 @@ impl PennedMarcherSystem {
 /// Draw the crabs currently marching into the pen. Cheap: a shadow + colored body disc + a
 /// bright rim per marcher, reusing the shared unit circle — it evokes the crab silhouette
 /// without rigging full legs, since these are only on screen for a fraction of a second.
+/// All three passes are batched into one InstanceArray draw call each (see
+/// MARCHER_SHADOW_INSTANCES et al.) instead of issuing a canvas.draw() per marcher per pass, the
+/// same technique already used for crab legs/bodies and catch trails.
 pub fn draw_penned_marchers(
     ctx: &mut Context,
     canvas: &mut Canvas,
@@ -1904,65 +1917,79 @@ pub fn draw_penned_marchers(
         return Ok(());
     }
     let unit_circle = match UNIT_CIRCLE.get() {
-        Some(mesh) => mesh,
+        Some(mesh) => mesh.clone(),
         None => {
             let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
-            UNIT_CIRCLE.get_or_init(|| mesh)
+            UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
-    // Shadows first (normal blend so they read as ground contact).
+
+    let mut shadow_params: Vec<DrawParam> = Vec::new();
+    let mut body_params: Vec<DrawParam> = Vec::new();
+    let mut rim_params: Vec<DrawParam> = Vec::new();
+
     for m in &system.marchers {
         if m.delay > 0.0 {
             continue;
         }
         let (pos, lift, shrink) = PennedMarcherSystem::marcher_draw(m);
         let body_r = CRAB_SIZE * 0.5 * m.size * shrink;
+
         let sh_scale = (1.0 - lift / 60.0).clamp(0.4, 1.0);
         let sh_alpha = ((1.0 - lift / 55.0) * 90.0).clamp(15.0, 90.0) as u8;
-        canvas.draw(
-            unit_circle,
+        shadow_params.push(
             DrawParam::default()
                 .dest(pos + Vec2::new(0.0, body_r * 0.7 + lift * 0.6))
                 .scale(Vec2::new(body_r * sh_scale, body_r * 0.45 * sh_scale))
                 .color(Color::from_rgba(0, 0, 0, sh_alpha)),
         );
-    }
-    // Bodies + rims in additive so they glow warm as they file in.
-    let orig_blend = canvas.blend_mode();
-    for m in &system.marchers {
-        if m.delay > 0.0 {
-            continue;
-        }
-        let (pos, _lift, shrink) = PennedMarcherSystem::marcher_draw(m);
-        let body_r = CRAB_SIZE * 0.5 * m.size * shrink;
+
         // A little beat-independent bob so the parade feels alive.
         let bob = 1.0 + 0.08 * (time * 9.0 + m.start.x).sin();
         let [r, g, b] = m.color;
-        canvas.draw(
-            unit_circle,
+        body_params.push(
             DrawParam::default()
                 .dest(pos)
                 .scale(Vec2::splat(body_r * bob))
                 .color(Color::new(r, g, b, 1.0)),
         );
-    }
-    // Bright rim highlight, additive, so the marchers pop against the pen glow.
-    canvas.set_blend_mode(BlendMode::ADD);
-    for m in &system.marchers {
-        if m.delay > 0.0 {
-            continue;
-        }
-        let (pos, _lift, shrink) = PennedMarcherSystem::marcher_draw(m);
-        let body_r = CRAB_SIZE * 0.5 * m.size * shrink;
-        let [r, g, b] = m.color;
-        canvas.draw(
-            unit_circle,
+
+        rim_params.push(
             DrawParam::default()
                 .dest(pos - Vec2::new(0.0, body_r * 0.3))
                 .scale(Vec2::splat(body_r * 0.45))
                 .color(Color::new((r + 0.4).min(1.0), (g + 0.4).min(1.0), (b + 0.4).min(1.0), 0.7)),
         );
     }
+
+    // Shadows first (normal blend so they read as ground contact).
+    MARCHER_SHADOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+        let mut inst_slot = inst_cell.borrow_mut();
+        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set(shadow_params.iter().copied());
+        canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+        Ok(())
+    })?;
+
+    // Bodies + rims in additive so they glow warm as they file in.
+    let orig_blend = canvas.blend_mode();
+    MARCHER_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+        let mut inst_slot = inst_cell.borrow_mut();
+        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set(body_params.iter().copied());
+        canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+        Ok(())
+    })?;
+
+    // Bright rim highlight, additive, so the marchers pop against the pen glow.
+    canvas.set_blend_mode(BlendMode::ADD);
+    MARCHER_RIM_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+        let mut inst_slot = inst_cell.borrow_mut();
+        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set(rim_params.iter().copied());
+        canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+        Ok(())
+    })?;
     canvas.set_blend_mode(orig_blend);
     Ok(())
 }
