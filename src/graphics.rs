@@ -121,6 +121,12 @@ thread_local! {
     static PARTICLE_MAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static PARTICLE_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance array for the flashlight's volumetric dust motes (see draw_flashlight)
+    // so the beam's ~20 drifting specks are one batched GPU submission per frame instead of up
+    // to 20 individual canvas.draw() calls — this ran every frame the flashlight was held on,
+    // i.e. most of active play.
+    static FLASHLIGHT_DUST_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Crab legs (6 unit-line draws per crab) were the single biggest per-crab draw-call
     // contributor — a long conga train plus a fresh wild herd can easily put 40-50+ crabs on
     // screen at once, i.e. 240-300+ individual leg draw calls a frame on top of everything else
@@ -1537,10 +1543,10 @@ pub fn draw_flashlight(
     // screen-space and ignores mesh colour), but keep the ADD blend so the motes glow.
     canvas.set_default_shader();
     let unit_circle = match UNIT_CIRCLE.get() {
-        Some(mesh) => mesh,
+        Some(mesh) => mesh.clone(),
         None => {
             let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
-            UNIT_CIRCLE.get_or_init(|| mesh)
+            UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
     // Fresh-catch flare: the beam briefly sparkles brighter right after grabbing a crab.
@@ -1551,38 +1557,48 @@ pub fn draw_flashlight(
         let s = (n * 12.9898).sin() * 43758.5453;
         s - s.floor()
     };
-    for i in 0..MOTE_COUNT {
-        let fi = i as f32;
-        // Stable per-mote randoms.
-        let lateral = hash(fi + 1.0) * 2.0 - 1.0; // where across the cone this ray sits
-        let speed = 0.35 + hash(fi + 2.0) * 0.65; // how fast it drifts outward
-        let seed = hash(fi + 3.0); // phase / twinkle offset
-        let size = 1.2 + hash(fi + 4.0) * 1.6; // mote radius in px
-        // Drift outward along the beam and recycle at the far end.
-        let dfrac_raw = seed + time * speed * 0.14;
-        let dfrac = dfrac_raw - dfrac_raw.floor(); // 0..1 distance fraction
-        let dist = dfrac * flashlight_len * 1.02;
-        // Cone widens with distance: motes near the apex hug the axis, far ones fan out.
-        let mote_angle = angle + lateral * half_spread * (0.25 + 0.75 * dfrac);
-        let pos = center + Vec2::new(mote_angle.cos(), mote_angle.sin()) * dist;
-        // Brightness: fade in from the apex and out at the far edge, dim toward the cone
-        // sides, and twinkle over time so the dust shimmers.
-        let along_fade = (dfrac * std::f32::consts::PI).sin(); // 0 at both ends, 1 mid-beam
-        let edge_fade = 1.0 - lateral * lateral; // dim near the cone's sides
-        let twinkle = 0.45 + 0.55 * (time * (2.0 + seed * 3.0) + fi).sin();
-        let alpha = (0.22 + catch_flare * 0.35) * along_fade * edge_fade * twinkle;
-        if alpha <= 0.01 {
-            continue;
+    // Batched into one instanced draw instead of up to 20 individual canvas.draw() calls per
+    // frame — the flashlight is on for most of active play, so this ran every frame the beam
+    // was lit. Same reusable-thread-local-InstanceArray pattern as draw_ambient_motes/particles.
+    FLASHLIGHT_DUST_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set((0..MOTE_COUNT).filter_map(|i| {
+            let fi = i as f32;
+            // Stable per-mote randoms.
+            let lateral = hash(fi + 1.0) * 2.0 - 1.0; // where across the cone this ray sits
+            let speed = 0.35 + hash(fi + 2.0) * 0.65; // how fast it drifts outward
+            let seed = hash(fi + 3.0); // phase / twinkle offset
+            let size = 1.2 + hash(fi + 4.0) * 1.6; // mote radius in px
+            // Drift outward along the beam and recycle at the far end.
+            let dfrac_raw = seed + time * speed * 0.14;
+            let dfrac = dfrac_raw - dfrac_raw.floor(); // 0..1 distance fraction
+            let dist = dfrac * flashlight_len * 1.02;
+            // Cone widens with distance: motes near the apex hug the axis, far ones fan out.
+            let mote_angle = angle + lateral * half_spread * (0.25 + 0.75 * dfrac);
+            let pos = center + Vec2::new(mote_angle.cos(), mote_angle.sin()) * dist;
+            // Brightness: fade in from the apex and out at the far edge, dim toward the cone
+            // sides, and twinkle over time so the dust shimmers.
+            let along_fade = (dfrac * std::f32::consts::PI).sin(); // 0 at both ends, 1 mid-beam
+            let edge_fade = 1.0 - lateral * lateral; // dim near the cone's sides
+            let twinkle = 0.45 + 0.55 * (time * (2.0 + seed * 3.0) + fi).sin();
+            let alpha = (0.22 + catch_flare * 0.35) * along_fade * edge_fade * twinkle;
+            if alpha <= 0.01 {
+                return None;
+            }
+            let r = size + catch_flare * 0.8;
+            Some(
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::new(r, r))
+                    .color(Color::new(1.0, 0.96, 0.82, alpha.clamp(0.0, 1.0))),
+            )
+        }));
+        if !instances.instances().is_empty() {
+            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
         }
-        let r = size + catch_flare * 0.8;
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(pos)
-                .scale(Vec2::new(r, r))
-                .color(Color::new(1.0, 0.96, 0.82, alpha.clamp(0.0, 1.0))),
-        );
-    }
+        Ok(())
+    })?;
 
     // Restore original blend mode and shader
     canvas.set_blend_mode(original_blend);
