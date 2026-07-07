@@ -176,6 +176,20 @@ thread_local! {
     // with a DrawParam per tile position and issue a single draw_instanced_mesh. Same texture,
     // same positions, identical on-screen output.
     static GRASS_TILE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Scratch grouping map + reusable InstanceArrays for draw_chain_rings, keyed by the same
+    // rounded (radius*2, thickness*4) key cached_stroke_circle() already uses to memoize the
+    // mesh itself. A stroke ring can't be instanced via one shared unit mesh scaled by DrawParam
+    // like a fill circle (scaling would stretch the stroke thickness along with the radius), but
+    // rings spawned on the same beat share the same age every frame — and therefore the exact
+    // same cached mesh — so grouping same-mesh rings into one InstanceArray each still collapses
+    // most of the draw calls. A long conga train pushes up to MAX_CHAIN_RINGS (64) rings, each
+    // previously costing 2 individual canvas.draw() calls (ring + inner glow) every frame for its
+    // whole lifetime — up to 128 GPU submissions a frame, the same per-call overhead already
+    // eliminated for particles/legs/bodies/trails/marchers/grass. Same meshes, same positions,
+    // same draw order within a beat's rings, identical on-screen output.
+    static CHAIN_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static CHAIN_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -2445,36 +2459,74 @@ pub fn draw_chain_rings(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    for &(pos, age, color) in rings {
-        // age 0..1: radius grows from 8 to 70, alpha fades from bright to zero
-        let radius = 8.0 + age * 62.0;
-        let alpha = ((1.0 - age) * 0.65).clamp(0.0, 1.0);
-        // Stroke thickness tapers as ring expands
-        let thickness = 3.5 * (1.0 - age * 0.7);
+    // Group both passes' DrawParams by the same (radius, thickness) key cached_stroke_circle()
+    // rounds to internally, so rings that land in the same mesh bucket (typically the whole
+    // conga chain on a given beat, since they share age) get instanced together instead of each
+    // costing its own canvas.draw() call. Reused scratch map, cleared each call rather than
+    // reallocated.
+    CHAIN_RING_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        for v in groups.values_mut() {
+            v.clear();
+        }
 
-        // Main ring — rings spawned on the same beat share the same age every frame, so this
-        // cache lookup is shared across the whole conga chain instead of building one fresh
-        // mesh per crab per frame.
-        let ring = cached_stroke_circle(ctx, radius, thickness)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(color[0], color[1], color[2], alpha)),
-        );
+        for &(pos, age, color) in rings {
+            // age 0..1: radius grows from 8 to 70, alpha fades from bright to zero
+            let radius = 8.0 + age * 62.0;
+            let alpha = ((1.0 - age) * 0.65).clamp(0.0, 1.0);
+            // Stroke thickness tapers as ring expands
+            let thickness = 3.5 * (1.0 - age * 0.7);
 
-        // Soft outer glow ring (larger radius, lower alpha)
-        if age < 0.7 {
-            let glow_alpha = alpha * 0.3;
-            let glow = cached_stroke_circle(ctx, radius + 4.0, thickness * 2.0)?;
-            canvas.draw(
-                &glow,
+            // Main ring. Ensures the mesh is built/cached, then groups its DrawParam under the
+            // same key cached_stroke_circle used, so this ring instances alongside every other
+            // ring sharing that exact (radius, thickness) bucket this frame.
+            let key = (
+                (radius.max(0.5) * 2.0).round() as i32,
+                (thickness.max(0.25) * 4.0).round() as i32,
+            );
+            cached_stroke_circle(ctx, radius, thickness)?;
+            groups.entry(key).or_default().push(
                 DrawParam::default()
                     .dest(pos)
-                    .color(Color::new(color[0], color[1], color[2], glow_alpha)),
+                    .color(Color::new(color[0], color[1], color[2], alpha)),
             );
+
+            // Soft outer glow ring (larger radius, lower alpha)
+            if age < 0.7 {
+                let glow_alpha = alpha * 0.3;
+                let glow_radius = radius + 4.0;
+                let glow_thickness = thickness * 2.0;
+                let glow_key = (
+                    (glow_radius.max(0.5) * 2.0).round() as i32,
+                    (glow_thickness.max(0.25) * 4.0).round() as i32,
+                );
+                cached_stroke_circle(ctx, glow_radius, glow_thickness)?;
+                groups.entry(glow_key).or_default().push(
+                    DrawParam::default()
+                        .dest(pos)
+                        .color(Color::new(color[0], color[1], color[2], glow_alpha)),
+                );
+            }
         }
-    }
+
+        CHAIN_RING_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() {
+                    continue;
+                }
+                // Same mesh cached_stroke_circle() already built above for this key.
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances
+                    .entry(*key)
+                    .or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
     Ok(())
