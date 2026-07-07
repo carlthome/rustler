@@ -141,6 +141,14 @@ thread_local! {
     // those values actually changes, not on every one of the ~60 frames between catches.
     static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
 
+    // Debug-build-only perf overlay ("avg X.XXms (YY fps), worst Z.ZZms") in the top-right
+    // corner, so frame-time regressions are visible during actual play instead of only in a
+    // terminal that may not be in view. Same rebuild-on-change pattern as HUD_TEXT_CACHE above:
+    // keyed by the last-printed avg/worst (rounded to hundredths, as displayed), so the Text is
+    // only rebuilt on the same ~2s cadence the underlying numbers actually change, not every frame.
+    #[cfg(debug_assertions)]
+    static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, Text, f32)>> = RefCell::new(None);
+
     // The three ability-bar labels ("Stamina (Space)", "Whistle (E)[/READY]", "Stomp (R)[/READY]")
     // were being rebuilt via a fresh Text::new every single frame even though the stamina label
     // never changes at all and the other two only ever flip between one of two fixed strings.
@@ -650,6 +658,15 @@ struct MainState {
     perf_time_accum: f32,
     #[cfg(debug_assertions)]
     perf_worst_frame: f32,
+    // Last computed avg/worst frame time (ms), so the on-screen overlay always has a number to
+    // show instead of blanking between the ~2s print windows above. Updated alongside the
+    // println! so both stay in lockstep; drawn every frame but only rebuilt on that same cadence.
+    #[cfg(debug_assertions)]
+    perf_last_avg_ms: f32,
+    #[cfg(debug_assertions)]
+    perf_last_worst_ms: f32,
+    #[cfg(debug_assertions)]
+    perf_last_fps: f32,
 }
 
 impl MainState {
@@ -982,6 +999,12 @@ impl MainState {
             perf_time_accum: 0.0,
             #[cfg(debug_assertions)]
             perf_worst_frame: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_avg_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_worst_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_fps: 0.0,
         })
     }
 
@@ -4216,6 +4239,38 @@ impl MainState {
             );
         });
 
+        // Debug-only perf overlay, top-right: avg/worst frame time + fps over the last ~2s
+        // window (see the accumulation block in update()). Lets a feature/optimizer agent (or
+        // Carl) see the cost of whatever just landed without needing a terminal in view.
+        #[cfg(debug_assertions)]
+        PERF_OVERLAY_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            // Round to hundredths (matches the displayed precision) so the cache only rebuilds
+            // when the printed numbers would actually change, not every frame.
+            let avg_key = (self.perf_last_avg_ms * 100.0).round() as i32;
+            let worst_key = (self.perf_last_worst_ms * 100.0).round() as i32;
+            let needs_rebuild = match &*cache {
+                Some((a, w, _, _)) => *a != avg_key || *w != worst_key,
+                None => true,
+            };
+            if needs_rebuild {
+                let msg = format!(
+                    "avg {:.2}ms ({:.0} fps)  worst {:.2}ms",
+                    self.perf_last_avg_ms, self.perf_last_fps, self.perf_last_worst_ms,
+                );
+                let text = Text::new(msg);
+                let width = text.measure(ctx).map(|m| m.x).unwrap_or(0.0);
+                *cache = Some((avg_key, worst_key, text, width));
+            }
+            let (_, _, text, width) = cache.as_ref().unwrap();
+            canvas.draw(
+                text,
+                DrawParam::default()
+                    .dest(Vec2::new(self.width - width - 10.0, 10.0))
+                    .color(Color::from_rgb(120, 255, 120)),
+            );
+        });
+
         // Draw stamina bar for boost timer/cooldown
         let bar_x = 10.0;
         let bar_y = 50.0;
@@ -5415,6 +5470,11 @@ impl EventHandler for MainState {
                     1000.0 / avg_ms,
                     worst_ms,
                 );
+                // Stash for the on-screen overlay (see draw()) so the number is visible during
+                // play too, not just in a terminal that may not be in view.
+                self.perf_last_avg_ms = avg_ms;
+                self.perf_last_worst_ms = worst_ms;
+                self.perf_last_fps = 1000.0 / avg_ms;
                 self.perf_frame_count = 0;
                 self.perf_time_accum = 0.0;
                 self.perf_worst_frame = 0.0;
