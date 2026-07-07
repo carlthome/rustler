@@ -112,6 +112,8 @@ pub struct EnemyCrab {
     pub charm_timer: f32,    // >0 while soothed by a whistle pulse: won't flee and is immune to beat-startle panic
     pub answering_call: f32, // >0 while a Dancer is answering an on-beat player Call: it hops *toward* the player on the beat instead of fleeing
     pub boss_health: f32,    // >0 while a boss still needs wearing down under the beam; 0 for regular crabs
+    pub boss_max_health: f32, // starting boss_health, so the fight can reason about health *fraction* (enrage phase)
+    pub enraged: bool,        // latched true once a boss crosses into its final enrage phase — drives the one-shot telegraph
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
 }

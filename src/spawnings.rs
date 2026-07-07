@@ -38,6 +38,8 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         // Armored crabs spawn with a shell here; every other herd type gets 0. The Boss's larger
         // health is overwritten explicitly in spawn_boss after this returns.
         boss_health: crab_type.initial_shell(),
+        boss_max_health: crab_type.initial_shell().max(0.0001),
+        enraged: false,
         charge_state: BossCharge::Idle,
         charge_cooldown: 0.0,
     }
@@ -60,6 +62,7 @@ pub fn spawn_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> Enem
     boss.speed = rng.random_range(CrabType::Boss.speed_range());
     boss.scale = rng.random_range(CrabType::Boss.scale_range());
     boss.boss_health = max_health;
+    boss.boss_max_health = max_health;
     // Let it make its lumbering entrance before the first charge winds up.
     boss.charge_cooldown = 2.5;
     boss
@@ -81,6 +84,7 @@ pub fn spawn_tide_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) ->
     boss.speed = rng.random_range(CrabType::TideBoss.speed_range());
     boss.scale = rng.random_range(CrabType::TideBoss.scale_range());
     boss.boss_health = max_health;
+    boss.boss_max_health = max_health;
     // charge_cooldown doubles as the pulse timer for the Tide Boss — let it drift in first.
     boss.charge_cooldown = 3.0;
     boss

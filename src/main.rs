@@ -71,6 +71,12 @@ const BOSS_WINDUP_TIME: f32 = 0.85;    // telegraph duration before a charge fir
 const BOSS_CHARGE_TIME: f32 = 0.65;    // how long the lunge lasts
 const BOSS_CHARGE_SPEED: f32 = 540.0;  // px/s during the lunge (far faster than it roams)
 const BOSS_CHARGE_ARM_RANGE: f32 = 430.0; // only wind up when the train is within striking range
+// Multi-phase escalation: once a boss is worn below this fraction of its max health it "enrages" —
+// the fight's final phase. The King Crab charges harder and rests less; the Tide Boss pulses faster.
+// This turns a flat drain into a genuine climax that ramps as you close in on the catch.
+const BOSS_ENRAGE_THRESHOLD: f32 = 0.4; // fraction of BOSS_MAX_HEALTH below which the boss enrages
+const BOSS_ENRAGE_COOLDOWN_SCALE: f32 = 0.5; // charge/pulse rest time multiplier while enraged (shorter)
+const BOSS_ENRAGE_CHARGE_SPEED_SCALE: f32 = 1.25; // King Crab lunges this much faster while enraged
 // Tide Boss pulse: instead of charging, it swells and releases an expanding shockwave ring that
 // scatters nearby free crabs and knocks the train's tail loose if it's clustered too close.
 const TIDE_PULSE_COOLDOWN: f32 = 5.0;   // drift time between pulses
@@ -526,6 +532,9 @@ struct MainState {
     boss_windups_buf: Vec<Vec2>,
     boss_launches_buf: Vec<Vec2>,
     boss_charge_dust_buf: Vec<(Vec2, Vec2)>,
+    // A boss just crossed into its enrage phase this frame — (pos, is_tide) so the callout/burst
+    // can color itself. Almost always empty; reused like the other event buffers.
+    boss_enrages_buf: Vec<(Vec2, bool)>,
     tide_fires_buf: Vec<Vec2>,
     tide_swells_buf: Vec<Vec2>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
@@ -849,6 +858,7 @@ impl MainState {
             boss_windups_buf: Vec::new(),
             boss_launches_buf: Vec::new(),
             boss_charge_dust_buf: Vec::new(),
+            boss_enrages_buf: Vec::new(),
             tide_fires_buf: Vec::new(),
             tide_swells_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
@@ -1871,6 +1881,9 @@ impl MainState {
         boss_launches.clear();
         let mut boss_charge_dust = std::mem::take(&mut self.boss_charge_dust_buf); // (pos, vel) trail while lunging
         boss_charge_dust.clear();
+        // A boss crossed into its enrage phase this frame — (pos, is_tide). Fired once per boss.
+        let mut boss_enrages = std::mem::take(&mut self.boss_enrages_buf);
+        boss_enrages.clear();
         // Tide Boss pulse fires this frame (center positions) — processed after the loop so the
         // shockwave can scatter the herd and loosen the train without fighting the &mut borrow.
         // Reused scratch buffers like the other event vecs above: almost always empty (at most
@@ -1911,6 +1924,18 @@ impl MainState {
                     }
                 }
 
+                // Multi-phase escalation: the moment its health dips below the enrage threshold, the
+                // boss enters its final phase. Latch it once so we fire a single dramatic telegraph;
+                // the enraged flag then feeds the charge/pulse cadence below to make the climax ramp.
+                if !crab.enraged
+                    && crab.boss_health > 0.0
+                    && crab.boss_health <= crab.boss_max_health * BOSS_ENRAGE_THRESHOLD
+                {
+                    crab.enraged = true;
+                    crab.charge_cooldown = crab.charge_cooldown.min(1.0); // snap toward its next move — no lull into the finale
+                    boss_enrages.push((crab.pos, crab.is_tide_boss()));
+                }
+
                 // The Tide Boss doesn't charge — it drifts and pulses. Distinct threat, distinct
                 // counterplay: keep the train *away* from it (spacing) rather than routing out of a
                 // charge lane. It reuses charge_cooldown as its pulse timer and BossCharge::Winding
@@ -1925,7 +1950,12 @@ impl MainState {
                             crab.pos += crab.vel * dt;
                             crab.charge_state = if nt <= 0.0 {
                                 tide_fires.push(crab.pos);
-                                crab.charge_cooldown = TIDE_PULSE_COOLDOWN;
+                                // Enraged: rest far less between pulses so the finale hammers the train.
+                                crab.charge_cooldown = if crab.enraged {
+                                    TIDE_PULSE_COOLDOWN * BOSS_ENRAGE_COOLDOWN_SCALE
+                                } else {
+                                    TIDE_PULSE_COOLDOWN
+                                };
                                 BossCharge::Idle
                             } else {
                                 BossCharge::Winding(nt)
@@ -1999,7 +2029,13 @@ impl MainState {
                             if dir == Vec2::ZERO {
                                 dir = Vec2::new(0.0, 1.0);
                             }
-                            crab.vel = dir * BOSS_CHARGE_SPEED;
+                            // Enraged King Crab lunges harder — a faster, scarier commit in the finale.
+                            let charge_speed = if crab.enraged {
+                                BOSS_CHARGE_SPEED * BOSS_ENRAGE_CHARGE_SPEED_SCALE
+                            } else {
+                                BOSS_CHARGE_SPEED
+                            };
+                            crab.vel = dir * charge_speed;
                             boss_launches.push(crab.pos);
                             BossCharge::Charging(BOSS_CHARGE_TIME)
                         } else {
@@ -2011,7 +2047,12 @@ impl MainState {
                         crab.pos += crab.vel * dt; // vel stays locked to the launch heading
                         boss_charge_dust.push((crab.pos, crab.vel));
                         crab.charge_state = if nt <= 0.0 {
-                            crab.charge_cooldown = BOSS_CHARGE_COOLDOWN;
+                            // Enraged: shorter rest between lunges so the finale keeps the pressure on.
+                            crab.charge_cooldown = if crab.enraged {
+                                BOSS_CHARGE_COOLDOWN * BOSS_ENRAGE_COOLDOWN_SCALE
+                            } else {
+                                BOSS_CHARGE_COOLDOWN
+                            };
                             crab.vel *= 0.15; // skid to a halt out of the lunge
                             BossCharge::Idle
                         } else {
@@ -2231,6 +2272,33 @@ impl MainState {
             self.on_beat_flash = self.on_beat_flash.max(0.4);
         }
 
+        // A boss just crossed into its enrage phase — the fight's final act. A hard jolt, a big
+        // menacing shockwave in the boss's own color, and an "ENRAGED!" shout mark the turn so the
+        // ramp in aggression reads as a deliberate escalation, not random difficulty.
+        for &(pos, is_tide) in boss_enrages.iter() {
+            let (ring_col, txt_col): ([f32; 3], [f32; 4]) = if is_tide {
+                ([0.3, 0.75, 1.0], [0.5, 0.9, 1.0, 1.0])
+            } else {
+                ([1.0, 0.4, 0.15], [1.0, 0.55, 0.2, 1.0])
+            };
+            self.floating_texts.spawn(
+                "ENRAGED!".to_string(),
+                pos - Vec2::new(72.0, 58.0),
+                42.0,
+                txt_col,
+            );
+            self.spawn_catch_shockwave(pos, ring_col);
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.particle_system
+                .spawn_milestone_fireworks(pos, 10, &mut rand::rng());
+            self.screen_shake = self.screen_shake.max(20.0);
+            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 20.0 * 60.0;
+            self.on_beat_flash = self.on_beat_flash.max(0.5);
+        }
+
         // King Crab winding up a charge: red alarm ring + shouted warning so the player has time
         // to route the tail out of the lane before the lunge commits.
         for &pos in boss_windups.iter() {
@@ -2329,6 +2397,7 @@ impl MainState {
         self.boss_windups_buf = boss_windups;
         self.boss_launches_buf = boss_launches;
         self.boss_charge_dust_buf = boss_charge_dust;
+        self.boss_enrages_buf = boss_enrages;
         self.tide_fires_buf = tide_fires;
         self.tide_swells_buf = tide_swells;
 
@@ -2777,6 +2846,8 @@ impl MainState {
                 charm_timer: 0.0,
                 answering_call: 0.0,
                 boss_health: 0.0,
+                boss_max_health: 0.0001,
+                enraged: false,
                 charge_state: BossCharge::Idle,
                 charge_cooldown: 0.0,
             };
@@ -3874,10 +3945,22 @@ impl MainState {
                 if crab.is_boss() {
                     let size = crab.scale * CRAB_SIZE;
                     let frac = crab.boss_health / BOSS_MAX_HEALTH;
-                    let aura = if crab.is_tide_boss() {
+                    let base_aura = if crab.is_tide_boss() {
                         [0.25, 0.7, 1.0]
                     } else {
                         [1.0, 0.8, 0.25]
+                    };
+                    // Enraged bosses glow hot: shift the aura toward an angry pulsing red so the final
+                    // phase reads instantly, matching the ramped-up charge/pulse behavior.
+                    let aura = if crab.enraged {
+                        let p = 0.5 + 0.5 * (self.time_elapsed * 9.0).sin();
+                        [
+                            (base_aura[0] * 0.4 + 0.6_f32).min(1.0),
+                            base_aura[1] * (0.35 + 0.15 * p),
+                            base_aura[2] * (0.35 + 0.15 * p),
+                        ]
+                    } else {
+                        base_aura
                     };
                     draw_boss_health_ring(ctx, canvas, pos, size, frac, self.time_elapsed, aura)?;
                 } else if crab.is_armored() && crab.boss_health > 0.0 {
@@ -5152,7 +5235,18 @@ impl EventHandler for MainState {
         // the music. Whole field caught still counts, so the player is never left waiting with
         // nothing to chase. `wave_telegraph` counts up while armed to drive the draw-side flash.
         self.pattern_timer -= dt;
-        if !self.wave_armed && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0) {
+        // Boss set-piece: while a boss is on the field, hold the herd back so the encounter becomes
+        // a focused duel instead of another crab lost in the crowd. The pattern timer keeps counting
+        // down (clamped so it doesn't run away), so the instant the boss is caught the next wave
+        // arms immediately and the run resumes without a dead beat.
+        let boss_active = self.crabs.iter().any(|c| c.is_boss() && !c.caught);
+        if boss_active {
+            self.pattern_timer = self.pattern_timer.max(-1.0);
+        }
+        if !self.wave_armed
+            && !boss_active
+            && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0)
+        {
             self.wave_armed = true;
             self.wave_telegraph = 0.0;
             // Decide up front whether the drop we're arming is a Frenzy: every 4th cleared wave,
