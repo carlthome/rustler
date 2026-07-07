@@ -15,39 +15,49 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back.
 
-**Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/
-stomp) with four upgrade playstyle lanes, the conga train with chain-snap downside and a
-delivery-pen jackpot, rhythm/groove scoring that now **drives real mechanics** (bar-quantized
-spawn drops on the downbeat, on-beat PERFECT tool hits, a beat-stepping train, an on-beat Call
-that Dancers answer for a Dance Catch bonus), biomes with terrain hazards, and three enemy
+**Where we are.** The inner loop is deep and closed, and it now has a spine. Four catching
+tools (beam/lasso/whistle/stomp) with four upgrade playstyle lanes, the conga train with a
+chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring that **drives real
+mechanics**: bar-quantized spawn drops on the downbeat, on-beat PERFECT tool hits, a
+beat-stepping train, an on-beat Call that Dancers answer for a Dance Catch bonus, and now a
+full-meter **Downbeat Slam ultimate** (G on the beat) that erupts a gold shockwave and yanks a
+whole cluster into the train. Pacing is no longer flat: a **staged difficulty ramp** climbs
+through named intensity stages over elapsed time, with Frenzy spikes and a **beat-tempo shift**
+that speeds the whole run up as it escalates. Biomes now **play differently** — Rocky Shore
+chokepoints, Neon Kelp tail-snag, Tide Pool wade-drag — not just color skins. Three enemy
 archetypes beyond the base crab (Armored → stomp, Dancer → rhythm) plus **two bosses** (King
-Crab charge, Tide Boss shockwave that alternate). A first slice of **meta-progression has
-shipped too**: runs bank into a persistent career (best score, lifetime crabs, run count) and
-banked crabs buy permanent starting tool ranks in a title-screen perk shop, so a loss still buys
-progress. The prior "Now" boss/rhythm/upgrade-UI items are all done. We're NOT declaring the
-inner loop finished and pivoting wholesale to outer-loop work until Carl says the core feels
-done — fresh archetypes and bosses land well, but **pacing** is still flat (static per-zone
-difficulty) and biomes are still only color-grading skins. So this run keeps depth-first targets
-in Now and leaves the meta-progression expansion in Later.
+Crab charge, Tide Boss shockwave, alternating). A first slice of **meta-progression** is in
+(persistent career + banked-crab perk shop). The recent Slack diary posts read as steady
+positive momentum with no pushback; Carl's own recorded steer was "more visual spectacle or a
+difficulty ramp tweak," both now shipped — so the rhythm-spectacle and pacing bets are landing.
+All three prior "Now" items (staged ramp, biome mechanics, rhythm ultimate) shipped this cycle,
+and the start-of-run crash + fullscreen bugs are fixed. The inner loop is close to done but not
+declared finished — a couple of depth targets remain before we'd pivot to outer-loop work, and
+we still want Carl's explicit "the core feels done" call first.
+
+## Bugs (fix before anything else in Now)
+
+Stability beats new features — an agent picking a task should check here first, before any
+item in "Now" below.
+
+- None currently known. (The start-of-run `InstanceArray capacity > 0` crash and the
+  windowed-instead-of-fullscreen bug are both fixed.) If you hit a panic or a wrong-looking
+  frame while testing, log it here before shipping anything new.
 
 ## Now
 
-- **Staged difficulty ramp with special spikes** — difficulty is currently static per zone (fixed
-  values in levels.rs); a run has no rising tension arc within a zone. Make it escalate in stages
-  over elapsed time, with occasional standout moments (a tougher wave, a denser spawn, a beat-tempo
-  shift) that feel special and earned rather than a flat curve. Deepens pacing of the existing core
-  loop without adding a new system. **Highest-leverage Now item — it's the missing spine of a run.**
-- **Make biomes matter mechanically, not just visually** — the four biomes (Sunny Meadow, Tide
-  Pools, Rocky Shore, Neon Kelp) currently differ only in color grading and beat-pulse tint. Give
-  each one a distinct gameplay wrinkle that changes how you catch or route (e.g. Neon Kelp fronds
-  that snag the conga tail, Rocky Shore chokepoints, a Tide Pool that periodically floods the
-  whole lane on the bar), so moving between zones feels like a real change of terrain, not a
-  reskin. Depth: turns existing scenery into a system.
-- **A rhythm-native player ability with real teeth** — the on-beat Call + Dance Catch loop proved
-  players enjoy actively *playing* the rhythm, not just watching it. Build on it with a chargeable
-  on-beat power: e.g. a "Downbeat Slam" that, timed to a PERFECT, yanks and banks a cluster at
-  once, or a groove-meter ultimate that only fires clean on the bar. Rewards rhythm mastery with a
-  spectacle payoff — leans into the game's most distinctive hook.
+- **Boss fights that feel like fights, not obstacles** — the King Crab and Tide Boss alternate
+  and land telegraphed attacks, but a boss is still just a tankier crab on the same field. Give
+  a boss encounter real structure: a distinct arena moment or wave lull when it arrives, a
+  multi-phase escalation as you wear it down, and a payoff catch that reads as a genuine victory
+  (bigger than a normal delivery). Deepens an existing archetype into a set-piece rather than
+  adding a new one. **Top Now item — bosses land well and this is where depth compounds most.**
+- **A rhythm risk/reward layer on the beat window** — PERFECT on-beat hits and the Downbeat Slam
+  proved players enjoy actively *playing* the beat. Push it further into decision-making, not
+  just timing: e.g. an on-beat "gamble" where nailing consecutive downbeats compounds a multiplier
+  that a single miss resets, or a beat-locked window where holding the train through a hazard on
+  the bar pays out but mistiming scatters it. Turns the rhythm from a bonus into a live tension
+  the player is managing — the game's most distinctive hook, made deeper.
 
 ## Later (outer loop — not yet)
 
@@ -67,6 +77,11 @@ in Now and leaves the meta-progression expansion in Later.
 
 ## Also on our mind (not sequenced — no urgency, just don't lose it)
 
+- **A fourth enemy archetype that reshapes routing** — three archetypes (Armored, Dancer, base)
+  cover crack-open and rhythm; the gap is a crab that changes *how you move* the train, not just
+  how you catch. E.g. a skittish Runner that bolts along walls, or a Magnet crab that drags
+  nearby free crabs with it so catching it is a two-for-one. Depth via a new pressure on the
+  chain, not breadth. Promote when a boss set-piece and the rhythm-risk layer are done.
 - **Emergent system interactions** — Carl's Noita-inspired itch: the fun isn't a full physics/
   material simulation (too big a rearchitecture for this game), it's letting the systems we
   already have actually affect each other instead of running in isolation. Shipped so far:
