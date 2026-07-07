@@ -3001,6 +3001,7 @@ pub fn draw_slam_ring(
 /// blooms a bright celebratory ring right after a delivery lands. All geometry reuses the shared
 /// cached circle/line meshes, so this costs a handful of tinted draws — no per-frame allocation.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn draw_delivery_pen(
     ctx: &mut Context,
     canvas: &mut Canvas,
@@ -3009,8 +3010,13 @@ pub fn draw_delivery_pen(
     time: f32,
     beat_intensity: f32,
     ready: bool,
+    // 0..1 anticipation: how big the uncashed haul is (bigger train = a hungrier, hotter, faster
+    // pen), further boosted as the loaded train closes in on the pen. Drives the "this is about to
+    // be a jackpot" telegraph so the payoff builds *before* the bank, not only after it.
+    haul: f32,
     flash: f32,
 ) -> ggez::GameResult {
+    let haul = haul.clamp(0.0, 1.0);
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
@@ -3031,13 +3037,14 @@ pub fn draw_delivery_pen(
         }
     };
 
-    // Breathing pulse — gentle when idle, urgent when there's a train to bank.
-    let pulse_speed = if ready { 6.0 } else { 2.2 };
+    // Breathing pulse — gentle when idle, urgent when there's a train to bank, and faster still the
+    // fatter (and closer) the haul, so a big jackpot approach visibly winds the pen up.
+    let pulse_speed = if ready { 6.0 + haul * 5.0 } else { 2.2 };
     let pulse = 0.5 + 0.5 * (time * pulse_speed).sin();
     let beat = beat_intensity.clamp(0.0, 1.0);
 
     // Warm goal-zone fill (normal blend so it reads as a marked patch of ground, not a glow).
-    let fill_alpha = if ready { 0.16 + 0.12 * pulse } else { 0.08 + 0.04 * pulse };
+    let fill_alpha = if ready { 0.16 + 0.12 * pulse + haul * 0.12 } else { 0.08 + 0.04 * pulse };
     canvas.draw(
         unit_circle,
         DrawParam::default()
@@ -3049,9 +3056,15 @@ pub fn draw_delivery_pen(
     let orig_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Outer boundary ring — the "fence line" of the pen. Greenish + brighter when ready to bank.
-    let (rr, rg, rb) = if ready { (0.5, 1.0, 0.5) } else { (1.0, 0.82, 0.35) };
-    let ring_alpha = if ready { 0.55 + 0.35 * pulse } else { 0.3 + 0.15 * pulse };
+    // Outer boundary ring — the "fence line" of the pen. Greenish when ready, and as the haul
+    // grows it heats from that go-green toward a hot jackpot gold, so a big incoming train reads as
+    // "money" before you even bank it.
+    let (rr, rg, rb) = if ready {
+        (0.5 + haul * 0.5, 1.0, 0.5 - haul * 0.25)
+    } else {
+        (1.0, 0.82, 0.35)
+    };
+    let ring_alpha = if ready { 0.55 + 0.35 * pulse + haul * 0.1 } else { 0.3 + 0.15 * pulse };
     let boundary = cached_stroke_circle(ctx, radius, 3.0)?;
     canvas.draw(
         &boundary,
@@ -3068,9 +3081,30 @@ pub fn draw_delivery_pen(
             .color(Color::new(rr, rg, rb, (0.2 + beat * 0.5) * 0.6)),
     );
 
-    // Buoy posts around the rim, slowly turning like a rotating corral.
+    // Anticipation "reach" ring — a second boundary that swells outward past the fence and fades,
+    // pulsing faster and reaching further the bigger the incoming haul. It's the pen visibly
+    // straining toward a fat train, telegraphing the jackpot as you drive it in. Only shows once
+    // there's a real haul building (haul > ~a couple crabs' worth) so it stays quiet for small runs.
+    if ready && haul > 0.12 {
+        let reach_phase = (time * (2.0 + haul * 4.0)).sin() * 0.5 + 0.5; // 0..1
+        let reach_r = radius * (1.0 + (0.15 + haul * 0.5) * reach_phase);
+        let reach = cached_stroke_circle(ctx, reach_r, 2.0 + haul * 2.0)?;
+        canvas.draw(
+            &reach,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(
+                    0.6 + haul * 0.4,
+                    1.0,
+                    0.45,
+                    (haul * 0.55 * (1.0 - reach_phase)).clamp(0.0, 1.0),
+                )),
+        );
+    }
+
+    // Buoy posts around the rim, slowly turning like a rotating corral — spinning up with the haul.
     let post_count = 10;
-    let spin = time * if ready { 0.9 } else { 0.35 };
+    let spin = time * if ready { 0.9 + haul * 2.5 } else { 0.35 };
     for i in 0..post_count {
         let ang = spin + (i as f32 / post_count as f32) * std::f32::consts::TAU;
         let p = center + Vec2::new(ang.cos(), ang.sin()) * radius;

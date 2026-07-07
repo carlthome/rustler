@@ -4058,7 +4058,23 @@ impl MainState {
         )?;
 
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
-        // into it. Lights up green once there's a train to bank (chain_count > 0).
+        // into it. Lights up green once there's a train to bank (chain_count > 0). The "haul"
+        // anticipation (0..1) scales the pen's excitement to the size of the incoming jackpot and
+        // ramps up further as the loaded train closes in, so the biggest payoff moment in the game
+        // — driving a fat conga line into the pen — builds visible tension *before* the bank.
+        let haul = if self.chain_count > 0 {
+            // Train size normalized against a "big haul" reference (~24 crabs reads as a jackpot),
+            // then boosted as the player carries it into the pen's neighborhood so the pen strains
+            // toward an approaching train rather than only reacting to its length.
+            let size_term = (self.chain_count as f32 / 24.0).min(1.0);
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let dist = player_center.distance(self.pen_pos);
+            // 0 far away, ramps to 1 as the train enters ~2.5 pen-radii of the goal.
+            let approach = (1.0 - (dist / (PEN_RADIUS * 2.5)).min(1.0)).max(0.0);
+            (size_term * (0.55 + 0.45 * approach)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         draw_delivery_pen(
             ctx,
             canvas,
@@ -4067,6 +4083,7 @@ impl MainState {
             self.time_elapsed,
             self.beat_intensity,
             self.chain_count > 0,
+            haul,
             self.deliver_flash,
         )?;
 
