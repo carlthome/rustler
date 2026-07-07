@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_call_ring, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_call_ring, draw_catch_trails, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -472,6 +472,10 @@ struct MainState {
     in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
+    // A bright whip-streak that arcs from where a crab was caught to the head of the train, so a
+    // catch reads as the crab being *yanked* in rather than just blinking onto the tail. Each entry
+    // is (from, to, age 0..1, rgb); brighter/thicker when the catch landed on the beat.
+    catch_trails: Vec<(Vec2, Vec2, f32, [f32; 3])>,
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     // Tide Boss shockwave pulses — (center, current radius) of each expanding front. Grows to
     // TIDE_PULSE_RADIUS then fades out. Bounded by the one-boss-at-a-time cap plus a hard len guard.
@@ -809,6 +813,7 @@ impl MainState {
             in_tide_pool: false,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
+            catch_trails: Vec::new(),
             fear_rings: Vec::new(),
             tide_pulses: Vec::new(),
             zoom_punch: 0.0,
@@ -1548,6 +1553,13 @@ impl MainState {
                 }
                 let pos = crab.pos;
                 let player_pos = self.player_pos;
+                // Whip-streak from the catch point to the head of the train, so the crab reads as
+                // yanked in. Brighter/faster-fading trails happen on-beat via the draw's age curve.
+                if self.catch_trails.len() < 48 {
+                    let head = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                    let start = if on_beat { -0.25 } else { 0.0 }; // on-beat trails linger a hair longer
+                    self.catch_trails.push((crab.pos, head, start, crab_color));
+                }
                 // Inline register_catch to avoid &mut self conflict with the crabs loop
                 self.score += (1 + bonus) * mult;
                 self.combo_count += 1;
@@ -2588,6 +2600,7 @@ impl MainState {
         self.in_tide_pool = false;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
+        self.catch_trails.clear();
         self.fear_rings.clear();
         self.tide_pulses.clear();
         self.player_pos = player_pos;
@@ -3175,6 +3188,9 @@ impl MainState {
 
         // Draw screen-edge radar arrows pointing to free crabs
         draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.beat_intensity, self.time_elapsed)?;
+
+        // Draw the whip-streaks that yank caught crabs into the train (under the impact rings).
+        draw_catch_trails(ctx, canvas, &self.catch_trails)?;
 
         // Draw catch impact shockwaves (over the crabs, under score text)
         draw_catch_shockwaves(ctx, canvas, &self.catch_shockwaves)?;
@@ -4784,6 +4800,13 @@ impl EventHandler for MainState {
         let shock_speed = 2.6; // age 0..1 in ~0.38 seconds
         self.catch_shockwaves.retain_mut(|(_, age, _)| {
             *age += dt * shock_speed;
+            *age < 1.0
+        });
+
+        // Advance catch whip-trails — a fast fade so they read as a snap, not a lingering line.
+        let trail_speed = 3.4; // age 0..1 in ~0.29 seconds
+        self.catch_trails.retain_mut(|(_, _, age, _)| {
+            *age += dt * trail_speed;
             *age < 1.0
         });
 

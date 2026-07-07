@@ -2061,6 +2061,81 @@ pub fn draw_catch_shockwaves(
     Ok(())
 }
 
+/// Draw the whip-streaks that yank caught crabs into the head of the train. Each `(from, to, age,
+/// rgb)` is a bright line from where the crab was caught toward the player; as `age` climbs the
+/// streak's tail retracts toward the head (the crab "arriving") and fades, with a white-hot spark
+/// riding the retracting tail. Purely visual juice so a catch reads as a snap-in, not a blink-on.
+/// Additive-blended and drawn from a single cached unit rectangle so it stays cheap under a swarm.
+pub fn draw_catch_trails(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    trails: &[(Vec2, Vec2, f32, [f32; 3])],
+) -> ggez::GameResult {
+    if trails.is_empty() {
+        return Ok(());
+    }
+    let line = unit_line(ctx)?;
+    let spark = unit_circle(ctx)?;
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    for &(from, to, age, color) in trails {
+        // A short lead-in (negative age from on-beat catches) reads as a fully-drawn streak before
+        // it starts retracting. Clamp so nothing draws off the front of the animation.
+        let a = age.clamp(0.0, 1.0);
+        let fade = 1.0 - a;
+        let delta = to - from;
+        let len = delta.length();
+        if len < 1.0 {
+            continue;
+        }
+        let angle = delta.y.atan2(delta.x);
+        // The tail retracts toward the head as the crab arrives: at a=0 the whole line shows, near
+        // a=1 only the last sliver by the head remains. Ease-in so the snap accelerates inward.
+        let head_frac = a * a;
+        let tail = from + delta * head_frac;
+        let seg_len = len * (1.0 - head_frac);
+        if seg_len < 1.0 {
+            continue;
+        }
+        let thickness = (2.0 + fade * 5.0).max(1.0);
+
+        // Soft wide glow underlay for body.
+        canvas.draw(
+            line,
+            DrawParam::default()
+                .dest(tail)
+                .rotation(angle)
+                .scale(Vec2::new(seg_len, thickness * 2.4))
+                .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
+        );
+        // Bright core line, blending from the crab color toward white-hot.
+        let cr = (color[0] * 0.5 + 0.5).min(1.0);
+        let cg = (color[1] * 0.5 + 0.5).min(1.0);
+        let cb = (color[2] * 0.5 + 0.5).min(1.0);
+        canvas.draw(
+            line,
+            DrawParam::default()
+                .dest(tail)
+                .rotation(angle)
+                .scale(Vec2::new(seg_len, thickness))
+                .color(Color::new(cr, cg, cb, fade * 0.85)),
+        );
+        // White-hot spark riding the retracting tail — the crab being reeled in.
+        let spark_r = (2.5 + fade * 5.0).max(1.0);
+        canvas.draw(
+            spark,
+            DrawParam::default()
+                .dest(tail)
+                .scale(Vec2::splat(spark_r))
+                .color(Color::new(1.0, 1.0, 1.0, fade * 0.9)),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the cold "alarm" rings kicked off when a catch startles the surrounding herd
 /// (the stampede ripple). Cyan/white and a little wider than the warm catch pop so the two
 /// read as different events: warm = a crab joined, cold = the rest just bolted.
