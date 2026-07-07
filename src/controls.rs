@@ -252,6 +252,12 @@ pub fn handle_key_down_event(
                 // yanks every nearby free crab into the train at once for a spectacle payoff.
                 state.downbeat_slam(ctx);
             }
+            if key == KeyCode::B {
+                // Bank: cash out the live Groove Gamble streak into a safe multiplier floor. On the
+                // beat it locks the whole stack; off-beat takes a haircut. Turns the gamble into an
+                // active "when do I bank?" call instead of a passive streak.
+                state.bank_gamble();
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }

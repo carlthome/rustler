@@ -395,6 +395,13 @@ struct MainState {
     beat_gamble_mult: f32,   // current compounding multiplier from the on-beat streak (>= 1.0)
     beat_gamble_flash: f32,  // green pulse when the multiplier steps up
     streak_lost_flash: f32,  // red pulse + callout when an off-beat catch breaks a hot streak
+    // Cash-out fork: pressing B banks the live streak. Banking ON the beat locks the whole
+    // multiplier into a safe floor that an off-beat miss can no longer wipe; banking off-beat
+    // takes a haircut. After a bank the live climb resets to the locked floor and keeps rising,
+    // so the choice is "bank now and keep it safe" vs "push higher and risk the whole stack".
+    beat_gamble_locked: f32, // safe multiplier floor secured by a cash-out (>= 1.0)
+    gamble_bank_flash: f32,  // gold pulse when a cash-out banks the streak
+    gamble_bank_pulse: f32,  // "BANK NOW?" prompt pulse while a bankable streak is live
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
     // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
@@ -815,6 +822,9 @@ impl MainState {
             beat_gamble_mult: 1.0,
             beat_gamble_flash: 0.0,
             streak_lost_flash: 0.0,
+            beat_gamble_locked: 1.0,
+            gamble_bank_flash: 0.0,
+            gamble_bank_pulse: 0.0,
             groove: 0.0,
             beat_streak: 0,
             music_layers,
@@ -1426,6 +1436,45 @@ impl MainState {
         }
     }
 
+    /// Cash out the live Groove Gamble streak. The player presses B to lock in what they've
+    /// built rather than risk it on the next catch. Banking ON the beat secures the FULL current
+    /// multiplier as a safe floor; banking off-beat takes a haircut — so the cash-out itself rides
+    /// the rhythm. After banking, the live climb continues from the locked floor, so a savvy player
+    /// can ratchet a stack safe one bank at a time. Nothing to bank if the live gain over the
+    /// existing floor is negligible.
+    fn bank_gamble(&mut self) {
+        // Only bankable if there's meaningful live gain sitting above the already-locked floor.
+        if self.beat_gamble_mult <= self.beat_gamble_locked + 0.24 {
+            return;
+        }
+        let on_beat = self.beat_timer < BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        // On-beat bank locks the whole thing; off-beat only banks 60% of the gain over the floor.
+        let gain = self.beat_gamble_mult - self.beat_gamble_locked;
+        let banked = if on_beat {
+            self.beat_gamble_mult
+        } else {
+            self.beat_gamble_locked + gain * 0.6
+        };
+        self.beat_gamble_locked = banked.min(5.0);
+        // The live multiplier can't drop below its own new floor; keep climbing from here.
+        self.beat_gamble_mult = self.beat_gamble_locked;
+        self.gamble_bank_flash = 1.0;
+        self.zoom_punch = self.zoom_punch.max(0.045);
+        let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+        let (label, col) = if on_beat {
+            ("BANKED ON BEAT!", [0.4, 1.0, 0.6, 1.0])
+        } else {
+            ("BANKED", [0.7, 0.9, 0.5, 1.0])
+        };
+        self.floating_texts.spawn(
+            format!("{}  x{:.2} SAFE", label, self.beat_gamble_locked),
+            center - Vec2::new(0.0, 96.0),
+            36.0,
+            col,
+        );
+    }
+
     fn check_milestone(&mut self, rng: &mut impl rand::Rng) {
         let chain_len = self.crabs.iter().filter(|c| c.caught).count();
         if chain_len >= self.next_milestone {
@@ -1647,21 +1696,28 @@ impl MainState {
                         );
                     }
                 } else {
-                    // Off-beat catch breaks the streak and drains the groove. If a hot Gamble was
-                    // riding, throwing it away is a real loss — punch a red flash + callout so the
-                    // player feels the greedy grab cost them, then reset the multiplier to 1x.
-                    if self.beat_gamble_mult > 1.5 {
+                    // Off-beat catch breaks the streak and drains the groove. Only the UNBANKED gain
+                    // above the locked floor is lost — whatever the player cashed out with B stays
+                    // safe. If a hot unbanked stack was riding, punch a red flash + callout so the
+                    // greedy grab stings; then fall back to the banked floor, not all the way to 1x.
+                    if self.beat_gamble_mult > self.beat_gamble_locked + 0.5 {
                         self.streak_lost_flash = 1.0;
                         self.shake_timer = self.shake_timer.max(0.3);
+                        let lost = self.beat_gamble_mult - self.beat_gamble_locked;
+                        let msg = if self.beat_gamble_locked > 1.01 {
+                            format!("STREAK LOST!  x{:.2} gone — x{:.2} safe", lost, self.beat_gamble_locked)
+                        } else {
+                            format!("STREAK LOST!  x{:.2} gone", self.beat_gamble_mult)
+                        };
                         self.floating_texts.spawn(
-                            format!("STREAK LOST!  x{:.2} gone", self.beat_gamble_mult),
+                            msg,
                             self.player_pos - Vec2::new(0.0, 80.0),
                             40.0,
                             [1.0, 0.35, 0.3, 1.0],
                         );
                     }
                     self.beat_streak = 0;
-                    self.beat_gamble_mult = 1.0;
+                    self.beat_gamble_mult = self.beat_gamble_locked;
                     self.groove = (self.groove - 0.3).max(0.0);
                     bonus = 0;
                 }
@@ -2965,6 +3021,9 @@ impl MainState {
         self.beat_gamble_mult = 1.0;
         self.beat_gamble_flash = 0.0;
         self.streak_lost_flash = 0.0;
+        self.beat_gamble_locked = 1.0;
+        self.gamble_bank_flash = 0.0;
+        self.gamble_bank_pulse = 0.0;
         self.deliver_streak = 0;
         self.deliver_streak_timer = 0.0;
         self.catch_radius_upgrade = 0.0;
@@ -4083,12 +4142,24 @@ impl MainState {
             // Text/width only change when the multiplier steps (every +0.25) — cache both and
             // apply the per-frame "pop" pulse as a DrawParam scale (cheap) instead of baking it
             // into the font size (forces a re-measure every frame).
-            let key = (self.beat_gamble_mult * 100.0).round() as u32;
+            // Cache key folds in both the live multiplier and the locked floor, since the badge text
+            // now shows the safe floor too — a bank changes the label without changing the live mult.
+            let key = (self.beat_gamble_mult * 100.0).round() as u32
+                + ((self.beat_gamble_locked * 100.0).round() as u32) * 1000;
             GAMBLE_BADGE_CACHE.with(|c| -> GameResult {
                 let mut cache = c.borrow_mut();
                 let needs_rebuild = !matches!(&*cache, Some((k, _, _)) if *k == key);
                 if needs_rebuild {
-                    let mut badge = Text::new(format!("GROOVE GAMBLE  x{:.2}", self.beat_gamble_mult));
+                    // Show the banked floor alongside the live heat when the player has cashed some in.
+                    let txt = if self.beat_gamble_locked > 1.01 {
+                        format!(
+                            "GROOVE GAMBLE  x{:.2}  (x{:.2} safe)",
+                            self.beat_gamble_mult, self.beat_gamble_locked
+                        )
+                    } else {
+                        format!("GROOVE GAMBLE  x{:.2}", self.beat_gamble_mult)
+                    };
+                    let mut badge = Text::new(txt);
                     badge.set_scale(20.0);
                     let bw = badge.measure(ctx)?.x;
                     *cache = Some((key, badge, bw));
@@ -4096,15 +4167,35 @@ impl MainState {
                 let (_, badge, bw) = cache.as_ref().unwrap();
                 let scale = pop.min(1.4);
                 let dw = bw * scale;
+                // Bank flash washes the badge gold on a successful cash-out.
+                let bf = self.gamble_bank_flash;
+                let cr = (r * pop + bf * 0.6).min(1.0);
+                let cg = (g * pop + bf * 0.5).min(1.0);
+                let cb = (b * pop + bf * 0.2).min(1.0);
                 canvas.draw(
                     badge,
                     DrawParam::default()
                         .dest(Vec2::new((width - dw) / 2.0, 56.0))
                         .scale(Vec2::new(scale, scale))
-                        .color(Color::new((r * pop).min(1.0), (g * pop).min(1.0), (b * pop).min(1.0), 1.0)),
+                        .color(Color::new(cr, cg, cb, 1.0)),
                 );
                 Ok(())
             })?;
+
+            // "BANK NOW  [B]" prompt — breathes under the badge while there's an unbanked stack big
+            // enough to be worth cashing out, so the player learns the fork is theirs to call.
+            if self.beat_gamble_mult > self.beat_gamble_locked + 0.5 {
+                let breathe = 0.55 + 0.45 * (self.gamble_bank_pulse.sin() * 0.5 + 0.5);
+                let mut prompt = Text::new("BANK NOW  [B]");
+                prompt.set_scale(18.0);
+                let pw = prompt.measure(ctx)?.x;
+                canvas.draw(
+                    &prompt,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - pw) / 2.0, 82.0))
+                        .color(Color::new(1.0, 0.9, 0.35, breathe)),
+                );
+            }
         }
 
         // Streak-lost sting — a brief red screen wash when a hot Gamble breaks, so the cost of a
@@ -5214,6 +5305,16 @@ impl EventHandler for MainState {
         if self.streak_lost_flash > 0.0 {
             self.streak_lost_flash = (self.streak_lost_flash - dt * 2.2).max(0.0);
         }
+        if self.gamble_bank_flash > 0.0 {
+            self.gamble_bank_flash = (self.gamble_bank_flash - dt * 2.5).max(0.0);
+        }
+        // "BANK NOW?" prompt breathes while there's an unbanked stack worth cashing out.
+        let bankable = self.beat_gamble_mult > self.beat_gamble_locked + 0.5;
+        if bankable {
+            self.gamble_bank_pulse = (self.gamble_bank_pulse + dt * 4.0) % (std::f32::consts::TAU);
+        } else {
+            self.gamble_bank_pulse = 0.0;
+        }
 
         // Frenzy banner fades out over its lifetime after a frenzy wave lands.
         if self.frenzy_banner_timer > 0.0 {
@@ -5226,8 +5327,8 @@ impl EventHandler for MainState {
             if self.groove <= 0.0 {
                 self.beat_streak = 0;
                 // The Gamble heat fades with the groove — a quiet lapse, not a punished break, so
-                // idling loses the multiplier gracefully without the red streak-lost sting.
-                self.beat_gamble_mult = 1.0;
+                // idling loses the unbanked climb gracefully. Whatever was cashed out with B stays.
+                self.beat_gamble_mult = self.beat_gamble_locked;
             }
         }
 
