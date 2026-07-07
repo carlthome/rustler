@@ -2198,6 +2198,7 @@ impl MainState {
             }
         }
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
+        const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
 
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
@@ -2502,17 +2503,22 @@ impl MainState {
                 // fleeing crab still bolts, just curving a little toward the cluster. This is what
                 // turns "catch the Magnet" into a two-for-one: the crabs it gathered come with it.
                 if !crab_in_light && !crab.is_magnet() && !crab.is_boss() {
+                    // Squared-distance compare so the per-magnet scan (up to ~8% of the herd,
+                    // times every ordinary crab) does zero sqrt work until we've already found
+                    // the winner — a sqrt per pair here was the hottest unnecessary cost in this
+                    // per-crab, per-frame loop.
                     let mut nearest: Option<(f32, Vec2)> = None;
                     for &mp in magnet_positions.iter() {
-                        let d = crab.pos.distance(mp);
-                        if d < MAGNET_RADIUS && d > 1.0 {
-                            if nearest.map_or(true, |(bd, _)| d < bd) {
-                                nearest = Some((d, mp));
+                        let d2 = crab.pos.distance_squared(mp);
+                        if d2 < MAGNET_RADIUS_SQ && d2 > 1.0 {
+                            if nearest.map_or(true, |(bd2, _)| d2 < bd2) {
+                                nearest = Some((d2, mp));
                             }
                         }
                     }
-                    if let Some((d, mp)) = nearest {
+                    if let Some((d2, mp)) = nearest {
                         // Stronger tug up close, fading to nothing at the edge of the pull radius.
+                        let d = d2.sqrt();
                         let pull = (1.0 - d / MAGNET_RADIUS) * 34.0;
                         let dir = (mp - crab.pos).normalize_or_zero();
                         crab.pos += dir * pull * dt;
