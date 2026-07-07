@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_call_ring, draw_catch_trails, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -553,6 +553,9 @@ struct MainState {
     boss_enrages_buf: Vec<(Vec2, bool)>,
     tide_fires_buf: Vec<Vec2>,
     tide_swells_buf: Vec<Vec2>,
+    // Free Magnet-crab positions each frame, reused instead of reallocating — drives the
+    // magnet-pull pass in update_crabs (ordinary crabs drift toward the nearest one).
+    magnet_positions_buf: Vec<Vec2>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
@@ -887,6 +890,7 @@ impl MainState {
             boss_enrages_buf: Vec::new(),
             tide_fires_buf: Vec::new(),
             tide_swells_buf: Vec::new(),
+            magnet_positions_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
@@ -1982,6 +1986,20 @@ impl MainState {
             .map(|c| c.pos);
         let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
 
+        // Magnet-crab pull: free-roaming Magnet crabs each tug nearby uncaught crabs toward
+        // themselves, so the herd clumps up around them. Snapshot every free Magnet's position
+        // before the &mut loop so each ordinary crab can pull toward the nearest one without a
+        // nested borrow. Almost always a tiny list (Magnets are ~8% of the herd and rare), so a
+        // flat per-crab nearest-magnet scan is cheap; reuse a scratch Vec to avoid per-frame churn.
+        let mut magnet_positions = std::mem::take(&mut self.magnet_positions_buf);
+        magnet_positions.clear();
+        for c in &self.crabs {
+            if c.is_magnet() && !c.caught {
+                magnet_positions.push(c.pos);
+            }
+        }
+        const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -2278,6 +2296,30 @@ impl MainState {
                 let age_boost = 1.0 + (crab.spawn_time / 10.0).min(1.5);
                 crab.pos += crab.vel * crab.speed * speed_multiplier * age_boost * dt;
 
+                // Magnet pull: an ordinary free crab drifts toward the nearest roaming Magnet crab,
+                // so the herd bunches up around Magnets. A gentle positional nudge (not a velocity
+                // shove) that composes with the flee/attract behaviour above rather than overriding
+                // it — the flashlight still wins (a crab in the beam is heading to the player), and a
+                // fleeing crab still bolts, just curving a little toward the cluster. This is what
+                // turns "catch the Magnet" into a two-for-one: the crabs it gathered come with it.
+                if !crab_in_light && !crab.is_magnet() && !crab.is_boss() {
+                    let mut nearest: Option<(f32, Vec2)> = None;
+                    for &mp in magnet_positions.iter() {
+                        let d = crab.pos.distance(mp);
+                        if d < MAGNET_RADIUS && d > 1.0 {
+                            if nearest.map_or(true, |(bd, _)| d < bd) {
+                                nearest = Some((d, mp));
+                            }
+                        }
+                    }
+                    if let Some((d, mp)) = nearest {
+                        // Stronger tug up close, fading to nothing at the edge of the pull radius.
+                        let pull = (1.0 - d / MAGNET_RADIUS) * 34.0;
+                        let dir = (mp - crab.pos).normalize_or_zero();
+                        crab.pos += dir * pull * dt;
+                    }
+                }
+
                 // Beat-synced positional wobble for idle (non-spooked) crabs.
                 if crab.spooked_timer == 0.0 {
                     let beat_phase = (1.0 - self.beat_timer / self.beat_interval)
@@ -2479,6 +2521,7 @@ impl MainState {
         self.boss_enrages_buf = boss_enrages;
         self.tide_fires_buf = tide_fires;
         self.tide_swells_buf = tide_swells;
+        self.magnet_positions_buf = magnet_positions;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
@@ -4097,6 +4140,11 @@ impl MainState {
                     let size = crab.scale * CRAB_SIZE;
                     let frac = crab.boss_health / crab.crab_type.initial_shell().max(0.001);
                     draw_armor_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
+                } else if crab.is_magnet() {
+                    // Magnetic field aura — inward-sweeping rings showing its pull radius, so the
+                    // player can see the catchment and chase it for the two-for-one cluster catch.
+                    let size = crab.scale * CRAB_SIZE;
+                    draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed)?;
                 }
             }
         }

@@ -18,6 +18,7 @@ pub enum CrabType {
     Sneaky,
     Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
     Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
+    Magnet,  // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
 }
@@ -30,13 +31,17 @@ impl CrabType {
         // flooding it — enough to make you reach for the Stomp, not so many they gate every catch.
         // Dancer crabs are an uncommon rhythm-flavored catch (~10%) — enough to make a beat-timed
         // grab a recurring skill test without the herd turning into a strobe of hopping crabs.
-        match rng.random_range(0..11) {
-            0 | 1 | 2 => Normal,
-            3 | 4 => Fast,
-            5 | 6 => Big,
-            7 | 8 => Sneaky,
-            9 => Armored,
-            _ => Dancer,
+        // Magnet crabs are the rarest of the herd (~8%): each one reshapes routing by clustering
+        // free crabs around it, so a couple per run is plenty of pull without the whole herd
+        // collapsing into magnet-led blobs.
+        match rng.random_range(0..12) {
+            0 | 1 => Normal,
+            2 | 3 => Fast,
+            4 | 5 => Big,
+            6 | 7 => Sneaky,
+            8 => Armored,
+            9 | 10 => Dancer,
+            _ => Magnet,
         }
     }
     pub fn speed_range(&self) -> std::ops::Range<f32> {
@@ -47,6 +52,7 @@ impl CrabType {
             CrabType::Sneaky => 40.0..80.0,
             CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
             CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
+            CrabType::Magnet => 26.0..48.0,  // roams steadily — you chase it because the herd trails it
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
         }
@@ -73,6 +79,7 @@ impl CrabType {
             CrabType::Big => 0.4,   // heavy — shrugs most of it off
             CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
+            CrabType::Magnet => 0.9, // a touch heavy from all the crabs it's dragging along
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
         }
@@ -86,6 +93,7 @@ impl CrabType {
             CrabType::Sneaky => 0.30..=0.40,
             CrabType::Armored => 0.42..=0.62, // stocky, tank-like
             CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
+            CrabType::Magnet => 0.40..=0.56,  // chunky, so its aura reads at a glance
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
         }
@@ -132,6 +140,7 @@ impl EnemyCrab {
             CrabType::Sneaky => [120.0 / 255.0, 220.0 / 255.0, 220.0 / 255.0],
             CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
+            CrabType::Magnet => [0.95, 0.30 + 0.15 * t, 0.20],  // magnetic lodestone red-orange
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
         }
@@ -165,6 +174,13 @@ impl EnemyCrab {
     /// (see the beat-fire block in main.rs). Catch it during the freeze, not mid-leap.
     pub fn is_dancer(&self) -> bool {
         matches!(self.crab_type, CrabType::Dancer)
+    }
+
+    /// A "Magnet" crab: while it roams free it drags nearby uncaught crabs toward itself, so the
+    /// herd bunches up around it. Catching the Magnet lands you in the middle of the cluster it
+    /// gathered — a two-for-one that rewards chasing it (see the magnet-pull pass in main.rs).
+    pub fn is_magnet(&self) -> bool {
+        matches!(self.crab_type, CrabType::Magnet)
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

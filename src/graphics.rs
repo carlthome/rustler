@@ -522,6 +522,7 @@ impl ParticleSystem {
             CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
             CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
             CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
+            CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true),  // Chunky lodestone burst — the cluster pops with it
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
         };
@@ -559,6 +560,7 @@ impl ParticleSystem {
                 CrabType::Fast => 15,
                 CrabType::Sneaky => 8,
                 CrabType::Dancer => 14,
+                CrabType::Magnet => 12,
                 _ => 0,
             };
             
@@ -573,6 +575,7 @@ impl ParticleSystem {
                     CrabType::Fast => [1.0, 0.8, 0.2], // Golden sparkles for fast crabs
                     CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
                     CrabType::Dancer => [1.0, 0.5, 0.95], // Hot-pink disco confetti
+                    CrabType::Magnet => [1.0, 0.55, 0.2], // Molten lodestone sparks
                     _ => [1.0, 1.0, 0.9],
                 };
                 
@@ -3104,6 +3107,54 @@ pub fn draw_attracted_crab_glow(
             (b * 0.5 + 0.5).min(1.0),
             ring_alpha,
         )),
+    );
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Draw the magnetic field aura around a free Magnet crab — rings that sweep *inward* toward the
+/// crab, reading as a pull that gathers the herd. `size` is the crab's on-screen size; `pull_radius`
+/// is how far the crab's tug reaches (matches MAGNET_RADIUS in main.rs) so the aura shows the player
+/// exactly how big the catchment is. `time` is total elapsed seconds.
+pub fn draw_magnet_aura(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    pull_radius: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Lodestone red-orange, matching the crab's own color.
+    let (r, g, b) = (1.0, 0.4, 0.2);
+    let inner = size * 0.7;
+
+    // Three rings sweeping inward on a shared phase, staggered a third of a cycle apart, so the
+    // aura reads as a steady inward pull rather than a single blip. Brightest as they close in.
+    for k in 0..3 {
+        let phase = ((time * 0.6 + k as f32 / 3.0) % 1.0) as f32; // 0..1, 0 = far, 1 = at crab
+        let radius = pull_radius - (pull_radius - inner) * phase;
+        let alpha = (phase * 0.35).clamp(0.0, 0.35);
+        let ring = cached_stroke_circle(ctx, radius, 2.0)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, alpha)),
+        );
+    }
+
+    // A tight, always-bright core ring so the crab itself reads as "the magnet" at a glance.
+    let core_pulse = (time * 4.0).sin() * 0.5 + 0.5;
+    let core = cached_stroke_circle(ctx, inner + 4.0 + core_pulse * 4.0, 2.5)?;
+    canvas.draw(
+        &core,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(1.0, 0.55 + core_pulse * 0.2, 0.3, 0.55)),
     );
 
     canvas.set_blend_mode(original_blend);
