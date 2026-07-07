@@ -1637,6 +1637,9 @@ pub fn draw_wave_telegraph(
     anticipation: f32,
     // beat phase 0..1 within the current beat, so the ring throbs in time.
     beat_phase: f32,
+    // A frenzy wave recolors the telegraph gold and pumps it harder, so the special spike
+    // reads as different long before it lands.
+    frenzy: bool,
 ) -> ggez::GameResult {
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
@@ -1646,9 +1649,15 @@ pub fn draw_wave_telegraph(
         }
     };
     let a = anticipation.clamp(0.0, 1.0);
+    // Frenzy telegraphs are gold and swing wider on each throb; normal ones are the calm cyan.
+    let (halo_rgb, ring_rgb, throb_gain) = if frenzy {
+        ((255, 200, 60), (255, 225, 120), 8.0)
+    } else {
+        ((80, 220, 255), (120, 235, 255), 4.0)
+    };
     // Ring starts wide and tightens toward the indicator as the drop nears.
     let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
-    let ring_r = 58.0 - a * 20.0 + throb * 4.0;
+    let ring_r = 58.0 - a * 20.0 + throb * throb_gain;
     // Soft filled halo behind the indicator — cheap, no stroke mesh needed. Brightens with
     // anticipation so the impending drop is unmistakable.
     let halo_alpha = ((28.0 + a * 70.0) as u8).min(140);
@@ -1657,7 +1666,7 @@ pub fn draw_wave_telegraph(
         DrawParam::default()
             .dest(center)
             .scale(Vec2::splat(ring_r + 6.0))
-            .color(Color::from_rgba(80, 220, 255, halo_alpha)),
+            .color(Color::from_rgba(halo_rgb.0, halo_rgb.1, halo_rgb.2, halo_alpha)),
     );
     // Thin bright leading ring, built stroked so it reads as an outline closing in. Reuses
     // `cached_stroke_circle` (same cache every other beat-synced ring in this file draws from)
@@ -1668,8 +1677,19 @@ pub fn draw_wave_telegraph(
         &ring,
         DrawParam::default()
             .dest(center)
-            .color(Color::from_rgba(120, 235, 255, bright)),
+            .color(Color::from_rgba(ring_rgb.0, ring_rgb.1, ring_rgb.2, bright)),
     );
+    // Second, outer contra-rotating gold ring for frenzy waves only — cheap extra flourish that
+    // makes the special wave unmistakable without another mechanic.
+    if frenzy {
+        let outer = cached_stroke_circle(ctx, ring_r + 14.0 + throb * 6.0, 2.0)?;
+        canvas.draw(
+            &outer,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::from_rgba(255, 170, 40, ((70.0 + a * 120.0) as u8).min(210))),
+        );
+    }
     Ok(())
 }
 

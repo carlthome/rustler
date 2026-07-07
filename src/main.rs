@@ -348,6 +348,15 @@ struct MainState {
     // comes" pulse in the bottom bar.
     wave_armed: bool,
     wave_telegraph: f32,
+    // Staged difficulty spike: instead of a flat rising curve, every Nth cleared wave is a
+    // "Frenzy" — a denser-than-normal drop with a gold telegraph, an extra downbeat punch, and a
+    // banner, so the run has recurring standout moments that feel earned rather than a smooth ramp.
+    // `waves_cleared` counts patterns cleared this run; `frenzy_wave` marks the currently-armed
+    // drop as a frenzy so the telegraph and the spawn both know. `frenzy_banner_timer` drives the
+    // "FRENZY!" flash when one lands.
+    waves_cleared: u32,
+    frenzy_wave: bool,
+    frenzy_banner_timer: f32,
     // Lasso Throw ability
     lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     lasso_timer: f32,                          // Time remaining on lasso flight
@@ -437,6 +446,17 @@ struct MainState {
     boss_charge_dust_buf: Vec<(Vec2, Vec2)>,
     tide_fires_buf: Vec<Vec2>,
     tide_swells_buf: Vec<Vec2>,
+    // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
+    // per-beat Dancer-hop startle ripple (see the beat block in update).
+    dancer_hop_scratch: Vec<Vec2>,
+    // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
+    // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
+    // for a fraction of a second to a couple seconds per use, so without reuse this was a
+    // per-frame allocation for the whole duration of every whistle/stomp/lasso.
+    whistle_soothed_buf: Vec<Vec2>,
+    stomp_cracked_buf: Vec<Vec2>,
+    lasso_catch_buf: Vec<usize>,
+    lasso_startle_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -673,6 +693,9 @@ impl MainState {
             beat_wave_radius: 0.0,
             wave_armed: false,
             wave_telegraph: 0.0,
+            waves_cleared: 0,
+            frenzy_wave: false,
+            frenzy_banner_timer: 0.0,
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
@@ -725,6 +748,11 @@ impl MainState {
             boss_charge_dust_buf: Vec::new(),
             tide_fires_buf: Vec::new(),
             tide_swells_buf: Vec::new(),
+            dancer_hop_scratch: Vec::new(),
+            whistle_soothed_buf: Vec::new(),
+            stomp_cracked_buf: Vec::new(),
+            lasso_catch_buf: Vec::new(),
+            lasso_startle_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -2071,12 +2099,26 @@ impl MainState {
         }
         let level = &self.levels[self.current_level];
         let p = &level.patterns[self.current_pattern];
-        let crabs = spawn_enemies(p.pattern.clone(), p.count, area, p.centroid, &mut rng);
+        // Frenzy waves drop a denser herd than the pattern normally calls for — the staged spike.
+        // ~1.7x the count (min +4) so it reads as a real surge, and give a touch less time to
+        // clear it so the pressure is felt. `frenzy_wave` was set during arming and is consumed
+        // here (the flag is what the gold telegraph read); reset it once the drop is spent.
+        let frenzy = self.frenzy_wave;
+        let count = if frenzy {
+            ((p.count as f32 * 1.7).ceil() as usize).max(p.count + 4)
+        } else {
+            p.count
+        };
+        let duration = if frenzy { p.duration * 0.85 } else { p.duration };
+        let crabs = spawn_enemies(p.pattern.clone(), count, area, p.centroid, &mut rng);
         self.crabs.extend(crabs);
-        self.pattern_timer = p.duration;
+        self.pattern_timer = duration;
+        self.frenzy_wave = false;
     }
 
     fn advance_pattern(&mut self) {
+        // Count every wave the player clears this run — drives the every-4th Frenzy cadence.
+        self.waves_cleared = self.waves_cleared.wrapping_add(1);
         self.current_pattern += 1;
         let level = &self.levels[self.current_level];
         if self.current_pattern >= level.patterns.len() {
@@ -2233,6 +2275,9 @@ impl MainState {
         self.beat_wave_radius = 0.0;
         self.wave_armed = false;
         self.wave_telegraph = 0.0;
+        self.waves_cleared = 0;
+        self.frenzy_wave = false;
+        self.frenzy_banner_timer = 0.0;
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
@@ -3181,7 +3226,7 @@ impl MainState {
         if self.wave_armed {
             let anticipation = (self.wave_telegraph / (BEAT_INTERVAL * 4.0)).min(1.0);
             let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
-            draw_wave_telegraph(ctx, canvas, beat_center, anticipation, beat_phase)?;
+            draw_wave_telegraph(ctx, canvas, beat_center, anticipation, beat_phase, self.frenzy_wave)?;
         }
         // beat_timer counts down from BEAT_INTERVAL to 0, so progress toward the next beat is
         // 1 - (timer / interval). Feeds the approach ring so the player can anticipate the downbeat.
@@ -3827,10 +3872,23 @@ impl EventHandler for MainState {
             if downbeat && self.wave_armed {
                 self.wave_armed = false;
                 self.wave_telegraph = 0.0;
+                let was_frenzy = self.frenzy_wave;
                 self.advance_pattern();
                 // Punch the downbeat that births a wave so the arrival reads as a musical hit.
-                self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
-                self.on_beat_flash = self.on_beat_flash.max(0.4);
+                // A frenzy drop punches noticeably harder — bigger flash, screen shake, and a
+                // banner — so the staged spike lands as a genuine event, not just more crabs.
+                if was_frenzy {
+                    self.beat_intensity = 2.0;
+                    self.on_beat_flash = self.on_beat_flash.max(0.75);
+                    self.frenzy_banner_timer = 1.6;
+                    self.screen_shake = self.screen_shake.max(11.0);
+                    let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                    self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 11.0 * 60.0;
+                    let _ = self.sounds.upgrade.play_detached(ctx);
+                } else {
+                    self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
+                    self.on_beat_flash = self.on_beat_flash.max(0.4);
+                }
             }
             // Beat camera shake — strength grows with chain length. Also collects caught-crab
             // positions for the beat-pulse sparkle rings just below: both used to run their own
@@ -3877,6 +3935,12 @@ impl EventHandler for MainState {
             // distant ones keep their heading, wandering in beat-timed skips.
             const DANCER_HOP: f32 = 74.0;
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            // Where each *fleeing* (not answering) Dancer landed this beat. A jittery Dancer
+            // leaping away from the player is a startle source of its own — its on-beat hop
+            // spooks the calm crabs around it (see the ripple pass below). Reuse the scratch
+            // buffer rather than allocating a Vec every beat.
+            let mut dancer_hops = std::mem::take(&mut self.dancer_hop_scratch);
+            dancer_hops.clear();
             for crab in self.crabs.iter_mut() {
                 if crab.caught || !crab.is_dancer() {
                     continue;
@@ -3910,7 +3974,71 @@ impl EventHandler for MainState {
                 crab.pos.y = crab.pos.y.clamp(0.0, self.height - crab.scale);
                 crab.vel = dir; // face the hop; unit vel so the drift branch stays gentle
                 crab.join_pulse = 1.0; // reuse the join squash-pop as a little "landed" bounce
+                // A Dancer bolting away from the player becomes a fear source; note where it
+                // landed so the ripple pass below can spook nearby calm crabs. Answering Dancers
+                // (hopping toward the player, charmed) don't scare anyone — only fleeing ones do.
+                if crab.answering_call <= 0.0 && dist < 240.0 {
+                    dancer_hops.push(crab.pos);
+                }
             }
+
+            // Emergent interaction: a fleeing Dancer's on-beat hop startles the calm crabs it
+            // lands among. This is the Dancer earning its keep as a chaos engine — its rhythmic
+            // leaps ripple panic into the surrounding herd, so a herd salted with Dancers churns
+            // on the beat instead of sitting still. Deliberately gentler and tighter than the
+            // beam-panic contagion (smaller radius, hard per-beat cap, no re-trigger of crabs
+            // already spooked) so it adds texture without locking the map into permanent flight.
+            if !dancer_hops.is_empty() {
+                const DANCER_STARTLE_RADIUS: f32 = 78.0;
+                const MAX_DANCER_STARTLES: usize = 5;
+                let mut spooked: Vec<Vec2> = Vec::new();
+                for crab in self.crabs.iter_mut() {
+                    if spooked.len() >= MAX_DANCER_STARTLES {
+                        break;
+                    }
+                    // Only calm, catchable, un-beamed, un-soothed crabs catch it — and never
+                    // another Dancer (their motion is their own beat hop, not a panic flee).
+                    if crab.caught
+                        || crab.is_boss()
+                        || crab.is_dancer()
+                        || crab.in_flashlight
+                        || crab.fleeing
+                        || crab.startle_timer > 0.0
+                        || crab.charm_timer > 0.0
+                    {
+                        continue;
+                    }
+                    let mut nearest: Option<(f32, Vec2)> = None;
+                    for &src in &dancer_hops {
+                        let d = src.distance(crab.pos);
+                        if d < DANCER_STARTLE_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
+                            nearest = Some((d, src));
+                        }
+                    }
+                    if let Some((d, src)) = nearest {
+                        let outward = (crab.pos - src).normalize_or_zero();
+                        let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
+                        let prox = 1.0 - d / DANCER_STARTLE_RADIUS;
+                        let kick = crab.crab_type.speed_range().end * (1.0 + prox * 0.7);
+                        crab.vel = outward * kick;
+                        crab.speed = 1.0;
+                        crab.startle_timer = 0.4;
+                        spooked.push(crab.pos);
+                    }
+                }
+                for pos in spooked {
+                    if self.fear_rings.len() < 32 {
+                        self.fear_rings.push((pos, 0.0));
+                    }
+                    self.floating_texts.spawn(
+                        "!".to_string(),
+                        pos - Vec2::new(0.0, 24.0),
+                        20.0,
+                        [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink "!" so the source reads at a glance
+                    );
+                }
+            }
+            self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
 
@@ -4115,7 +4243,8 @@ impl EventHandler for MainState {
             // fear. Charm lasts a beat or two (longer as the whistle lane is ranked up) and blocks
             // both fresh flee and the beat-startle contagion, so it genuinely quells a stampede.
             let charm_dur = 1.4 + 0.5 * self.whistle_rank as f32;
-            let mut soothed: Vec<Vec2> = Vec::new();
+            let mut soothed = std::mem::take(&mut self.whistle_soothed_buf);
+            soothed.clear();
             for crab in &mut self.crabs {
                 if crab.caught {
                     continue;
@@ -4148,10 +4277,11 @@ impl EventHandler for MainState {
             // the cold "!" alarm rings the panic contagion throws.
             if !soothed.is_empty() {
                 let mut rng = rand::rng();
-                for pos in soothed.into_iter().take(8) {
+                for &pos in soothed.iter().take(8) {
                     self.particle_system.spawn_soothe_puff(pos, &mut rng);
                 }
             }
+            self.whistle_soothed_buf = soothed; // hand the buffer back for reuse next frame
         }
 
         // Stomp: a close-range ground-pound shockwave. It CRACKS Armored crab shells instantly (its
@@ -4164,7 +4294,8 @@ impl EventHandler for MainState {
             self.stomp_active = (self.stomp_active - dt).max(0.0);
             self.stomp_radius = (self.stomp_radius + STOMP_RING_SPEED * dt).min(stomp_max_r);
             let center = self.stomp_center;
-            let mut cracked: Vec<Vec2> = Vec::new();
+            let mut cracked = std::mem::take(&mut self.stomp_cracked_buf);
+            cracked.clear();
             for crab in &mut self.crabs {
                 if crab.caught || crab.is_boss() {
                     continue; // the King Crab shrugs off a Stomp — it needs the beam
@@ -4184,7 +4315,7 @@ impl EventHandler for MainState {
                 crab.spooked_timer = crab.spooked_timer.max(0.4);
                 crab.fleeing = false;
             }
-            for pos in cracked {
+            for &pos in cracked.iter() {
                 self.floating_texts.spawn(
                     "SHELL CRACKED!".to_string(),
                     pos - Vec2::new(70.0, 40.0),
@@ -4193,6 +4324,7 @@ impl EventHandler for MainState {
                 );
                 self.spawn_catch_shockwave(pos, [0.7, 0.8, 0.95]);
             }
+            self.stomp_cracked_buf = cracked; // hand the buffer back for reuse next frame
         }
 
         // Lasso Throw: advance lasso along path, catch crabs near tip
@@ -4218,16 +4350,20 @@ impl EventHandler for MainState {
                     let tip = new_pos;
                     // Lasso-lane-scaled grab window: higher ranks sweep whole clusters per throw.
                     let grab_r = self.lasso_tip_radius();
-                    let to_catch: Vec<usize> = self.crabs.iter().enumerate()
-                        .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < grab_r)
-                        .map(|(i, _)| i)
-                        .collect();
+                    let mut to_catch = std::mem::take(&mut self.lasso_catch_buf);
+                    to_catch.clear();
+                    to_catch.extend(
+                        self.crabs.iter().enumerate()
+                            .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < grab_r)
+                            .map(|(i, _)| i),
+                    );
                     let mut rng = rand::rng();
                     // Yanking a crab off the sand spooks the herd around the snatch point, same as
                     // a beam or chain catch — collected here and fired after the loop so the lasso
                     // stampede reads as fear rippling outward from where the rope bit.
-                    let mut lasso_startle_origins: Vec<Vec2> = Vec::new();
-                    for i in to_catch {
+                    let mut lasso_startle_origins = std::mem::take(&mut self.lasso_startle_buf);
+                    lasso_startle_origins.clear();
+                    for i in to_catch.iter().copied() {
                         let pos = self.crabs[i].pos;
                         let crab_type = self.crabs[i].crab_type;
                         let crab_color = self.crabs[i].crab_color();
@@ -4254,9 +4390,11 @@ impl EventHandler for MainState {
                             self.pending_upgrade = true;
                         }
                     }
-                    for origin in lasso_startle_origins {
+                    for &origin in lasso_startle_origins.iter() {
                         self.emit_catch_startle(origin);
                     }
+                    self.lasso_catch_buf = to_catch; // hand buffers back for reuse next frame
+                    self.lasso_startle_buf = lasso_startle_origins;
                 }
             }
         }
@@ -4354,6 +4492,10 @@ impl EventHandler for MainState {
         if !self.wave_armed && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0) {
             self.wave_armed = true;
             self.wave_telegraph = 0.0;
+            // Decide up front whether the drop we're arming is a Frenzy: every 4th cleared wave,
+            // but not the very first drop of the run. Set here (not at spawn time) so the gold
+            // telegraph can warn the player through the whole arm window before it lands.
+            self.frenzy_wave = self.waves_cleared > 0 && (self.waves_cleared + 1) % 4 == 0;
         }
         if self.wave_armed {
             self.wave_telegraph += dt;
