@@ -492,6 +492,7 @@ struct MainState {
     hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
+    cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next boss arrives
     next_boss_is_tide: bool,             // alternates King Crab <-> Tide Boss so runs cycle both
@@ -877,6 +878,7 @@ impl MainState {
             hitstop_timer: 0.0,
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
+            cached_tail_pos: None,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
             next_boss_is_tide: false,
@@ -1117,13 +1119,8 @@ impl MainState {
         }
 
         // Only bite if the tail link is actually inside a kelp patch — route around and you're safe.
-        let tail_index = self.chain_count - 1;
-        let Some(tail_pos) = self
-            .crabs
-            .iter()
-            .find(|c| c.caught && c.chain_index == Some(tail_index))
-            .map(|c| c.pos)
-        else {
+        // Reuses the tail position update_crabs already computed this frame instead of rescanning.
+        let Some(tail_pos) = self.cached_tail_pos else {
             return;
         };
         // Only the biome's native kelp patches snag — trailing flood pools are Tide Boss water.
@@ -1200,13 +1197,8 @@ impl MainState {
             return;
         }
         // The vulnerable end is the most-recently-caught crab (highest chain_index sits at the tail).
-        let tail_index = self.chain_count - 1;
-        let Some(tail_pos) = self
-            .crabs
-            .iter()
-            .find(|c| c.caught && c.chain_index == Some(tail_index))
-            .map(|c| c.pos)
-        else {
+        // Reuses the tail position update_crabs already computed this frame instead of rescanning.
+        let Some(tail_pos) = self.cached_tail_pos else {
             return;
         };
         // Did a panicking wild crab — or a King Crab mid-lunge — just slam into the tail?
@@ -1299,13 +1291,9 @@ impl MainState {
             }
             return;
         }
-        let tail_index = self.chain_count - 1;
-        let Some(tail_pos) = self
-            .crabs
-            .iter()
-            .find(|c| c.caught && c.chain_index == Some(tail_index))
-            .map(|c| c.pos)
-        else {
+        // Reuses the tail position update_crabs already computed this frame (same "highest
+        // chain_index among caught crabs" lookup) instead of a third O(n) scan over self.crabs.
+        let Some(tail_pos) = self.cached_tail_pos else {
             return;
         };
 
@@ -2058,13 +2046,8 @@ impl MainState {
         {
             return;
         }
-        let tail_index = self.chain_count - 1;
-        let Some(tail_pos) = self
-            .crabs
-            .iter()
-            .find(|c| c.caught && c.chain_index == Some(tail_index))
-            .map(|c| c.pos)
-        else {
+        // Reuses the tail position update_crabs already computed this frame instead of rescanning.
+        let Some(tail_pos) = self.cached_tail_pos else {
             return;
         };
         // Only bite if the tail is actually inside a fully-open fissure — weave around and you're safe.
@@ -2353,6 +2336,9 @@ impl MainState {
             .max_by_key(|c| c.chain_index)
             .map(|c| c.pos);
         let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
+        // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
+        // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
+        self.cached_tail_pos = chain_tail_pos;
 
         // Magnet-crab pull: free-roaming Magnet crabs each tug nearby uncaught crabs toward
         // themselves, so the herd clumps up around them. Snapshot every free Magnet's position
