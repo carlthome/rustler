@@ -20,6 +20,7 @@ pub enum CrabType {
     Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
     Magnet,  // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
     Thief,   // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
+    Golden,  // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
 }
@@ -38,6 +39,12 @@ impl CrabType {
         // Thief crabs are rare too (~8%): each one latches onto the conga tail and peels links
         // loose, so a couple per run keeps you defending the train you built without the herd
         // constantly gnawing it apart.
+        // Golden crabs are the rarest of the herd (~3%, 1 in ~33): a shiny high-value target that
+        // shows up just often enough to be a delightful surprise and a real "chase it or not" call,
+        // never so often it becomes the main way to score. Rolled first so its rarity is exact.
+        if rng.random_range(0..33) == 0 {
+            return Golden;
+        }
         match rng.random_range(0..13) {
             0 | 1 => Normal,
             2 | 3 => Fast,
@@ -59,6 +66,7 @@ impl CrabType {
             CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
             CrabType::Magnet => 26.0..48.0,  // roams steadily — you chase it because the herd trails it
             CrabType::Thief => 55.0..95.0,   // quick and darty — it makes a beeline for your tail
+            CrabType::Golden => 85.0..135.0, // skittish and fast — the shiny prize bolts, so you have to commit to the chase
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
         }
@@ -87,6 +95,7 @@ impl CrabType {
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Magnet => 0.9, // a touch heavy from all the crabs it's dragging along
             CrabType::Thief => 1.3,  // light and skittish — a whistle yanks it off your tail nicely
+            CrabType::Golden => 1.6, // flighty featherweight — a whistle is the surest way to reel the shiny prize in before it bolts
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
         }
@@ -102,6 +111,7 @@ impl CrabType {
             CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
             CrabType::Magnet => 0.40..=0.56,  // chunky, so its aura reads at a glance
             CrabType::Thief => 0.26..=0.38,   // small and wiry — easy to lose against the herd until it's on your tail
+            CrabType::Golden => 0.34..=0.48,  // a hair bigger than a normal crab so the shine reads at a glance
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
         }
@@ -151,6 +161,7 @@ impl EnemyCrab {
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Magnet => [0.95, 0.30 + 0.15 * t, 0.20],  // magnetic lodestone red-orange
             CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t],    // sly poison-green — reads as "trouble" against the herd
+            CrabType::Golden => [1.0, 0.86, 0.28],              // bright treasure-gold — the shiny prize pops against the whole herd
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
         }
@@ -205,6 +216,13 @@ impl EnemyCrab {
     /// True while a Thief is actively clamped onto the tail (used to drive its "gnawing" visual).
     pub fn is_latched(&self) -> bool {
         self.is_thief() && self.latch_timer > 0.0
+    }
+
+    /// A rare "Golden Crab": a shiny, skittish high-value target that bolts fast and sparkles.
+    /// Catching one pays a big lump-sum score bonus (see the catch block in main.rs) — a pure
+    /// risk/reward chase: commit to snagging the prize before it flees, or stay on the herd.
+    pub fn is_golden(&self) -> bool {
+        matches!(self.crab_type, CrabType::Golden)
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

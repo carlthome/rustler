@@ -569,6 +569,7 @@ impl ParticleSystem {
             CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
             CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true),  // Chunky lodestone burst — the cluster pops with it
             CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true),  // Wiry poison-green burst — catching it feels like relief
+            CrabType::Golden => (55, 100.0..320.0, 2.5..7.0, true), // Lavish gold coin-burst — the treasure catch pops
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
         };
@@ -608,6 +609,7 @@ impl ParticleSystem {
                 CrabType::Dancer => 14,
                 CrabType::Magnet => 12,
                 CrabType::Thief => 10,
+                CrabType::Golden => 20, // a lavish shower of gold sparkles for the treasure catch
                 _ => 0,
             };
             
@@ -624,6 +626,7 @@ impl ParticleSystem {
                     CrabType::Dancer => [1.0, 0.5, 0.95], // Hot-pink disco confetti
                     CrabType::Magnet => [1.0, 0.55, 0.2], // Molten lodestone sparks
                     CrabType::Thief => [0.5, 1.0, 0.6],   // Poison-green thief sparks
+                    CrabType::Golden => [1.0, 0.85, 0.25], // Bright treasure-gold coin sparks
                     _ => [1.0, 1.0, 0.9],
                 };
                 
@@ -3848,6 +3851,54 @@ pub fn draw_thief_aura(
             DrawParam::default()
                 .dest(pos)
                 .color(Color::new(r, g, b, 0.35 + pulse * 0.2)),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+/// Golden crab shine — a soft shimmering halo plus a handful of sparkle dots orbiting the crab, so
+/// the rare high-value prize catches the eye across the whole field and reads as "chase this one!".
+/// Additively blended for a glowy treasure look. Reuses the cached unit-circle and stroke-circle
+/// meshes (scaled/positioned per element via DrawParam) so no fresh GPU buffers are allocated.
+pub fn draw_golden_sparkle(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Soft breathing halo so the prize glows even when it's holding still.
+    let pulse = (time * 4.0).sin() * 0.5 + 0.5;
+    let halo = cached_stroke_circle(ctx, size * 0.8 + 3.0 + pulse * 4.0, 2.5)?;
+    canvas.draw(
+        &halo,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(1.0, 0.85, 0.3, 0.35 + pulse * 0.3)),
+    );
+
+    // A ring of sparkle dots orbiting the crab, each twinkling on its own phase so the whole thing
+    // shimmers like a coin catching the light.
+    let dot = unit_circle(ctx)?;
+    const SPARKLES: usize = 5;
+    let orbit = size * 0.75 + 6.0;
+    for i in 0..SPARKLES {
+        let base = i as f32 / SPARKLES as f32 * std::f32::consts::TAU;
+        let ang = base + time * 1.6;
+        let twinkle = ((time * 6.0 + i as f32 * 1.7).sin() * 0.5 + 0.5).powf(2.0);
+        let dpos = pos + Vec2::new(ang.cos(), ang.sin()) * orbit;
+        let r = 1.5 + twinkle * 2.5;
+        canvas.draw(
+            dot,
+            DrawParam::default()
+                .dest(dpos)
+                .scale(Vec2::splat(r))
+                .color(Color::new(1.0, 0.95, 0.55, 0.4 + twinkle * 0.6)),
         );
     }
 

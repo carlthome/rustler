@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -638,6 +638,9 @@ struct MainState {
     startle_origins_buf: Vec<Vec2>,
     boss_catches_buf: Vec<(Vec2, bool)>,
     dance_catches_buf: Vec<Vec2>,
+    // Golden crabs snapped up this frame — (pos, its base catch points) so the big lump-sum bonus
+    // is paid out after the catch loop (needs &mut self for particles/floating text/score).
+    golden_catches_buf: Vec<(Vec2, usize)>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -972,6 +975,7 @@ impl MainState {
             startle_origins_buf: Vec::new(),
             boss_catches_buf: Vec::new(),
             dance_catches_buf: Vec::new(),
+            golden_catches_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -1873,6 +1877,9 @@ impl MainState {
         // Dancers snapped up while still answering a Call — paid out after the loop (needs &mut self).
         let mut dance_catches = std::mem::take(&mut self.dance_catches_buf);
         dance_catches.clear();
+        // Golden crabs snapped up this frame — the big lump-sum bonus is paid out after the loop.
+        let mut golden_catches = std::mem::take(&mut self.golden_catches_buf);
+        golden_catches.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -1980,6 +1987,11 @@ impl MainState {
                 // catch worth dramatically more — the payoff for riding the beat unbroken.
                 let pts = (((1 + bonus) * mult) as f32 * self.beat_gamble_mult).round() as usize;
                 self.score += pts;
+                // Golden crab: on top of the normal catch award, queue a big lump-sum treasure bonus
+                // (paid out after the loop). This is the payoff for breaking off the herd to chase it.
+                if crab.is_golden() {
+                    golden_catches.push((pos, pts));
+                }
                 self.combo_count += 1;
                 self.combo_timer = 1.8;
                 let score_str = if self.beat_gamble_mult > 1.01 {
@@ -2018,13 +2030,43 @@ impl MainState {
         for &(bpos, is_tide) in &boss_catches {
             self.on_boss_caught(bpos, is_tide);
         }
+        for &(gpos, base_pts) in &golden_catches {
+            self.on_golden_caught(gpos, base_pts);
+        }
         // Hand the scratch buffers back for reuse next frame.
         self.startle_origins_buf = startle_origins;
         self.boss_catches_buf = boss_catches;
         self.dance_catches_buf = dance_catches;
+        self.golden_catches_buf = golden_catches;
         if any_caught {
             self.check_milestone(&mut rand::rng());
         }
+    }
+
+    /// Treasure payoff when a rare Golden Crab is snagged. On top of the normal catch award (already
+    /// added in the catch loop), this pays a big lump-sum bonus and throws a gold sparkle-burst so
+    /// the moment lands like finding treasure. The bonus scales with the combo multiplier so a
+    /// golden grab mid-hot-streak is a genuine jackpot — the reward for committing to the chase.
+    fn on_golden_caught(&mut self, pos: Vec2, base_pts: usize) {
+        let mut rng = rand::rng();
+        // Flat treasure bonus scaled by the current combo multiplier, floored so it always feels big.
+        let bonus = (30 * self.combo_multiplier()).max(30);
+        self.score += bonus;
+        // Gold sparkle-burst + shockwave so the catch reads as a jackpot, not a normal snag.
+        self.particle_system.spawn_milestone_fireworks(pos, 14, &mut rng);
+        self.spawn_catch_shockwave(pos, [1.0, 0.85, 0.25]);
+        self.floating_texts.spawn(
+            format!("GOLDEN! +{}", bonus),
+            pos - Vec2::new(60.0, 40.0),
+            42.0,
+            [1.0, 0.9, 0.3, 1.0],
+        );
+        // Extra juice: a short freeze, a camera punch, and a groove kick reward the risky chase.
+        self.hitstop_timer = self.hitstop_timer.max(0.09);
+        self.zoom_punch = self.zoom_punch.max(0.08);
+        self.shake_timer = self.shake_timer.max(0.45);
+        self.groove = (self.groove + 0.25).min(1.0);
+        let _ = base_pts; // base points already banked in the catch loop; kept for future tuning.
     }
 
     /// Big celebratory payoff when a worn-down boss is finally snagged. `is_tide` swaps the callout
@@ -2416,6 +2458,9 @@ impl MainState {
             self.crabs[i].caught = true;
             if self.crabs[i].is_boss() {
                 self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
+            }
+            if self.crabs[i].is_golden() {
+                self.on_golden_caught(pos, 0);
             }
             self.reward_dance_catch(was_answering, pos);
             self.emit_catch_startle(pos);
@@ -4838,6 +4883,11 @@ impl MainState {
                     // once it's latched onto the tail so the theft-in-progress reads at a glance.
                     let size = crab.scale * CRAB_SIZE;
                     draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), self.time_elapsed)?;
+                } else if crab.is_golden() {
+                    // Golden crab shine — a shimmering ring of orbiting sparkles so the rare prize
+                    // catches the eye across the whole field and reads as "chase this one!".
+                    let size = crab.scale * CRAB_SIZE;
+                    draw_golden_sparkle(ctx, canvas, pos, size, self.time_elapsed)?;
                 }
             }
         }
@@ -5182,6 +5232,7 @@ impl MainState {
         let mut rng = rand::rng();
         let mut caught_positions: Vec<Vec2> = Vec::new();
         let mut boss_hits: Vec<(Vec2, bool)> = Vec::new();
+        let mut golden_hits: Vec<Vec2> = Vec::new();
         for i in 0..self.crabs.len() {
             if !self.crabs[i].is_catchable() {
                 continue;
@@ -5197,6 +5248,9 @@ impl MainState {
             if self.crabs[i].is_boss() {
                 boss_hits.push((pos, self.crabs[i].is_tide_boss()));
             }
+            if self.crabs[i].is_golden() {
+                golden_hits.push(pos);
+            }
             self.crabs[i].caught = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
@@ -5210,6 +5264,9 @@ impl MainState {
         }
         for (pos, is_tide) in boss_hits {
             self.on_boss_caught(pos, is_tide);
+        }
+        for pos in golden_hits {
+            self.on_golden_caught(pos, 0);
         }
         self.chain_join_ripple = n > 0;
         self.check_milestone(&mut rng);
@@ -6094,6 +6151,9 @@ impl EventHandler for MainState {
                         self.crabs[i].caught = true;
                         if self.crabs[i].is_boss() {
                             self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
+                        }
+                        if self.crabs[i].is_golden() {
+                            self.on_golden_caught(pos, 0);
                         }
                         self.reward_dance_catch(was_answering, pos);
                         lasso_startle_origins.push(pos);
