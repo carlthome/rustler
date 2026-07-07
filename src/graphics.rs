@@ -433,6 +433,92 @@ pub fn draw_beat_wave_ring(
     Ok(())
 }
 
+/// A full-screen edge glow that turns being "in the groove" into peripheral feedback: the
+/// four screen edges bloom inward with a soft colored gradient that intensifies with the Groove
+/// meter and breathes on the beat. Below a floor `groove` it draws nothing (no cost when the
+/// player is cold). The color walks from cool cyan while the meter builds to hot magenta/gold as
+/// it tops out, so a maxed groove frames the whole screen in a pulsing glow — the same read as
+/// the corner meter, but felt at the edge of vision instead of needing a glance.
+///
+/// Cheap: a soft falloff is faked with a few stacked translucent bands per edge (each a single
+/// `unit_square` draw), not a shader — a couple dozen batched fills a frame, and only while hot.
+pub fn draw_groove_vignette(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    groove: f32,
+    beat_intensity: f32,
+) -> ggez::GameResult {
+    // Nothing until the player is meaningfully in the groove — keeps it a reward, not clutter,
+    // and means zero draws during ordinary cold play.
+    if groove < 0.25 {
+        return Ok(());
+    }
+    // Remap 0.25..1.0 onto 0..1 so the glow eases in from the threshold rather than popping on.
+    let t = ((groove - 0.25) / 0.75).clamp(0.0, 1.0);
+
+    // Color walks cyan -> magenta/gold as the meter fills, matching the corner groove bar.
+    let r = 0.30 + t * 0.70;
+    let g = 0.95 - t * 0.45;
+    let b = 0.90 - t * 0.55;
+
+    // Breathe on the beat: a maxed groove pulses harder so the frame throbs in time with the music.
+    let pulse = 1.0 + beat_intensity * (0.25 + t * 0.55);
+    // How far the glow reaches in from each edge, and its peak opacity — both grow with the meter.
+    let reach = (26.0 + t * 90.0) * pulse;
+    let peak = (0.10 + t * 0.32) * pulse;
+
+    // Stack a few bands per edge, fading toward the interior, to fake a smooth gradient falloff.
+    const BANDS: usize = 5;
+    let sq = unit_square(ctx)?;
+    for i in 0..BANDS {
+        // Band 0 sits at the very edge (widest/brightest); inner bands are thinner slivers that
+        // taper the glow off toward the play area.
+        let f = i as f32 / BANDS as f32;
+        let band = reach * (1.0 - f);
+        if band < 0.5 {
+            continue;
+        }
+        // Alpha falls off quadratically inward so the edge reads as a soft bloom, not a hard bar.
+        let a = (peak * (1.0 - f) * (1.0 - f)).clamp(0.0, 0.85);
+        let col = Color::new(r, g, b, a);
+        // Top edge
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(0.0, 0.0))
+                .scale(Vec2::new(width, band))
+                .color(col),
+        );
+        // Bottom edge
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(0.0, height - band))
+                .scale(Vec2::new(width, band))
+                .color(col),
+        );
+        // Left edge
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(0.0, 0.0))
+                .scale(Vec2::new(band, height))
+                .color(col),
+        );
+        // Right edge
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(width - band, 0.0))
+                .scale(Vec2::new(band, height))
+                .color(col),
+        );
+    }
+    Ok(())
+}
+
 /// Fetch a cached stroke-rectangle mesh for the given size/thickness (built once per rounded
 /// key, reused after that), instead of calling `Mesh::new_rectangle` fresh every draw. Baked at
 /// its actual size (not unit-scaled), since scaling would distort the stroke thickness the same

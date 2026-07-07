@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -4521,6 +4521,11 @@ impl MainState {
                     .color(Color::from_rgb(255, 100, 100)),
             );
         }
+        // Groove vignette — frame the whole screen in a beat-pulsing edge glow while the player is
+        // in the pocket, so "in the groove" reads peripherally, not just from the corner meter.
+        // Drawn over the world but under the HUD so it never obscures numbers/readouts.
+        draw_groove_vignette(ctx, canvas, width, height, self.groove, self.beat_intensity)?;
+
         // Beat indicator (top right)
         let beat_center = Vec2::new(width - 50.0, 50.0);
         // Wave-incoming telegraph: while a spawn is armed, ring the beat indicator so the player
