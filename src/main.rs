@@ -5160,11 +5160,23 @@ impl EventHandler for MainState {
             }
         }
 
+        // Single pass over the herd covers every per-frame tally below (free-crab count for the
+        // overwhelmed check, and whether a boss is alive) instead of scanning `self.crabs` three
+        // separate times with overlapping predicates.
+        let mut free_crab_count = 0usize;
+        let mut boss_active = false;
+        for c in &self.crabs {
+            if !c.caught {
+                free_crab_count += 1;
+                if c.is_boss() {
+                    boss_active = true;
+                }
+            }
+        }
+
         // King Crab boss: once the player is rolling, send in a rare oversized crab that must be
         // worn down under the flashlight before it can be caught. Only one at a time.
-        if self.score >= self.next_boss_score
-            && !self.crabs.iter().any(|c| c.is_boss() && !c.caught)
-        {
+        if self.score >= self.next_boss_score && !boss_active {
             self.next_boss_score = self.score + BOSS_SCORE_INTERVAL;
             // Alternate the two boss archetypes so every run cycles through both climax beats: the
             // King Crab (charge — route the train out of the lane) and the Tide Boss (pulse — pull
@@ -5187,6 +5199,8 @@ impl EventHandler for MainState {
             self.next_boss_is_tide = !self.next_boss_is_tide;
             let bpos = boss.pos;
             self.crabs.push(boss);
+            boss_active = true;
+            free_crab_count += 1;
             self.floating_texts.spawn(
                 title.to_string(),
                 Vec2::new(self.width / 2.0 - 230.0, 80.0),
@@ -5224,8 +5238,9 @@ impl EventHandler for MainState {
             }
         }
 
-        // Game over if too many free crabs accumulate (overwhelmed).
-        if self.crabs.iter().filter(|c| !c.caught).count() >= 80 {
+        // Game over if too many free crabs accumulate (overwhelmed). Reuses the single-pass tally
+        // from above (plus the +1 for a boss spawned this frame) instead of a fresh linear scan.
+        if free_crab_count >= 80 {
             self.game_over = true;
             return Ok(());
         }
@@ -5238,8 +5253,8 @@ impl EventHandler for MainState {
         // Boss set-piece: while a boss is on the field, hold the herd back so the encounter becomes
         // a focused duel instead of another crab lost in the crowd. The pattern timer keeps counting
         // down (clamped so it doesn't run away), so the instant the boss is caught the next wave
-        // arms immediately and the run resumes without a dead beat.
-        let boss_active = self.crabs.iter().any(|c| c.is_boss() && !c.caught);
+        // arms immediately and the run resumes without a dead beat. `boss_active` is the same
+        // single-pass tally computed above (still valid — no crab was caught/removed since).
         if boss_active {
             self.pattern_timer = self.pattern_timer.max(-1.0);
         }
