@@ -753,6 +753,35 @@ impl ParticleSystem {
         }
     }
 
+    /// A King Crab fissure GEYSERS on the beat: fling a short burst of molten debris up out of the
+    /// pit. Launched near-vertically with a little spread so gravity (applied in `update`) arcs it
+    /// back down like sparks off lava — a rhythmic spout that reads as the hazard surging, not just
+    /// glowing. Particle count scales gently with pit radius; the shared MAX_PARTICLES cap guards it.
+    pub fn spawn_fissure_geyser(&mut self, center: Vec2, radius: f32, rng: &mut impl Rng) {
+        let count = (6.0 + radius * 0.08) as usize;
+        for _ in 0..count {
+            // Spawn from somewhere inside the pit mouth so the column has width, not a single jet.
+            let off_a = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            let off_r = rng.random_range(0.0_f32..radius * 0.5);
+            let pos = center + Vec2::new(off_a.cos() * off_r, off_a.sin() * off_r);
+            // Mostly upward with a slight sideways fan.
+            let up = rng.random_range(180.0_f32..340.0_f32);
+            let side = rng.random_range(-70.0_f32..70.0_f32);
+            let life = rng.random_range(0.35_f32..0.75_f32);
+            // Hot molten palette: orange core flecked toward yellow-white.
+            let heat = rng.random_range(0.0_f32..1.0);
+            let color = [1.0, 0.4 + 0.45 * heat, 0.08 + 0.25 * heat];
+            self.push(Particle {
+                pos,
+                vel: Vec2::new(side, -up),
+                life,
+                max_life: life,
+                size: rng.random_range(2.0_f32..4.5_f32),
+                color,
+            });
+        }
+    }
+
     pub fn spawn_milestone_fireworks(&mut self, center: Vec2, milestone: usize, rng: &mut impl Rng) {
         // Scale particle count with milestone tier, capped at 200
         let count = (120 + (milestone / 5).min(8) * 10).min(200);
@@ -3056,10 +3085,15 @@ pub fn draw_boss_fissures(
     fissures: &[(Vec2, f32, f32)],
     time: f32,
     beat_intensity: f32,
+    erupt: f32,
 ) -> ggez::GameResult {
     if fissures.is_empty() {
         return Ok(());
     }
+    // `erupt` (0..1) is the beat-synced geyser pulse: at its peak the pits spout molten and their
+    // danger reach swells (see damage_tail_in_fissures). Drive the extra flare/spout off it so the
+    // visual matches the widened bite exactly — what looks dangerous *is* dangerous.
+    let erupt = erupt.clamp(0.0, 1.0);
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
@@ -3099,23 +3133,50 @@ pub fn draw_boss_fissures(
         let orig_blend = canvas.blend_mode();
         canvas.set_blend_mode(BlendMode::ADD);
 
-        // Molten inner core, hotter on the beat — the "lava" welling up through the crack.
+        // Molten inner core, hotter on the beat — the "lava" welling up through the crack. On the
+        // geyser pulse the core flares brighter and larger, as if the lava surges up the shaft.
         canvas.draw(
             unit_circle,
             DrawParam::default()
                 .dest(center)
-                .scale(Vec2::splat(radius * 0.55 * open))
+                .scale(Vec2::splat(radius * (0.55 + 0.22 * erupt) * open))
                 .color(Color::new(
                     1.0,
-                    0.35 + 0.2 * glow + 0.15 * beat,
-                    0.08,
-                    (0.28 + 0.18 * glow) * open,
+                    0.35 + 0.2 * glow + 0.15 * beat + 0.25 * erupt,
+                    0.08 + 0.15 * erupt,
+                    (0.28 + 0.18 * glow + 0.3 * erupt) * open,
                 )),
         );
 
-        // Hard hazard rim so the edge you route around reads clearly, flaring on formation.
-        let rim_a = (0.4 + 0.35 * glow) * open + (1.0 - open) * 0.9;
-        let rim = cached_stroke_circle(ctx, radius * open.max(0.05), 3.0)?;
+        // Geyser column: on the beat, a bright molten spout jets straight up out of the pit mouth,
+        // fading as it rises. Only draws while erupting, so between beats the pit just glows.
+        if erupt > 0.02 && open > 0.5 {
+            let col_h = radius * (0.9 + 1.4 * erupt);
+            let col_w = radius * 0.5;
+            canvas.draw(
+                unit_line,
+                DrawParam::default()
+                    .dest(center + Vec2::new(0.0, -col_h * 0.5))
+                    .rotation(-std::f32::consts::FRAC_PI_2)
+                    .scale(Vec2::new(col_h, col_w))
+                    .color(Color::new(1.0, 0.55 + 0.35 * glow, 0.2, 0.35 * erupt)),
+            );
+            // A hot bright cap where the spout crests, brightest at the peak of the pulse.
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(center + Vec2::new(0.0, -col_h))
+                    .scale(Vec2::splat(radius * 0.28 * erupt))
+                    .color(Color::new(1.0, 0.85, 0.5, 0.55 * erupt)),
+            );
+        }
+
+        // Hard hazard rim so the edge you route around reads clearly, flaring on formation. During
+        // the geyser it swells outward to trace the widened bite radius (1.35x at peak) so the
+        // "danger zone" the player must clear reads visibly bigger on the beat than off it.
+        let reach = 1.0 + 0.35 * erupt;
+        let rim_a = (0.4 + 0.35 * glow + 0.3 * erupt) * open + (1.0 - open) * 0.9;
+        let rim = cached_stroke_circle(ctx, (radius * reach) * open.max(0.05), 3.0 + 1.5 * erupt)?;
         canvas.draw(
             &rim,
             DrawParam::default()

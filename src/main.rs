@@ -527,6 +527,13 @@ struct MainState {
     // how many it added in `boss_flood_pools` so `on_boss_caught` can drain exactly those back off
     // without disturbing the level's own water. Both clear when the boss is caught.
     boss_fissures: Vec<(Vec2, f32, f32)>,
+    // Beat-synced eruption pulse for the King Crab fissures: kicked to 1.0 on each beat while
+    // fissures are open, then decays toward 0. On the peak the molten pits GEYSER — a spout bursts
+    // up, the pit's glow flares, and its tail-snap radius briefly swells so the hazard breathes
+    // with the music. Between beats the fissures settle and the widened bite recedes, so a fissure
+    // is only fully dangerous *on the beat* — the player learns to thread the tail across in the
+    // gaps, tying the arena-crack finale into the game's rhythm spine instead of being a static pit.
+    boss_fissure_erupt: f32,
     boss_flood_pools: usize,             // count of extra pools a Tide Boss flooded in on enrage
     chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
@@ -892,6 +899,7 @@ impl MainState {
             tide_pools: init_tide_pools,
             in_tide_pool: false,
             boss_fissures: Vec::new(),
+            boss_fissure_erupt: 0.0,
             boss_flood_pools: 0,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
@@ -1949,6 +1957,7 @@ impl MainState {
             }
         }
         self.boss_fissures.clear();
+        self.boss_fissure_erupt = 0.0;
         if self.boss_flood_pools > 0 {
             let drain = self.boss_flood_pools.min(self.tide_pools.len());
             let new_len = self.tide_pools.len() - drain;
@@ -2066,15 +2075,25 @@ impl MainState {
         let Some(tail_pos) = self.cached_tail_pos else {
             return;
         };
-        // Only bite if the tail is actually inside a fully-open fissure — weave around and you're safe.
+        // The geyser makes the hazard breathe with the beat: while a fissure is erupting its bite
+        // reach swells past the rim (so a tail merely skirting the edge gets caught mid-spout) and
+        // the snap becomes far likelier. Between beats the reach recedes to the rim and the bite
+        // goes nearly dormant — so the safe move is to thread the tail across in the gaps, not on
+        // the hit. `erupt` is the shared beat pulse; its peak is right on the beat.
+        let erupt = self.boss_fissure_erupt.clamp(0.0, 1.0);
+        let reach = 1.0 + 0.35 * erupt; // danger radius grows up to 1.35x on the beat
+        // Only bite if the tail is inside a (possibly geyser-widened) open fissure — weave and you're safe.
         let in_fissure = self
             .boss_fissures
             .iter()
-            .any(|(c, r, age)| *age > 0.6 && tail_pos.distance(*c) < *r);
+            .any(|(c, r, age)| *age > 0.6 && tail_pos.distance(*c) < *r * reach);
         if !in_fissure {
             return;
         }
-        if rand::random::<f32>() > SNAP_CHANCE_PER_SEC * dt {
+        // Between beats the pit is nearly dormant (a small baseline bite), on the beat it snaps
+        // hard — so the eruption is what the player actually dodges.
+        let snap_chance = SNAP_CHANCE_PER_SEC * (0.15 + 0.85 * erupt);
+        if rand::random::<f32>() > snap_chance * dt {
             return;
         }
 
@@ -3045,6 +3064,7 @@ impl MainState {
             // New zone wipes any boss-flooded water/fissures — the fresh pools are the level's own.
             self.boss_flood_pools = 0;
             self.boss_fissures.clear();
+            self.boss_fissure_erupt = 0.0;
         }
         if self.current_level >= self.levels.len() {
             // Game completed, show game over screen.
@@ -3236,6 +3256,7 @@ impl MainState {
         );
         self.in_tide_pool = false;
         self.boss_fissures.clear();
+        self.boss_fissure_erupt = 0.0;
         self.boss_flood_pools = 0;
         self.chain_rings.clear();
         self.catch_shockwaves.clear();
@@ -3781,6 +3802,7 @@ impl MainState {
             &self.boss_fissures,
             self.time_elapsed,
             self.beat_intensity,
+            self.boss_fissure_erupt,
         )?;
 
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
@@ -5238,6 +5260,21 @@ impl EventHandler for MainState {
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
+            // King Crab finale: the cracked floor GEYSERS on the beat. Kick the eruption pulse so
+            // every open fissure spouts molten in time with the music — its danger swells on the
+            // hit and recedes in the gap, turning a static pit into a rhythmic hazard the player
+            // times crossings against. A tiny extra flare on the downbeat so it groups by the bar.
+            if !self.boss_fissures.is_empty() {
+                self.boss_fissure_erupt = if downbeat { 1.0 } else { 0.85 };
+                self.screen_shake = self.screen_shake.max(if downbeat { 8.0 } else { 5.0 });
+                // Spit a few molten sparks up out of each pit so the geyser reads as real debris,
+                // not just a glow — capped by the particle system's own budget.
+                for &(c, r, age) in self.boss_fissures.iter() {
+                    if age > 0.6 {
+                        self.particle_system.spawn_fissure_geyser(c, r, &mut rand::rng());
+                    }
+                }
+            }
             // Every 4th beat, auto-fire beat wave when score >= 20
             if downbeat && self.score >= 20 && !self.beat_wave_active {
                 self.beat_wave_active = true;
@@ -5601,6 +5638,11 @@ impl EventHandler for MainState {
         // through one, so the arena reshape has real teeth. Fissures also finish opening here.
         for (_, _, age) in self.boss_fissures.iter_mut() {
             *age = (*age + dt * 2.5).min(1.0);
+        }
+        // The beat-synced geyser pulse fades between beats (kicked back to ~1 in the beat-fire
+        // block above). Fast decay so the eruption is a sharp on-beat spike, not a lingering glow.
+        if self.boss_fissure_erupt > 0.0 {
+            self.boss_fissure_erupt = (self.boss_fissure_erupt - dt * 3.2).max(0.0);
         }
         self.damage_tail_in_fissures(dt);
 
