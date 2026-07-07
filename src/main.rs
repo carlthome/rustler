@@ -300,11 +300,32 @@ struct GameSounds {
 /// (e.g. a conga chain sweeping up several crabs at once, or a lasso grabbing a cluster) doesn't
 /// sound like the exact same note firing on a machine-gun loop. Mostly the regular chime, with
 /// an occasional brighter `success2` swapped in for variety — same odds as before this existed.
+///
+/// `beat_streak` is the current run of consecutive on-beat catches: as it climbs, the chime walks
+/// up a pentatonic scale so a hot in-the-pocket streak *sounds* like a rising musical run instead
+/// of a flat repeat, then wraps to a bright octave-up at the top so it never runs off into
+/// chipmunk territory. A cold/off-beat streak (0) stays at the neutral root note with only the
+/// small random detune, so ordinary catches are unchanged. This makes the rhythm reward audible,
+/// not just numeric.
+///
 /// Free function (not a `&mut self` method) so it can be called from inside loops that already
 /// hold a disjoint mutable borrow of another field of `MainState` (e.g. `for crab in &mut
 /// self.crabs`), where a whole-`self` method call wouldn't type-check.
-fn play_catch_sound(sounds: &mut GameSounds, ctx: &mut Context, rng: &mut impl rand::Rng) {
-    let pitch = rng.random_range(0.92_f32..1.08);
+fn play_catch_sound(
+    sounds: &mut GameSounds,
+    ctx: &mut Context,
+    rng: &mut impl rand::Rng,
+    beat_streak: u32,
+) {
+    // Major pentatonic ratios (root, 2nd, 3rd, 5th, 6th) — a scale that sounds pleasant no matter
+    // which step a rapid multi-catch lands on. Steps climb an octave every 5 catches, and each
+    // higher octave doubles the ratio, so a long streak sweeps upward and resolves cleanly.
+    const PENTATONIC: [f32; 5] = [1.0, 9.0 / 8.0, 5.0 / 4.0, 3.0 / 2.0, 5.0 / 3.0];
+    let step = (beat_streak as usize) % PENTATONIC.len();
+    let octave = (beat_streak / PENTATONIC.len() as u32).min(2); // cap at +2 octaves
+    let scale = PENTATONIC[step] * 2.0_f32.powi(octave as i32);
+    // Small random detune on top of the scale note so simultaneous catches still don't phase-lock.
+    let pitch = scale * rng.random_range(0.98_f32..1.02);
     if rng.random_range(0..5) == 0 {
         sounds.success2.set_pitch(pitch);
         let _ = sounds.success2.play_detached(ctx);
@@ -2037,7 +2058,7 @@ impl MainState {
                 self.hitstop_timer = self.hitstop_timer.max(if on_beat { 0.08 } else { 0.05 });
                 // Snap the camera in a hair on every catch, harder on the beat, for extra impact.
                 self.zoom_punch = self.zoom_punch.max(if on_beat { 0.055 } else { 0.035 });
-                play_catch_sound(&mut self.sounds, ctx, &mut rng);
+                play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
                 if self.score > 0 && self.score % 10 == 0 {
                     let _ = self.sounds.upgrade.play_detached(ctx);
                     self.pending_upgrade = true;
@@ -2497,7 +2518,7 @@ impl MainState {
             self.hitstop_timer = self.hitstop_timer.max(0.04);
             self.zoom_punch = self.zoom_punch.max(0.03);
             self.time_since_catch = 0.0;
-            play_catch_sound(&mut self.sounds, ctx, &mut rng);
+            play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
             if self.score > 0 && self.score % 10 == 0 {
                 let _ = self.sounds.upgrade.play_detached(ctx);
                 self.pending_upgrade = true;
@@ -6225,7 +6246,7 @@ impl EventHandler for MainState {
                         self.shake_timer = 0.15;
                         self.hitstop_timer = self.hitstop_timer.max(0.06);
                         self.time_since_catch = 0.0;
-                        play_catch_sound(&mut self.sounds, ctx, &mut rng);
+                        play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
                         if self.score > 0 && self.score % 10 == 0 {
                             let _ = self.sounds.upgrade.play_detached(ctx);
                             self.pending_upgrade = true;
