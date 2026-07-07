@@ -91,6 +91,16 @@ thread_local! {
     // allocation on top of the (already-fixed) segment buffer.
     static CONGA_WAYPOINT_BUF: RefCell<Vec<Vec2>> = RefCell::new(Vec::new());
 
+    // Reusable instance buffers for draw_conga_rope's two passes (main rope + additive glow).
+    // Each pass used to issue one canvas.draw() per micro-segment (SEGS=14 per chain link) — on a
+    // 50-crab train that's 2 * 14 * 50 = 1400 individual GPU submissions a frame for the rope
+    // alone, the same per-call overhead the particle/leg/body/trail/marcher batching above already
+    // eliminated everywhere else. Collapsed into one InstanceArray fill + draw_instanced_mesh per
+    // pass, so the rope costs 2 draw calls total no matter how long the train gets. Same unit_line
+    // mesh, same per-segment position/rotation/scale/color, identical on-screen output.
+    static CONGA_MAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static CONGA_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache of the lasso's spinning open-loop ring mesh, keyed by rounded (radius, thickness).
     // Built once in local space (centered at the origin, sweeping `LASSO_LOOP_ARC_FRACTION` of a
     // circle starting at angle 0) and reused every frame via `DrawParam::rotation` to spin it and
@@ -1630,35 +1640,43 @@ pub fn draw_conga_rope(
             }
 
             // Pass 1: main rope segments, plain alpha blend (whatever the canvas is already using).
-            for &(pos, angle, len, rgb) in segs.iter() {
-                let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
-                canvas.draw(
-                    unit_line,
+            // Batched into one InstanceArray + draw_instanced_mesh instead of one canvas.draw()
+            // per micro-segment (see CONGA_MAIN_INSTANCES doc comment).
+            CONGA_MAIN_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(segs.iter().map(|&(pos, angle, len, rgb)| {
+                    let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
                     DrawParam::default()
                         .dest(pos)
                         .rotation(angle)
                         .scale(Vec2::new(len, thickness))
-                        .color(color),
-                );
-            }
+                        .color(color)
+                }));
+                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
 
             // Pass 2: neon glow, additive blend switched on once for the whole rope instead of
-            // once per micro-segment.
+            // once per micro-segment. Same batching as pass 1.
             canvas.set_blend_mode(BlendMode::ADD);
             // Overheating widens and brightens the additive halo so a hot rope actually casts light.
             let glow_alpha = alpha_base * (0.35 + heat * 0.35);
             let glow_width = thickness * (2.2 + heat * 1.6);
-            for &(pos, angle, len, rgb) in segs.iter() {
-                let glow_color = Color::new(rgb[0], rgb[1], rgb[2], glow_alpha);
-                canvas.draw(
-                    unit_line,
+            CONGA_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(segs.iter().map(|&(pos, angle, len, rgb)| {
+                    let glow_color = Color::new(rgb[0], rgb[1], rgb[2], glow_alpha);
                     DrawParam::default()
                         .dest(pos)
                         .rotation(angle)
                         .scale(Vec2::new(len, glow_width))
-                        .color(glow_color),
-                );
-            }
+                        .color(glow_color)
+                }));
+                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
             canvas.set_blend_mode(BlendMode::ALPHA);
             Ok(())
         })
