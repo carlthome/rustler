@@ -2658,6 +2658,120 @@ pub fn draw_delivery_pen(
     Ok(())
 }
 
+/// Draw a directional guide toward the delivery pen while the player has an uncashed train.
+///
+/// The pen relocates on every bank, so once you've built a conga line the game's biggest payoff
+/// decision — "route the train to the pen and cash in" — is only legible if you can actually *find*
+/// the pen. The crab radar already points to loose crabs at the screen edge; this is the same idea
+/// for the goal zone, so building a train and hunting blindly for where to spend it never happens.
+///
+/// `urgency` (0..1) scales how insistent the guide reads — feed it the train size normalized against
+/// some "big haul" cap so a fat, at-risk train pulls harder toward the pen than a couple of crabs.
+/// When the pen is off-screen the arrow pins to the screen edge (like the crab radar); when it's
+/// on-screen but not yet reached, a softer floating chevron hovers beside it pointing in. Purely a
+/// guide overlay: no gameplay effect, all draws reuse the cached unit line/circle meshes.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_pen_guide(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    player_center: Vec2,
+    pen_pos: Vec2,
+    pen_radius: f32,
+    width: f32,
+    height: f32,
+    urgency: f32,
+    beat_intensity: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let to_pen = pen_pos - player_center;
+    let dist = to_pen.length();
+    // Already at (or basically on) the pen — the pen's own beacon takes over, no guide needed.
+    if dist < pen_radius * 1.2 {
+        return Ok(());
+    }
+    let dir = to_pen.normalize_or_zero();
+    if dir == Vec2::ZERO {
+        return Ok(());
+    }
+    let angle = dir.y.atan2(dir.x);
+
+    let u = urgency.clamp(0.0, 1.0);
+    let beat = beat_intensity.clamp(0.0, 1.0);
+    let unit_line = unit_line(ctx)?;
+    let unit_circle = unit_circle(ctx)?;
+
+    let margin = 30.0_f32;
+    let on_screen = pen_pos.x > margin
+        && pen_pos.x < width - margin
+        && pen_pos.y > margin
+        && pen_pos.y < height - margin;
+
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Warm green-gold, matching the pen's "come cash in" palette. Brightens with urgency + beat.
+    let bright = (0.6 + u * 0.35 + beat * 0.15).clamp(0.0, 1.0);
+    let col = Color::new(0.55 * bright + 0.25, 1.0 * bright, 0.5 * bright + 0.15, bright);
+
+    // Draw a downward-into-the-pen chevron (two wings) pointing along `angle`, plus a soft dot,
+    // at `at` with size `size`. Reused for both the edge-pinned and on-field cases.
+    let mut chevron = |at: Vec2, size: f32| {
+        let wing = size;
+        let core = size * 0.55;
+        // Soft glow dot behind the chevron so it reads against busy ground.
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(at)
+                .scale(Vec2::splat(core))
+                .color(Color::new(col.r, col.g, col.b, col.a * 0.5)),
+        );
+        for spread in [2.2_f32, -2.2] {
+            let wa = angle + spread;
+            let d = Vec2::new(wa.cos(), wa.sin()) * wing;
+            let len = d.length();
+            let a = d.y.atan2(d.x);
+            canvas.draw(
+                unit_line,
+                DrawParam::default()
+                    .dest(at)
+                    .rotation(a)
+                    .scale(Vec2::new(len, (3.0 + u * 3.0).max(1.0)))
+                    .color(col),
+            );
+        }
+    };
+
+    if on_screen {
+        // Pen is visible: hover a gentle chevron just off the near side of the pen, bobbing on the
+        // beat, nudging the eye toward it without cluttering the goal zone itself.
+        let bob = (time * (3.0 + u * 3.0)).sin() * (4.0 + u * 4.0);
+        let at = pen_pos - dir * (pen_radius + 22.0 + bob);
+        chevron(at, 14.0 + u * 6.0);
+    } else {
+        // Pen is off-screen: pin a bigger, more insistent arrow to the screen edge in the pen's
+        // direction (same clamp trick as the crab radar), so you know which way to haul the train.
+        let edge = Vec2::new(
+            (player_center.x + dir.x * 4000.0).clamp(margin, width - margin),
+            (player_center.y + dir.y * 4000.0).clamp(margin, height - margin),
+        );
+        let pulse = 1.0 + beat * 0.4 + (time * 6.0).sin() * 0.1;
+        chevron(edge, (18.0 + u * 10.0) * pulse);
+        // A faint trailing tick behind the edge arrow so it reads as "keep going this way".
+        let tail = edge - dir * (26.0 + u * 10.0);
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(tail)
+                .scale(Vec2::splat(3.0 + u * 2.0))
+                .color(Color::new(col.r, col.g, col.b, col.a * 0.4)),
+        );
+    }
+
+    canvas.set_blend_mode(orig_blend);
+    Ok(())
+}
+
 /// Draw the level's tide pools — patches of shallow water that drag on movement and force the
 /// player to route the conga train around (or dash across) them. Each pool is a translucent blue
 /// disc with a soft rim, a couple of slowly expanding ripple rings, and a glint highlight, all

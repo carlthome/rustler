@@ -27,7 +27,7 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
+    draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_magnet_aura, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
@@ -3852,6 +3852,26 @@ impl MainState {
 
         // Draw screen-edge radar arrows pointing to free crabs
         draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.beat_intensity, self.time_elapsed)?;
+
+        // Point the player at the delivery pen while there's a train to cash in. The pen jumps on
+        // every bank, so this keeps its "route the train here" decision legible instead of a hunt.
+        // Urgency scales with train size (normalized against a fat-haul cap of 12) so a big, at-risk
+        // conga line pulls harder toward the pen than a couple of crabs.
+        if self.chain_count > 0 {
+            let urgency = (self.chain_count as f32 / 12.0).min(1.0);
+            draw_pen_guide(
+                ctx,
+                canvas,
+                self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
+                self.pen_pos,
+                PEN_RADIUS,
+                width,
+                height,
+                urgency,
+                self.beat_intensity,
+                self.time_elapsed,
+            )?;
+        }
 
         // Draw the whip-streaks that yank caught crabs into the train (under the impact rings).
         draw_catch_trails(ctx, canvas, &self.catch_trails)?;
