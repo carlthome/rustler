@@ -41,6 +41,23 @@ const SPEED: f32 = 200.0;
 const CHAIN_LINK_FRAMES: usize = 12;
 const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
+// Staged difficulty ramp: a run escalates in named stages over elapsed time so tension rises
+// within a zone instead of staying flat. Each entry is (elapsed-seconds threshold to enter the
+// stage, its shout name, its density multiplier applied to every wave's crab count). Durations
+// shrink in step (see STAGE_DURATION_SCALE) so later stages also arrive faster. Stage 0 is the
+// warm-up baseline (1.0x, no banner); crossing into any later stage fires a telegraphed banner
+// and a musical punch, a standout moment distinct from the every-4th Frenzy spike.
+const INTENSITY_STAGES: &[(f32, &str, f32)] = &[
+    (0.0, "WARM-UP", 1.0),
+    (45.0, "BUILDING", 1.25),
+    (100.0, "HEATED", 1.55),
+    (170.0, "FEVER", 1.9),
+    (260.0, "OVERDRIVE", 2.3),
+];
+// How much each stage past the first shortens wave durations (multiplied per stage index), so a
+// rising run also gives less breathing room between waves. Floored so it never gets frantic.
+const STAGE_DURATION_SCALE: f32 = 0.92;
+const STAGE_DURATION_FLOOR: f32 = 0.6;
 const BOSS_MAX_HEALTH: f32 = 3.0; // seconds of sustained flashlight needed to wear a King Crab down
 const BOSS_DRAIN_RATE: f32 = 1.0; // boss health drained per second while held in the beam
 const BOSS_SCORE_INTERVAL: usize = 40; // score gap between successive King Crab arrivals
@@ -357,6 +374,13 @@ struct MainState {
     waves_cleared: u32,
     frenzy_wave: bool,
     frenzy_banner_timer: f32,
+    // Staged difficulty ramp over elapsed time (the smooth rising spine of a run, orthogonal to
+    // the every-4th Frenzy spike above). `intensity_stage` indexes INTENSITY_STAGES and only ever
+    // climbs; crossing into a new stage fires `stage_banner_timer` with `stage_banner_name` set to
+    // the stage's shout. Every spawned wave reads the current stage to scale its count/duration.
+    intensity_stage: usize,
+    stage_banner_timer: f32,
+    stage_banner_name: &'static str,
     // Lasso Throw ability
     lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     lasso_timer: f32,                          // Time remaining on lasso flight
@@ -696,6 +720,9 @@ impl MainState {
             waves_cleared: 0,
             frenzy_wave: false,
             frenzy_banner_timer: 0.0,
+            intensity_stage: 0,
+            stage_banner_timer: 0.0,
+            stage_banner_name: "",
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
@@ -2103,13 +2130,21 @@ impl MainState {
         // ~1.7x the count (min +4) so it reads as a real surge, and give a touch less time to
         // clear it so the pressure is felt. `frenzy_wave` was set during arming and is consumed
         // here (the flag is what the gold telegraph read); reset it once the drop is spent.
+        // Staged ramp: denser herds and less breathing room the further into the run we are. This
+        // is the smooth rising spine; the Frenzy bump below stacks on top of it for the periodic
+        // standout spike. `stage` is clamped in-bounds since intensity_stage only climbs.
+        let stage = self.intensity_stage.min(INTENSITY_STAGES.len() - 1);
+        let stage_mul = INTENSITY_STAGES[stage].2;
+        let stage_dur = STAGE_DURATION_SCALE.powi(stage as i32).max(STAGE_DURATION_FLOOR);
+        let base_count = (p.count as f32 * stage_mul).round() as usize;
         let frenzy = self.frenzy_wave;
         let count = if frenzy {
-            ((p.count as f32 * 1.7).ceil() as usize).max(p.count + 4)
+            ((base_count as f32 * 1.7).ceil() as usize).max(base_count + 4)
         } else {
-            p.count
+            base_count
         };
-        let duration = if frenzy { p.duration * 0.85 } else { p.duration };
+        let base_duration = p.duration * stage_dur;
+        let duration = if frenzy { base_duration * 0.85 } else { base_duration };
         let crabs = spawn_enemies(p.pattern.clone(), count, area, p.centroid, &mut rng);
         self.crabs.extend(crabs);
         self.pattern_timer = duration;
@@ -2278,6 +2313,9 @@ impl MainState {
         self.waves_cleared = 0;
         self.frenzy_wave = false;
         self.frenzy_banner_timer = 0.0;
+        self.intensity_stage = 0;
+        self.stage_banner_timer = 0.0;
+        self.stage_banner_name = "";
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
@@ -3201,6 +3239,12 @@ impl MainState {
             self.draw_frenzy_banner(ctx, canvas, width, height)?;
         }
 
+        // Stage-up banner — the smooth ramp's on-screen shout when the run climbs into a new
+        // intensity stage. Sits a touch lower than the gold Frenzy banner so the two never overlap.
+        if self.stage_banner_timer > 0.0 {
+            self.draw_stage_banner(ctx, canvas, width, height)?;
+        }
+
         if self.debug_mode {
             let level = &self.levels[self.current_level];
             let pat = &level.patterns[self.current_pattern];
@@ -3430,6 +3474,49 @@ impl MainState {
                 .dest(dest)
                 .scale(Vec2::splat(scale))
                 .color(Color::from_rgba(255, g, 60, a)),
+        );
+        Ok(())
+    }
+
+    /// Cyan "BUILDING / HEATED / FEVER …" shout when the run climbs into a new intensity stage.
+    /// Same pop-and-fade feel as the Frenzy banner but a cool color and a slightly lower slot, so
+    /// the two read as distinct events (spike vs. rising tide) if they ever land close together.
+    fn draw_stage_banner(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        width: f32,
+        height: f32,
+    ) -> Result<(), ggez::GameError> {
+        let life = (self.stage_banner_timer / 2.0).clamp(0.0, 1.0);
+        let alpha = (life * 3.0).min(1.0); // hold, then fade only in the final third
+        let beat_phase = 1.0 - (self.beat_timer / BEAT_INTERVAL).clamp(0.0, 1.0);
+        let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+        let scale = 1.1 - life * 0.12 + throb * 0.05;
+
+        let mut banner = Text::new(self.stage_banner_name);
+        banner.set_scale(64.0);
+        let dims = banner.measure(ctx)?;
+        let dest = Vec2::new(
+            width / 2.0 - dims.x * scale / 2.0,
+            height * 0.27 - dims.y * scale / 2.0,
+        );
+        let a = (alpha * 255.0) as u8;
+        canvas.draw(
+            &banner,
+            DrawParam::default()
+                .dest(dest + Vec2::splat(3.0))
+                .scale(Vec2::splat(scale))
+                .color(Color::from_rgba(4, 16, 20, (a as f32 * 0.7) as u8)),
+        );
+        // Cyan body, brightening on the beat.
+        let b = (200.0 + throb * 55.0) as u8;
+        canvas.draw(
+            &banner,
+            DrawParam::default()
+                .dest(dest)
+                .scale(Vec2::splat(scale))
+                .color(Color::from_rgba(90, 230, b, a)),
         );
         Ok(())
     }
@@ -3900,6 +3987,28 @@ impl EventHandler for MainState {
 
         self.time_elapsed += dt;
         self.time_since_catch += dt;
+
+        // Staged difficulty ramp: as elapsed time crosses the next stage threshold, climb one
+        // stage and make it a telegraphed event — a shout banner plus a musical punch — so the run
+        // has a felt rising arc with earned standout moments, not a flat curve. Only ever climbs;
+        // the density/duration scaling itself is read per-wave in start_current_pattern.
+        self.stage_banner_timer = (self.stage_banner_timer - dt).max(0.0);
+        if self.intensity_stage + 1 < INTENSITY_STAGES.len() {
+            let (next_threshold, next_name, _) = INTENSITY_STAGES[self.intensity_stage + 1];
+            if self.time_elapsed >= next_threshold {
+                self.intensity_stage += 1;
+                self.stage_banner_name = next_name;
+                self.stage_banner_timer = 2.0;
+                // Musical punch so the escalation lands as a moment: brighten the beat, flash, a
+                // short shake, and a rising-tension chime.
+                self.beat_intensity = 2.0;
+                self.on_beat_flash = self.on_beat_flash.max(0.6);
+                self.screen_shake = self.screen_shake.max(8.0);
+                let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 8.0 * 60.0;
+                let _ = self.sounds.upgrade.play_detached(ctx);
+            }
+        }
 
         // Track player position history for conga chain
         self.position_history.push_front(self.player_pos);
