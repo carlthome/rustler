@@ -668,6 +668,11 @@ struct MainState {
     stomp_cracked_buf: Vec<Vec2>,
     lasso_catch_buf: Vec<usize>,
     lasso_startle_buf: Vec<Vec2>,
+    // On-beat Thief-shake catches collected during the whistle/stomp loops (see
+    // snatch_thief_on_beat) — almost always empty (at most one latched Thief at a time), but
+    // these loops run every frame the ability is active, so reuse instead of a fresh Vec::new().
+    whistle_thief_snatch_buf: Vec<(usize, Vec2)>,
+    stomp_thief_snatch_buf: Vec<(usize, Vec2)>,
     // Event-collection scratch buffers for handle_crab_catching, reused every frame instead of
     // three fresh Vec::new() calls per tick. The vast majority of frames catch zero crabs (no
     // startle origin, no boss catch, no dance catch), so this was pure per-frame allocation
@@ -1018,6 +1023,8 @@ impl MainState {
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
             lasso_startle_buf: Vec::new(),
+            whistle_thief_snatch_buf: Vec::new(),
+            stomp_thief_snatch_buf: Vec::new(),
             startle_origins_buf: Vec::new(),
             boss_catches_buf: Vec::new(),
             dance_catches_buf: Vec::new(),
@@ -6180,7 +6187,10 @@ impl EventHandler for MainState {
             soothed.clear();
             // On-beat casts that rip a latched Thief clean off get to CATCH it as a bonus — collected
             // here (index + pos) and processed after the &mut self.crabs loop, like `soothed`/`cracked`.
-            let mut thief_snatched: Vec<(usize, Vec2)> = Vec::new();
+            // Reused scratch buffer (almost always empty) instead of a fresh Vec::new() every frame
+            // the whistle is active.
+            let mut thief_snatched = std::mem::take(&mut self.whistle_thief_snatch_buf);
+            thief_snatched.clear();
             for (i, crab) in self.crabs.iter_mut().enumerate() {
                 if crab.caught {
                     continue;
@@ -6228,6 +6238,7 @@ impl EventHandler for MainState {
             for (i, pos) in thief_snatched.drain(..) {
                 self.snatch_thief_on_beat(i, pos);
             }
+            self.whistle_thief_snatch_buf = thief_snatched; // hand the buffer back for reuse next frame
             // Warm puffs rising off the crabs the pulse just calmed — the visual counterpart to
             // the cold "!" alarm rings the panic contagion throws.
             if !soothed.is_empty() {
@@ -6253,7 +6264,10 @@ impl EventHandler for MainState {
             let center = self.stomp_center;
             let mut cracked = std::mem::take(&mut self.stomp_cracked_buf);
             cracked.clear();
-            let mut thief_snatched: Vec<(usize, Vec2)> = Vec::new();
+            // Reused scratch buffer (almost always empty) instead of a fresh Vec::new() every
+            // frame the stomp is active — same pattern as the whistle loop above.
+            let mut thief_snatched = std::mem::take(&mut self.stomp_thief_snatch_buf);
+            thief_snatched.clear();
             for (i, crab) in self.crabs.iter_mut().enumerate() {
                 if crab.caught || crab.is_boss() {
                     continue; // the King Crab shrugs off a Stomp — it needs the beam
@@ -6287,6 +6301,7 @@ impl EventHandler for MainState {
             for (i, pos) in thief_snatched.drain(..) {
                 self.snatch_thief_on_beat(i, pos);
             }
+            self.stomp_thief_snatch_buf = thief_snatched; // hand the buffer back for reuse next frame
             for &pos in cracked.iter() {
                 self.floating_texts.spawn(
                     "SHELL CRACKED!".to_string(),
