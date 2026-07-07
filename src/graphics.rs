@@ -2275,6 +2275,64 @@ pub fn draw_stomp_ring(
     Ok(())
 }
 
+/// Draw the Downbeat Slam shockwave — the rhythm-ultimate blast. A massive, thick gold ring
+/// erupting outward with a hot white leading crest and a couple of chasing echo rings, reading as
+/// the biggest, most celebratory wave in the game (fitting its full-Groove, on-beat cost). `radius`
+/// is the current front, `max_radius` its full reach; additive so it blooms bright on the beat.
+pub fn draw_slam_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    max_radius: f32,
+) -> ggez::GameResult {
+    if radius <= 0.0 {
+        return Ok(());
+    }
+    let frac = (radius / max_radius).clamp(0.0, 1.0);
+    let fade = 1.0 - frac; // brightest at the burst, gone by full reach
+
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Thick gold leading wall — the biggest ring in the game.
+    let thickness = (16.0 * fade + 3.0).max(3.0);
+    let front = cached_stroke_circle(ctx, radius, thickness)?;
+    canvas.draw(
+        &front,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.85, 0.25, (fade * 0.95).clamp(0.0, 1.0))),
+    );
+    // Hot white crest riding the very front for a snappy leading edge.
+    let crest = cached_stroke_circle(ctx, radius, 2.5)?;
+    canvas.draw(
+        &crest,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 1.0, 0.92, (fade * 1.0).clamp(0.0, 1.0))),
+    );
+    // Two trailing echo rings for a booming, layered "wham".
+    for (offset, alpha_scale) in [(40.0_f32, 0.5_f32), (84.0_f32, 0.28_f32)] {
+        let er = radius - offset;
+        if er > 3.0 {
+            let echo = cached_stroke_circle(ctx, er, thickness * 0.6)?;
+            canvas.draw(
+                &echo,
+                DrawParam::default().dest(center).color(Color::new(
+                    1.0,
+                    0.72,
+                    0.3,
+                    (fade * alpha_scale).clamp(0.0, 1.0),
+                )),
+            );
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the delivery pen — the "bank your train" corral the player drives the conga line into.
 /// A warm gold goal-zone disc ringed by slowly-turning buoy posts, with a bobbing chevron beacon
 /// marking the drop-off. It's dormant-but-visible with no train, and lights up (brighter fill,

@@ -28,7 +28,7 @@ use crate::graphics::{
     draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso,
-    draw_call_ring, draw_particles, draw_rustler, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
+    draw_call_ring, draw_particles, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_tide_pools,
     draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
@@ -81,6 +81,8 @@ const STOMP_COOLDOWN: f32 = 3.0;       // seconds between ground-pound Stomps
 const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (px/s)
 const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
 const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
+const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
+const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
 
 // --- Meta-progression shop (spend side) ---------------------------------------------------
 // Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
@@ -417,6 +419,16 @@ struct MainState {
     call_cooldown: f32,                          // >0 while on cooldown; Call unusable until it hits 0
     call_pulse: f32,                             // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
     call_pulse_center: Vec2,                     // player center captured when the Call rang out
+    // Downbeat Slam (G) — the rhythm ultimate. It only fires when the Groove meter is full AND the
+    // press lands on the beat: a huge shockwave erupts from the player that yanks every free crab in
+    // a wide radius straight into the conga train at once, then drains the whole meter. This is the
+    // spectacle payoff for playing in the pocket — the groove meter finally *does* something instead
+    // of only swelling the (currently silent) music. Off-beat or an empty meter fizzles with feedback
+    // so mistiming reads clearly. The slam ring below is purely visual; the catch happens instantly.
+    slam_active: f32,                            // >0 while the slam ring is expanding (seconds remaining)
+    slam_radius: f32,                            // current front radius of the expanding slam ring
+    slam_center: Vec2,                           // player center captured when the slam fired (ring origin)
+    slam_flash: f32,                             // 1..0 gold screen bloom on a successful slam
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
@@ -749,6 +761,10 @@ impl MainState {
             call_cooldown: 0.0,
             call_pulse: 0.0,
             call_pulse_center: Vec2::ZERO,
+            slam_active: 0.0,
+            slam_radius: 0.0,
+            slam_center: Vec2::ZERO,
+            slam_flash: 0.0,
             dash_just_fired: false,
             dash_flash: 0.0,
             screen_shake: 0.0,
@@ -2393,6 +2409,9 @@ impl MainState {
         self.music_intensity = 0.0;
         self.on_beat_flash = 0.0;
         self.groove = 0.0;
+        self.slam_active = 0.0;
+        self.slam_radius = 0.0;
+        self.slam_flash = 0.0;
         self.beat_streak = 0;
         self.catch_radius_upgrade = 0.0;
         // Seed tool ranks from the permanently-purchased starting ranks, not zero, so bought perks
@@ -2727,7 +2746,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -3103,6 +3122,11 @@ impl MainState {
             draw_call_ring(ctx, canvas, self.call_pulse_center, self.call_pulse, 420.0)?;
         }
 
+        // Draw the Downbeat Slam shockwave — the big gold rhythm-ultimate blast.
+        if self.slam_active > 0.0 && self.slam_radius > 0.0 {
+            draw_slam_ring(ctx, canvas, self.slam_center, self.slam_radius, SLAM_RADIUS)?;
+        }
+
         // Draw lasso line and tip
         if let Some(tip) = self.lasso_pos {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
@@ -3431,7 +3455,7 @@ impl MainState {
             );
             // Label
             let (ltext, lcol) = if maxed {
-                ("IN THE GROOVE!", Color::from_rgb(255, 240, 120))
+                ("IN THE GROOVE! — [G] SLAM on beat", Color::from_rgb(255, 240, 120))
             } else {
                 ("GROOVE", Color::from_rgba(200, 230, 240, 200))
             };
@@ -3454,6 +3478,17 @@ impl MainState {
                 DrawParam::default()
                     .scale(Vec2::new(width, height))
                     .color(Color::from_rgba(220, 240, 255, alpha)),
+            );
+        }
+
+        // Downbeat Slam flash — warm gold full-screen bloom when the ultimate lands.
+        if self.slam_flash > 0.0 {
+            let alpha = (self.slam_flash * 150.0) as u8;
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::from_rgba(255, 225, 120, alpha)),
             );
         }
 
@@ -3986,6 +4021,114 @@ impl MainState {
             );
         }
     }
+    /// Downbeat Slam (G) — the Groove-meter ultimate. Only fires when the meter is FULL and the press
+    /// lands on the beat: an enormous shockwave erupts from the player and yanks every free crab in a
+    /// wide radius straight into the conga train at once (a mass catch), pays out a score bonus, and
+    /// drains the whole meter. This is the spectacle payoff for playing in the pocket. Off-beat, or
+    /// with a meter that isn't topped out, it fizzles with a distinct message so the miss reads.
+    fn downbeat_slam(&mut self, ctx: &mut Context) {
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        // Gate 1: the meter must be full. This is what makes the groove meter finally *do* something.
+        if self.groove < 0.999 {
+            self.shop_denied = self.shop_denied.max(0.5);
+            self.floating_texts.spawn(
+                "GROOVE not full".to_string(),
+                center - Vec2::new(70.0, 70.0),
+                24.0,
+                [0.8, 0.85, 0.9, 0.9],
+            );
+            return;
+        }
+        // Gate 2: it must land on the beat — the whole point is rhythm mastery.
+        if !self.on_beat_now() {
+            self.shop_denied = self.shop_denied.max(0.6);
+            self.floating_texts.spawn(
+                "off beat…".to_string(),
+                center - Vec2::new(40.0, 70.0),
+                24.0,
+                [0.9, 0.4, 0.4, 0.9],
+            );
+            return;
+        }
+
+        // The slam lands. Spend the meter and fire the visuals.
+        self.groove = 0.0;
+        self.slam_center = center;
+        self.slam_radius = 0.0;
+        self.slam_active = 0.45;
+        self.slam_flash = 1.0;
+
+        // Mass catch: enlist every free, catchable crab within SLAM_RADIUS into the conga train at
+        // once. Mirrors the enlist bookkeeping in catch_by_chain (mark caught, assign the next
+        // chain_index, bump chain_count) but skips the per-crab spatial-grid scan — the slam is a
+        // single big circle, so a flat radius test is fine and only happens on a rare button press.
+        let r2 = SLAM_RADIUS * SLAM_RADIUS;
+        let mult = self.combo_multiplier();
+        let mut rng = rand::rng();
+        let mut caught_positions: Vec<Vec2> = Vec::new();
+        let mut boss_hits: Vec<(Vec2, bool)> = Vec::new();
+        for i in 0..self.crabs.len() {
+            if !self.crabs[i].is_catchable() {
+                continue;
+            }
+            if self.crabs[i].pos.distance_squared(center) > r2 {
+                continue;
+            }
+            let pos = self.crabs[i].pos;
+            let crab_type = self.crabs[i].crab_type;
+            let crab_color = self.crabs[i].crab_color();
+            self.particle_system
+                .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+            if self.crabs[i].is_boss() {
+                boss_hits.push((pos, self.crabs[i].is_tide_boss()));
+            }
+            self.crabs[i].caught = true;
+            self.crabs[i].chain_index = Some(self.chain_count);
+            self.chain_count += 1;
+            caught_positions.push(pos);
+        }
+
+        let n = caught_positions.len();
+        // Feedback rings for each snatched crab (bounded to keep the vec sane on a huge grab).
+        for pos in caught_positions.iter().take(40) {
+            self.spawn_catch_shockwave(*pos, [1.0, 0.85, 0.3]);
+        }
+        for (pos, is_tide) in boss_hits {
+            self.on_boss_caught(pos, is_tide);
+        }
+        self.chain_join_ripple = n > 0;
+        self.check_milestone(&mut rng);
+
+        // Score payout scales with the size of the grab so a well-timed slam into a big herd is a
+        // real jackpot, on top of the crabs it adds to your train.
+        let bonus = (n as usize * 2).max(1) * mult;
+        self.score += bonus;
+
+        // Spectacle: a gold shout, big shake, zoom punch, and a beat-flash bloom.
+        self.floating_texts.spawn(
+            format!("DOWNBEAT SLAM!  +{}", bonus),
+            center - Vec2::new(120.0, 96.0),
+            40.0,
+            [1.0, 0.9, 0.25, 1.0],
+        );
+        if n > 0 {
+            self.floating_texts.spawn(
+                format!("{} snatched!", n),
+                center - Vec2::new(60.0, 52.0),
+                28.0,
+                [1.0, 0.95, 0.6, 1.0],
+            );
+        }
+        self.particle_system.spawn_milestone_fireworks(center, n.max(8), &mut rng);
+        let a = rng.random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake = self.screen_shake.max(28.0);
+        self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 26.0 * 60.0;
+        self.zoom_punch = self.zoom_punch.max(0.12);
+        self.hitstop_timer = self.hitstop_timer.max(0.12);
+        self.on_beat_flash = 0.7;
+        self.beat_intensity = 2.0;
+        let _ = self.sounds.success2.play_detached(ctx);
+    }
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
     fn whistle_max_radius(&self) -> f32 {
         WHISTLE_MAX_RADIUS * (1.0 + 0.28 * self.whistle_rank as f32)
@@ -4410,6 +4553,14 @@ impl EventHandler for MainState {
         }
         if self.call_pulse > 0.0 {
             self.call_pulse = (self.call_pulse - dt * 1.6).max(0.0);
+        }
+        // Downbeat Slam ring erupts outward, then fades. Purely visual — the catch already happened.
+        if self.slam_active > 0.0 {
+            self.slam_active = (self.slam_active - dt).max(0.0);
+            self.slam_radius = (self.slam_radius + SLAM_RING_SPEED * dt).min(SLAM_RADIUS);
+        }
+        if self.slam_flash > 0.0 {
+            self.slam_flash = (self.slam_flash - dt * 2.2).max(0.0);
         }
         if self.chain_snap_cooldown > 0.0 {
             self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);

@@ -231,6 +231,11 @@ pub fn handle_key_down_event(
                 // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.
                 state.issue_call();
             }
+            if key == KeyCode::G {
+                // Downbeat Slam: the Groove-meter ultimate. Only fires with a full meter on the beat;
+                // yanks every nearby free crab into the train at once for a spectacle payoff.
+                state.downbeat_slam(ctx);
+            }
             if key == KeyCode::Escape {
                 ctx.request_quit();
             }
