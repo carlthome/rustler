@@ -558,6 +558,13 @@ struct MainState {
     stomp_cracked_buf: Vec<Vec2>,
     lasso_catch_buf: Vec<usize>,
     lasso_startle_buf: Vec<Vec2>,
+    // Event-collection scratch buffers for handle_crab_catching, reused every frame instead of
+    // three fresh Vec::new() calls per tick. The vast majority of frames catch zero crabs (no
+    // startle origin, no boss catch, no dance catch), so this was pure per-frame allocation
+    // churn on the hottest possible path (runs unconditionally in update() every tick).
+    startle_origins_buf: Vec<Vec2>,
+    boss_catches_buf: Vec<(Vec2, bool)>,
+    dance_catches_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -871,6 +878,9 @@ impl MainState {
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
             lasso_startle_buf: Vec::new(),
+            startle_origins_buf: Vec::new(),
+            boss_catches_buf: Vec::new(),
+            dance_catches_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -1518,10 +1528,16 @@ impl MainState {
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
         let mult = self.combo_multiplier();
         let mut any_caught = false;
-        let mut startle_origins: Vec<Vec2> = Vec::new();
-        let mut boss_catches: Vec<(Vec2, bool)> = Vec::new();
+        // Reused scratch buffers instead of fresh Vec::new() every frame — this function runs
+        // unconditionally every tick and the overwhelming majority of frames catch zero crabs,
+        // so allocating three empty Vecs per call was pure per-frame churn on the hottest path.
+        let mut startle_origins = std::mem::take(&mut self.startle_origins_buf);
+        startle_origins.clear();
+        let mut boss_catches = std::mem::take(&mut self.boss_catches_buf);
+        boss_catches.clear();
         // Dancers snapped up while still answering a Call — paid out after the loop (needs &mut self).
-        let mut dance_catches: Vec<Vec2> = Vec::new();
+        let mut dance_catches = std::mem::take(&mut self.dance_catches_buf);
+        dance_catches.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -1614,15 +1630,19 @@ impl MainState {
                 }
             }
         }
-        for origin in startle_origins {
+        for &origin in &startle_origins {
             self.emit_catch_startle(origin);
         }
-        for pos in dance_catches {
+        for &pos in &dance_catches {
             self.reward_dance_catch(true, pos);
         }
-        for (bpos, is_tide) in boss_catches {
+        for &(bpos, is_tide) in &boss_catches {
             self.on_boss_caught(bpos, is_tide);
         }
+        // Hand the scratch buffers back for reuse next frame.
+        self.startle_origins_buf = startle_origins;
+        self.boss_catches_buf = boss_catches;
+        self.dance_catches_buf = dance_catches;
         if any_caught {
             self.check_milestone(&mut rand::rng());
         }
