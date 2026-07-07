@@ -2789,6 +2789,18 @@ pub fn draw_boss_fissures(
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
     let beat = beat_intensity.clamp(0.0, 1.0);
 
     for (i, &(center, radius, age)) in fissures.iter().enumerate() {
@@ -2834,20 +2846,31 @@ pub fn draw_boss_fissures(
         );
 
         // Jagged radial cracks spidering out from the pit, flickering with the molten glow.
+        // Drawn from the cached `unit_line` mesh (rotated/scaled per spoke via DrawParam)
+        // instead of a fresh `Mesh::new_line` GPU buffer per spoke — with 5 fissures x 7
+        // spokes this was up to 35 brand-new GPU mesh allocations every single frame while
+        // a King Crab's enrage phase was open.
         let spokes = 7;
+        let thickness = 2.0 + 1.5 * beat;
         for s in 0..spokes {
             let a = s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
             let jitter = (time * 3.0 + s as f32 * 2.1).sin() * 0.15;
             let dir = Vec2::new((a + jitter).cos(), (a + jitter).sin());
             let inner = center + dir * radius * 0.35 * open;
-            let outer = center + dir * radius * (0.9 + 0.15 * glow) * open;
-            let crack = Mesh::new_line(ctx, &[inner, outer], 2.0 + 1.5 * beat, Color::new(
-                1.0,
-                0.55 + 0.25 * glow,
-                0.15,
-                (0.45 + 0.3 * glow) * open,
-            ))?;
-            canvas.draw(&crack, DrawParam::default());
+            let outer_len = (radius * (0.9 + 0.15 * glow) * open - radius * 0.35 * open).max(0.0);
+            canvas.draw(
+                unit_line,
+                DrawParam::default()
+                    .dest(inner)
+                    .rotation(dir.y.atan2(dir.x))
+                    .scale(Vec2::new(outer_len, thickness))
+                    .color(Color::new(
+                        1.0,
+                        0.55 + 0.25 * glow,
+                        0.15,
+                        (0.45 + 0.3 * glow) * open,
+                    )),
+            );
         }
 
         canvas.set_blend_mode(orig_blend);
