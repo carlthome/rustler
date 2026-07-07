@@ -422,6 +422,12 @@ struct MainState {
     level_textures: Vec<LevelTexture>,         // Textures for each level
     // Beat Wave ability
     beat_count: u32,                           // Counts beats fired, every 4th triggers wave
+    // Bar downbeat accent: the musical "1" of every 4-beat bar lands harder than the three
+    // beats between it, so the rhythm reads as structured bars instead of a flat metronome.
+    // Kicked to 1.0 on each `beat_count % 4 == 0` beat and decayed each frame; the beat-stepping
+    // conga train amplifies its forward stomp while this is high, so the whole train visibly
+    // "lands the one" together — a big unified footfall on the downbeat, smaller steps between.
+    bar_accent: f32,
     beat_wave_active: bool,                    // Whether beat wave is expanding
     beat_wave_radius: f32,                     // Current radius of expanding wave
     // Bar-quantized spawns: when a pattern ends we don't drop the next wave at an arbitrary
@@ -563,6 +569,19 @@ struct MainState {
     // Reused scratch buffer for bounce-ring spawn positions collected during the deflection
     // pass, avoiding a fresh Vec allocation every frame.
     deflect_bounce_buf: Vec<Vec2>,
+    // Emergent pile-up: crabs the wall just deflected get funneled into the train's concave
+    // pockets, where they collide with *each other*. This pass ricochets colliding fleeing crabs
+    // apart and cross-startles them, so herding a panicking crowd into the conga wall sets off a
+    // pinball cascade. deflect_ricochet_buf holds the (index, pos) of crabs deflected this frame;
+    // deflect_ricochet_grid_buf buckets them so each only tests nearby neighbors, not all of them.
+    deflect_ricochet_buf: Vec<(usize, Vec2)>,
+    deflect_ricochet_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    // Cold ring positions where two deflected crabs cracked into each other, spawned after the
+    // ricochet pass so the collision reads without a per-frame allocation.
+    deflect_collide_buf: Vec<Vec2>,
+    // Resolved (crab index, new pos, new vel) from the ricochet pass, staged here so we apply
+    // them after scanning (no double mutable borrow) without allocating a fresh Vec each frame.
+    deflect_resolve_buf: Vec<(usize, Vec2, Vec2)>,
     // Event-collection scratch buffers for update_crabs, reused every frame instead of being
     // freshly allocated on each call. Most frames produce zero events in each of these (no
     // crab started fleeing, no boss broke, etc.), so a per-frame Vec::new() was pure churn —
@@ -850,6 +869,7 @@ impl MainState {
             combo_count: 0,
             combo_timer: 0.0,
             beat_count: 0,
+            bar_accent: 0.0,
             beat_wave_active: false,
             beat_wave_radius: 0.0,
             wave_armed: false,
@@ -914,6 +934,10 @@ impl MainState {
             deflect_body_buf: Vec::new(),
             deflect_grid_buf: std::collections::HashMap::new(),
             deflect_bounce_buf: Vec::new(),
+            deflect_ricochet_buf: Vec::new(),
+            deflect_ricochet_grid_buf: std::collections::HashMap::new(),
+            deflect_collide_buf: Vec::new(),
+            deflect_resolve_buf: Vec::new(),
             flee_pops_buf: Vec::new(),
             boss_broke_buf: Vec::new(),
             armor_broke_buf: Vec::new(),
@@ -1428,8 +1452,9 @@ impl MainState {
         }
 
         self.deflect_bounce_buf.clear();
+        self.deflect_ricochet_buf.clear();
         let mut rng = rand::rng();
-        for crab in &mut self.crabs {
+        for (idx, crab) in self.crabs.iter_mut().enumerate() {
             if crab.caught || crab.is_boss() {
                 continue;
             }
@@ -1472,8 +1497,96 @@ impl MainState {
             if rng.random::<f32>() < 0.25 {
                 self.deflect_bounce_buf.push(crab.pos);
             }
+            // Remember it so the ricochet pass below can crash it into other deflected crabs
+            // funneled into the same pocket of the wall.
+            self.deflect_ricochet_buf.push((idx, crab.pos));
         }
         for &pos in &self.deflect_bounce_buf {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+        }
+
+        // Emergent pile-up: the wall funnels a panicking crowd into its concave pockets, where the
+        // crabs it just deflected collide with *each other*. Resolve those pairwise: crabs that
+        // overlap ricochet apart and cross-startle, so driving your train into a fleeing herd sets
+        // off a self-feeding pinball cascade instead of every crab bouncing off the wall in
+        // isolation. Cheap because it only considers crabs deflected *this* frame (usually a
+        // handful), bucketed into a grid so each tests just its neighbors.
+        self.ricochet_deflected_crabs();
+    }
+
+    /// Second half of `deflect_fleeing_off_chain`: crash the crabs the wall just deflected into
+    /// each other. Only the small set collected in `deflect_ricochet_buf` participates, so this is
+    /// a tiny pass even in a dense herd. Pairs that overlap are pushed apart, have their velocities
+    /// swapped along the collision axis (an elastic bounce), and are both freshly startled — the
+    /// emergent "the herd panics itself against your train" moment.
+    fn ricochet_deflected_crabs(&mut self) {
+        const COLLIDE_DIST: f32 = CRAB_SIZE * 0.7;
+        if self.deflect_ricochet_buf.len() < 2 {
+            return;
+        }
+        let cell_size = COLLIDE_DIST.max(1.0);
+        let cell_of = |p: Vec2| -> (i32, i32) {
+            ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+        };
+        for bucket in self.deflect_ricochet_grid_buf.values_mut() {
+            bucket.clear();
+        }
+        for (bi, &(_, pos)) in self.deflect_ricochet_buf.iter().enumerate() {
+            self.deflect_ricochet_grid_buf.entry(cell_of(pos)).or_default().push(bi);
+        }
+
+        self.deflect_collide_buf.clear();
+        // Collect the resolved (crab_index, new_pos, new_vel) then apply, so we never hold two
+        // mutable borrows into self.crabs at once. Reuses a scratch buffer to avoid per-frame churn.
+        let mut resolutions = std::mem::take(&mut self.deflect_resolve_buf);
+        resolutions.clear();
+        let n = self.deflect_ricochet_buf.len();
+        for a in 0..n {
+            let (ci_a, pos_a) = self.deflect_ricochet_buf[a];
+            let (cx, cy) = cell_of(pos_a);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(candidates) = self.deflect_ricochet_grid_buf.get(&(cx + dx, cy + dy)) {
+                        for &b in candidates {
+                            if b <= a {
+                                continue; // resolve each unordered pair once
+                            }
+                            let (ci_b, pos_b) = self.deflect_ricochet_buf[b];
+                            let delta = pos_b - pos_a;
+                            let d = delta.length();
+                            if d >= COLLIDE_DIST || d <= 0.0001 {
+                                continue;
+                            }
+                            let axis = delta / d;
+                            let overlap = COLLIDE_DIST - d;
+                            // Read velocities, swap the component along the collision axis (equal-mass
+                            // elastic bounce), and separate the pair so they don't stick.
+                            let va = self.crabs[ci_a].vel;
+                            let vb = self.crabs[ci_b].vel;
+                            let van = va.dot(axis);
+                            let vbn = vb.dot(axis);
+                            let new_va = va + axis * (vbn - van);
+                            let new_vb = vb + axis * (van - vbn);
+                            let push = axis * (overlap * 0.5 + 1.0);
+                            resolutions.push((ci_a, pos_a - push, new_va));
+                            resolutions.push((ci_b, pos_b + push, new_vb));
+                            // Midpoint cold ring marks the crack; throttled by the len cap below.
+                            self.deflect_collide_buf.push(pos_a + axis * (d * 0.5));
+                        }
+                    }
+                }
+            }
+        }
+        for (ci, new_pos, new_vel) in resolutions {
+            let crab = &mut self.crabs[ci];
+            crab.pos = new_pos;
+            crab.vel = new_vel;
+            crab.speed = 1.0; // vel carries full speed, matching the flee/startle convention
+            crab.startle_timer = crab.startle_timer.max(0.35); // cross-startle: the crash re-panics both
+        }
+        for &pos in &self.deflect_collide_buf {
             if self.fear_rings.len() < 32 {
                 self.fear_rings.push((pos, 0.0));
             }
@@ -2998,7 +3111,11 @@ impl MainState {
                 let step_phase = (1.0 - self.beat_timer / self.beat_interval) * std::f32::consts::TAU
                     - ci as f32 * 0.7;
                 let hop = step_phase.sin().max(0.0); // forward-only footfall each beat
-                crab.pos += travel * hop * 4.0;
+                // The bar's "1" stomps forward noticeably farther than the three beats between it,
+                // so the train lands the downbeat as a bigger unified lunge. bar_accent decays over
+                // a beat, so the boost tapers off by the next between-beat footfall.
+                let stomp = 4.0 * (1.0 + self.bar_accent * 1.6);
+                crab.pos += travel * hop * stomp;
             }
         }
     }
@@ -3207,6 +3324,7 @@ impl MainState {
         self.combo_count = 0;
         self.combo_timer = 0.0;
         self.beat_count = 0;
+        self.bar_accent = 0.0;
         self.beat_wave_active = false;
         self.beat_wave_radius = 0.0;
         self.wave_armed = false;
@@ -5269,6 +5387,21 @@ impl EventHandler for MainState {
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
+            // The "1" of the bar lands harder than the three beats between it. Kick the accent so
+            // the beat-stepping conga train stomps forward as one on the downbeat (see the step
+            // code in update_crabs, which scales its hop by bar_accent), and give a fresh unified
+            // squash-pop that ripples down the line so the whole train visibly lands the one.
+            if downbeat {
+                self.bar_accent = 1.0;
+                // Restart the join squash-pop on every caught crab, staggered by chain index so
+                // the pop rolls head-to-tail — the same ripple used when a crab joins, reused here
+                // as a musical "bar landed" bounce. Cheap: just sets a decaying timer per crab.
+                let mut ci = 0.0_f32;
+                for crab in self.crabs.iter_mut().filter(|c| c.caught) {
+                    crab.join_pulse = (1.0 - ci * 0.04).max(0.4);
+                    ci += 1.0;
+                }
+            }
             // King Crab finale: the cracked floor GEYSERS on the beat. Kick the eruption pulse so
             // every open fissure spouts molten in time with the music — its danger swells on the
             // hit and recedes in the gap, turning a static pit into a rhythmic hazard the player
@@ -5323,15 +5456,20 @@ impl EventHandler for MainState {
                 .extend(self.crabs.iter().filter(|c| c.caught).map(|c| c.pos));
             let chain_len = self.chain_positions_buf.len();
             if chain_len > 0 {
-                let shake_mag = (2.0 + chain_len as f32 * 0.8).min(14.0);
-                self.screen_shake = shake_mag;
+                // The downbeat footfall lands heavier than the between-beats — a bigger, capped
+                // shake so the bar's "1" feels like the whole train stomping down together.
+                let downbeat_scale = if downbeat { 1.5 } else { 1.0 };
+                let shake_mag = (2.0 + chain_len as f32 * 0.8).min(14.0) * downbeat_scale;
+                self.screen_shake = self.screen_shake.max(shake_mag);
                 // Random kick direction
                 let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
                 self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * shake_mag * 60.0;
             }
-            // Beat-pulse sparkle rings from all caught crabs
+            // Beat-pulse sparkle rings from all caught crabs — brighter on the bar downbeat so
+            // the "1" of the bar pops harder than the beats between it.
+            let pulse_strength = if downbeat { 1.5 } else { 1.0 };
             self.particle_system
-                .spawn_beat_pulse(&self.chain_positions_buf, 1.0, chain_len, &mut rand::rng());
+                .spawn_beat_pulse(&self.chain_positions_buf, pulse_strength, chain_len, &mut rand::rng());
             // Spawn ghost rings at each chain crab position. Unlike catch_shockwaves (capped at
             // 48) and fear_rings (capped at 32), this loop had no ceiling — a long conga train
             // (chain_count grows unbounded over a run, see MAX_PARTICLES's comment) would push
@@ -5488,6 +5626,9 @@ impl EventHandler for MainState {
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
+        // Bar downbeat accent decays over roughly one beat, so its influence on the train's stomp
+        // (and any accent-driven visuals) rides just past the "1" and fades before the next bar.
+        self.bar_accent = (self.bar_accent - dt * 4.0).max(0.0);
 
         // Ease the zoom punch back out — snaps in instantly on catch, smooth spring-out.
         if self.zoom_punch > 0.0 {
