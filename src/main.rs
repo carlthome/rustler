@@ -1405,8 +1405,32 @@ impl MainState {
             return;
         };
 
-        // Advance every Thief's latch state; collect whether any peel fired this frame.
+        // Emergent crossover: a roaming Magnet's pull reaches a latched Thief too, and it's
+        // stronger than the Thief's grip on your tail. If a clamped Thief drifts inside a free
+        // Magnet's radius, the Magnet wins the tug-of-war and rips the parasite clean off the
+        // train — the crab you were cursing for gathering a blob becomes an accidental savior.
+        // magnet_positions_buf was filled this same frame by update_crabs (runs before us) and
+        // holds only *free* Magnets, so a caught Magnet in your own train never triggers this.
+        const MAGNET_PRY_RADIUS: f32 = 190.0; // a touch shorter than the herd pull — it has to get close to pry
+        const MAGNET_PRY_RADIUS_SQ: f32 = MAGNET_PRY_RADIUS * MAGNET_PRY_RADIUS;
+        // Borrow the free-Magnet positions out of self so the &mut self.crabs loop below can call
+        // the lookup without an overlapping self borrow; restored at the end of the function.
+        let magnet_positions = std::mem::take(&mut self.magnet_positions_buf);
+        let nearest_magnet_to = |p: Vec2| -> Option<Vec2> {
+            let mut best: Option<(f32, Vec2)> = None;
+            for &mp in magnet_positions.iter() {
+                let d2 = p.distance_squared(mp);
+                if d2 < MAGNET_PRY_RADIUS_SQ && best.map_or(true, |(bd2, _)| d2 < bd2) {
+                    best = Some((d2, mp));
+                }
+            }
+            best.map(|(_, mp)| mp)
+        };
+
+        // Advance every Thief's latch state; collect whether any peel fired this frame, plus any
+        // Thieves a Magnet pried loose (deferred out of the &mut loop for their freed feedback).
         let mut peel_from: Option<Vec2> = None;
+        let mut pried_by_magnet: Vec<Vec2> = Vec::new();
         for c in &mut self.crabs {
             if !c.is_thief() || c.caught {
                 if c.is_thief() {
@@ -1416,6 +1440,19 @@ impl MainState {
             }
             let d = c.pos.distance(tail_pos);
             if c.latch_timer > 0.0 {
+                // A nearby Magnet overpowers the clamp: the Thief lets go of the tail and is
+                // flung toward the Magnet, joining the loose herd instead of peeling your links.
+                if let Some(mp) = nearest_magnet_to(c.pos) {
+                    c.latch_timer = 0.0;
+                    let dir = (mp - c.pos).normalize_or_zero();
+                    let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                    c.vel = dir * c.crab_type.speed_range().end * 1.5;
+                    c.speed = 1.0;
+                    c.fleeing = false;
+                    c.startle_timer = 0.0;
+                    pried_by_magnet.push(c.pos);
+                    continue;
+                }
                 // Already clamped. Ride the tail so it visually hangs off the back of the train.
                 if d > UNLATCH_DIST {
                     c.latch_timer = 0.0; // the train outran it — it drops off
@@ -1438,6 +1475,25 @@ impl MainState {
                 // player gets a beat to react to the latch before losing a link.
                 c.latch_timer = PEEL_INTERVAL;
             }
+        }
+        // The closure (and its borrow of the taken buffer) is done after the loop above, so hand
+        // the buffer back to self for next frame's reuse.
+        self.magnet_positions_buf = magnet_positions;
+
+        // Feedback for any Thief a Magnet just pried off your tail — a bright orange-green pop and
+        // a callout so the save reads as a moment, not a silent stat change. Orange (the Magnet's
+        // color) bleeding into thief-green sells the "the Magnet did this" story.
+        for pos in pried_by_magnet.drain(..) {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "MAGNET PRY!".to_string(),
+                pos - Vec2::new(52.0, 30.0),
+                24.0,
+                [0.95, 0.7, 0.3, 1.0],
+            );
+            self.spawn_catch_shockwave(pos, [0.9, 0.55, 0.25]);
         }
 
         let Some(tail_pos) = peel_from else { return };
