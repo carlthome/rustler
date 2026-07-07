@@ -3836,7 +3836,10 @@ impl MainState {
                     .map(|c| (c.chain_index.unwrap_or(0), c.pos)),
             );
             chain_links.sort_by_key(|&(idx, _)| idx);
-            draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity)
+            // Only the at-risk gain (live multiplier above the banked-safe floor) heats the rope,
+            // so cashing out with B visibly cools it — the risk you're carrying reads on the train.
+            let gamble_heat = ((self.beat_gamble_mult - self.beat_gamble_locked) / 2.0).clamp(0.0, 1.0);
+            draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity, gamble_heat)
         })?;
 
         // Draw player character.

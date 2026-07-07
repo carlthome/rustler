@@ -1490,10 +1490,16 @@ pub fn draw_conga_rope(
     chain_links: &[(usize, Vec2)],
     time: f32,
     beat_intensity: f32,
+    // 0..1 "on fire" factor driven by the live Groove Gamble multiplier: at 0 the rope is its
+    // usual rainbow neon; as the risked streak climbs it visibly overheats — wider hotter glow,
+    // more energetic wiggle, and the segment colors bleed toward white-hot amber so the reward at
+    // stake reads directly on the conga train the player is staring at.
+    gamble_heat: f32,
 ) -> ggez::GameResult {
     if chain_links.is_empty() {
         return Ok(());
     }
+    let heat = gamble_heat.clamp(0.0, 1.0);
 
     let unit_line = match UNIT_LINE.get() {
         Some(mesh) => mesh,
@@ -1510,12 +1516,13 @@ pub fn draw_conga_rope(
 
     // Number of sub-segments per chain link — more = smoother curve
     const SEGS: usize = 14;
+    // A hot streak whips the rope harder and thicker so it looks like it's straining with energy.
     // Amplitude of the sine-wave wiggle (pixels perpendicular to the link)
-    let wiggle_amp = 5.0 + beat_intensity * 8.0;
-    // Speed of the wave traveling along the rope (faster on beat)
-    let wave_speed = 3.5 + beat_intensity * 2.5;
-    let thickness = 3.0 + beat_intensity * 4.5;
-    let alpha_base: f32 = 0.55 + beat_intensity * 0.4;
+    let wiggle_amp = 5.0 + beat_intensity * 8.0 + heat * 5.0;
+    // Speed of the wave traveling along the rope (faster on beat, faster still when overheating)
+    let wave_speed = 3.5 + beat_intensity * 2.5 + heat * 3.0;
+    let thickness = 3.0 + beat_intensity * 4.5 + heat * 2.5;
+    let alpha_base: f32 = (0.55 + beat_intensity * 0.4 + heat * 0.25).min(1.0);
 
     // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
@@ -1570,9 +1577,20 @@ pub fn draw_conga_rope(
                         let b = (2.0 - (seg_hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
                         // Slightly boost saturation/brightness
                         let boost = 0.35;
-                        let rr = (r + boost).min(1.0);
-                        let gg = (g + boost).min(1.0);
-                        let bb = (b + boost).min(1.0);
+                        let mut rr = (r + boost).min(1.0);
+                        let mut gg = (g + boost).min(1.0);
+                        let mut bb = (b + boost).min(1.0);
+                        // Overheat: pull each micro-segment toward a white-hot amber. A faint per-
+                        // segment flicker keeps the fire alive rather than a flat tint. The rainbow
+                        // still shows through underneath so a hot rope reads as the same rope, lit.
+                        if heat > 0.0 {
+                            let flicker = 0.85
+                                + 0.15 * (time * 11.0 + link_idx as f32 * 2.3 + t * 6.0).sin();
+                            let hot = heat * flicker;
+                            rr = rr + (1.0 - rr) * hot;
+                            gg = gg + (0.72 - gg) * hot;
+                            bb = bb + (0.28 - bb) * hot * 0.6;
+                        }
 
                         let seg_delta = point - prev_point;
                         let seg_len = seg_delta.length();
@@ -1601,14 +1619,17 @@ pub fn draw_conga_rope(
             // Pass 2: neon glow, additive blend switched on once for the whole rope instead of
             // once per micro-segment.
             canvas.set_blend_mode(BlendMode::ADD);
+            // Overheating widens and brightens the additive halo so a hot rope actually casts light.
+            let glow_alpha = alpha_base * (0.35 + heat * 0.35);
+            let glow_width = thickness * (2.2 + heat * 1.6);
             for &(pos, angle, len, rgb) in segs.iter() {
-                let glow_color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base * 0.35);
+                let glow_color = Color::new(rgb[0], rgb[1], rgb[2], glow_alpha);
                 canvas.draw(
                     unit_line,
                     DrawParam::default()
                         .dest(pos)
                         .rotation(angle)
-                        .scale(Vec2::new(len, thickness * 2.2))
+                        .scale(Vec2::new(len, glow_width))
                         .color(glow_color),
                 );
             }
