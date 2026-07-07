@@ -2397,6 +2397,10 @@ impl MainState {
         // instead of a second scan.
         let thief_tail_pos: Option<Vec2> = if self.chain_count >= 4 { chain_tail_pos } else { None };
 
+        // Single RNG for the whole per-crab loop below (attraction sparkles), instead of grabbing
+        // a fresh thread-local handle inside the loop for every crab currently in the beam.
+        let mut rng = rand::rng();
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -2779,7 +2783,6 @@ impl MainState {
 
                 // Collect sparkle particles drifting toward player for attracted crabs
                 if crab_in_light {
-                    let mut rng = rand::rng();
                     // ~2 sparkles per second (probabilistic)
                     if rng.random_range(0.0_f32..1.0_f32) < dt * 2.0 {
                         let toward_player = (self.player_pos - crab.pos).normalize_or_zero();
