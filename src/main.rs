@@ -29,7 +29,7 @@ use crate::graphics::{
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
-    draw_tide_pulses, draw_wave_telegraph,
+    draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
@@ -560,6 +560,16 @@ struct MainState {
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next boss arrives
     next_boss_kind: usize,               // cycles 0=King Crab, 1=Tide Boss, 2=Reef DJ so runs rotate through all three climax beats
+    // Reef DJ call-and-response phrase. The rhythm boss doesn't open its shell on *every* beat —
+    // it CALLS a short phrase: each bar it flashes a random subset of the four beats as "hot", and
+    // its shell only drains while you hold the light on it during one of those called beats. Off
+    // the phrase (both off-beat and on un-called beats) the light does nothing, so the fight is a
+    // real echo-the-pattern duel instead of a hold-and-tap-the-beat one. `reef_phrase[i]` is true
+    // when beat `i` of the current bar (beat_count % 4) is a called/hot beat.
+    reef_phrase: [bool; 4],
+    reef_phrase_bar: u32,                // beat_count/4 of the bar the current phrase was rolled for, so we re-roll once per bar
+    reef_active: bool,                   // true while a Reef DJ is on the field, gating the phrase HUD/telegraph
+    reef_hit_flash: f32,                 // 1..0 juice bloom kicked when the player lands a hot beat on the DJ's shell
     // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
     // the whole train for a super-linear score payout (longer train = disproportionately more) and
     // reset the chain, closing the risk/reward loop the chain-snap risk opened. The pen relocates
@@ -1045,6 +1055,10 @@ impl MainState {
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
             next_boss_kind: 0,
+            reef_phrase: [false; 4],
+            reef_phrase_bar: u32::MAX,
+            reef_active: false,
+            reef_hit_flash: 0.0,
             pen_pos: init_pen,
             deliver_flash: 0.0,
             deliver_streak: 0,
@@ -3055,10 +3069,23 @@ impl MainState {
         // player already feels for PERFECT tool hits and the on-beat Call.
         let on_beat_now =
             self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        // Is *this* on-beat one the Reef DJ called? Its shell only drains on a hot beat of the
+        // current phrase (see the phrase roll in the beat handler), so holding light on it during a
+        // silent beat does nothing — you have to echo the called pattern back. beat_count is already
+        // advanced for this beat (the beat handler runs earlier this frame), so beat_count % 4 is the
+        // current beat's slot in the bar. A hit on a hot beat kicks reef_hit_flash for juice.
+        let reef_hot_now = on_beat_now && self.reef_phrase[(self.beat_count % 4) as usize];
+        let mut reef_hit_landed = false;
+        // Recomputed each frame from the live crab list: true while an un-caught Reef DJ is on the
+        // field. Gates the phrase roll + HUD telegraph so they only appear during a rhythm-boss fight.
+        let mut reef_on_field = false;
 
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
+                if crab.is_rhythm_boss() {
+                    reef_on_field = true;
+                }
                 crab.spawn_time += dt;
                 let distance = self.player_pos.distance(crab.pos);
                 let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
@@ -3070,16 +3097,19 @@ impl MainState {
 
                 // Wearing it down under the beam is unchanged for the King Crab and Tide Boss —
                 // the beam is still how you catch them. The Reef DJ is the exception: its shell is
-                // beat-locked, so the beam only bites while the on-beat window is open. Off-beat the
-                // light does nothing to it — the whole fight is carried by the rhythm system, hold
-                // the light AND land it on the beat. Enraged, it drains faster on-beat so the finale
-                // rewards clean timing with a quicker kill.
+                // call-locked, so the beam only bites while you hold the light on it during a *hot*
+                // beat of the phrase it called this bar. Off the phrase (off-beat, or an un-called
+                // on-beat) the light does nothing — the whole fight is echoing its pattern back with
+                // the light. Enraged, it drains faster on a hit so the finale rewards clean timing.
                 let drain_active = crab_in_light
-                    && (!crab.is_rhythm_boss() || on_beat_now);
+                    && (!crab.is_rhythm_boss() || reef_hot_now);
+                if crab.is_rhythm_boss() && crab_in_light && reef_hot_now && crab.boss_health > 0.0 {
+                    reef_hit_landed = true;
+                }
                 if crab.boss_health > 0.0 && drain_active {
                     let rate = if crab.is_rhythm_boss() {
-                        // The beat window is narrow, so per-window drain is boosted to keep the fight
-                        // a comparable length to the other bosses; enrage sharpens it further.
+                        // The window is narrow AND only some beats are hot, so per-hit drain is boosted
+                        // to keep the fight a comparable length to the other bosses; enrage sharpens it.
                         boss_drain * if crab.enraged { 5.0 } else { 3.5 }
                     } else {
                         boss_drain
@@ -3732,6 +3762,18 @@ impl MainState {
             }
         }
 
+        // Sync the Reef DJ phrase state after the &mut self.crabs loop. reef_active gates the phrase
+        // roll and HUD telegraph; clearing it when the DJ leaves the field wipes any stale phrase so
+        // the next DJ starts fresh. A landed hot-beat hit kicks a juice bloom + a little flash.
+        self.reef_active = reef_on_field;
+        if !reef_on_field {
+            self.reef_phrase = [false; 4];
+            self.reef_phrase_bar = u32::MAX;
+        } else if reef_hit_landed {
+            self.reef_hit_flash = 1.0;
+            self.on_beat_flash = self.on_beat_flash.max(0.3);
+        }
+
         // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
         for &(pos, vel, life, [cr, cg, cb]) in attraction_particles.iter() {
             self.particle_system.push(crate::graphics::Particle {
@@ -4271,6 +4313,10 @@ impl MainState {
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
         self.next_boss_kind = 0;
+        self.reef_phrase = [false; 4];
+        self.reef_phrase_bar = u32::MAX;
+        self.reef_active = false;
+        self.reef_hit_flash = 0.0;
         self.deliver_flash = 0.0;
         self.penned_marchers.marchers.clear();
         self.pen_pos = pick_pen_pos(
@@ -5385,6 +5431,21 @@ impl MainState {
             self.time_elapsed,
         )?;
 
+        // Reef DJ call-and-response phrase — the four beats it called for this bar, drawn just under
+        // the beat indicator so it sits with the other rhythm HUD. Only shown during a Reef DJ fight;
+        // the player reads which pips are hot and echoes them back with the light on the beat.
+        if self.reef_active {
+            draw_reef_phrase(
+                ctx,
+                canvas,
+                Vec2::new(width - 50.0, 96.0),
+                self.reef_phrase,
+                (self.beat_count % 4) as usize,
+                self.on_beat_now(),
+                self.reef_hit_flash,
+            )?;
+        }
+
         // Groove meter (top center) — fills as you catch crabs on the beat, glowing and
         // pulsing to the beat once you're in the pocket. Rewards rhythmic play at a glance.
         if self.groove > 0.01 {
@@ -5789,12 +5850,15 @@ impl MainState {
                     let base_aura = if crab.is_tide_boss() {
                         [0.25, 0.7, 1.0]
                     } else if crab.is_rhythm_boss() {
-                        // The Reef DJ pulses violet, and flares bright on the beat to telegraph its
-                        // one vulnerable window: light lands hardest exactly when the aura flashes.
+                        // The Reef DJ pulses violet, and flares bright only on a *hot* beat of the
+                        // phrase it called this bar — that's the window its shell is open, so the aura
+                        // flash IS the "hit now" cue. A landed hot beat adds an extra bloom via
+                        // reef_hit_flash so a clean echo reads as a satisfying pop of light.
                         let on_beat = self.beat_timer < BEAT_WINDOW
                             || self.beat_timer > self.beat_interval - BEAT_WINDOW;
-                        let flare = if on_beat { 0.45 } else { 0.0 };
-                        [0.72 + flare * 0.3, 0.30 + flare, 0.95]
+                        let hot = on_beat && self.reef_phrase[(self.beat_count % 4) as usize];
+                        let flare = if hot { 0.45 } else { 0.0 } + self.reef_hit_flash * 0.35;
+                        [(0.72 + flare * 0.3).min(1.0), (0.30 + flare).min(1.0), 0.95]
                     } else {
                         [1.0, 0.8, 0.25]
                     };
@@ -6480,6 +6544,25 @@ impl EventHandler for MainState {
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
+            // Reef DJ call-and-response: on every downbeat while the rhythm boss is on the field,
+            // it CALLS a fresh phrase for the coming bar — a random subset of the four beats that
+            // are "hot" (its shell is only vulnerable on those). Rolled once per bar, always with
+            // at least one hot beat and never all four, so there's a pattern to read and echo back
+            // rather than a constant open window. The downbeat is always hot so the "1" anchors the
+            // phrase and reads as the boss's call.
+            if downbeat && self.reef_active {
+                let bar = self.beat_count / 4;
+                if bar != self.reef_phrase_bar {
+                    self.reef_phrase_bar = bar;
+                    let mut rng = rand::rng();
+                    let mut phrase = [false; 4];
+                    phrase[0] = true; // the "1" always calls, anchoring the bar
+                    for slot in phrase.iter_mut().skip(1) {
+                        *slot = rng.random_bool(0.4);
+                    }
+                    self.reef_phrase = phrase;
+                }
+            }
             // The "1" of the bar lands harder than the three beats between it. Kick the accent so
             // the beat-stepping conga train stomps forward as one on the downbeat (see the step
             // code in update_crabs, which scales its hop by bar_accent), and give a fresh unified
@@ -6967,6 +7050,9 @@ impl EventHandler for MainState {
 
         if self.on_beat_flash > 0.0 {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
+        }
+        if self.reef_hit_flash > 0.0 {
+            self.reef_hit_flash = (self.reef_hit_flash - dt * 3.5).max(0.0);
         }
         // Groove Gamble feedback pulses decay each frame.
         if self.beat_gamble_flash > 0.0 {
@@ -7472,7 +7558,7 @@ impl EventHandler for MainState {
                 2 => (
                     spawn_rhythm_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "THE REEF DJ DROPS IN!",
-                    "Its shell only cracks ON THE BEAT — hold your light in time!",
+                    "It calls a beat phrase — echo the lit pips with your light!",
                     [0.75, 0.4, 1.0, 1.0],
                 ),
                 _ => (

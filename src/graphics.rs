@@ -2012,6 +2012,76 @@ pub fn draw_beat_indicator(
     Ok(())
 }
 
+/// Reef DJ call-and-response HUD. Draws the four-beat phrase the rhythm boss called for the
+/// current bar as a row of pips: a *hot* (called) beat is a big violet ring the player must echo
+/// with the light, a silent beat is a small dim dot. The beat currently playing is ringed white so
+/// you can read where you are in the bar. `phrase[i]` = beat i is hot; `current_beat` = beat_count%4;
+/// `on_beat` flashes the active pip; `hit_flash` (0..1) blooms the whole row when a hot beat landed.
+pub fn draw_reef_phrase(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    phrase: [bool; 4],
+    current_beat: usize,
+    on_beat: bool,
+    hit_flash: f32,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+    let spacing = 34.0;
+    let start_x = center.x - spacing * 1.5;
+    let bloom = (hit_flash * 0.6).min(0.6);
+    for i in 0..4 {
+        let pos = Vec2::new(start_x + spacing * i as f32, center.y);
+        let is_current = i == current_beat;
+        if phrase[i] {
+            // Hot beat — a filled violet pip, the "hit here" call. Brightens on the active beat and
+            // blooms with hit_flash when the player just echoed a hot beat cleanly.
+            let r = 9.0 + if is_current && on_beat { 5.0 } else { 0.0 } + bloom * 6.0;
+            let a = if is_current { 255 } else { 170 };
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(r))
+                    .color(Color::from_rgba(
+                        (185.0 + bloom * 70.0).min(255.0) as u8,
+                        (90.0 + bloom * 120.0).min(255.0) as u8,
+                        245,
+                        a,
+                    )),
+            );
+        } else {
+            // Silent beat — a small dim dot, nothing to do here.
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(4.0))
+                    .color(Color::from_rgba(120, 100, 150, 120)),
+            );
+        }
+        // The playhead: a white ring around whichever beat is sounding now, so the phrase reads as
+        // a moving cursor over the four slots rather than a static pattern.
+        if is_current {
+            let ring = cached_stroke_circle(ctx, 15.0, 2.0)?;
+            let ring_a = if on_beat { 255 } else { 130 };
+            canvas.draw(
+                &ring,
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::from_rgba(255, 255, 255, ring_a)),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Telegraph that a fresh herd is armed and will drop on the next downbeat (bar-quantized
 /// spawns). Draws a ring around the beat indicator that tightens as the wave approaches, plus
 /// a soft cyan halo that brightens with anticipation — a clear "here it comes, on the beat" cue
