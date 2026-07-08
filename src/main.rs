@@ -675,6 +675,11 @@ struct MainState {
     // Free-roaming Golden positions each frame, reused instead of reallocating — drives the
     // Golden-lures-Magnet pass in update_crabs (a roaming Magnet drifts toward the nearest one).
     golden_lure_positions_buf: Vec<Vec2>,
+    // Positions of "charged" Magnets each frame — a Magnet currently pinning a snared Golden deep
+    // in its field. Reused instead of reallocating. Drives the Golden-supercharges-Magnet crossover
+    // in update_crabs: the shine energizes the lodestone so it vacuums the surrounding herd in
+    // harder while it holds the prize (see the charged-radius branch of the magnet-pull pass).
+    charged_magnet_positions_buf: Vec<Vec2>,
     // Free Armored crab positions each frame, reused instead of reallocating — drives the
     // Armored-body-blocks-King-Crab-charge crossover (a shell in the lunge's lane stops it cold).
     armored_positions_buf: Vec<Vec2>,
@@ -1078,6 +1083,7 @@ impl MainState {
             tide_swells_buf: Vec::new(),
             magnet_positions_buf: Vec::new(),
             golden_lure_positions_buf: Vec::new(),
+            charged_magnet_positions_buf: Vec::new(),
             armored_positions_buf: Vec::new(),
             boss_blocks_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
@@ -2890,6 +2896,40 @@ impl MainState {
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
         const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
 
+        // Emergent crossover — a snared Golden supercharges its captor Magnet. The Magnet-snares-
+        // Golden pass already traps a straying shiny in a lodestone's field; here that trapped prize
+        // feeds back into the field. While a Magnet is pinning a snared Golden, the Golden's shine
+        // energizes it, so it vacuums the surrounding herd in over a *wider* radius and with a
+        // stronger tug than a plain roaming Magnet. Neither rule authored this: "Magnet snares
+        // Golden" and "Magnet pulls the herd" collide to turn trapping the prize into a herd-vacuum
+        // — trap the Golden in a wandering Magnet and it also balls up the nearby loose crabs into a
+        // tight cluster you can then sweep with one beam pass. Snapshot which Magnets are charged
+        // this frame: a Magnet is charged if a snared Golden sits inside its normal pull radius.
+        // Cheap — Magnets and snared Goldens are both rare, so this double loop is almost always over
+        // near-empty lists. Reuses a scratch Vec to avoid per-frame churn.
+        let mut charged_magnet_positions = std::mem::take(&mut self.charged_magnet_positions_buf);
+        charged_magnet_positions.clear();
+        for c in &self.crabs {
+            if c.is_golden() && !c.caught && c.magnet_snared > 0.0 {
+                // Attribute this snared Golden to its nearest Magnet (the one that trapped it).
+                let mut nearest: Option<(f32, Vec2)> = None;
+                for &mp in magnet_positions.iter() {
+                    let d2 = c.pos.distance_squared(mp);
+                    if d2 < MAGNET_RADIUS_SQ && nearest.map_or(true, |(bd2, _)| d2 < bd2) {
+                        nearest = Some((d2, mp));
+                    }
+                }
+                if let Some((_, mp)) = nearest {
+                    if !charged_magnet_positions.contains(&mp) {
+                        charged_magnet_positions.push(mp);
+                    }
+                }
+            }
+        }
+        // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
+        const CHARGED_MAGNET_RADIUS: f32 = MAGNET_RADIUS * 1.4;
+        const CHARGED_MAGNET_RADIUS_SQ: f32 = CHARGED_MAGNET_RADIUS * CHARGED_MAGNET_RADIUS;
+
         // Emergent crossover — the Golden lures the Magnet. Snapshot every free, un-beamed Golden's
         // position so a roaming Magnet can be drawn *off its cluster* toward the shiny prize: the
         // mirror of the Magnet-snares-Golden interaction (there the Magnet traps the Golden; here the
@@ -3388,6 +3428,41 @@ impl MainState {
                     }
                 }
 
+                // Emergent crossover — a snared Golden supercharges its captor Magnet into a herd
+                // vacuum. When a Magnet is pinning a Golden (see the snare pass just above), the
+                // prize's shine energizes the lodestone: it now reaches the surrounding loose herd
+                // over a wider radius and hauls them in harder than the plain herd-nudge does, so
+                // the trapped Golden and the crabs balling up around it become one tight cluster you
+                // can sweep with a single beam pass. Only applies to ordinary crabs the *normal*
+                // field didn't already grab this frame — a Golden being snared, a crab already
+                // caught, or one deep in a Magnet's own radius keeps its existing behaviour; this is
+                // purely the extra outer reach the charge buys. Runs off the tiny charged-Magnet
+                // snapshot, so almost always over an empty list.
+                if !crab_in_light
+                    && !crab.is_magnet()
+                    && !crab.is_boss()
+                    && !charged_magnet_positions.is_empty()
+                    && crab.magnet_snared <= 0.0
+                {
+                    let mut nearest: Option<(f32, Vec2)> = None;
+                    for &cmp in charged_magnet_positions.iter() {
+                        let d2 = crab.pos.distance_squared(cmp);
+                        if d2 < CHARGED_MAGNET_RADIUS_SQ && d2 > 1.0
+                            && nearest.map_or(true, |(bd2, _)| d2 < bd2)
+                        {
+                            nearest = Some((d2, cmp));
+                        }
+                    }
+                    if let Some((d2, cmp)) = nearest {
+                        // Strongest at the core, fading to nothing at the widened edge. A firmer
+                        // tug than the plain herd-nudge (its 34.0) so the vacuum visibly balls the
+                        // herd up while the charge lasts.
+                        let prox = 1.0 - d2.sqrt() / CHARGED_MAGNET_RADIUS;
+                        let dir = (cmp - crab.pos).normalize_or_zero();
+                        crab.pos += dir * (prox * 68.0) * dt;
+                    }
+                }
+
                 // Emergent crossover — the Golden lures the Magnet off its cluster. A roaming Magnet
                 // that isn't itself being beamed drifts toward the nearest free, fleeing Golden it can
                 // sense: the shiny prize's shine catches the lodestone's attention and pulls it away
@@ -3428,6 +3503,19 @@ impl MainState {
                 // gold-tinted aura only shows while it's actually drifting after a prize.
                 if crab.magnet_lured > 0.0 {
                     crab.magnet_lured = (crab.magnet_lured - dt).max(0.0);
+                }
+
+                // Flag this Magnet as charged if it's one of the ones pinning a snared Golden this
+                // frame (positions were snapshotted just before the loop and nothing has moved a
+                // Magnet since, so exact position match is safe). Refresh a short window so the
+                // supercharged aura holds smoothly while it keeps the prize, then decays once the
+                // Golden slips free or gets caught.
+                if crab.is_magnet() {
+                    if charged_magnet_positions.contains(&crab.pos) {
+                        crab.magnet_charged = 0.2;
+                    } else if crab.magnet_charged > 0.0 {
+                        crab.magnet_charged = (crab.magnet_charged - dt).max(0.0);
+                    }
                 }
 
                 // Thief homing: a free Thief that isn't in the beam (being caught) or charmed
@@ -3822,6 +3910,7 @@ impl MainState {
         self.tide_swells_buf = tide_swells;
         self.magnet_positions_buf = magnet_positions;
         self.golden_lure_positions_buf = golden_lure_positions;
+        self.charged_magnet_positions_buf = charged_magnet_positions;
         self.armored_positions_buf = armored_positions;
         self.boss_blocks_buf = boss_blocks;
 
@@ -4299,6 +4388,7 @@ impl MainState {
                 magnet_snared: 0.0,
                 magnet_lured: 0.0,
                 thief_lured: 0.0,
+                magnet_charged: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -5658,7 +5748,7 @@ impl MainState {
                     // Magnetic field aura — inward-sweeping rings showing its pull radius, so the
                     // player can see the catchment and chase it for the two-for-one cluster catch.
                     let size = crab.scale * CRAB_SIZE;
-                    draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed, crab.is_magnet_lured())?;
+                    draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed, crab.is_magnet_lured(), crab.is_magnet_charged())?;
                 } else if crab.is_thief() {
                     // Thief marker — a sly green ring while it prowls, flaring into a fast gnaw-ring
                     // once it's latched onto the tail so the theft-in-progress reads at a glance.

@@ -4050,22 +4050,37 @@ pub fn draw_magnet_aura(
     pull_radius: f32,
     time: f32,
     lured: bool,
+    charged: bool,
 ) -> ggez::GameResult {
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
     // Lodestone red-orange, matching the crab's own color — but while a Golden's shine has lured
     // this Magnet off its cluster, the aura brightens gold-ward so the "chasing the prize"
-    // crossover reads at a glance (the mirror tint of the Thief's snared aura going orange).
-    let (r, g, b) = if lured { (1.0, 0.78, 0.3) } else { (1.0, 0.4, 0.2) };
+    // crossover reads at a glance (the mirror tint of the Thief's snared aura going orange). When
+    // it's *charged* — pinning a snared Golden and supercharged into a herd-vacuum — the aura goes
+    // full gold and its rings reach out over the widened pull radius so the bigger suck reads.
+    let (r, g, b) = if charged {
+        (1.0, 0.85, 0.4)
+    } else if lured {
+        (1.0, 0.78, 0.3)
+    } else {
+        (1.0, 0.4, 0.2)
+    };
     let inner = size * 0.7;
+    // Match the 1.4x wider field a charged Magnet actually pulls over (CHARGED_MAGNET_RADIUS in
+    // main.rs) so the visual boundary tells the truth about the vacuum's reach.
+    let ring_radius = if charged { pull_radius * 1.4 } else { pull_radius };
+    // A charged Magnet's rings sweep faster and read brighter to sell the energized state.
+    let sweep_speed = if charged { 1.1 } else { 0.6 };
+    let alpha_scale = if charged { 0.5 } else { 0.35 };
 
     // Three rings sweeping inward on a shared phase, staggered a third of a cycle apart, so the
     // aura reads as a steady inward pull rather than a single blip. Brightest as they close in.
     for k in 0..3 {
-        let phase = ((time * 0.6 + k as f32 / 3.0) % 1.0) as f32; // 0..1, 0 = far, 1 = at crab
-        let radius = pull_radius - (pull_radius - inner) * phase;
-        let alpha = (phase * 0.35).clamp(0.0, 0.35);
+        let phase = ((time * sweep_speed + k as f32 / 3.0) % 1.0) as f32; // 0..1, 0 = far, 1 = at crab
+        let radius = ring_radius - (ring_radius - inner) * phase;
+        let alpha = (phase * alpha_scale).clamp(0.0, alpha_scale);
         let ring = cached_stroke_circle(ctx, radius, 2.0)?;
         canvas.draw(
             &ring,
@@ -4078,8 +4093,8 @@ pub fn draw_magnet_aura(
     // A tight, always-bright core ring so the crab itself reads as "the magnet" at a glance.
     let core_pulse = (time * 4.0).sin() * 0.5 + 0.5;
     let core = cached_stroke_circle(ctx, inner + 4.0 + core_pulse * 4.0, 2.5)?;
-    let core_g = if lured { 0.78 } else { 0.55 } + core_pulse * 0.2;
-    let core_b = if lured { 0.35 } else { 0.3 };
+    let core_g = if charged || lured { 0.8 } else { 0.55 } + core_pulse * 0.2;
+    let core_b = if charged { 0.4 } else if lured { 0.35 } else { 0.3 };
     canvas.draw(
         &core,
         DrawParam::default()

@@ -151,6 +151,7 @@ pub struct EnemyCrab {
     pub magnet_snared: f32,       // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
     pub magnet_lured: f32,        // Magnet only: >0 while this roaming Magnet is being pulled off its cluster toward a nearby fleeing Golden — the shiny prize's shine luring the lodestone. Counts down; refreshed each frame it keeps chasing. Drives the aura shifting gold-ward.
     pub thief_lured: f32,         // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
+    pub magnet_charged: f32,      // Magnet only: >0 while this Magnet is pinning a snared Golden — the prize's shine supercharges the lodestone into a wider, stronger herd-vacuum. Counts down; refreshed each frame it holds a snared Golden. Drives the aura flaring gold and wide.
 }
 
 impl EnemyCrab {
@@ -267,6 +268,10 @@ impl EnemyCrab {
     /// (see the magnet-lure pass in main.rs).
     pub fn is_magnet_lured(&self) -> bool {
         self.is_magnet() && self.magnet_lured > 0.0
+    }
+
+    pub fn is_magnet_charged(&self) -> bool {
+        self.is_magnet() && self.magnet_charged > 0.0
     }
 
     /// A homing Thief currently lured off its beeline by a nearby fleeing Golden — a thief can't
