@@ -3135,11 +3135,14 @@ impl MainState {
                 // it — the flashlight still wins (a crab in the beam is heading to the player), and a
                 // fleeing crab still bolts, just curving a little toward the cluster. This is what
                 // turns "catch the Magnet" into a two-for-one: the crabs it gathered come with it.
-                if !crab_in_light && !crab.is_magnet() && !crab.is_boss() {
-                    // Squared-distance compare so the per-magnet scan (up to ~8% of the herd,
-                    // times every ordinary crab) does zero sqrt work until we've already found
-                    // the winner — a sqrt per pair here was the hottest unnecessary cost in this
-                    // per-crab, per-frame loop.
+                // Squared-distance compare so the per-magnet scan (up to ~8% of the herd, times
+                // every ordinary crab) does zero sqrt work until we've already found the winner
+                // — a sqrt per pair here was the hottest unnecessary cost in this per-crab,
+                // per-frame loop. Computed once per crab and shared below by both the ordinary
+                // herd-nudge/Golden-snare check and the Thief-intercept check (a Thief is never
+                // a Magnet or a boss, so this covers it too) instead of scanning
+                // magnet_positions a second time for Thieves.
+                let nearest_magnet: Option<(f32, Vec2)> = if !crab_in_light && !crab.is_magnet() && !crab.is_boss() {
                     let mut nearest: Option<(f32, Vec2)> = None;
                     for &mp in magnet_positions.iter() {
                         let d2 = crab.pos.distance_squared(mp);
@@ -3149,7 +3152,12 @@ impl MainState {
                             }
                         }
                     }
-                    if let Some((d2, mp)) = nearest {
+                    nearest
+                } else {
+                    None
+                };
+                if !crab_in_light && !crab.is_magnet() && !crab.is_boss() {
+                    if let Some((d2, mp)) = nearest_magnet {
                         // Stronger tug up close, fading to nothing at the edge of the pull radius.
                         let d = d2.sqrt();
                         let prox = 1.0 - d / MAGNET_RADIUS; // 0 at the edge, 1 at the magnet
@@ -3197,25 +3205,23 @@ impl MainState {
                     // lodestone overpowers its beeline and hauls it into the cluster — so parking a
                     // Magnet between your train and an incoming Thief becomes a defensive routing
                     // play, the pre-latch mirror of the Magnet-pry that rips an already-latched
-                    // Thief off. Reuses the same deep-field test as the Golden snare.
+                    // Thief off. Reuses the same deep-field test as the Golden snare — and the
+                    // same nearest-magnet lookup computed just above, instead of re-scanning
+                    // magnet_positions a second time for every free Thief.
                     let mut intercepted = false;
-                    for &mp in magnet_positions.iter() {
-                        let d2 = crab.pos.distance_squared(mp);
-                        if d2 < MAGNET_RADIUS_SQ && d2 > 1.0 {
-                            let prox = 1.0 - d2.sqrt() / MAGNET_RADIUS; // 0 at edge, 1 at magnet
-                            if prox > 0.4 {
-                                let dir = (mp - crab.pos).normalize_or_zero();
-                                // Overpowering drag toward the lodestone, tightening as it sinks in.
-                                let pull = (prox - 0.4) / 0.6 * 240.0;
-                                crab.pos += dir * pull * dt;
-                                crab.vel *= 1.0 - (0.85 * dt).min(0.5); // kill its homing momentum
-                                if crab.magnet_snared <= 0.0 {
-                                    thief_snare_pops.push(crab.pos);
-                                }
-                                crab.magnet_snared = 0.25; // refreshed each frame it stays snared
-                                intercepted = true;
-                                break;
+                    if let Some((d2, mp)) = nearest_magnet {
+                        let prox = 1.0 - d2.sqrt() / MAGNET_RADIUS; // 0 at edge, 1 at magnet
+                        if prox > 0.4 {
+                            let dir = (mp - crab.pos).normalize_or_zero();
+                            // Overpowering drag toward the lodestone, tightening as it sinks in.
+                            let pull = (prox - 0.4) / 0.6 * 240.0;
+                            crab.pos += dir * pull * dt;
+                            crab.vel *= 1.0 - (0.85 * dt).min(0.5); // kill its homing momentum
+                            if crab.magnet_snared <= 0.0 {
+                                thief_snare_pops.push(crab.pos);
                             }
+                            crab.magnet_snared = 0.25; // refreshed each frame it stays snared
+                            intercepted = true;
                         }
                     }
                     if !intercepted {
