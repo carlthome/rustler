@@ -2870,6 +2870,15 @@ impl MainState {
     /// the swell telegraph and pulling back rather than routing out of a charge lane.
     fn tide_pulse_burst(&mut self, center: Vec2) {
         const TIDE_SNAP_LINKS: usize = 4; // a solid surge tears off a bit more than a panic-brush snap
+        // Archetype-in-boss crossover: a Magnet ANCHORS against the surge. A free Magnet caught in the
+        // blast isn't flung out like everything else — the wall of water charges its lodestone (the same
+        // supercharge a snared Golden buys it), and its widened vacuum re-balls the herd the pulse just
+        // scattered next frame. The payoff is defensive too: if that supercharged field covers your
+        // conga tail, it pins those links against the shove and the chain-snap is called off. So parking
+        // a Magnet by your train turns the Tide Boss's own crowd-scatter into a re-gather and a shield —
+        // the Magnet (routing) archetype finally matters inside the water fight.
+        const MAGNET_ANCHOR_RADIUS: f32 = 240.0; // matches the Magnet's normal pull reach
+        const MAGNET_ANCHOR_RADIUS_SQ: f32 = MAGNET_ANCHOR_RADIUS * MAGNET_ANCHOR_RADIUS;
         let r2 = TIDE_PULSE_RADIUS * TIDE_PULSE_RADIUS;
 
         // Spawn the visible expanding ring (bounded so a stall can't grow the Vec without limit).
@@ -2877,7 +2886,31 @@ impl MainState {
             self.tide_pulses.push((center, crate::CRAB_SIZE));
         }
 
-        // Shove every free crab in range outward and startle it into a flee.
+        // First pass: supercharge every free Magnet the surge washes over, and remember where each
+        // anchoring field sits so the shove and the snap below can spare crabs inside it.
+        let mut anchor_positions: Vec<Vec2> = Vec::new();
+        for crab in &mut self.crabs {
+            if crab.caught || crab.is_boss() || !crab.is_magnet() {
+                continue;
+            }
+            if crab.pos.distance_squared(center) > r2 {
+                continue;
+            }
+            // The wall of water charges the lodestone — same state a snared Golden grants, so the
+            // existing charged-radius vacuum pass re-gathers the scattered herd and the aura flares gold.
+            crab.magnet_charged = crab.magnet_charged.max(1.6);
+            if anchor_positions.len() < 8 {
+                anchor_positions.push(crab.pos);
+            }
+        }
+        let anchored = |pos: Vec2| {
+            anchor_positions
+                .iter()
+                .any(|a| a.distance_squared(pos) <= MAGNET_ANCHOR_RADIUS_SQ)
+        };
+
+        // Shove every free crab in range outward and startle it into a flee — unless a Magnet's
+        // charged field holds it in place.
         let mut scattered: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
             if crab.caught || crab.is_boss() {
@@ -2886,6 +2919,9 @@ impl MainState {
             let d2 = crab.pos.distance_squared(center);
             if d2 > r2 {
                 continue;
+            }
+            if !crab.is_magnet() && anchored(crab.pos) {
+                continue; // pinned by a nearby anchoring Magnet — the vacuum holds it against the surge
             }
             let outward = (crab.pos - center).normalize_or_zero();
             let outward = if outward == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { outward };
@@ -2899,9 +2935,25 @@ impl MainState {
             }
         }
 
+        // A Magnet field over the tail calls off the wash-out entirely — feedback for the save.
+        let tail_anchored = !anchor_positions.is_empty()
+            && self.crabs.iter().any(|c| {
+                c.caught && c.chain_index.is_some() && c.pos.distance_squared(center) <= r2 && anchored(c.pos)
+            });
+        if tail_anchored {
+            self.floating_texts.spawn(
+                "ANCHORED!".to_string(),
+                center - Vec2::new(50.0, 34.0),
+                30.0,
+                [0.95, 0.55, 0.2, 1.0],
+            );
+        }
+
         // Knock the tail loose if any caught link sits inside the blast. Mirrors snap_chain_on_panic
-        // but triggered by the pulse's reach rather than a physical tail collision.
-        let tail_in_blast = self
+        // but triggered by the pulse's reach rather than a physical tail collision. A Magnet anchoring
+        // the tail (tail_anchored) pins the links and cancels the snap.
+        let tail_in_blast = !tail_anchored
+            && self
             .crabs
             .iter()
             .any(|c| c.caught && c.chain_index.is_some() && c.pos.distance_squared(center) <= r2);
