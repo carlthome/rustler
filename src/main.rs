@@ -6443,6 +6443,60 @@ impl EventHandler for MainState {
                 }
                 self.dancer_spooked_buf = spooked;
             }
+
+            // Emergent crossover: a fleeing Dancer's on-beat hop shakes a latched Thief off your
+            // tail. A Thief that's clamped onto the conga's trailing link and gnawing it loose gets
+            // jolted free when a Dancer lands its rhythmic leap right on top of it — the sudden
+            // beat-timed thump breaks the parasite's grip and flings it into the loose herd. This is
+            // the rhythm-native mirror of the Magnet-pry (a Magnet's field rips a latched Thief off):
+            // there a lodestone parked between train and raider saves you, here a Dancer bopping past
+            // the tail on the beat does it by accident, so a herd full of Dancers becomes an
+            // unreliable-but-satisfying rhythmic defense for the train you built. Reuses the Dancer
+            // landings already gathered above — no extra scan of the herd — and only fires on the
+            // beat, so it's rare and legible, not a constant Thief-cleaner.
+            if !dancer_hops.is_empty() {
+                const DANCER_JOLT_RADIUS: f32 = 70.0; // a Dancer has to land nearly on the Thief
+                const DANCER_JOLT_RADIUS_SQ: f32 = DANCER_JOLT_RADIUS * DANCER_JOLT_RADIUS;
+                let mut jolted: Vec<Vec2> = Vec::new();
+                for crab in self.crabs.iter_mut() {
+                    // Only a currently-latched, free Thief can be shaken loose.
+                    if crab.caught || !crab.is_thief() || crab.latch_timer <= 0.0 {
+                        continue;
+                    }
+                    let mut hop_src: Option<Vec2> = None;
+                    for &hp in dancer_hops.iter() {
+                        if crab.pos.distance_squared(hp) < DANCER_JOLT_RADIUS_SQ {
+                            hop_src = Some(hp);
+                            break;
+                        }
+                    }
+                    if let Some(src) = hop_src {
+                        // Break the clamp and fling the Thief away from the Dancer that thumped it,
+                        // matching how the Magnet-pry sends it off toward the lodestone.
+                        crab.latch_timer = 0.0;
+                        let dir = (crab.pos - src).normalize_or_zero();
+                        let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                        crab.vel = dir * crab.crab_type.speed_range().end * 1.5;
+                        crab.speed = 1.0;
+                        crab.fleeing = false;
+                        crab.startle_timer = 0.0;
+                        jolted.push(crab.pos);
+                    }
+                }
+                for pos in jolted {
+                    if self.fear_rings.len() < 32 {
+                        self.fear_rings.push((pos, 0.0));
+                    }
+                    self.floating_texts.spawn(
+                        "SHAKEN LOOSE!".to_string(),
+                        pos - Vec2::new(58.0, 30.0),
+                        24.0,
+                        [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink so the "a Dancer did this" story reads
+                    );
+                    self.spawn_catch_shockwave(pos, [1.0, 0.45, 0.85]);
+                }
+            }
+
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
