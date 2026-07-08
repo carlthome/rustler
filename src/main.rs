@@ -1666,6 +1666,38 @@ impl MainState {
             return; // respect the shared grace period, but the timer already rearmed above
         }
 
+        // Emergent crossover — an Armored crab at the tail is a shell-plated tail-guard. The same
+        // stubborn shell that walls off panic ripples and stops a King Crab charge also refuses to
+        // be peeled: if the trailing link the Thief is trying to strip is an Armored crab, its shell
+        // clangs and the steal is denied outright (the Thief keeps nibbling, but wastes this peel).
+        // So deliberately routing an Armored crab to the *back* of your train — where the snap/steal
+        // weak point is — turns it into a raid guard, the chain-pressure mirror of parking an Armored
+        // crab in a boss's charge lane. Cheap: one scan for the single highest-chain_index crab,
+        // only when a peel actually fired this frame.
+        let tail_link = self.chain_count.checked_sub(1);
+        if let Some(tail_ci) = tail_link {
+            let tail_is_armored = self
+                .crabs
+                .iter()
+                .any(|c| c.chain_index == Some(tail_ci) && c.is_armored());
+            if tail_is_armored {
+                // Shell holds — no link lost. Clang feedback so the save reads as a moment.
+                self.chain_snap_cooldown = 0.9; // brief grace before the Thief tries again
+                if self.fear_rings.len() < 32 {
+                    self.fear_rings.push((tail_pos, 0.0));
+                }
+                self.floating_texts.spawn(
+                    "SHELL HOLDS!".to_string(),
+                    tail_pos - Vec2::new(46.0, 30.0),
+                    26.0,
+                    [0.75, 0.85, 1.0, 1.0],
+                );
+                self.spawn_catch_shockwave(tail_pos, [0.7, 0.8, 0.95]);
+                self.screen_shake = self.screen_shake.max(4.0);
+                return;
+            }
+        }
+
         // Peel the single trailing link loose — always leave the head attached.
         let keep = self.chain_count.saturating_sub(1).max(1);
         if keep >= self.chain_count {
