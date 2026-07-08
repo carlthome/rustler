@@ -657,6 +657,11 @@ struct MainState {
     // that ripples through the herd harder than an ordinary panicking crab (see below).
     contagion_carriers_buf: Vec<(Vec2, f32)>,
     contagion_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    // Emergent crossover: free Armored crabs act as calm anchors that shelter the herd from the
+    // panic ripple. Their positions are snapshotted each beat into this reused buffer so the
+    // contagion pass can spare any calm crab sheltering in an Armored shell's shadow from
+    // infection — see beat_startle_contagion.
+    armored_anchors_buf: Vec<Vec2>,
     // (pos, amplified?) — amplified pops came from a Golden's panic bomb and get a hot golden
     // "!" so the player sees the shiny prize detonating the herd, not just an ordinary scare.
     contagion_pops_buf: Vec<(Vec2, bool)>,
@@ -1021,6 +1026,7 @@ impl MainState {
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
             contagion_pops_buf: Vec::new(),
+            armored_anchors_buf: Vec::new(),
             dancer_startle_grid_buf: std::collections::HashMap::new(),
             dancer_spooked_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
@@ -1139,6 +1145,21 @@ impl MainState {
             return;
         }
 
+        // Emergent crossover: free Armored crabs are calm anchors. A calm crab sheltering in the
+        // shadow of an Armored shell shrugs off the panic ripple, so a herd salted with Armored
+        // crabs settles instead of stampeding — and corralling a spooked crowd toward an Armored
+        // crab becomes a real crowd-control play, the flipside of the Golden/Dancer chaos engines.
+        // The Armored crab earns a role in the herd beyond "shell you have to crack".
+        const SHELTER_RADIUS: f32 = 82.0;
+        let mut anchors = std::mem::take(&mut self.armored_anchors_buf);
+        anchors.clear();
+        anchors.extend(
+            self.crabs
+                .iter()
+                .filter(|c| !c.caught && !c.is_boss() && c.is_armored())
+                .map(|c| c.pos),
+        );
+
         // Bucket carriers into a spatial grid (same pattern as catch_by_chain and
         // deflect_fleeing_off_chain) so each calm crab only tests nearby carriers instead of the
         // whole panicking set — the herd has no size cap, so a flat scan here got slower the
@@ -1157,6 +1178,9 @@ impl MainState {
 
         let mut infected_pops = std::mem::take(&mut self.contagion_pops_buf);
         infected_pops.clear();
+        // Crabs an Armored anchor sheltered from the ripple this beat — drives a calm-puff cue.
+        // Beat-gated (not per-frame), so a plain local Vec is fine, matching pried_by_magnet.
+        let mut sheltered_pops: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
             if infected_pops.len() >= MAX_INFECTIONS_PER_BEAT {
                 break;
@@ -1200,6 +1224,19 @@ impl MainState {
                 }
             }
             if let Some((score, source, amp)) = nearest {
+                // Calm-anchor shelter: if an Armored crab is standing between this crab and the
+                // rest of the herd, its shell settles the panic and the ripple stops here. An
+                // amplified (Golden-driven) wave is only partly dampened — its fear is hot enough
+                // to leak past a shell it's right on top of — so an Armored crab tames an ordinary
+                // stampede outright but merely blunts a Golden panic bomb.
+                let shelter_r = if amp > 1.05 { SHELTER_RADIUS * 0.55 } else { SHELTER_RADIUS };
+                if anchors.iter().any(|&a| a.distance(crab.pos) < shelter_r) {
+                    // Sheltered: the crab shrugs the ripple off entirely. Deliberately leave its
+                    // calm state untouched (no startle_timer bump) so it doesn't turn into a phantom
+                    // carrier next beat and spread a panic it never actually felt.
+                    sheltered_pops.push(crab.pos);
+                    continue;
+                }
                 let outward = (crab.pos - source).normalize_or_zero();
                 let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
                 // score is d/amp in [0, CONTAGION_RADIUS); turn it back into a 1-at-source proximity.
@@ -1232,8 +1269,18 @@ impl MainState {
                 color,
             );
         }
+        // Warm calming puffs off crabs an Armored anchor just sheltered — the same soothe cue the
+        // whistle throws, so "the shell settled them" reads with the game's existing calm vocabulary
+        // rather than needing a new effect. Capped so a big herd around an anchor doesn't spew.
+        if !sheltered_pops.is_empty() {
+            let mut rng = rand::rng();
+            for pos in sheltered_pops.into_iter().take(6) {
+                self.particle_system.spawn_soothe_puff(pos, &mut rng);
+            }
+        }
         self.contagion_carriers_buf = carriers;
         self.contagion_pops_buf = infected_pops;
+        self.armored_anchors_buf = anchors;
     }
 
     /// The terrain wrinkle of the zone currently in play — decides what the terrain patches do
