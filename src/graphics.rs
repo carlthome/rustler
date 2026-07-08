@@ -170,6 +170,14 @@ thread_local! {
     static MARCHER_SHADOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static MARCHER_BODY_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static MARCHER_RIM_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // The DrawParam lists fed into the three InstanceArrays above were freshly allocated
+    // (Vec::new() + push) every single call to draw_penned_marchers, even though the instance
+    // arrays themselves were already reused — three heap allocations a frame growing with
+    // marcher count, the one place in this file that didn't follow the reused-scratch-buffer
+    // pattern every other batched draw function here uses. Reused and cleared in place instead.
+    static MARCHER_SHADOW_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static MARCHER_BODY_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static MARCHER_RIM_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
 
     // draw_grass tiled its texture across the whole window with one canvas.draw() per tile — at
     // the default 800x600 window and a 4x4 grass tile, that's 200x150 = 30,000 individual GPU
@@ -2218,74 +2226,83 @@ pub fn draw_penned_marchers(
         }
     };
 
-    let mut shadow_params: Vec<DrawParam> = Vec::new();
-    let mut body_params: Vec<DrawParam> = Vec::new();
-    let mut rim_params: Vec<DrawParam> = Vec::new();
+    MARCHER_SHADOW_PARAMS.with(|shadow_cell| -> ggez::GameResult {
+        MARCHER_BODY_PARAMS.with(|body_cell| -> ggez::GameResult {
+            MARCHER_RIM_PARAMS.with(|rim_cell| -> ggez::GameResult {
+                let mut shadow_params = shadow_cell.borrow_mut();
+                let mut body_params = body_cell.borrow_mut();
+                let mut rim_params = rim_cell.borrow_mut();
+                shadow_params.clear();
+                body_params.clear();
+                rim_params.clear();
 
-    for m in &system.marchers {
-        if m.delay > 0.0 {
-            continue;
-        }
-        let (pos, lift, shrink) = PennedMarcherSystem::marcher_draw(m);
-        let body_r = CRAB_SIZE * 0.5 * m.size * shrink;
+                for m in &system.marchers {
+                    if m.delay > 0.0 {
+                        continue;
+                    }
+                    let (pos, lift, shrink) = PennedMarcherSystem::marcher_draw(m);
+                    let body_r = CRAB_SIZE * 0.5 * m.size * shrink;
 
-        let sh_scale = (1.0 - lift / 60.0).clamp(0.4, 1.0);
-        let sh_alpha = ((1.0 - lift / 55.0) * 90.0).clamp(15.0, 90.0) as u8;
-        shadow_params.push(
-            DrawParam::default()
-                .dest(pos + Vec2::new(0.0, body_r * 0.7 + lift * 0.6))
-                .scale(Vec2::new(body_r * sh_scale, body_r * 0.45 * sh_scale))
-                .color(Color::from_rgba(0, 0, 0, sh_alpha)),
-        );
+                    let sh_scale = (1.0 - lift / 60.0).clamp(0.4, 1.0);
+                    let sh_alpha = ((1.0 - lift / 55.0) * 90.0).clamp(15.0, 90.0) as u8;
+                    shadow_params.push(
+                        DrawParam::default()
+                            .dest(pos + Vec2::new(0.0, body_r * 0.7 + lift * 0.6))
+                            .scale(Vec2::new(body_r * sh_scale, body_r * 0.45 * sh_scale))
+                            .color(Color::from_rgba(0, 0, 0, sh_alpha)),
+                    );
 
-        // A little beat-independent bob so the parade feels alive.
-        let bob = 1.0 + 0.08 * (time * 9.0 + m.start.x).sin();
-        let [r, g, b] = m.color;
-        body_params.push(
-            DrawParam::default()
-                .dest(pos)
-                .scale(Vec2::splat(body_r * bob))
-                .color(Color::new(r, g, b, 1.0)),
-        );
+                    // A little beat-independent bob so the parade feels alive.
+                    let bob = 1.0 + 0.08 * (time * 9.0 + m.start.x).sin();
+                    let [r, g, b] = m.color;
+                    body_params.push(
+                        DrawParam::default()
+                            .dest(pos)
+                            .scale(Vec2::splat(body_r * bob))
+                            .color(Color::new(r, g, b, 1.0)),
+                    );
 
-        rim_params.push(
-            DrawParam::default()
-                .dest(pos - Vec2::new(0.0, body_r * 0.3))
-                .scale(Vec2::splat(body_r * 0.45))
-                .color(Color::new((r + 0.4).min(1.0), (g + 0.4).min(1.0), (b + 0.4).min(1.0), 0.7)),
-        );
-    }
+                    rim_params.push(
+                        DrawParam::default()
+                            .dest(pos - Vec2::new(0.0, body_r * 0.3))
+                            .scale(Vec2::splat(body_r * 0.45))
+                            .color(Color::new((r + 0.4).min(1.0), (g + 0.4).min(1.0), (b + 0.4).min(1.0), 0.7)),
+                    );
+                }
 
-    // Shadows first (normal blend so they read as ground contact).
-    MARCHER_SHADOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
-        let mut inst_slot = inst_cell.borrow_mut();
-        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        instances.set(shadow_params.iter().copied());
-        canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
-        Ok(())
-    })?;
+                // Shadows first (normal blend so they read as ground contact).
+                MARCHER_SHADOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(shadow_params.iter().copied());
+                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
 
-    // Bodies + rims in additive so they glow warm as they file in.
-    let orig_blend = canvas.blend_mode();
-    MARCHER_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
-        let mut inst_slot = inst_cell.borrow_mut();
-        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        instances.set(body_params.iter().copied());
-        canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
-        Ok(())
-    })?;
+                // Bodies + rims in additive so they glow warm as they file in.
+                let orig_blend = canvas.blend_mode();
+                MARCHER_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(body_params.iter().copied());
+                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
 
-    // Bright rim highlight, additive, so the marchers pop against the pen glow.
-    canvas.set_blend_mode(BlendMode::ADD);
-    MARCHER_RIM_INSTANCES.with(|inst_cell| -> ggez::GameResult {
-        let mut inst_slot = inst_cell.borrow_mut();
-        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        instances.set(rim_params.iter().copied());
-        canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
-        Ok(())
-    })?;
-    canvas.set_blend_mode(orig_blend);
-    Ok(())
+                // Bright rim highlight, additive, so the marchers pop against the pen glow.
+                canvas.set_blend_mode(BlendMode::ADD);
+                MARCHER_RIM_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(rim_params.iter().copied());
+                    canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+                    Ok(())
+                })?;
+                canvas.set_blend_mode(orig_blend);
+                Ok(())
+            })
+        })
+    })
 }
 
 pub fn draw_combo_meter(
