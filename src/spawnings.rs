@@ -45,6 +45,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         latch_timer: 0.0,
         panic_amp: 1.0,
         magnet_snared: 0.0,
+        magnet_lured: 0.0,
     }
 }
 

@@ -3988,12 +3988,15 @@ pub fn draw_magnet_aura(
     size: f32,
     pull_radius: f32,
     time: f32,
+    lured: bool,
 ) -> ggez::GameResult {
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Lodestone red-orange, matching the crab's own color.
-    let (r, g, b) = (1.0, 0.4, 0.2);
+    // Lodestone red-orange, matching the crab's own color — but while a Golden's shine has lured
+    // this Magnet off its cluster, the aura brightens gold-ward so the "chasing the prize"
+    // crossover reads at a glance (the mirror tint of the Thief's snared aura going orange).
+    let (r, g, b) = if lured { (1.0, 0.78, 0.3) } else { (1.0, 0.4, 0.2) };
     let inner = size * 0.7;
 
     // Three rings sweeping inward on a shared phase, staggered a third of a cycle apart, so the
@@ -4014,11 +4017,13 @@ pub fn draw_magnet_aura(
     // A tight, always-bright core ring so the crab itself reads as "the magnet" at a glance.
     let core_pulse = (time * 4.0).sin() * 0.5 + 0.5;
     let core = cached_stroke_circle(ctx, inner + 4.0 + core_pulse * 4.0, 2.5)?;
+    let core_g = if lured { 0.78 } else { 0.55 } + core_pulse * 0.2;
+    let core_b = if lured { 0.35 } else { 0.3 };
     canvas.draw(
         &core,
         DrawParam::default()
             .dest(pos)
-            .color(Color::new(1.0, 0.55 + core_pulse * 0.2, 0.3, 0.55)),
+            .color(Color::new(1.0, core_g, core_b, 0.55)),
     );
 
     canvas.set_blend_mode(original_blend);

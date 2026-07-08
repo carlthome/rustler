@@ -639,6 +639,9 @@ struct MainState {
     // Positions where a Magnet's field just intercepted a homing Thief this frame (first-catch
     // only), so the "INTERCEPTED!" pop and shockwave fire once rather than every frame it's held.
     thief_snare_pops_buf: Vec<Vec2>,
+    // Positions where a roaming Magnet first began chasing a nearby fleeing Golden this frame
+    // (first-lure only), so the "LURED!" pop fires once rather than every frame the chase holds.
+    magnet_lure_pops_buf: Vec<Vec2>,
     boss_broke_buf: Vec<Vec2>,
     armor_broke_buf: Vec<Vec2>,
     attraction_particles_buf: Vec<(Vec2, Vec2, f32, [f32; 3])>,
@@ -653,6 +656,9 @@ struct MainState {
     // Free Magnet-crab positions each frame, reused instead of reallocating — drives the
     // magnet-pull pass in update_crabs (ordinary crabs drift toward the nearest one).
     magnet_positions_buf: Vec<Vec2>,
+    // Free-roaming Golden positions each frame, reused instead of reallocating — drives the
+    // Golden-lures-Magnet pass in update_crabs (a roaming Magnet drifts toward the nearest one).
+    golden_lure_positions_buf: Vec<Vec2>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
@@ -1025,6 +1031,7 @@ impl MainState {
             flee_pops_buf: Vec::new(),
             golden_snare_pops_buf: Vec::new(),
             thief_snare_pops_buf: Vec::new(),
+            magnet_lure_pops_buf: Vec::new(),
             boss_broke_buf: Vec::new(),
             armor_broke_buf: Vec::new(),
             attraction_particles_buf: Vec::new(),
@@ -1035,6 +1042,7 @@ impl MainState {
             tide_fires_buf: Vec::new(),
             tide_swells_buf: Vec::new(),
             magnet_positions_buf: Vec::new(),
+            golden_lure_positions_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
@@ -2743,6 +2751,8 @@ impl MainState {
         golden_snare_pops.clear();
         let mut thief_snare_pops = std::mem::take(&mut self.thief_snare_pops_buf);
         thief_snare_pops.clear();
+        let mut magnet_lure_pops = std::mem::take(&mut self.magnet_lure_pops_buf);
+        magnet_lure_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
         let mut boss_broke = std::mem::take(&mut self.boss_broke_buf);
         boss_broke.clear();
@@ -2801,6 +2811,21 @@ impl MainState {
         }
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
         const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
+
+        // Emergent crossover — the Golden lures the Magnet. Snapshot every free, un-beamed Golden's
+        // position so a roaming Magnet can be drawn *off its cluster* toward the shiny prize: the
+        // mirror of the Magnet-snares-Golden interaction (there the Magnet traps the Golden; here the
+        // Golden's shine pulls the Magnet away from tending its herd). Cheap: Goldens are ~3% of the
+        // herd, so this is almost always empty or a single entry. Reuses a scratch Vec to avoid churn.
+        let mut golden_lure_positions = std::mem::take(&mut self.golden_lure_positions_buf);
+        golden_lure_positions.clear();
+        for c in &self.crabs {
+            if c.is_golden() && !c.caught && !c.in_flashlight {
+                golden_lure_positions.push(c.pos);
+            }
+        }
+        const MAGNET_LURE_RADIUS: f32 = 300.0; // a Magnet notices a Golden from a bit farther than its own pull reaches
+        const MAGNET_LURE_RADIUS_SQ: f32 = MAGNET_LURE_RADIUS * MAGNET_LURE_RADIUS;
 
         // Snapshot the current conga tail position so free Thief crabs can home in on it below
         // (they ignore the herd and beeline for the train's exposed end). Only meaningful once the
@@ -3190,6 +3215,48 @@ impl MainState {
                     }
                 }
 
+                // Emergent crossover — the Golden lures the Magnet off its cluster. A roaming Magnet
+                // that isn't itself being beamed drifts toward the nearest free, fleeing Golden it can
+                // sense: the shiny prize's shine catches the lodestone's attention and pulls it away
+                // from the herd it was gathering. This is the mirror of the Magnet-snares-Golden pass
+                // above — there the Magnet traps the Golden; here the Golden tugs the Magnet — and it
+                // adds a real routing wrinkle: a Magnet you were steering toward your train can go
+                // wandering after a Golden, either concentrating the two prizes together (good) or
+                // abandoning the cluster you were building (bad). Skipped once the Golden is deep in
+                // the Magnet's own field, since the snare pass then takes over and pins it. Uses the
+                // Goldens snapshotted before the loop, so no nested borrow.
+                if crab.is_magnet() && !crab_in_light && !golden_lure_positions.is_empty() {
+                    let mut nearest: Option<(f32, Vec2)> = None;
+                    for &gp in golden_lure_positions.iter() {
+                        let d2 = crab.pos.distance_squared(gp);
+                        // Only chase Goldens that are within lure range but not already inside the
+                        // Magnet's own pull radius — once it's that close the snare handles it.
+                        if d2 < MAGNET_LURE_RADIUS_SQ && d2 > MAGNET_RADIUS_SQ * 0.36 {
+                            if nearest.map_or(true, |(bd2, _)| d2 < bd2) {
+                                nearest = Some((d2, gp));
+                            }
+                        }
+                    }
+                    if let Some((d2, gp)) = nearest {
+                        let d = d2.sqrt();
+                        // Stronger tug the closer the prize, fading out at the edge of lure range.
+                        let prox = 1.0 - d / MAGNET_LURE_RADIUS; // 0 at edge, ~1 up close
+                        let dir = (gp - crab.pos).normalize_or_zero();
+                        crab.vel = crab.vel.lerp(dir * crab.crab_type.speed_range().end, 0.05);
+                        crab.speed = 1.0;
+                        crab.pos += dir * (prox * 30.0) * dt; // small positional nudge on top of the steer
+                        if crab.magnet_lured <= 0.0 {
+                            magnet_lure_pops.push(crab.pos);
+                        }
+                        crab.magnet_lured = 0.3; // refreshed each frame the chase holds
+                    }
+                }
+                // The lure fades the instant a Magnet stops chasing (no Golden in range), so the
+                // gold-tinted aura only shows while it's actually drifting after a prize.
+                if crab.magnet_lured > 0.0 {
+                    crab.magnet_lured = (crab.magnet_lured - dt).max(0.0);
+                }
+
                 // Thief homing: a free Thief that isn't in the beam (being caught) or charmed
                 // (whistled off) steers hard toward the conga tail so it can latch on and start
                 // peeling links. Only the tail — never the head — so it always attacks the exposed
@@ -3459,11 +3526,26 @@ impl MainState {
             self.spawn_catch_shockwave(pos, [0.7, 0.85, 0.35]);
         }
 
+        // Note when a Magnet first breaks off after a Golden — a small gold-orange callout so the
+        // lure reads as a moment ("the prize pulled the lodestone off your herd") rather than the
+        // Magnet silently wandering. Gentler than the snare/intercept saves (no shockwave): this is
+        // a wrinkle in routing, not a rescue, and firing a big burst every time a Golden drifts past
+        // a Magnet would be noisy.
+        for pos in magnet_lure_pops.drain(..) {
+            self.floating_texts.spawn(
+                "LURED!".to_string(),
+                pos - Vec2::new(0.0, 30.0),
+                22.0,
+                [1.0, 0.8, 0.35, 1.0], // gold prize bleeding into the Magnet's lodestone orange
+            );
+        }
+
         // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
         // allocation instead of starting from an empty Vec.
         self.flee_pops_buf = flee_pops;
         self.golden_snare_pops_buf = golden_snare_pops;
         self.thief_snare_pops_buf = thief_snare_pops;
+        self.magnet_lure_pops_buf = magnet_lure_pops;
         self.boss_broke_buf = boss_broke;
         self.armor_broke_buf = armor_broke;
         self.attraction_particles_buf = attraction_particles;
@@ -3474,6 +3556,7 @@ impl MainState {
         self.tide_fires_buf = tide_fires;
         self.tide_swells_buf = tide_swells;
         self.magnet_positions_buf = magnet_positions;
+        self.golden_lure_positions_buf = golden_lure_positions;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
@@ -3947,6 +4030,7 @@ impl MainState {
                 latch_timer: 0.0,
                 panic_amp: 1.0,
                 magnet_snared: 0.0,
+                magnet_lured: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -5286,7 +5370,7 @@ impl MainState {
                     // Magnetic field aura — inward-sweeping rings showing its pull radius, so the
                     // player can see the catchment and chase it for the two-for-one cluster catch.
                     let size = crab.scale * CRAB_SIZE;
-                    draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed)?;
+                    draw_magnet_aura(ctx, canvas, pos, size, 240.0, self.time_elapsed, crab.is_magnet_lured())?;
                 } else if crab.is_thief() {
                     // Thief marker — a sly green ring while it prowls, flaring into a fast gnaw-ring
                     // once it's latched onto the tail so the theft-in-progress reads at a glance.
