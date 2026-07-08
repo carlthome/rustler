@@ -1273,9 +1273,13 @@ impl MainState {
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        for bucket in self.contagion_grid_buf.values_mut() {
-            bucket.clear();
-        }
+        // Clear the whole map, not just each bucket's contents — keeping only the values cleared
+        // let the key set (one entry per grid cell ever visited by a carrier) grow unbounded over
+        // a long session as the herd wanders the full level, slowly bloating the hash table and
+        // its load factor even though the actual per-beat working set stays tiny. A full clear()
+        // still keeps the map's allocated capacity (same pooling win, no realloc most beats) but
+        // resets the key count to "cells touched this beat" instead of "cells touched ever".
+        self.contagion_grid_buf.clear();
         for (i, &(pos, _)) in carriers.iter().enumerate() {
             self.contagion_grid_buf.entry(cell_of(pos)).or_default().push(i);
         }
@@ -1284,10 +1288,10 @@ impl MainState {
         // Armored crabs near this calm crab instead of every free Armored crab in the herd —
         // without this a session salted with several Armored crabs turned the shelter check
         // into a flat scan re-run per calm crab evaluated that beat.
+        // Same unbounded-key fix as contagion_grid_buf above: clear the whole map (keeps its
+        // capacity, resets its key count) instead of only clearing each bucket's Vec.
         let mut anchor_grid = std::mem::take(&mut self.armored_anchor_grid_buf);
-        for bucket in anchor_grid.values_mut() {
-            bucket.clear();
-        }
+        anchor_grid.clear();
         for (i, &pos) in anchors.iter().enumerate() {
             anchor_grid.entry(cell_of(pos)).or_default().push(i);
         }
@@ -6829,9 +6833,12 @@ impl EventHandler for MainState {
                 let cell_of = |p: Vec2| -> (i32, i32) {
                     ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
                 };
-                for bucket in self.dancer_startle_grid_buf.values_mut() {
-                    bucket.clear();
-                }
+                // Same unbounded-key fix as contagion_grid_buf/armored_anchor_grid_buf: a plain
+                // per-bucket clear left one entry per grid cell ever visited by a hopping Dancer,
+                // which only grows over a session as the herd roams the whole level. A full
+                // clear() keeps the map's allocated capacity (still avoids a realloc most beats)
+                // but bounds the key count to "cells touched this beat".
+                self.dancer_startle_grid_buf.clear();
                 for (i, &pos) in dancer_hops.iter().enumerate() {
                     self.dancer_startle_grid_buf.entry(cell_of(pos)).or_default().push(i);
                 }
