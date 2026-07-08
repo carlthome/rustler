@@ -2350,6 +2350,12 @@ pub fn draw_combo_meter(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
+    // Reuse the cached unit-line mesh (placed per segment via DrawParam) instead of calling
+    // Mesh::new_line fresh for every arc segment — this built up to 64 brand-new GPU line
+    // buffers (32 segments x main+glow passes) every single frame the combo meter was on
+    // screen, which is most of active play once a run gets going.
+    let line = unit_line(ctx)?;
+
     // Draw the main arc
     for i in 0..SEGMENTS {
         let t0 = i as f32 / SEGMENTS as f32;
@@ -2361,14 +2367,17 @@ pub fn draw_combo_meter(
         let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
         let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * radius;
         let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * radius;
-        if p0.distance(p1) > 0.5 {
-            let seg = Mesh::new_line(
-                ctx,
-                &[[p0.x, p0.y], [p1.x, p1.y]],
-                3.0,
-                tier_color,
-            )?;
-            canvas.draw(&seg, DrawParam::default());
+        let d = p0.distance(p1);
+        if d > 0.5 {
+            let dir = (p1 - p0) / d;
+            canvas.draw(
+                line,
+                DrawParam::default()
+                    .dest(p0)
+                    .rotation(dir.y.atan2(dir.x))
+                    .scale(Vec2::new(d, 3.0))
+                    .color(tier_color),
+            );
         }
     }
 
@@ -2385,14 +2394,17 @@ pub fn draw_combo_meter(
         let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
         let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * glow_radius;
         let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * glow_radius;
-        if p0.distance(p1) > 0.5 {
-            let seg = Mesh::new_line(
-                ctx,
-                &[[p0.x, p0.y], [p1.x, p1.y]],
-                6.0,
-                glow_color,
-            )?;
-            canvas.draw(&seg, DrawParam::default());
+        let d = p0.distance(p1);
+        if d > 0.5 {
+            let dir = (p1 - p0) / d;
+            canvas.draw(
+                line,
+                DrawParam::default()
+                    .dest(p0)
+                    .rotation(dir.y.atan2(dir.x))
+                    .scale(Vec2::new(d, 6.0))
+                    .color(glow_color),
+            );
         }
     }
 

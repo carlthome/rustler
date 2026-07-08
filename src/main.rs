@@ -633,6 +633,9 @@ struct MainState {
     // crab started fleeing, no boss broke, etc.), so a per-frame Vec::new() was pure churn —
     // clearing a buffer that's almost always empty costs nothing, while allocating one does.
     flee_pops_buf: Vec<Vec2>,
+    // Positions of crabs a catch-shock startle just spooked this frame (see emit_catch_startle),
+    // reused across calls instead of a fresh Vec::new() every single catch.
+    startled_pops_buf: Vec<Vec2>,
     // Positions where a Magnet's field just snared a fleeing Golden this frame (first-snare only),
     // so the "SNARED!" pop and shockwave fire once rather than every frame the tether holds.
     golden_snare_pops_buf: Vec<Vec2>,
@@ -1032,6 +1035,7 @@ impl MainState {
             deflect_collide_buf: Vec::new(),
             deflect_resolve_buf: Vec::new(),
             flee_pops_buf: Vec::new(),
+            startled_pops_buf: Vec::new(),
             golden_snare_pops_buf: Vec::new(),
             thief_snare_pops_buf: Vec::new(),
             magnet_lure_pops_buf: Vec::new(),
@@ -1099,7 +1103,10 @@ impl MainState {
         if self.fear_rings.len() < 32 {
             self.fear_rings.push((origin, 0.0));
         }
-        let mut startled_pops: Vec<Vec2> = Vec::new();
+        // Reused scratch buffer instead of a fresh Vec::new() on every single catch — a catch
+        // that lands mid-herd is exactly the busiest moment for allocator churn to matter.
+        let mut startled_pops = std::mem::take(&mut self.startled_pops_buf);
+        startled_pops.clear();
         for crab in &mut self.crabs {
             if crab.caught || crab.in_flashlight {
                 continue;
@@ -1121,7 +1128,7 @@ impl MainState {
                 startled_pops.push(crab.pos);
             }
         }
-        for pos in startled_pops {
+        for &pos in &startled_pops {
             self.floating_texts.spawn(
                 "!".to_string(),
                 pos - Vec2::new(0.0, 24.0),
@@ -1129,6 +1136,7 @@ impl MainState {
                 [0.6, 0.9, 1.0, 1.0],
             );
         }
+        self.startled_pops_buf = startled_pops;
     }
 
     /// Emergent beat-startle chain reaction: on each beat, crabs that are already panicking
