@@ -2952,33 +2952,48 @@ impl MainState {
         tide_swells.clear();
 
         // Where the King Crab aims: the exposed tail of the conga train if there is one, else the
-        // player. Computed before the mutable loop so the boss branch can read it freely. This is
-        // also exactly the position a free Thief homes in on (see thief_tail_pos below) — both
-        // want "whoever currently holds the highest chain_index" — so we compute it once here and
-        // share it, instead of two separate full scans over self.crabs for the same crab.
-        let chain_tail_pos = self
-            .crabs
-            .iter()
-            .filter(|c| c.caught && c.chain_index.is_some())
-            .max_by_key(|c| c.chain_index)
-            .map(|c| c.pos);
+        // player — "whoever currently holds the highest chain_index". Folded into the single
+        // snapshot pass below (tracked via a running best-chain_index candidate) instead of its own
+        // full scan, alongside the Magnet/Golden/Armored position snapshots that used to each walk
+        // self.crabs separately: 4 full passes over a struct with 20+ fields collapsed into 1. Same
+        // results, same order-independent picks (positions just need membership, tail just needs the
+        // max chain_index), a quarter of the cache traffic before the real per-crab loop even starts.
+        let mut magnet_positions = std::mem::take(&mut self.magnet_positions_buf);
+        magnet_positions.clear();
+        let mut golden_lure_positions = std::mem::take(&mut self.golden_lure_positions_buf);
+        golden_lure_positions.clear();
+        let mut armored_positions = std::mem::take(&mut self.armored_positions_buf);
+        armored_positions.clear();
+        let mut best_chain: Option<(usize, Vec2)> = None;
+        for c in &self.crabs {
+            if c.caught {
+                if let Some(ci) = c.chain_index {
+                    if best_chain.map_or(true, |(bci, _)| ci > bci) {
+                        best_chain = Some((ci, c.pos));
+                    }
+                }
+                continue; // caught crabs can't be a Magnet/Golden/Armored source below
+            }
+            if c.is_magnet() {
+                magnet_positions.push(c.pos);
+            } else if c.is_golden() {
+                if !c.in_flashlight {
+                    golden_lure_positions.push(c.pos);
+                }
+            } else if c.is_armored() {
+                armored_positions.push(c.pos);
+            }
+        }
+        let chain_tail_pos = best_chain.map(|(_, pos)| pos);
         let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
         // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
         // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
         self.cached_tail_pos = chain_tail_pos;
 
         // Magnet-crab pull: free-roaming Magnet crabs each tug nearby uncaught crabs toward
-        // themselves, so the herd clumps up around them. Snapshot every free Magnet's position
-        // before the &mut loop so each ordinary crab can pull toward the nearest one without a
-        // nested borrow. Almost always a tiny list (Magnets are ~8% of the herd and rare), so a
-        // flat per-crab nearest-magnet scan is cheap; reuse a scratch Vec to avoid per-frame churn.
-        let mut magnet_positions = std::mem::take(&mut self.magnet_positions_buf);
-        magnet_positions.clear();
-        for c in &self.crabs {
-            if c.is_magnet() && !c.caught {
-                magnet_positions.push(c.pos);
-            }
-        }
+        // themselves, so the herd clumps up around them. Snapshotted above so each ordinary crab
+        // can pull toward the nearest one without a nested borrow. Almost always a tiny list
+        // (Magnets are ~8% of the herd and rare), so a flat per-crab nearest-magnet scan is cheap.
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
         const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
 
@@ -3016,37 +3031,22 @@ impl MainState {
         const CHARGED_MAGNET_RADIUS: f32 = MAGNET_RADIUS * 1.4;
         const CHARGED_MAGNET_RADIUS_SQ: f32 = CHARGED_MAGNET_RADIUS * CHARGED_MAGNET_RADIUS;
 
-        // Emergent crossover — the Golden lures the Magnet. Snapshot every free, un-beamed Golden's
-        // position so a roaming Magnet can be drawn *off its cluster* toward the shiny prize: the
-        // mirror of the Magnet-snares-Golden interaction (there the Magnet traps the Golden; here the
-        // Golden's shine pulls the Magnet away from tending its herd). Cheap: Goldens are ~3% of the
-        // herd, so this is almost always empty or a single entry. Reuses a scratch Vec to avoid churn.
-        let mut golden_lure_positions = std::mem::take(&mut self.golden_lure_positions_buf);
-        golden_lure_positions.clear();
-        for c in &self.crabs {
-            if c.is_golden() && !c.caught && !c.in_flashlight {
-                golden_lure_positions.push(c.pos);
-            }
-        }
+        // Emergent crossover — the Golden lures the Magnet. `golden_lure_positions` (every free,
+        // un-beamed Golden's position) was snapshotted in the single pass above, so a roaming
+        // Magnet can be drawn *off its cluster* toward the shiny prize: the mirror of the
+        // Magnet-snares-Golden interaction (there the Magnet traps the Golden; here the Golden's
+        // shine pulls the Magnet away from tending its herd).
         const MAGNET_LURE_RADIUS: f32 = 300.0; // a Magnet notices a Golden from a bit farther than its own pull reaches
         const MAGNET_LURE_RADIUS_SQ: f32 = MAGNET_LURE_RADIUS * MAGNET_LURE_RADIUS;
 
         // Emergent crossover — a free Armored crab body-blocks a charging King Crab. The Armored
         // crab is already established as a wall (its calm-anchor shell shelters the herd from panic
-        // ripples); here that same stubborn shell also stops a boss lunge cold. Snapshot every free
-        // Armored crab's position so the King Crab's charge arm below can test whether its lane
-        // plows through one — if it does, the shell clangs, the boss skids to a halt on cooldown,
-        // and the tail it was aiming for is spared. Parking or leaving an Armored crab between the
-        // boss and your train becomes a real defensive routing play — the mirror of a Magnet
-        // between your train and an incoming Thief. Cheap: Armored are ~10% of the herd, so this is
-        // usually a handful of entries. Reuses a scratch Vec to avoid per-frame churn.
-        let mut armored_positions = std::mem::take(&mut self.armored_positions_buf);
-        armored_positions.clear();
-        for c in &self.crabs {
-            if c.is_armored() && !c.caught {
-                armored_positions.push(c.pos);
-            }
-        }
+        // ripples); here that same stubborn shell also stops a boss lunge cold. `armored_positions`
+        // (every free Armored crab's position) was snapshotted in the single pass above so the King
+        // Crab's charge arm below can test whether its lane plows through one — if it does, the
+        // shell clangs, the boss skids to a halt on cooldown, and the tail it was aiming for is
+        // spared. Parking or leaving an Armored crab between the boss and your train becomes a real
+        // defensive routing play — the mirror of a Magnet between your train and an incoming Thief.
         // A charging King Crab that rams a free Armored crab this frame — (boss_pos, shell_pos) so
         // the shell-clang feedback fires after the borrow ends. Almost always empty (needs a boss
         // mid-lunge overlapping a shell), so a reused scratch Vec keeps it allocation-free.
