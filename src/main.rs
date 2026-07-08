@@ -33,7 +33,9 @@ use crate::graphics::{
     draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
-use crate::spawnings::{spawn_boss, spawn_rhythm_boss, spawn_tide_boss, spawn_enemies};
+use crate::spawnings::{
+    spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
+};
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -569,6 +571,11 @@ struct MainState {
     reef_phrase: [bool; 4],
     reef_phrase_bar: u32,                // beat_count/4 of the bar the current phrase was rolled for, so we re-roll once per bar
     reef_active: bool,                   // true while a Reef DJ is on the field, gating the phrase HUD/telegraph
+    // Reef DJ backup dancers: the fight otherwise silences the whole archetype web, so the DJ
+    // summons its own "hype Dancers" into the arena as a fight mechanic. Catching one on a called
+    // (hot) beat chips the boss shell — herd them onto the phrase to crack it faster than light
+    // alone. This timer counts down while the DJ is on the field; on zero it spawns one and resets.
+    reef_dancer_timer: f32,
     reef_hit_flash: f32,                 // 1..0 juice bloom kicked when the player lands a hot beat on the DJ's shell
     // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
     // the whole train for a super-linear score payout (longer train = disproportionately more) and
@@ -1068,6 +1075,7 @@ impl MainState {
             reef_phrase: [false; 4],
             reef_phrase_bar: u32::MAX,
             reef_active: false,
+            reef_dancer_timer: 0.0,
             reef_hit_flash: 0.0,
             pen_pos: init_pen,
             deliver_flash: 0.0,
@@ -2366,6 +2374,13 @@ impl MainState {
         // Golden crabs snapped up this frame — the big lump-sum bonus is paid out after the loop.
         let mut golden_catches = std::mem::take(&mut self.golden_catches_buf);
         golden_catches.clear();
+        // Reef DJ backup dancers caught this frame on a *called (hot) beat* — each one chips the
+        // boss shell. Collected here and applied after the loop so we don't need a second &mut
+        // borrow of self.crabs mid-loop. `reef_hot_now` is the same window the DJ's own shell uses.
+        let reef_hot_now = (self.beat_timer < BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW)
+            && self.reef_phrase[(self.beat_count % 4) as usize];
+        let mut hype_dancer_hits: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -2389,6 +2404,12 @@ impl MainState {
 
                 if crab.answering_call > 0.0 {
                     dance_catches.push(crab.pos);
+                }
+                // Reef DJ backup dancer snapped up on a called (hot) beat: queue a shell chip. This
+                // is the archetype's job inside the boss fight — a Dancer caught in time with the
+                // DJ's phrase helps crack it, so herding its own hype crew onto the beat pays off.
+                if self.reef_active && reef_hot_now && crab.is_dancer() {
+                    hype_dancer_hits.push(crab.pos);
                 }
                 crab.caught = true;
                 self.chain_join_ripple = true;
@@ -2515,6 +2536,49 @@ impl MainState {
         }
         for &(bpos, is_tide) in &boss_catches {
             self.on_boss_caught(bpos, is_tide);
+        }
+        // Apply Reef DJ shell chips from hype dancers caught on a hot beat. Find the live DJ and
+        // knock a chunk off its shell per dancer, with a legible callout + juice so the assist
+        // reads on screen. If a chip finishes the boss, queue its catch payoff like a beam kill.
+        if !hype_dancer_hits.is_empty() {
+            let mut broke_at: Option<Vec2> = None;
+            for crab in &mut self.crabs {
+                if crab.is_rhythm_boss() && !crab.caught && crab.boss_health > 0.0 {
+                    for _ in &hype_dancer_hits {
+                        crab.boss_health -= 0.4;
+                    }
+                    if crab.boss_health <= 0.0 {
+                        crab.boss_health = 0.0;
+                        broke_at = Some(crab.pos);
+                    }
+                    break;
+                }
+            }
+            for &dpos in &hype_dancer_hits {
+                self.floating_texts.spawn(
+                    "HYPE! shell cracked".to_string(),
+                    dpos - Vec2::new(40.0, 40.0),
+                    28.0,
+                    [0.85, 0.5, 1.0, 1.0],
+                );
+                self.particle_system
+                    .spawn_milestone_fireworks(dpos, 8, &mut rand::rng());
+            }
+            self.reef_hit_flash = 1.0;
+            self.screen_shake = self.screen_shake.max(6.0);
+            // A dancer chip that empties the shell worns the DJ down (it doesn't catch it — the
+            // player still snaps it up). Fire the same "worn down, catch it!" juice as the beam path.
+            if let Some(bpos) = broke_at {
+                self.floating_texts.spawn(
+                    "WORN DOWN — CATCH IT!".to_string(),
+                    bpos - Vec2::new(110.0, 46.0),
+                    34.0,
+                    [0.4, 1.0, 0.5, 1.0],
+                );
+                self.spawn_catch_shockwave(bpos, [1.0, 0.85, 0.3]);
+                self.screen_shake = self.screen_shake.max(14.0);
+                self.on_beat_flash = self.on_beat_flash.max(0.4);
+            }
         }
         for &(gpos, base_pts) in &golden_catches {
             self.on_golden_caught(gpos, base_pts);
@@ -3177,12 +3241,15 @@ impl MainState {
         // Recomputed each frame from the live crab list: true while an un-caught Reef DJ is on the
         // field. Gates the phrase roll + HUD telegraph so they only appear during a rhythm-boss fight.
         let mut reef_on_field = false;
+        // Live Reef DJ position, captured so we can ring its backup "hype Dancers" out from it.
+        let mut reef_boss_pos = Vec2::ZERO;
 
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
                 if crab.is_rhythm_boss() {
                     reef_on_field = true;
+                    reef_boss_pos = crab.pos;
                 }
                 crab.spawn_time += dt;
                 let distance = self.player_pos.distance(crab.pos);
@@ -3897,9 +3964,37 @@ impl MainState {
         if !reef_on_field {
             self.reef_phrase = [false; 4];
             self.reef_phrase_bar = u32::MAX;
+            self.reef_dancer_timer = 0.0;
         } else if reef_hit_landed {
             self.reef_hit_flash = 1.0;
             self.on_beat_flash = self.on_beat_flash.max(0.3);
+        }
+
+        // Reef DJ backup dancers. The boss clears the herd for a clean duel, so bring one archetype
+        // back into the arena as a fight mechanic: the DJ summons "hype Dancers" on a timer. They
+        // drift and hop on the beat like any Dancer, but catching one *on a called (hot) beat* chips
+        // the boss shell (see the catch loop), so herding them onto the phrase is an active second
+        // way to crack the DJ beyond just holding light. Cap how many are loose so the duel stays
+        // legible — a couple to chase, not a swarm — and only summon while the DJ still has shell.
+        if reef_on_field {
+            self.reef_dancer_timer -= dt;
+            if self.reef_dancer_timer <= 0.0 {
+                let loose_dancers = self
+                    .crabs
+                    .iter()
+                    .filter(|c| !c.caught && !c.is_boss() && c.is_dancer())
+                    .count();
+                if loose_dancers < 3 {
+                    let mut rng = rand::rng();
+                    let dancer = spawn_hype_dancer((self.width, self.height), reef_boss_pos, &mut rng);
+                    let dpos = dancer.pos;
+                    self.crabs.push(dancer);
+                    // Little violet summon puff so the dancer reads as the DJ's call, not a stray.
+                    self.particle_system
+                        .spawn_milestone_fireworks(dpos, 5, &mut rng);
+                }
+                self.reef_dancer_timer = 3.0;
+            }
         }
 
         // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
@@ -4463,6 +4558,7 @@ impl MainState {
         self.reef_phrase = [false; 4];
         self.reef_phrase_bar = u32::MAX;
         self.reef_active = false;
+        self.reef_dancer_timer = 0.0;
         self.reef_hit_flash = 0.0;
         self.deliver_flash = 0.0;
         self.penned_marchers.marchers.clear();
@@ -7681,7 +7777,7 @@ impl EventHandler for MainState {
                 2 => (
                     spawn_rhythm_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "THE REEF DJ DROPS IN!",
-                    "It calls a beat phrase — echo the lit pips with your light!",
+                    "Echo the lit pips with light — or catch its dancers on a hot beat!",
                     [0.75, 0.4, 1.0, 1.0],
                 ),
                 _ => (

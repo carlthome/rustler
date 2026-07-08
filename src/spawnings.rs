@@ -116,6 +116,31 @@ pub fn spawn_rhythm_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) 
     boss
 }
 
+/// Spawn a single "hype Dancer" for the Reef DJ fight. The rhythm boss clears the herd for a
+/// clean duel, which normally silences the whole archetype web — this brings one archetype back
+/// into the arena as a fight mechanic. It's a normal Dancer (drifts between beats, hops on the
+/// beat) forced to spawn near the boss, but catching one *on a called (hot) beat* chips the DJ's
+/// shell (see the catch loop in main.rs). So the boss's own backup dancers become ammunition:
+/// herd them onto the hot beat and snap them up to help crack the shell faster than light alone.
+pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -> EnemyCrab {
+    let (width, height) = area;
+    // Ring out from the boss so the dancer reads as *its* summon, not a stray herd crab.
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let dist = rng.random_range(80.0..160.0);
+    let pos = (boss_pos + Vec2::new(angle.cos(), angle.sin()) * dist).clamp(
+        Vec2::splat(20.0),
+        Vec2::new(width - 20.0, height - 20.0),
+    );
+    let vel = Vec2::new(angle.cos(), angle.sin());
+    let mut crab = make_crab(pos, vel, 0.0, rng);
+    crab.crab_type = CrabType::Dancer;
+    crab.speed = rng.random_range(CrabType::Dancer.speed_range());
+    crab.scale = rng.random_range(CrabType::Dancer.scale_range());
+    crab.boss_health = 0.0;
+    crab.boss_max_health = 0.0001;
+    crab
+}
+
 pub fn spawn_enemies(
     pattern: SpawnPattern,
     count: usize,
