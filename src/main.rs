@@ -6745,19 +6745,28 @@ impl EventHandler for MainState {
                 }
             }
 
-            // Emergent interaction: a fleeing Dancer's on-beat hop startles the calm crabs it
-            // lands among. This is the Dancer earning its keep as a chaos engine — its rhythmic
-            // leaps ripple panic into the surrounding herd, so a herd salted with Dancers churns
-            // on the beat instead of sitting still. Deliberately gentler and tighter than the
-            // beam-panic contagion (smaller radius, hard per-beat cap, no re-trigger of crabs
-            // already spooked) so it adds texture without locking the map into permanent flight.
+            // Emergent interaction: a fleeing Dancer's on-beat hop ripples out into five separate
+            // effects depending on what it lands near — startling a calm crab, jolting a latched
+            // Thief loose, staggering a bolting Golden, chipping an Armored crab's shell, or kicking
+            // a roaming Magnet into a pull surge. These used to be five independent
+            // `self.crabs.iter_mut()` passes, each rebuilding the same grid-lookup closure and
+            // re-scanning the whole herd — on a long train that's 5x redundant O(n) work every
+            // single beat. Since the five target predicates (calm non-Dancer / free latched Thief /
+            // free Golden / free Armored-with-shell / free Magnet) are mutually exclusive per crab,
+            // fold them into one pass over self.crabs that dispatches by crab type, sharing one grid
+            // lookup and one nearest/hit search per crab instead of up to five.
             if !dancer_hops.is_empty() {
                 const DANCER_STARTLE_RADIUS: f32 = 78.0;
                 const MAX_DANCER_STARTLES: usize = 5;
+                const DANCER_JOLT_RADIUS_SQ: f32 = 70.0 * 70.0; // Thief
+                const DANCER_TRIP_RADIUS_SQ: f32 = 68.0 * 68.0; // Golden
+                const DANCER_CHIP_RADIUS_SQ: f32 = 66.0 * 66.0; // Armored
+                const DANCER_KICK_RADIUS_SQ: f32 = 72.0 * 72.0; // Magnet
 
-                // Same grid treatment as beat_startle_contagion: bucket the (usually small, but
-                // unbounded as Dancer count grows) set of hop sources so each crab only tests
-                // nearby ones instead of every Dancer that hopped this beat.
+                // Bucket the (usually small, but unbounded as Dancer count grows) set of hop
+                // sources so each crab only tests nearby ones instead of every Dancer that hopped
+                // this beat. Built once at the widest radius (the startle ripple's) and reused by
+                // all five checks below, each with its own (smaller) trigger radius.
                 let cell_size = DANCER_STARTLE_RADIUS.max(1.0);
                 let cell_of = |p: Vec2| -> (i32, i32) {
                     ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
@@ -6770,15 +6779,130 @@ impl EventHandler for MainState {
                 }
 
                 let mut spooked = std::mem::take(&mut self.dancer_spooked_buf);
+                let mut jolted = std::mem::take(&mut self.dancer_jolt_buf);
+                let mut tripped = std::mem::take(&mut self.dancer_trip_buf);
+                let mut chipped = std::mem::take(&mut self.dancer_chip_buf);
+                let mut kicked = std::mem::take(&mut self.dancer_kick_buf);
                 spooked.clear();
+                jolted.clear();
+                tripped.clear();
+                chipped.clear();
+                kicked.clear();
+
                 for crab in self.crabs.iter_mut() {
-                    if spooked.len() >= MAX_DANCER_STARTLES {
-                        break;
+                    if crab.caught {
+                        continue;
                     }
-                    // Only calm, catchable, un-beamed, un-soothed crabs catch it — and never
-                    // another Dancer (their motion is their own beat hop, not a panic flee).
-                    if crab.caught
-                        || crab.is_boss()
+                    if crab.is_thief() {
+                        if crab.latch_timer <= 0.0 {
+                            continue;
+                        }
+                        let (cx, cy) = cell_of(crab.pos);
+                        let mut hop_src: Option<Vec2> = None;
+                        'search_thief: for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                    for &i in candidates {
+                                        let hp = dancer_hops[i];
+                                        if crab.pos.distance_squared(hp) < DANCER_JOLT_RADIUS_SQ {
+                                            hop_src = Some(hp);
+                                            break 'search_thief;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(src) = hop_src {
+                            // Break the clamp and fling the Thief away from the Dancer that thumped
+                            // it, matching how the Magnet-pry sends it off toward the lodestone.
+                            crab.latch_timer = 0.0;
+                            let dir = (crab.pos - src).normalize_or_zero();
+                            let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                            crab.vel = dir * crab.crab_type.speed_range().end * 1.5;
+                            crab.speed = 1.0;
+                            crab.fleeing = false;
+                            crab.startle_timer = 0.0;
+                            jolted.push(crab.pos);
+                        }
+                    } else if crab.is_golden() {
+                        if crab.magnet_snared > 0.0 {
+                            continue;
+                        }
+                        let (cx, cy) = cell_of(crab.pos);
+                        let mut hop_src: Option<Vec2> = None;
+                        'search_golden: for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                    for &i in candidates {
+                                        let hp = dancer_hops[i];
+                                        if crab.pos.distance_squared(hp) < DANCER_TRIP_RADIUS_SQ {
+                                            hop_src = Some(hp);
+                                            break 'search_golden;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if hop_src.is_some() {
+                            // Trip it: kill the bolt so it wobbles in place, opening a short catch
+                            // window. No magnet_snared flag (keeps the orange snare visual for the
+                            // Magnet path); the stalled prize plus the pink burst tell the story.
+                            crab.vel *= 0.15;
+                            crab.speed = 1.0;
+                            crab.fleeing = false;
+                            crab.startle_timer = 0.0;
+                            crab.join_pulse = 1.0;
+                            tripped.push(crab.pos);
+                        }
+                    } else if crab.is_armored() {
+                        if crab.boss_health <= 0.0 {
+                            continue;
+                        }
+                        let (cx, cy) = cell_of(crab.pos);
+                        let mut hit = false;
+                        'search_armored: for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                    for &i in candidates {
+                                        if crab.pos.distance_squared(dancer_hops[i]) < DANCER_CHIP_RADIUS_SQ {
+                                            hit = true;
+                                            break 'search_armored;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if hit {
+                            crab.boss_health = (crab.boss_health - 1.0).max(0.0);
+                            crab.join_pulse = 1.0;
+                            crab.fleeing = false;
+                            crab.spooked_timer = crab.spooked_timer.max(0.3);
+                            chipped.push((crab.pos, crab.boss_health <= 0.0));
+                        }
+                    } else if crab.is_magnet() {
+                        if crab.in_flashlight || crab.magnet_charged > 0.0 {
+                            continue;
+                        }
+                        let (cx, cy) = cell_of(crab.pos);
+                        let mut hit = false;
+                        'search_magnet: for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                    for &i in candidates {
+                                        if crab.pos.distance_squared(dancer_hops[i]) < DANCER_KICK_RADIUS_SQ {
+                                            hit = true;
+                                            break 'search_magnet;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if hit {
+                            crab.magnet_charged = 0.45;
+                            crab.join_pulse = 1.0;
+                            kicked.push(crab.pos);
+                        }
+                    } else if crab.is_boss()
                         || crab.is_dancer()
                         || crab.in_flashlight
                         || crab.fleeing
@@ -6786,33 +6910,38 @@ impl EventHandler for MainState {
                         || crab.charm_timer > 0.0
                     {
                         continue;
-                    }
-                    let (cx, cy) = cell_of(crab.pos);
-                    let mut nearest: Option<(f32, Vec2)> = None;
-                    for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
-                                for &i in candidates {
-                                    let src = dancer_hops[i];
-                                    let d = src.distance(crab.pos);
-                                    if d < DANCER_STARTLE_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
-                                        nearest = Some((d, src));
+                    } else {
+                        if spooked.len() >= MAX_DANCER_STARTLES {
+                            continue;
+                        }
+                        let (cx, cy) = cell_of(crab.pos);
+                        let mut nearest: Option<(f32, Vec2)> = None;
+                        for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                    for &i in candidates {
+                                        let src = dancer_hops[i];
+                                        let d = src.distance(crab.pos);
+                                        if d < DANCER_STARTLE_RADIUS && nearest.map_or(true, |(nd, _)| d < nd) {
+                                            nearest = Some((d, src));
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    if let Some((d, src)) = nearest {
-                        let outward = (crab.pos - src).normalize_or_zero();
-                        let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
-                        let prox = 1.0 - d / DANCER_STARTLE_RADIUS;
-                        let kick = crab.crab_type.speed_range().end * (1.0 + prox * 0.7);
-                        crab.vel = outward * kick;
-                        crab.speed = 1.0;
-                        crab.startle_timer = 0.4;
-                        spooked.push(crab.pos);
+                        if let Some((d, src)) = nearest {
+                            let outward = (crab.pos - src).normalize_or_zero();
+                            let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
+                            let prox = 1.0 - d / DANCER_STARTLE_RADIUS;
+                            let kick = crab.crab_type.speed_range().end * (1.0 + prox * 0.7);
+                            crab.vel = outward * kick;
+                            crab.speed = 1.0;
+                            crab.startle_timer = 0.4;
+                            spooked.push(crab.pos);
+                        }
                     }
                 }
+
                 for &pos in &spooked {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
@@ -6823,66 +6952,6 @@ impl EventHandler for MainState {
                         20.0,
                         [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink "!" so the source reads at a glance
                     );
-                }
-                self.dancer_spooked_buf = spooked;
-            }
-
-            // Emergent crossover: a fleeing Dancer's on-beat hop shakes a latched Thief off your
-            // tail. A Thief that's clamped onto the conga's trailing link and gnawing it loose gets
-            // jolted free when a Dancer lands its rhythmic leap right on top of it — the sudden
-            // beat-timed thump breaks the parasite's grip and flings it into the loose herd. This is
-            // the rhythm-native mirror of the Magnet-pry (a Magnet's field rips a latched Thief off):
-            // there a lodestone parked between train and raider saves you, here a Dancer bopping past
-            // the tail on the beat does it by accident, so a herd full of Dancers becomes an
-            // unreliable-but-satisfying rhythmic defense for the train you built. Reuses the Dancer
-            // landings already gathered above — no extra scan of the herd — and only fires on the
-            // beat, so it's rare and legible, not a constant Thief-cleaner.
-            if !dancer_hops.is_empty() {
-                const DANCER_JOLT_RADIUS: f32 = 70.0; // a Dancer has to land nearly on the Thief
-                const DANCER_JOLT_RADIUS_SQ: f32 = DANCER_JOLT_RADIUS * DANCER_JOLT_RADIUS;
-                // Same grid lookup as the startle ripple above (built from these same dancer_hops,
-                // still populated — nothing clears it in between): each crab only tests hops in its
-                // own and neighboring cells instead of every Dancer landing this beat. Cell size must
-                // match the grid's build radius (78.0, the startle ripple's DANCER_STARTLE_RADIUS)
-                // rather than this block's own (smaller) trigger radius, or lookups miss buckets.
-                let cell_size: f32 = 78.0_f32.max(1.0);
-                let cell_of = |p: Vec2| -> (i32, i32) {
-                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
-                };
-                let mut jolted = std::mem::take(&mut self.dancer_jolt_buf);
-                jolted.clear();
-                for crab in self.crabs.iter_mut() {
-                    // Only a currently-latched, free Thief can be shaken loose.
-                    if crab.caught || !crab.is_thief() || crab.latch_timer <= 0.0 {
-                        continue;
-                    }
-                    let (cx, cy) = cell_of(crab.pos);
-                    let mut hop_src: Option<Vec2> = None;
-                    'search: for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
-                                for &i in candidates {
-                                    let hp = dancer_hops[i];
-                                    if crab.pos.distance_squared(hp) < DANCER_JOLT_RADIUS_SQ {
-                                        hop_src = Some(hp);
-                                        break 'search;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(src) = hop_src {
-                        // Break the clamp and fling the Thief away from the Dancer that thumped it,
-                        // matching how the Magnet-pry sends it off toward the lodestone.
-                        crab.latch_timer = 0.0;
-                        let dir = (crab.pos - src).normalize_or_zero();
-                        let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
-                        crab.vel = dir * crab.crab_type.speed_range().end * 1.5;
-                        crab.speed = 1.0;
-                        crab.fleeing = false;
-                        crab.startle_timer = 0.0;
-                        jolted.push(crab.pos);
-                    }
                 }
                 for &pos in jolted.iter() {
                     if self.fear_rings.len() < 32 {
@@ -6896,64 +6965,6 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, [1.0, 0.45, 0.85]);
                 }
-                self.dancer_jolt_buf = jolted;
-            }
-
-            // Emergent crossover: a fleeing Dancer's on-beat hop staggers a bolting Golden. A free
-            // Golden normally sprints too fast to catch by hand, but if a Dancer lands its rhythmic
-            // leap right on top of one, the beat-timed thump trips the skittish prize mid-bolt — its
-            // dash is killed and it wobbles in place for a moment, opening a brief on-beat window to
-            // snag the prize you'd otherwise never stop. This is the rhythm-native mirror of the
-            // Magnet-snares-Golden trap (a lodestone pins it physically; here a Dancer trips it on
-            // the beat), and it stacks with the herd full of Dancers already being a rhythmic
-            // Thief-defense — now they also knock loose the prizes. Reuses the Dancer landings
-            // already gathered above (no extra herd scan) and fires only on the beat, so it stays a
-            // rare, legible "did you see that?" moment rather than a reliable Golden-stopper.
-            if !dancer_hops.is_empty() {
-                const DANCER_TRIP_RADIUS: f32 = 68.0; // a Dancer has to land nearly on the Golden
-                const DANCER_TRIP_RADIUS_SQ: f32 = DANCER_TRIP_RADIUS * DANCER_TRIP_RADIUS;
-                // Same grid lookup as the startle ripple and Thief-jolt above (built from these same
-                // dancer_hops, still populated) instead of scanning every hop per Golden. Cell size
-                // must match the grid's build radius (78.0), not this block's own trigger radius.
-                let cell_size: f32 = 78.0_f32.max(1.0);
-                let cell_of = |p: Vec2| -> (i32, i32) {
-                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
-                };
-                let mut tripped = std::mem::take(&mut self.dancer_trip_buf);
-                tripped.clear();
-                for crab in self.crabs.iter_mut() {
-                    // Only a free, un-caught Golden that isn't already pinned by a Magnet snare
-                    // (that path owns the orange-tether visual) can be tripped by a Dancer.
-                    if crab.caught || !crab.is_golden() || crab.magnet_snared > 0.0 {
-                        continue;
-                    }
-                    let (cx, cy) = cell_of(crab.pos);
-                    let mut hop_src: Option<Vec2> = None;
-                    'search: for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
-                                for &i in candidates {
-                                    let hp = dancer_hops[i];
-                                    if crab.pos.distance_squared(hp) < DANCER_TRIP_RADIUS_SQ {
-                                        hop_src = Some(hp);
-                                        break 'search;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if hop_src.is_some() {
-                        // Trip it: kill the bolt so it wobbles in place, opening a short catch window.
-                        // No magnet_snared flag (keeps the orange snare visual for the Magnet path);
-                        // the stalled prize plus the pink stagger burst tell the Dancer's story.
-                        crab.vel *= 0.15;
-                        crab.speed = 1.0;
-                        crab.fleeing = false;
-                        crab.startle_timer = 0.0;
-                        crab.join_pulse = 1.0; // reuse the squash-pop as a little "tripped" stumble
-                        tripped.push(crab.pos);
-                    }
-                }
                 for &pos in tripped.iter() {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
@@ -6965,61 +6976,6 @@ impl EventHandler for MainState {
                         [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink so the "a Dancer tripped it" story reads
                     );
                     self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
-                }
-                self.dancer_trip_buf = tripped;
-            }
-
-            // Emergent crossover: a fleeing Dancer's on-beat hop chips a nearby Armored crab's shell.
-            // The Stomp is the game's dedicated shell-breaker (instant full crack), but a Dancer
-            // landing its rhythmic leap right on an Armored crab is a lighter, beat-timed thump — it
-            // knocks a single chink out of the shell rather than shattering it, so it takes a couple
-            // of well-placed hops (or a Dancer-heavy herd) to open a shelled crab the free way. This
-            // is the rhythm-native mirror of the Stomp crack, and it gives both archetypes a new
-            // role: the Dancer as a soft shell-breaker you can herd toward an Armored target, and the
-            // Armored crab as something the herd's own rhythm can wear down without a tool. Reuses the
-            // Dancer landings already gathered above (no extra herd scan) and fires only on the beat,
-            // so it stays a rare, legible "the beat cracked it!" moment, not a constant shell-melter.
-            if !dancer_hops.is_empty() {
-                const DANCER_CHIP_RADIUS: f32 = 66.0; // a Dancer has to land nearly on the shell
-                const DANCER_CHIP_RADIUS_SQ: f32 = DANCER_CHIP_RADIUS * DANCER_CHIP_RADIUS;
-                // Same grid lookup as the ripple / jolt / trip blocks above, built from these same
-                // dancer_hops. Cell size must match the grid's build radius (78.0), not this block's
-                // own smaller trigger radius, or lookups miss buckets.
-                let cell_size: f32 = 78.0_f32.max(1.0);
-                let cell_of = |p: Vec2| -> (i32, i32) {
-                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
-                };
-                let mut chipped = std::mem::take(&mut self.dancer_chip_buf);
-                chipped.clear();
-                for crab in self.crabs.iter_mut() {
-                    // Only a free Armored crab with shell left can be chipped.
-                    if crab.caught || !crab.is_armored() || crab.boss_health <= 0.0 {
-                        continue;
-                    }
-                    let (cx, cy) = cell_of(crab.pos);
-                    let mut hit = false;
-                    'search: for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
-                                for &i in candidates {
-                                    if crab.pos.distance_squared(dancer_hops[i]) < DANCER_CHIP_RADIUS_SQ {
-                                        hit = true;
-                                        break 'search;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if hit {
-                        // Knock one chink off the shell (never more than one per beat, however many
-                        // Dancers land on it), and settle the crab a touch so a cracked-open shell
-                        // doesn't instantly bolt out of reach.
-                        crab.boss_health = (crab.boss_health - 1.0).max(0.0);
-                        crab.join_pulse = 1.0; // reuse the squash-pop as a "took a hit" flinch
-                        crab.fleeing = false;
-                        crab.spooked_timer = crab.spooked_timer.max(0.3);
-                        chipped.push((crab.pos, crab.boss_health <= 0.0));
-                    }
                 }
                 for &(pos, broke) in chipped.iter() {
                     let (label, burst) = if broke {
@@ -7035,65 +6991,6 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, burst);
                 }
-                self.dancer_chip_buf = chipped;
-            }
-
-            // Emergent crossover: a fleeing Dancer's on-beat hop jostles a free roaming Magnet into a
-            // pull surge. When a Dancer lands its rhythmic leap right on a lodestone, the beat-timed
-            // thump kicks it into the same supercharged, wider-reach herd-vacuum a snared Golden
-            // buys it — for a moment the Magnet's field flares gold and hauls the surrounding loose
-            // crabs in hard. This is the rhythm-native mirror of the Golden-supercharges-Magnet
-            // crossover (there the shine charges it; here the beat does), and it turns a Dancer-heavy
-            // patch next to a Magnet into a beat-pulsing vacuum: park a Magnet in a Dancer crowd and
-            // every downbeat balls the herd tighter for a single beam sweep. It only sets the charge
-            // flag — the actual vacuum is the existing charged-field pass in update_crabs, which
-            // picks the Magnet up next frame off its live `magnet_charged` timer (see the
-            // charged_magnet_positions builder). Reuses the Dancer landings already gathered above,
-            // fires only on the beat, so it stays a rare, legible "the beat kicked the magnet!" pop.
-            if !dancer_hops.is_empty() {
-                const DANCER_KICK_RADIUS: f32 = 72.0; // a Dancer has to land nearly on the lodestone
-                const DANCER_KICK_RADIUS_SQ: f32 = DANCER_KICK_RADIUS * DANCER_KICK_RADIUS;
-                // Same grid lookup as the ripple / jolt / trip / chip blocks above, built from these
-                // same dancer_hops. Cell size must match the grid's build radius (78.0), not this
-                // block's own trigger radius, or lookups miss buckets.
-                let cell_size: f32 = 78.0_f32.max(1.0);
-                let cell_of = |p: Vec2| -> (i32, i32) {
-                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
-                };
-                let mut kicked = std::mem::take(&mut self.dancer_kick_buf);
-                kicked.clear();
-                for crab in self.crabs.iter_mut() {
-                    // Only a free, un-beamed roaming Magnet that isn't already fully charged (by a
-                    // pinned Golden) can be thumped into a fresh surge — no point re-charging one
-                    // that's already vacuuming at full reach.
-                    if crab.caught || !crab.is_magnet() || crab.in_flashlight || crab.magnet_charged > 0.0 {
-                        continue;
-                    }
-                    let (cx, cy) = cell_of(crab.pos);
-                    let mut hit = false;
-                    'search: for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
-                                for &i in candidates {
-                                    if crab.pos.distance_squared(dancer_hops[i]) < DANCER_KICK_RADIUS_SQ {
-                                        hit = true;
-                                        break 'search;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if hit {
-                        // Kick it into a short supercharge window. The charged-field pass in
-                        // update_crabs picks it up next frame (its position lands in
-                        // charged_magnet_positions off this live timer), and the timer decays on its
-                        // own since a Dancer-thump isn't a lasting Golden-pin — so the surge lasts a
-                        // beat or so, not forever.
-                        crab.magnet_charged = 0.45;
-                        crab.join_pulse = 1.0; // reuse the squash-pop as a "got thumped" jolt
-                        kicked.push(crab.pos);
-                    }
-                }
                 for &pos in kicked.iter() {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
@@ -7106,6 +7003,11 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, [0.95, 0.7, 0.3]); // orange-gold burst — the Magnet flaring charged
                 }
+
+                self.dancer_spooked_buf = spooked;
+                self.dancer_jolt_buf = jolted;
+                self.dancer_trip_buf = tripped;
+                self.dancer_chip_buf = chipped;
                 self.dancer_kick_buf = kicked;
             }
 
