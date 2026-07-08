@@ -1384,19 +1384,6 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     let shadow_offset_y = size * 0.35 + y_lift * 0.6;
     let shadow_offset_x = y_lift * 0.25;
     let shadow_alpha = ((1.0 - y_lift / 55.0) * 100.0).clamp(20.0, 100.0) as u8;
-    // Deferred into CRAB_BODY_PARAMS and flushed as one instanced batch by flush_crab_bodies(),
-    // same technique as the leg batching below (see CRAB_BODY_PARAMS doc comment).
-    CRAB_BODY_PARAMS.with(|params| {
-        params.borrow_mut().push(
-            DrawParam::default()
-                .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
-                .scale(Vec2::new(
-                    size * shadow_scale_x * 0.55,
-                    size * shadow_scale_y * 0.55,
-                ))
-                .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
-        );
-    });
 
     // Color: more red as crab ages, and different color for type
     let [r, g, b] = crab.crab_color();
@@ -1407,16 +1394,6 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     };
     let crab_color = Color::new((r + flash).min(1.0), (g + flash).min(1.0), (b + flash).min(1.0), 1.0);
 
-    // Crab body (rotation-invariant, so no need to rotate the draw)
-    CRAB_BODY_PARAMS.with(|params| {
-        params.borrow_mut().push(
-            DrawParam::default()
-                .dest(draw_pos)
-                .scale(Vec2::splat(size / 2.0))
-                .color(crab_color),
-        );
-    });
-
     // Shell shading: give the flat body circle a rounded, lit look. Light comes from a fixed
     // screen-space direction (up and slightly left) so the whole herd reads as lit from the same
     // sky, independent of each crab's facing rotation — hence these offsets are NOT rotated.
@@ -1425,88 +1402,15 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // rounded shell rather than a paper cut-out.
     let hi = |c: f32| (c + (1.0 - c) * 0.34).min(1.0);
     let dome_color = Color::new(hi(crab_color.r), hi(crab_color.g), hi(crab_color.b), 0.85);
-    CRAB_BODY_PARAMS.with(|params| {
-        params.borrow_mut().push(
-            DrawParam::default()
-                .dest(draw_pos + light_dir * size * 0.15)
-                .scale(Vec2::splat(size / 2.0 * 0.62))
-                .color(dome_color),
-        );
-    });
     // Glossy specular glint near the top of the shell — a tiny bright dot that catches the eye and
     // pulses faintly with the beat so the herd shimmers on the downbeat.
     let glint_a = 0.5 + beat_phase * 0.35;
-    CRAB_BODY_PARAMS.with(|params| {
-        params.borrow_mut().push(
-            DrawParam::default()
-                .dest(draw_pos + light_dir * size * 0.26)
-                .scale(Vec2::splat(size / 2.0 * 0.2))
-                .color(Color::new(1.0, 1.0, 1.0, glint_a)),
-        );
-    });
-
-    // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
-    // the whole leg (root + direction) by the crab's facing is the same as just adding
-    // `rotation` to `angle` before computing everything in world space directly.
-    let leg_len = size * 0.7;
-    let leg_color = Color::from_rgb(200, 50, 50);
-    // Hoisted out of the loop: `time_since_start()` reads the system clock (Instant::now())
-    // every call, and the value is identical across all 6 legs — with a long conga train this
-    // was 6 redundant clock reads per crab per frame (1000s/frame at high crab counts) for a
-    // value that never changes within the loop.
-    let time = ctx.time.time_since_start().as_secs_f32();
-    for i in 0..6 {
-        let base_angle = std::f32::consts::PI * (0.25 + i as f32 / 6.0);
-        let phase = (crab.pos.x + crab.pos.y) * 0.05;
-        let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
-        let wiggle_amp = 0.18 + beat_phase * 0.12;
-        let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
-        let angle = base_angle + wiggle + rotation;
-        let root = draw_pos + Vec2::new(angle.cos(), angle.sin()) * (size / 2.0);
-        // Deferred: collected here and drawn as one instanced batch by flush_crab_legs() instead
-        // of an individual canvas.draw() per leg per crab (see CRAB_LEG_PARAMS above).
-        CRAB_LEG_PARAMS.with(|params| {
-            params.borrow_mut().push(
-                DrawParam::default()
-                    .dest(root)
-                    .rotation(angle)
-                    .scale(Vec2::new(leg_len, 2.0))
-                    .color(leg_color),
-            );
-        });
-    }
 
     // Crab claws (small circles)
     let claw_offset = size * 0.7;
     let claw_radius = size * 0.18;
     let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3));
     let claw_r = draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3));
-    CRAB_BODY_PARAMS.with(|params| {
-        let mut params = params.borrow_mut();
-        params.push(
-            DrawParam::default()
-                .dest(claw_l)
-                .scale(Vec2::splat(claw_radius))
-                .color(crab_color),
-        );
-        params.push(
-            DrawParam::default()
-                .dest(claw_r)
-                .scale(Vec2::splat(claw_radius))
-                .color(crab_color),
-        );
-    });
-    // Matching lit highlight on each claw so they look like the same rounded shell as the body.
-    for claw_pos in [claw_l, claw_r] {
-        CRAB_BODY_PARAMS.with(|params| {
-            params.borrow_mut().push(
-                DrawParam::default()
-                    .dest(claw_pos + light_dir * claw_radius * 0.5)
-                    .scale(Vec2::splat(claw_radius * 0.55))
-                    .color(dome_color),
-            );
-        });
-    }
 
     // Eyes
     let eye_radius = size * 0.13;
@@ -1523,8 +1427,68 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     } else {
         (0.0, 0.0)
     };
+
+    // All ~14 body-part pushes (shadow, body, dome, glint, 2 claws, 2 claw highlights, 2 eyes,
+    // 2 pupils) collected under a single thread-local borrow instead of one `.with()` call per
+    // part. `.with()` itself is cheap, but with a 100+ crab train this was 700+ separate
+    // thread-local accesses a frame for a batch that's flushed once anyway — one borrow per crab
+    // does the same job for a fraction of the access count.
     CRAB_BODY_PARAMS.with(|params| {
         let mut params = params.borrow_mut();
+        // Deferred into CRAB_BODY_PARAMS and flushed as one instanced batch by flush_crab_bodies().
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
+                .scale(Vec2::new(
+                    size * shadow_scale_x * 0.55,
+                    size * shadow_scale_y * 0.55,
+                ))
+                .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
+        );
+        // Crab body (rotation-invariant, so no need to rotate the draw)
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos)
+                .scale(Vec2::splat(size / 2.0))
+                .color(crab_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + light_dir * size * 0.15)
+                .scale(Vec2::splat(size / 2.0 * 0.62))
+                .color(dome_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + light_dir * size * 0.26)
+                .scale(Vec2::splat(size / 2.0 * 0.2))
+                .color(Color::new(1.0, 1.0, 1.0, glint_a)),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(claw_l)
+                .scale(Vec2::splat(claw_radius))
+                .color(crab_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(claw_r)
+                .scale(Vec2::splat(claw_radius))
+                .color(crab_color),
+        );
+        // Matching lit highlight on each claw so they look like the same rounded shell as the body.
+        params.push(
+            DrawParam::default()
+                .dest(claw_l + light_dir * claw_radius * 0.5)
+                .scale(Vec2::splat(claw_radius * 0.55))
+                .color(dome_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(claw_r + light_dir * claw_radius * 0.5)
+                .scale(Vec2::splat(claw_radius * 0.55))
+                .color(dome_color),
+        );
         params.push(
             DrawParam::default()
                 .dest(draw_pos + rotate_offset(-eye_x, eye_y))
@@ -1549,6 +1513,39 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .scale(Vec2::splat(pupil_r))
                 .color(Color::BLACK),
         );
+    });
+
+    // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
+    // the whole leg (root + direction) by the crab's facing is the same as just adding
+    // `rotation` to `angle` before computing everything in world space directly.
+    let leg_len = size * 0.7;
+    let leg_color = Color::from_rgb(200, 50, 50);
+    // Hoisted out of the loop: `time_since_start()` reads the system clock (Instant::now())
+    // every call, and the value is identical across all 6 legs — with a long conga train this
+    // was 6 redundant clock reads per crab per frame (1000s/frame at high crab counts) for a
+    // value that never changes within the loop.
+    let time = ctx.time.time_since_start().as_secs_f32();
+    // Single thread-local borrow for all 6 legs, same reasoning as CRAB_BODY_PARAMS above.
+    CRAB_LEG_PARAMS.with(|params| {
+        let mut params = params.borrow_mut();
+        for i in 0..6 {
+            let base_angle = std::f32::consts::PI * (0.25 + i as f32 / 6.0);
+            let phase = (crab.pos.x + crab.pos.y) * 0.05;
+            let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
+            let wiggle_amp = 0.18 + beat_phase * 0.12;
+            let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
+            let angle = base_angle + wiggle + rotation;
+            let root = draw_pos + Vec2::new(angle.cos(), angle.sin()) * (size / 2.0);
+            // Deferred: collected here and drawn as one instanced batch by flush_crab_legs() instead
+            // of an individual canvas.draw() per leg per crab (see CRAB_LEG_PARAMS above).
+            params.push(
+                DrawParam::default()
+                    .dest(root)
+                    .rotation(angle)
+                    .scale(Vec2::new(leg_len, 2.0))
+                    .color(leg_color),
+            );
+        }
     });
 
     Ok(())
