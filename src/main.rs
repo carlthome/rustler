@@ -665,6 +665,12 @@ struct MainState {
     // Free-roaming Golden positions each frame, reused instead of reallocating — drives the
     // Golden-lures-Magnet pass in update_crabs (a roaming Magnet drifts toward the nearest one).
     golden_lure_positions_buf: Vec<Vec2>,
+    // Free Armored crab positions each frame, reused instead of reallocating — drives the
+    // Armored-body-blocks-King-Crab-charge crossover (a shell in the lunge's lane stops it cold).
+    armored_positions_buf: Vec<Vec2>,
+    // (boss_pos, shell_pos) for each King Crab charge blocked by an Armored shell this frame, so
+    // the shell-clang feedback and shell knockback fire after the &mut self.crabs loop ends.
+    boss_blocks_buf: Vec<(Vec2, Vec2)>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
@@ -1051,6 +1057,8 @@ impl MainState {
             tide_swells_buf: Vec::new(),
             magnet_positions_buf: Vec::new(),
             golden_lure_positions_buf: Vec::new(),
+            armored_positions_buf: Vec::new(),
+            boss_blocks_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
@@ -2841,6 +2849,28 @@ impl MainState {
         const MAGNET_LURE_RADIUS: f32 = 300.0; // a Magnet notices a Golden from a bit farther than its own pull reaches
         const MAGNET_LURE_RADIUS_SQ: f32 = MAGNET_LURE_RADIUS * MAGNET_LURE_RADIUS;
 
+        // Emergent crossover — a free Armored crab body-blocks a charging King Crab. The Armored
+        // crab is already established as a wall (its calm-anchor shell shelters the herd from panic
+        // ripples); here that same stubborn shell also stops a boss lunge cold. Snapshot every free
+        // Armored crab's position so the King Crab's charge arm below can test whether its lane
+        // plows through one — if it does, the shell clangs, the boss skids to a halt on cooldown,
+        // and the tail it was aiming for is spared. Parking or leaving an Armored crab between the
+        // boss and your train becomes a real defensive routing play — the mirror of a Magnet
+        // between your train and an incoming Thief. Cheap: Armored are ~10% of the herd, so this is
+        // usually a handful of entries. Reuses a scratch Vec to avoid per-frame churn.
+        let mut armored_positions = std::mem::take(&mut self.armored_positions_buf);
+        armored_positions.clear();
+        for c in &self.crabs {
+            if c.is_armored() && !c.caught {
+                armored_positions.push(c.pos);
+            }
+        }
+        // A charging King Crab that rams a free Armored crab this frame — (boss_pos, shell_pos) so
+        // the shell-clang feedback fires after the borrow ends. Almost always empty (needs a boss
+        // mid-lunge overlapping a shell), so a reused scratch Vec keeps it allocation-free.
+        let mut boss_blocks = std::mem::take(&mut self.boss_blocks_buf);
+        boss_blocks.clear();
+
         // Snapshot the current conga tail position so free Thief crabs can home in on it below
         // (they ignore the herd and beeline for the train's exposed end). Only meaningful once the
         // train is long enough for the Thief's steal to bite; otherwise Thieves just roam. This is
@@ -2995,6 +3025,29 @@ impl MainState {
                         let nt = t - dt;
                         crab.pos += crab.vel * dt; // vel stays locked to the launch heading
                         boss_charge_dust.push((crab.pos, crab.vel));
+                        // Emergent crossover: did the lunge just plow into a free Armored crab's
+                        // shell? If so the wall wins — the charge aborts here, sparing the tail it
+                        // was aimed at, and the boss goes on cooldown as if the lunge had spent
+                        // itself. The Armored crab is knocked back but keeps its shell (it's not
+                        // caught — it just took the hit). Uses the boss's bulk-widened reach so a
+                        // near-miss still counts as a block, matching how the tail-snap gives the
+                        // charge a wide hitbox.
+                        const BLOCK_REACH: f32 = CRAB_SIZE * 1.1;
+                        let block_hit = armored_positions.iter().find(|&&ap| {
+                            crab.pos.distance(ap) < BLOCK_REACH + crab.scale * CRAB_SIZE * 0.5
+                        });
+                        if let Some(&shell_pos) = block_hit {
+                            crab.charge_cooldown = if crab.enraged {
+                                BOSS_CHARGE_COOLDOWN * BOSS_ENRAGE_COOLDOWN_SCALE
+                            } else {
+                                BOSS_CHARGE_COOLDOWN
+                            };
+                            // Bounce the boss back off the shell so the stop reads as an impact,
+                            // not a stall, then let it settle into Idle next.
+                            crab.vel = -crab.vel.normalize_or_zero() * crab.speed * 0.6;
+                            boss_blocks.push((crab.pos, shell_pos));
+                            crab.charge_state = BossCharge::Idle;
+                        } else {
                         crab.charge_state = if nt <= 0.0 {
                             // Enraged: shorter rest between lunges so the finale keeps the pressure on.
                             crab.charge_cooldown = if crab.enraged {
@@ -3007,6 +3060,7 @@ impl MainState {
                         } else {
                             BossCharge::Charging(nt)
                         };
+                        }
                     }
                 }
 
@@ -3497,6 +3551,34 @@ impl MainState {
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 8.0 * 60.0;
         }
 
+        // Emergent crossover feedback: a charging King Crab just rammed a free Armored crab's shell.
+        // The wall held — the boss's lunge is spent and the tail it was aimed at is spared. Sell it
+        // as a hard impact (shell-clang shockwave in Armored slate-blue, a jolt, a proud "BLOCKED!"
+        // callout) and shove the shell crab back off the boss so the collision reads physically.
+        for &(boss_pos, shell_pos) in boss_blocks.iter() {
+            let knock_dir = (shell_pos - boss_pos).normalize_or_zero();
+            let knock_dir = if knock_dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { knock_dir };
+            for crab in self.crabs.iter_mut() {
+                if crab.is_armored() && !crab.caught && crab.pos.distance(shell_pos) < 1.0 {
+                    // Knock the shell crab back along the charge line — a solid shove, not a panic
+                    // flee: Armored stays calm (it's a wall), it just gets bumped.
+                    crab.vel = knock_dir * crab.crab_type.speed_range().end * 1.8;
+                    crab.speed = 1.0;
+                    break;
+                }
+            }
+            self.spawn_catch_shockwave(shell_pos, [0.55, 0.62, 0.72]); // Armored slate-blue clang
+            self.floating_texts.spawn(
+                "BLOCKED!".to_string(),
+                shell_pos - Vec2::new(40.0, 40.0),
+                30.0,
+                [0.7, 0.82, 0.95, 1.0],
+            );
+            self.screen_shake = self.screen_shake.max(8.0);
+            let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 7.0 * 60.0;
+        }
+
         // Tide Boss starting to swell a pulse: a cold warning ring + shout so the player can pull
         // the train back out of range before the shockwave lands.
         for &pos in tide_swells.iter() {
@@ -3635,6 +3717,8 @@ impl MainState {
         self.tide_swells_buf = tide_swells;
         self.magnet_positions_buf = magnet_positions;
         self.golden_lure_positions_buf = golden_lure_positions;
+        self.armored_positions_buf = armored_positions;
+        self.boss_blocks_buf = boss_blocks;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
