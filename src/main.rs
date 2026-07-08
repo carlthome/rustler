@@ -706,6 +706,12 @@ struct MainState {
     // dancer_hop_scratch above supplies the fear sources, this buckets them for a fast lookup.
     dancer_startle_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
     dancer_spooked_buf: Vec<Vec2>,
+    // Scratch buffers for the Dancer-jolts-Thief and Dancer-trips-Golden crossovers below, reused
+    // instead of a fresh Vec::new() every beat. Both also reuse dancer_startle_grid_buf (built just
+    // above from the same dancer_hops) instead of linear-scanning every hop per crab, so a herd
+    // salted with several fleeing Dancers doesn't turn this into a flat per-crab-per-hop scan.
+    dancer_jolt_buf: Vec<Vec2>,
+    dancer_trip_buf: Vec<Vec2>,
     // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
     // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
@@ -1075,6 +1081,8 @@ impl MainState {
             armored_anchor_grid_buf: std::collections::HashMap::new(),
             dancer_startle_grid_buf: std::collections::HashMap::new(),
             dancer_spooked_buf: Vec::new(),
+            dancer_jolt_buf: Vec::new(),
+            dancer_trip_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -6457,17 +6465,35 @@ impl EventHandler for MainState {
             if !dancer_hops.is_empty() {
                 const DANCER_JOLT_RADIUS: f32 = 70.0; // a Dancer has to land nearly on the Thief
                 const DANCER_JOLT_RADIUS_SQ: f32 = DANCER_JOLT_RADIUS * DANCER_JOLT_RADIUS;
-                let mut jolted: Vec<Vec2> = Vec::new();
+                // Same grid lookup as the startle ripple above (built from these same dancer_hops,
+                // still populated — nothing clears it in between): each crab only tests hops in its
+                // own and neighboring cells instead of every Dancer landing this beat. Cell size must
+                // match the grid's build radius (78.0, the startle ripple's DANCER_STARTLE_RADIUS)
+                // rather than this block's own (smaller) trigger radius, or lookups miss buckets.
+                let cell_size: f32 = 78.0_f32.max(1.0);
+                let cell_of = |p: Vec2| -> (i32, i32) {
+                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+                };
+                let mut jolted = std::mem::take(&mut self.dancer_jolt_buf);
+                jolted.clear();
                 for crab in self.crabs.iter_mut() {
                     // Only a currently-latched, free Thief can be shaken loose.
                     if crab.caught || !crab.is_thief() || crab.latch_timer <= 0.0 {
                         continue;
                     }
+                    let (cx, cy) = cell_of(crab.pos);
                     let mut hop_src: Option<Vec2> = None;
-                    for &hp in dancer_hops.iter() {
-                        if crab.pos.distance_squared(hp) < DANCER_JOLT_RADIUS_SQ {
-                            hop_src = Some(hp);
-                            break;
+                    'search: for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                for &i in candidates {
+                                    let hp = dancer_hops[i];
+                                    if crab.pos.distance_squared(hp) < DANCER_JOLT_RADIUS_SQ {
+                                        hop_src = Some(hp);
+                                        break 'search;
+                                    }
+                                }
+                            }
                         }
                     }
                     if let Some(src) = hop_src {
@@ -6483,7 +6509,7 @@ impl EventHandler for MainState {
                         jolted.push(crab.pos);
                     }
                 }
-                for pos in jolted {
+                for &pos in jolted.iter() {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
                     }
@@ -6495,6 +6521,7 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, [1.0, 0.45, 0.85]);
                 }
+                self.dancer_jolt_buf = jolted;
             }
 
             // Emergent crossover: a fleeing Dancer's on-beat hop staggers a bolting Golden. A free
@@ -6510,18 +6537,34 @@ impl EventHandler for MainState {
             if !dancer_hops.is_empty() {
                 const DANCER_TRIP_RADIUS: f32 = 68.0; // a Dancer has to land nearly on the Golden
                 const DANCER_TRIP_RADIUS_SQ: f32 = DANCER_TRIP_RADIUS * DANCER_TRIP_RADIUS;
-                let mut tripped: Vec<Vec2> = Vec::new();
+                // Same grid lookup as the startle ripple and Thief-jolt above (built from these same
+                // dancer_hops, still populated) instead of scanning every hop per Golden. Cell size
+                // must match the grid's build radius (78.0), not this block's own trigger radius.
+                let cell_size: f32 = 78.0_f32.max(1.0);
+                let cell_of = |p: Vec2| -> (i32, i32) {
+                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+                };
+                let mut tripped = std::mem::take(&mut self.dancer_trip_buf);
+                tripped.clear();
                 for crab in self.crabs.iter_mut() {
                     // Only a free, un-caught Golden that isn't already pinned by a Magnet snare
                     // (that path owns the orange-tether visual) can be tripped by a Dancer.
                     if crab.caught || !crab.is_golden() || crab.magnet_snared > 0.0 {
                         continue;
                     }
+                    let (cx, cy) = cell_of(crab.pos);
                     let mut hop_src: Option<Vec2> = None;
-                    for &hp in dancer_hops.iter() {
-                        if crab.pos.distance_squared(hp) < DANCER_TRIP_RADIUS_SQ {
-                            hop_src = Some(hp);
-                            break;
+                    'search: for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                for &i in candidates {
+                                    let hp = dancer_hops[i];
+                                    if crab.pos.distance_squared(hp) < DANCER_TRIP_RADIUS_SQ {
+                                        hop_src = Some(hp);
+                                        break 'search;
+                                    }
+                                }
+                            }
                         }
                     }
                     if hop_src.is_some() {
@@ -6536,7 +6579,7 @@ impl EventHandler for MainState {
                         tripped.push(crab.pos);
                     }
                 }
-                for pos in tripped {
+                for &pos in tripped.iter() {
                     if self.fear_rings.len() < 32 {
                         self.fear_rings.push((pos, 0.0));
                     }
@@ -6548,6 +6591,7 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
                 }
+                self.dancer_trip_buf = tripped;
             }
 
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
