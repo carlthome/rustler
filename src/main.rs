@@ -739,6 +739,10 @@ struct MainState {
     // full shatter. Also reuses dancer_startle_grid_buf, so a herd of Dancers by an Armored crab
     // doesn't turn this into a per-crab-per-hop scan.
     dancer_chip_buf: Vec<(Vec2, bool)>,
+    // Scratch buffer for the Dancer-jolts-Magnet crossover below, same reuse pattern as the ones
+    // above — holds the positions of free Magnets a Dancer's on-beat hop thumped into a pull surge
+    // this beat, for the after-loop feedback pop. Reuses dancer_startle_grid_buf like its siblings.
+    dancer_kick_buf: Vec<Vec2>,
     // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
     // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
@@ -1117,6 +1121,7 @@ impl MainState {
             dancer_jolt_buf: Vec::new(),
             dancer_trip_buf: Vec::new(),
             dancer_chip_buf: Vec::new(),
+            dancer_kick_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -3027,6 +3032,25 @@ impl MainState {
                 }
             }
         }
+        // How many charged positions come from a pinned Golden. Positions past this index are
+        // Dancer-thumped Magnets appended below — the refresh pass uses this split so a Golden-pin
+        // keeps its charge topped up (it holds as long as the prize is pinned) while a Dancer thump
+        // is a one-shot surge that decays on its own timer instead of latching on forever.
+        let golden_charged_count = charged_magnet_positions.len();
+        for c in &self.crabs {
+            // Emergent crossover — a Dancer's on-beat hop just jostled this Magnet into a pull surge
+            // (see the Dancer-jolts-Magnet block in the beat handler). Its `magnet_charged` timer,
+            // set on the beat, is still live: treat it as a charged Magnet here too so the same
+            // wider-reach herd-vacuum that a snared Golden buys also fires when a Dancer thumps it,
+            // reusing the exact charged-field pass below instead of authoring a second one. A Magnet
+            // that's *both* pinning a Golden and freshly thumped is already in the list — the
+            // contains() guard keeps it single (and Golden-attributed, so it keeps refreshing).
+            if c.is_magnet() && !c.caught && c.magnet_charged > 0.0
+                && !charged_magnet_positions.contains(&c.pos)
+            {
+                charged_magnet_positions.push(c.pos);
+            }
+        }
         // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
         const CHARGED_MAGNET_RADIUS: f32 = MAGNET_RADIUS * 1.4;
         const CHARGED_MAGNET_RADIUS_SQ: f32 = CHARGED_MAGNET_RADIUS * CHARGED_MAGNET_RADIUS;
@@ -3613,7 +3637,10 @@ impl MainState {
                 // supercharged aura holds smoothly while it keeps the prize, then decays once the
                 // Golden slips free or gets caught.
                 if crab.is_magnet() {
-                    if charged_magnet_positions.contains(&crab.pos) {
+                    // Only a Golden-pin (the first golden_charged_count entries) tops the charge up
+                    // each frame; a Dancer-thumped surge is past that split and must decay on its own
+                    // so the pull surge is a brief on-beat flare, not a permanent field.
+                    if charged_magnet_positions[..golden_charged_count].contains(&crab.pos) {
                         crab.magnet_charged = 0.2;
                     } else if crab.magnet_charged > 0.0 {
                         crab.magnet_charged = (crab.magnet_charged - dt).max(0.0);
@@ -7009,6 +7036,77 @@ impl EventHandler for MainState {
                     self.spawn_catch_shockwave(pos, burst);
                 }
                 self.dancer_chip_buf = chipped;
+            }
+
+            // Emergent crossover: a fleeing Dancer's on-beat hop jostles a free roaming Magnet into a
+            // pull surge. When a Dancer lands its rhythmic leap right on a lodestone, the beat-timed
+            // thump kicks it into the same supercharged, wider-reach herd-vacuum a snared Golden
+            // buys it — for a moment the Magnet's field flares gold and hauls the surrounding loose
+            // crabs in hard. This is the rhythm-native mirror of the Golden-supercharges-Magnet
+            // crossover (there the shine charges it; here the beat does), and it turns a Dancer-heavy
+            // patch next to a Magnet into a beat-pulsing vacuum: park a Magnet in a Dancer crowd and
+            // every downbeat balls the herd tighter for a single beam sweep. It only sets the charge
+            // flag — the actual vacuum is the existing charged-field pass in update_crabs, which
+            // picks the Magnet up next frame off its live `magnet_charged` timer (see the
+            // charged_magnet_positions builder). Reuses the Dancer landings already gathered above,
+            // fires only on the beat, so it stays a rare, legible "the beat kicked the magnet!" pop.
+            if !dancer_hops.is_empty() {
+                const DANCER_KICK_RADIUS: f32 = 72.0; // a Dancer has to land nearly on the lodestone
+                const DANCER_KICK_RADIUS_SQ: f32 = DANCER_KICK_RADIUS * DANCER_KICK_RADIUS;
+                // Same grid lookup as the ripple / jolt / trip / chip blocks above, built from these
+                // same dancer_hops. Cell size must match the grid's build radius (78.0), not this
+                // block's own trigger radius, or lookups miss buckets.
+                let cell_size: f32 = 78.0_f32.max(1.0);
+                let cell_of = |p: Vec2| -> (i32, i32) {
+                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+                };
+                let mut kicked = std::mem::take(&mut self.dancer_kick_buf);
+                kicked.clear();
+                for crab in self.crabs.iter_mut() {
+                    // Only a free, un-beamed roaming Magnet that isn't already fully charged (by a
+                    // pinned Golden) can be thumped into a fresh surge — no point re-charging one
+                    // that's already vacuuming at full reach.
+                    if crab.caught || !crab.is_magnet() || crab.in_flashlight || crab.magnet_charged > 0.0 {
+                        continue;
+                    }
+                    let (cx, cy) = cell_of(crab.pos);
+                    let mut hit = false;
+                    'search: for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                for &i in candidates {
+                                    if crab.pos.distance_squared(dancer_hops[i]) < DANCER_KICK_RADIUS_SQ {
+                                        hit = true;
+                                        break 'search;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if hit {
+                        // Kick it into a short supercharge window. The charged-field pass in
+                        // update_crabs picks it up next frame (its position lands in
+                        // charged_magnet_positions off this live timer), and the timer decays on its
+                        // own since a Dancer-thump isn't a lasting Golden-pin — so the surge lasts a
+                        // beat or so, not forever.
+                        crab.magnet_charged = 0.45;
+                        crab.join_pulse = 1.0; // reuse the squash-pop as a "got thumped" jolt
+                        kicked.push(crab.pos);
+                    }
+                }
+                for &pos in kicked.iter() {
+                    if self.fear_rings.len() < 32 {
+                        self.fear_rings.push((pos, 0.0));
+                    }
+                    self.floating_texts.spawn(
+                        "MAGNET SURGE!".to_string(),
+                        pos - Vec2::new(58.0, 32.0),
+                        24.0,
+                        [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink so the "a Dancer did this" story reads
+                    );
+                    self.spawn_catch_shockwave(pos, [0.95, 0.7, 0.3]); // orange-gold burst — the Magnet flaring charged
+                }
+                self.dancer_kick_buf = kicked;
             }
 
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
