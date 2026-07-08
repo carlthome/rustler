@@ -766,6 +766,12 @@ struct MainState {
     // Golden crabs snapped up this frame — (pos, its base catch points) so the big lump-sum bonus
     // is paid out after the catch loop (needs &mut self for particles/floating text/score).
     golden_catches_buf: Vec<(Vec2, usize)>,
+    // Emergent crossover scratch: free Armored crabs whose shell a charged Magnet's widened vacuum
+    // ground down this frame — (pos, whether that grind fully cracked the shell open) so the
+    // chip/crack feedback fires after the per-crab borrow ends. Almost always empty (needs a
+    // charged Magnet — itself rare, born of a snared Golden or a Dancer thump — plus an Armored
+    // crab caught in its outer field), so a reused scratch Vec keeps it allocation-free.
+    magnet_grind_buf: Vec<(Vec2, bool)>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1107,6 +1113,7 @@ impl MainState {
             magnet_positions_buf: Vec::new(),
             golden_lure_positions_buf: Vec::new(),
             charged_magnet_positions_buf: Vec::new(),
+            magnet_grind_buf: Vec::new(),
             armored_positions_buf: Vec::new(),
             boss_blocks_buf: Vec::new(),
             golden_panic_positions_buf: Vec::new(),
@@ -2926,6 +2933,11 @@ impl MainState {
         thief_snare_pops.clear();
         let mut magnet_lure_pops = std::mem::take(&mut self.magnet_lure_pops_buf);
         magnet_lure_pops.clear();
+        // Emergent crossover — Armored shells a charged Magnet's widened vacuum ground open this
+        // frame (see the grind branch in the per-crab loop below). Collected here so the chip/crack
+        // feedback fires after the &mut self.crabs borrow ends.
+        let mut magnet_grind = std::mem::take(&mut self.magnet_grind_buf);
+        magnet_grind.clear();
         let mut thief_lure_pops = std::mem::take(&mut self.thief_lure_pops_buf);
         thief_lure_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
@@ -3586,6 +3598,33 @@ impl MainState {
                         let prox = 1.0 - d2.sqrt() / CHARGED_MAGNET_RADIUS;
                         let dir = (cmp - crab.pos).normalize_or_zero();
                         crab.pos += dir * (prox * 68.0) * dt;
+
+                        // Emergent crossover — a charged Magnet's vacuum grinds an Armored shell.
+                        // The same widened field that balls the loose herd up also drags an Armored
+                        // crab against the lodestone hard enough to wear its shell down over time —
+                        // so a Golden-supercharged (or Dancer-thumped) Magnet slowly cracks open any
+                        // hard-shell it hauls in, softening a stomp-only target you can then finish
+                        // with the beam. A three-archetype collision: the Golden/Dancer that charged
+                        // the Magnet, the Magnet's vacuum, and the Armored crab caught in its reach.
+                        // Reuses the charged-field snapshot and the shell HP the Stomp already wears
+                        // down — no new field, just a second thing the charge is worth. Grinds only
+                        // near the core (where the drag is strongest), so an Armored crab clipping the
+                        // outer edge just gets balled up like the rest.
+                        if crab.is_armored() && crab.boss_health > 0.0 && prox > 0.45 {
+                            let before = crab.boss_health;
+                            // ~3 shell/sec at the core, tapering to nothing by prox 0.45. A full
+                            // shell takes a couple seconds of being pinned in the vacuum to open.
+                            let grind = (prox - 0.45) / 0.55 * 3.0;
+                            crab.boss_health = (crab.boss_health - grind * dt).max(0.0);
+                            crab.join_pulse = crab.join_pulse.max(0.4); // faint shudder as it's ground
+                            let broke = crab.boss_health <= 0.0;
+                            // One chip pop per ~third of the shell worn (or the final crack), so the
+                            // grind reads as steady progress without spamming a pop every frame.
+                            let step = crab.crab_type.initial_shell().max(0.001) / 3.0;
+                            if broke || (before / step).floor() != (crab.boss_health / step).floor() {
+                                magnet_grind.push((crab.pos, broke));
+                            }
+                        }
                     }
                 }
 
@@ -4033,8 +4072,27 @@ impl MainState {
             );
         }
 
+        // Note when a charged Magnet's vacuum grinds an Armored shell — same CHIPPED!/SHELL CRACKED!
+        // cues as the Dancer-chip and Stomp crack so the shell-progress language stays consistent,
+        // but tinted the Magnet's lodestone orange so the "the charged pull did this" story reads.
+        for (pos, broke) in magnet_grind.drain(..) {
+            let (label, burst) = if broke {
+                ("SHELL CRACKED!", [0.7, 0.8, 0.95]) // fully open — matches the Stomp/Dancer crack cue
+            } else {
+                ("CHIPPED!", [0.62, 0.68, 0.78]) // a chink ground loose, more shell to go
+            };
+            self.floating_texts.spawn(
+                label.to_string(),
+                pos - Vec2::new(52.0, 30.0),
+                24.0,
+                [1.0, 0.7, 0.3, 1.0], // Magnet's lodestone orange so the source reads at a glance
+            );
+            self.spawn_catch_shockwave(pos, burst);
+        }
+
         // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
         // allocation instead of starting from an empty Vec.
+        self.magnet_grind_buf = magnet_grind;
         self.flee_pops_buf = flee_pops;
         self.golden_snare_pops_buf = golden_snare_pops;
         self.thief_snare_pops_buf = thief_snare_pops;
