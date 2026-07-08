@@ -1799,8 +1799,24 @@ pub fn draw_conga_rope(
         }
     };
 
-    // Number of sub-segments per chain link — more = smoother curve
-    const SEGS: usize = 14;
+    // Total chain length, used both for hue mapping and to scale sub-segment resolution below.
+    let total_links = chain_links.len() as f32;
+
+    // Number of sub-segments per chain link — more = smoother curve. This is rebuilt from
+    // scratch every frame (sine + HSV-ish color math per micro-segment) before the batched
+    // instanced draw below, and chain_count grows unbounded over a run (a long train can hit
+    // 100+ links). At a flat 14 segs/link that's 1500+ trig calls a frame just to build the
+    // rope geometry, invisible in the two draw calls but very visible in frame time. Scale the
+    // per-link resolution down as the train gets long so total micro-segment work stays roughly
+    // bounded (~700 segs) instead of growing linearly forever — a long rope is mostly straight
+    // runs between links anyway, so fewer wiggle segments per link is indistinguishable in
+    // motion, while short/medium trains (the common case) keep the full smooth 14.
+    const MAX_TOTAL_SEGS: usize = 700;
+    let segs: usize = if total_links > 0.0 {
+        (MAX_TOTAL_SEGS as f32 / total_links).floor().clamp(4.0, 14.0) as usize
+    } else {
+        14
+    };
     // A hot streak whips the rope harder and thicker so it looks like it's straining with energy.
     // Amplitude of the sine-wave wiggle (pixels perpendicular to the link)
     let wiggle_amp = 5.0 + beat_intensity * 8.0 + heat * 5.0;
@@ -1812,9 +1828,6 @@ pub fn draw_conga_rope(
     // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
 
-    // Total chain length for hue mapping
-    let total_links = chain_links.len() as f32;
-
     CONGA_WAYPOINT_BUF.with(|wbuf| -> ggez::GameResult {
         let mut waypoints = wbuf.borrow_mut();
         waypoints.clear();
@@ -1824,8 +1837,8 @@ pub fn draw_conga_rope(
         }
 
         CONGA_SEGMENT_BUF.with(|buf| -> ggez::GameResult {
-            let mut segs = buf.borrow_mut();
-            segs.clear();
+            let mut seg_buf = buf.borrow_mut();
+            seg_buf.clear();
 
             for (link_idx, window) in waypoints.windows(2).enumerate() {
                 let start = window[0];
@@ -1842,10 +1855,10 @@ pub fn draw_conga_rope(
                 // Hue for this link (rainbow along the chain)
                 let hue = (link_idx as f32 / total_links.max(1.0) + time * 0.12) % 1.0;
 
-                // Subdivide into SEGS micro-segments
+                // Subdivide into `segs` micro-segments (scaled down for long trains, see above)
                 let mut prev_point = start;
-                for seg in 0..=SEGS {
-                    let t = seg as f32 / SEGS as f32;
+                for seg in 0..=segs {
+                    let t = seg as f32 / segs as f32;
 
                     // Travelling sine wave: phase depends on position-along-rope + time
                     let phase = t * std::f32::consts::TAU * 1.5
@@ -1881,7 +1894,7 @@ pub fn draw_conga_rope(
                         let seg_len = seg_delta.length();
                         if seg_len > 0.5 {
                             let seg_angle = seg_delta.y.atan2(seg_delta.x);
-                            segs.push((prev_point, seg_angle, seg_len, [rr, gg, bb]));
+                            seg_buf.push((prev_point, seg_angle, seg_len, [rr, gg, bb]));
                         }
                     }
                     prev_point = point;
@@ -1894,7 +1907,7 @@ pub fn draw_conga_rope(
             CONGA_MAIN_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                instances.set(segs.iter().map(|&(pos, angle, len, rgb)| {
+                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb)| {
                     let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
                     DrawParam::default()
                         .dest(pos)
@@ -1915,7 +1928,7 @@ pub fn draw_conga_rope(
             CONGA_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                instances.set(segs.iter().map(|&(pos, angle, len, rgb)| {
+                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb)| {
                     let glow_color = Color::new(rgb[0], rgb[1], rgb[2], glow_alpha);
                     DrawParam::default()
                         .dest(pos)
