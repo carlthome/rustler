@@ -662,6 +662,11 @@ struct MainState {
     // contagion pass can spare any calm crab sheltering in an Armored shell's shadow from
     // infection — see beat_startle_contagion.
     armored_anchors_buf: Vec<Vec2>,
+    // Spatial grid over armored_anchors_buf (same pattern as contagion_grid_buf) so the shelter
+    // check only tests nearby anchors instead of every free Armored crab in the herd — without
+    // this a session salted with several Armored crabs turned the per-crab shelter check into a
+    // flat scan multiplied across every calm crab evaluated that beat.
+    armored_anchor_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
     // (pos, amplified?) — amplified pops came from a Golden's panic bomb and get a hot golden
     // "!" so the player sees the shiny prize detonating the herd, not just an ordinary scare.
     contagion_pops_buf: Vec<(Vec2, bool)>,
@@ -1027,6 +1032,7 @@ impl MainState {
             contagion_grid_buf: std::collections::HashMap::new(),
             contagion_pops_buf: Vec::new(),
             armored_anchors_buf: Vec::new(),
+            armored_anchor_grid_buf: std::collections::HashMap::new(),
             dancer_startle_grid_buf: std::collections::HashMap::new(),
             dancer_spooked_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
@@ -1176,6 +1182,18 @@ impl MainState {
             self.contagion_grid_buf.entry(cell_of(pos)).or_default().push(i);
         }
 
+        // Bucket anchors into the same grid pattern, so the shelter check below only tests
+        // Armored crabs near this calm crab instead of every free Armored crab in the herd —
+        // without this a session salted with several Armored crabs turned the shelter check
+        // into a flat scan re-run per calm crab evaluated that beat.
+        let mut anchor_grid = std::mem::take(&mut self.armored_anchor_grid_buf);
+        for bucket in anchor_grid.values_mut() {
+            bucket.clear();
+        }
+        for (i, &pos) in anchors.iter().enumerate() {
+            anchor_grid.entry(cell_of(pos)).or_default().push(i);
+        }
+
         let mut infected_pops = std::mem::take(&mut self.contagion_pops_buf);
         infected_pops.clear();
         // Crabs an Armored anchor sheltered from the ripple this beat — drives a calm-puff cue.
@@ -1230,7 +1248,17 @@ impl MainState {
                 // to leak past a shell it's right on top of — so an Armored crab tames an ordinary
                 // stampede outright but merely blunts a Golden panic bomb.
                 let shelter_r = if amp > 1.05 { SHELTER_RADIUS * 0.55 } else { SHELTER_RADIUS };
-                if anchors.iter().any(|&a| a.distance(crab.pos) < shelter_r) {
+                // Shelter radius is always <= CONTAGION_RADIUS (the grid's cell size), so any
+                // anchor within range is guaranteed to fall in the crab's own cell or one of its
+                // 8 neighbours — the same 3x3 sweep used for carriers above.
+                let sheltered = (-1..=1).any(|dx| {
+                    (-1..=1).any(|dy| {
+                        anchor_grid.get(&(cx + dx, cy + dy)).is_some_and(|bucket| {
+                            bucket.iter().any(|&i| anchors[i].distance(crab.pos) < shelter_r)
+                        })
+                    })
+                });
+                if sheltered {
                     // Sheltered: the crab shrugs the ripple off entirely. Deliberately leave its
                     // calm state untouched (no startle_timer bump) so it doesn't turn into a phantom
                     // carrier next beat and spread a panic it never actually felt.
@@ -1281,6 +1309,7 @@ impl MainState {
         self.contagion_carriers_buf = carriers;
         self.contagion_pops_buf = infected_pops;
         self.armored_anchors_buf = anchors;
+        self.armored_anchor_grid_buf = anchor_grid;
     }
 
     /// The terrain wrinkle of the zone currently in play — decides what the terrain patches do
