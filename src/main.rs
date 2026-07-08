@@ -1606,10 +1606,45 @@ impl MainState {
             best.map(|(_, mp)| mp)
         };
 
+        // Emergent crossover: a fleeing Golden's panic scares a latched Thief clean off your tail.
+        // The Golden's amplified fear (the same GOLDEN_PANIC_AMP-hot ripple that shatters a herd into
+        // a stampede) is contagious to the skittish parasite too — a Golden bolting past your train
+        // spooks the Thief into bolting itself, letting go of the tail. This is the panic-native
+        // mirror of the Magnet-pry save above: there a lodestone rips the Thief off, here a passing
+        // prize's fright does it. Only *amplified* carriers (a fleeing Golden, or an ordinary crab
+        // still carrying a Golden's hot panic_amp) can do it — a plain panicking crab isn't scary
+        // enough to a Thief that's busy raiding. Snapshotted before the &mut self.crabs loop below so
+        // the lookup has no overlapping borrow; almost always an empty scan (no Golden mid-flee).
+        const GOLDEN_SPOOK_RADIUS: f32 = 130.0;
+        const GOLDEN_SPOOK_RADIUS_SQ: f32 = GOLDEN_SPOOK_RADIUS * GOLDEN_SPOOK_RADIUS;
+        let mut golden_panic_positions: Vec<Vec2> = self
+            .crabs
+            .iter()
+            .filter(|c| {
+                !c.caught
+                    && !c.is_boss()
+                    && (c.fleeing || c.startle_timer > 0.0)
+                    && (c.is_golden() || c.panic_amp > 1.05)
+            })
+            .map(|c| c.pos)
+            .collect();
+        let nearest_golden_panic_to = |p: Vec2| -> Option<Vec2> {
+            let mut best: Option<(f32, Vec2)> = None;
+            for &gp in golden_panic_positions.iter() {
+                let d2 = p.distance_squared(gp);
+                if d2 < GOLDEN_SPOOK_RADIUS_SQ && best.map_or(true, |(bd2, _)| d2 < bd2) {
+                    best = Some((d2, gp));
+                }
+            }
+            best.map(|(_, gp)| gp)
+        };
+
         // Advance every Thief's latch state; collect whether any peel fired this frame, plus any
-        // Thieves a Magnet pried loose (deferred out of the &mut loop for their freed feedback).
+        // Thieves a Magnet pried loose or a Golden's panic spooked loose (deferred out of the &mut
+        // loop for their freed feedback).
         let mut peel_from: Option<Vec2> = None;
         let mut pried_by_magnet: Vec<Vec2> = Vec::new();
+        let mut spooked_by_golden: Vec<Vec2> = Vec::new();
         for c in &mut self.crabs {
             if !c.is_thief() || c.caught {
                 if c.is_thief() {
@@ -1630,6 +1665,21 @@ impl MainState {
                     c.fleeing = false;
                     c.startle_timer = 0.0;
                     pried_by_magnet.push(c.pos);
+                    continue;
+                }
+                // A fleeing Golden's panic washes over the clamped Thief: it spooks and bolts away
+                // from the fright, letting go of your tail. It flees the panic source instead of
+                // being hauled toward a Magnet, so the crab scatters off into the herd rather than
+                // getting balled up — a looser, chaos-flavored save than the Magnet pry.
+                if let Some(gp) = nearest_golden_panic_to(c.pos) {
+                    c.latch_timer = 0.0;
+                    let dir = (c.pos - gp).normalize_or_zero();
+                    let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                    c.vel = dir * c.crab_type.speed_range().end * 1.4;
+                    c.speed = 1.0;
+                    c.fleeing = true;
+                    c.startle_timer = 0.5;
+                    spooked_by_golden.push(c.pos);
                     continue;
                 }
                 // Already clamped. Ride the tail so it visually hangs off the back of the train.
@@ -1658,6 +1708,9 @@ impl MainState {
         // The closure (and its borrow of the taken buffer) is done after the loop above, so hand
         // the buffer back to self for next frame's reuse.
         self.magnet_positions_buf = magnet_positions;
+        // golden_panic_positions was a fresh local (a Golden mid-flee is rare, so no pooled buffer
+        // needed); dropping it here releases the borrow the spook closure held on it.
+        golden_panic_positions.clear();
 
         // Feedback for any Thief a Magnet just pried off your tail — a bright orange-green pop and
         // a callout so the save reads as a moment, not a silent stat change. Orange (the Magnet's
@@ -1673,6 +1726,23 @@ impl MainState {
                 [0.95, 0.7, 0.3, 1.0],
             );
             self.spawn_catch_shockwave(pos, [0.9, 0.55, 0.25]);
+        }
+
+        // Feedback for any Thief a Golden's panic just scared off your tail — a hot-gold fright pop
+        // and a callout, so the accidental save reads as a moment. Gold (the prize's color) bleeding
+        // into the fright sells the "a passing Golden spooked it loose" story, and distinguishes it
+        // from the orange Magnet pry above.
+        for pos in spooked_by_golden.drain(..) {
+            if self.fear_rings.len() < 32 {
+                self.fear_rings.push((pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "SPOOKED OFF!".to_string(),
+                pos - Vec2::new(54.0, 30.0),
+                24.0,
+                [1.0, 0.85, 0.3, 1.0],
+            );
+            self.spawn_catch_shockwave(pos, [1.0, 0.8, 0.25]);
         }
 
         let Some(tail_pos) = peel_from else { return };
