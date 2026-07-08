@@ -23,6 +23,7 @@ pub enum CrabType {
     Golden,  // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
+    RhythmBoss, // rare oversized "Reef DJ" — its shell only drops on the beat, so the beam only wears it down when you hold it *on-beat*
 }
 
 impl CrabType {
@@ -69,6 +70,7 @@ impl CrabType {
             CrabType::Golden => 85.0..135.0, // skittish and fast — the shiny prize bolts, so you have to commit to the chase
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
+            CrabType::RhythmBoss => 20.0..38.0, // grooves around at a steady mid-pace, bobbing to the beat
         }
     }
     /// Shell health an archetype spawns with. While a crab's shell (stored in `boss_health`) is
@@ -98,6 +100,7 @@ impl CrabType {
             CrabType::Golden => 1.6, // flighty featherweight — a whistle is the surest way to reel the shiny prize in before it bolts
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
+            CrabType::RhythmBoss => 0.0, // the Reef DJ is unshakeable
         }
     }
 
@@ -114,6 +117,7 @@ impl CrabType {
             CrabType::Golden => 0.34..=0.48,  // a hair bigger than a normal crab so the shine reads at a glance
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
+            CrabType::RhythmBoss => 1.7..=2.1, // just as towering as the other bosses
         }
     }
 }
@@ -168,6 +172,7 @@ impl EnemyCrab {
             CrabType::Golden => [1.0, 0.86, 0.28],              // bright treasure-gold — the shiny prize pops against the whole herd
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
+            CrabType::RhythmBoss => [0.72, 0.30, 0.95], // pulsing disco violet
         }
     }
 
@@ -175,7 +180,17 @@ impl EnemyCrab {
     /// both the charging King Crab and the pulsing Tide Boss, so all the shared boss plumbing
     /// (health ring, catchable-only-when-drained, unshakeable, non-fleeing) applies to both.
     pub fn is_boss(&self) -> bool {
-        matches!(self.crab_type, CrabType::Boss | CrabType::TideBoss)
+        matches!(
+            self.crab_type,
+            CrabType::Boss | CrabType::TideBoss | CrabType::RhythmBoss
+        )
+    }
+
+    /// The "Reef DJ" rhythm boss specifically — it never charges or pulses; instead its shell only
+    /// drops on the beat, so the beam only wears it down while the on-beat window is open. The
+    /// whole fight is carried by the game's rhythm system: hold the light AND land it on the beat.
+    pub fn is_rhythm_boss(&self) -> bool {
+        matches!(self.crab_type, CrabType::RhythmBoss)
     }
 
     /// The charging "King Crab" boss specifically — the one that winds up and lunges at the train.

@@ -33,7 +33,7 @@ use crate::graphics::{
     draw_whistle_ring, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
-use crate::spawnings::{spawn_boss, spawn_tide_boss, spawn_enemies};
+use crate::spawnings::{spawn_boss, spawn_rhythm_boss, spawn_tide_boss, spawn_enemies};
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -557,7 +557,7 @@ struct MainState {
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next boss arrives
-    next_boss_is_tide: bool,             // alternates King Crab <-> Tide Boss so runs cycle both
+    next_boss_kind: usize,               // cycles 0=King Crab, 1=Tide Boss, 2=Reef DJ so runs rotate through all three climax beats
     // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
     // the whole train for a super-linear score payout (longer train = disproportionately more) and
     // reset the chain, closing the risk/reward loop the chain-snap risk opened. The pen relocates
@@ -1027,7 +1027,7 @@ impl MainState {
             cached_tail_pos: None,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
-            next_boss_is_tide: false,
+            next_boss_kind: 0,
             pen_pos: init_pen,
             deliver_flash: 0.0,
             deliver_streak: 0,
@@ -2898,6 +2898,12 @@ impl MainState {
         // a fresh thread-local handle inside the loop for every crab currently in the beam.
         let mut rng = rand::rng();
 
+        // Snapshot whether we're inside the on-beat window right now, so the Reef DJ (rhythm boss)
+        // can gate its shell-drain on the beat without re-borrowing self mid-loop. Same window the
+        // player already feels for PERFECT tool hits and the on-beat Call.
+        let on_beat_now =
+            self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -2910,9 +2916,23 @@ impl MainState {
                     && angle_to_crab < flashlight_cone_angle;
                 crab.in_flashlight = crab_in_light;
 
-                // Wearing it down under the beam is unchanged — the beam is still how you catch it.
-                if crab.boss_health > 0.0 && crab_in_light {
-                    crab.boss_health -= boss_drain * dt;
+                // Wearing it down under the beam is unchanged for the King Crab and Tide Boss —
+                // the beam is still how you catch them. The Reef DJ is the exception: its shell is
+                // beat-locked, so the beam only bites while the on-beat window is open. Off-beat the
+                // light does nothing to it — the whole fight is carried by the rhythm system, hold
+                // the light AND land it on the beat. Enraged, it drains faster on-beat so the finale
+                // rewards clean timing with a quicker kill.
+                let drain_active = crab_in_light
+                    && (!crab.is_rhythm_boss() || on_beat_now);
+                if crab.boss_health > 0.0 && drain_active {
+                    let rate = if crab.is_rhythm_boss() {
+                        // The beat window is narrow, so per-window drain is boosted to keep the fight
+                        // a comparable length to the other bosses; enrage sharpens it further.
+                        boss_drain * if crab.enraged { 5.0 } else { 3.5 }
+                    } else {
+                        boss_drain
+                    };
+                    crab.boss_health -= rate * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
                         boss_broke.push(crab.pos);
@@ -2972,6 +2992,35 @@ impl MainState {
                         }
                     }
                     // Bounce off walls, face travel direction (shared with the King Crab tail below).
+                    if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
+                        crab.vel.x = -crab.vel.x;
+                        crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
+                    }
+                    if crab.pos.y < 0.0 || crab.pos.y > height - crab.scale {
+                        crab.vel.y = -crab.vel.y;
+                        crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
+                    }
+                    let speed = crab.vel.length();
+                    if speed > 5.0 {
+                        let target_angle = crab.vel.y.atan2(crab.vel.x);
+                        let mut delta = target_angle - crab.facing_angle;
+                        while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                        while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                        crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                    }
+                    continue;
+                }
+
+                // The Reef DJ (rhythm boss) doesn't charge or pulse — it just grooves toward the
+                // train's heart as a looming presence while you try to land beat-timed light on it.
+                // No hazard state machine at all: the entire threat is the timing test on its shell,
+                // so it stays a clean, legible set-piece (hold the light, hit the beat, watch the
+                // shell drop a chunk every downbeat).
+                if crab.is_rhythm_boss() {
+                    let (width, height) = area;
+                    let dir = (charge_target - crab.pos).normalize_or_zero();
+                    crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
+                    crab.pos += crab.vel * dt;
                     if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
                         crab.vel.x = -crab.vel.x;
                         crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
@@ -4020,7 +4069,7 @@ impl MainState {
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
-        self.next_boss_is_tide = false;
+        self.next_boss_kind = 0;
         self.deliver_flash = 0.0;
         self.penned_marchers.marchers.clear();
         self.pen_pos = pick_pen_pos(
@@ -5535,6 +5584,13 @@ impl MainState {
                     let frac = crab.boss_health / BOSS_MAX_HEALTH;
                     let base_aura = if crab.is_tide_boss() {
                         [0.25, 0.7, 1.0]
+                    } else if crab.is_rhythm_boss() {
+                        // The Reef DJ pulses violet, and flares bright on the beat to telegraph its
+                        // one vulnerable window: light lands hardest exactly when the aura flashes.
+                        let on_beat = self.beat_timer < BEAT_WINDOW
+                            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+                        let flare = if on_beat { 0.45 } else { 0.0 };
+                        [0.72 + flare * 0.3, 0.30 + flare, 0.95]
                     } else {
                         [1.0, 0.8, 0.25]
                     };
@@ -7124,25 +7180,31 @@ impl EventHandler for MainState {
         // worn down under the flashlight before it can be caught. Only one at a time.
         if self.score >= self.next_boss_score && !boss_active {
             self.next_boss_score = self.score + BOSS_SCORE_INTERVAL;
-            // Alternate the two boss archetypes so every run cycles through both climax beats: the
-            // King Crab (charge — route the train out of the lane) and the Tide Boss (pulse — pull
-            // the train back out of range). Toggling guarantees variety instead of RNG streaks.
-            let (boss, title, hint, title_color) = if self.next_boss_is_tide {
-                (
+            // Rotate the three boss archetypes so every run cycles through all three climax beats:
+            // the King Crab (charge — route the train out of the lane), the Tide Boss (pulse — pull
+            // the train back out of range), and the Reef DJ (rhythm — its shell only drops when you
+            // hold the light on it *on the beat*). Cycling guarantees variety instead of RNG streaks.
+            let (boss, title, hint, title_color) = match self.next_boss_kind {
+                1 => (
                     spawn_tide_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "A TIDE BOSS SURGES IN!",
                     "Hold your light — but keep your train clear of its pulse!",
                     [0.35, 0.8, 1.0, 1.0],
-                )
-            } else {
-                (
+                ),
+                2 => (
+                    spawn_rhythm_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    "THE REEF DJ DROPS IN!",
+                    "Its shell only cracks ON THE BEAT — hold your light in time!",
+                    [0.75, 0.4, 1.0, 1.0],
+                ),
+                _ => (
                     spawn_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "A KING CRAB APPROACHES!",
                     "Hold your light on it!",
                     [1.0, 0.8, 0.2, 1.0],
-                )
+                ),
             };
-            self.next_boss_is_tide = !self.next_boss_is_tide;
+            self.next_boss_kind = (self.next_boss_kind + 1) % 3;
             let bpos = boss.pos;
             self.crabs.push(boss);
             boss_active = true;

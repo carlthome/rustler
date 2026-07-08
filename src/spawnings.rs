@@ -95,6 +95,26 @@ pub fn spawn_tide_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) ->
     boss
 }
 
+/// Spawn a rare "Reef DJ" rhythm boss. Like the other bosses it enters from a ring around center
+/// and must be worn down under the flashlight, but its shell is beat-locked: the beam only drains
+/// its health while the on-beat window is open (see the rhythm-boss branch in main.rs). It drifts
+/// steadily toward the train's heart but never charges or pulses — the whole fight is a timing test.
+pub fn spawn_rhythm_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> EnemyCrab {
+    let (width, height) = area;
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let radius = width.min(height) * 0.42;
+    let center = Vec2::new(width * 0.5, height * 0.5);
+    let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+    let vel = (center - pos).normalize_or_zero();
+    let mut boss = make_crab(pos, vel, 0.0, rng);
+    boss.crab_type = CrabType::RhythmBoss;
+    boss.speed = rng.random_range(CrabType::RhythmBoss.speed_range());
+    boss.scale = rng.random_range(CrabType::RhythmBoss.scale_range());
+    boss.boss_health = max_health;
+    boss.boss_max_health = max_health;
+    boss
+}
+
 pub fn spawn_enemies(
     pattern: SpawnPattern,
     count: usize,
