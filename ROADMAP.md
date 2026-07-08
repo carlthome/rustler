@@ -32,12 +32,18 @@ bosses fight as **arena-shifting set-pieces**: a boss catch clears the herd for 
 below 40% health the boss enrages and reshapes the *space* — King Crab cracks the floor into
 beat-pulsing hazard fissures that bite the tail, Tide Boss floods extra wade-drag water — so the
 final phase is something you route around, not just tank. A first slice of **meta-progression** is
-in (persistent career + banked-crab perk shop). Slack diary posts read as steady positive momentum
-with no pushback and no fresh reactions/replies this cycle; Carl's last recorded steer ("more visual
-spectacle or a difficulty ramp tweak") is long since shipped. Both prior "Now" items (arena-shifting
-boss, Groove Gamble cash-out) shipped this cycle, along with the Thief and Golden archetypes. The
-inner loop is now very close to complete — we still want Carl's explicit "the core feels done" call
-before pivoting to outer-loop work.
+in (persistent career + banked-crab perk shop). Slack momentum stays positive with no pushback;
+Carl's one fresh reply this cycle was on the diary post — *"Would be nice to see example videos
+here!"* That's a note for the Developer Diary agent (cron 3) to capture short clips/GIFs of the
+spectacle, not a game-direction change — but it confirms the rhythm/visual-spectacle bet is what
+he wants to *watch*, so keep leaning into legible, screenshot-worthy moments. Both prior "Now" items
+shipped this cycle: **emergent archetype interactions** (Magnet pries a latched Thief off your tail
+and snares a fleeing Golden; a fleeing Golden's panic ripples startle contagion through the herd; a
+free Armored's shell shelters the herd from the ripple) and the **rhythm-native Thief counterplay**
+(on-beat whistle/stomp rips it clean and banks it as a bonus). The archetype overlap proved fun, so
+the fun frontier is now: (a) a boss that carries the *rhythm* system, and (b) more collisions between
+the six archetypes. The inner loop is now very close to complete — we still want Carl's explicit "the
+core feels done" call before pivoting to outer-loop work.
 
 ## Bugs (fix before anything else in Now)
 
@@ -50,20 +56,20 @@ item in "Now" below.
 
 ## Now
 
-- **Let the systems collide — emergent interactions between the archetypes we already have.**
-  This is Carl's stated Noita-inspired itch, and it's where depth compounds now that six archetypes
-  exist but mostly act in isolation. Pick one concrete crossover and make it real: a Magnet crab
-  that drags a *latched Thief* off your tail (or, worse, drags free crabs into the Thief's reach); a
-  Golden crab whose panic-flee ripples startle contagion through a tight herd on the beat; a Dancer's
-  on-beat hop startling its neighbors into a chain-reaction stampede. Not a physics rewrite — just
-  let two existing systems affect each other so the field produces situations no single rule
-  authored. **Top Now item — the archetype roster is full; the fun frontier is now their overlap.**
-- **A rhythm-native counterplay for the Thief — shake it off on the beat.** The Thief pressures the
-  train you've built, but the counter is currently a flat catch/whistle. Make dislodging it a
-  rhythm beat too: an on-beat whistle or stomp yanks it clean (and maybe flings it back into the
-  herd as a bonus catch), an off-beat one only loosens its grip. Ties the game's newest chain-threat
-  into its core rhythm layer instead of sitting beside it, so dealing with the Thief *plays* like the
-  rest of the game.
+- **A rhythm-duel boss — a third boss whose fight IS the beat. (Top Now item.)** King Crab (charge)
+  and Tide Boss (shockwave) are both spatial/hazard fights; the biggest remaining depth gap is a boss
+  that makes the game's *best* system carry a whole set-piece instead of just modifying the others.
+  It opens a vulnerable window only on the downbeat, or calls a short 2–4 note phrase you have to echo
+  back on-beat (with the tools you already have — beam/lasso/whistle/stomp) to damage it, mistimed
+  hits do nothing or punish. Promoted now that the archetype-overlap work proved the rhythm layer is
+  where this game is most itself, and it's exactly the kind of legible, watchable set-piece Carl said
+  he'd like to see on video.
+- **Keep the systems colliding — one more emergent crossover between the six archetypes.** The first
+  batch landed well (Magnet vs. Thief/Golden, Golden panic contagion, Armored calm-anchor), so keep
+  mining Carl's Noita itch: e.g. a Dancer's on-beat hop startling its neighbors into a chain-reaction
+  stampede, a Magnet dragging free crabs *into* a Thief's latch range, or a Golden's shine luring a
+  Magnet off its cluster. One concrete new interaction per run, no physics rewrite — just let two
+  existing rules produce a situation neither authored alone.
 
 ## Later (outer loop — not yet)
 
@@ -83,12 +89,6 @@ item in "Now" below.
 
 ## Also on our mind (not sequenced — no urgency, just don't lose it)
 
-- **A rhythm-duel boss — a third boss whose fight IS the beat.** King Crab (charge) and Tide Boss
-  (shockwave) are spatial/hazard fights. The gap is a boss you beat by *playing the rhythm*: it
-  opens a vulnerable window only on the downbeat, or mirrors a short call-and-response phrase you
-  have to echo back on-beat to damage it. Would make the game's best system (rhythm) carry a whole
-  set-piece rather than just modifying the others. Promote once the emergent-interaction item above
-  has proven the archetype overlap is fun.
 - **Playful bonus rounds** — Carl's Street Fighter II / Lion King (SNES) itch: a rare, surprising
   mini-challenge dropped into a run purely for spice (not for balance or progression) — a bonus
   catch-everything sprint, a rhythm-only gauntlet, something silly and short. Parked here rather
