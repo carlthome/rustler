@@ -6497,6 +6497,59 @@ impl EventHandler for MainState {
                 }
             }
 
+            // Emergent crossover: a fleeing Dancer's on-beat hop staggers a bolting Golden. A free
+            // Golden normally sprints too fast to catch by hand, but if a Dancer lands its rhythmic
+            // leap right on top of one, the beat-timed thump trips the skittish prize mid-bolt — its
+            // dash is killed and it wobbles in place for a moment, opening a brief on-beat window to
+            // snag the prize you'd otherwise never stop. This is the rhythm-native mirror of the
+            // Magnet-snares-Golden trap (a lodestone pins it physically; here a Dancer trips it on
+            // the beat), and it stacks with the herd full of Dancers already being a rhythmic
+            // Thief-defense — now they also knock loose the prizes. Reuses the Dancer landings
+            // already gathered above (no extra herd scan) and fires only on the beat, so it stays a
+            // rare, legible "did you see that?" moment rather than a reliable Golden-stopper.
+            if !dancer_hops.is_empty() {
+                const DANCER_TRIP_RADIUS: f32 = 68.0; // a Dancer has to land nearly on the Golden
+                const DANCER_TRIP_RADIUS_SQ: f32 = DANCER_TRIP_RADIUS * DANCER_TRIP_RADIUS;
+                let mut tripped: Vec<Vec2> = Vec::new();
+                for crab in self.crabs.iter_mut() {
+                    // Only a free, un-caught Golden that isn't already pinned by a Magnet snare
+                    // (that path owns the orange-tether visual) can be tripped by a Dancer.
+                    if crab.caught || !crab.is_golden() || crab.magnet_snared > 0.0 {
+                        continue;
+                    }
+                    let mut hop_src: Option<Vec2> = None;
+                    for &hp in dancer_hops.iter() {
+                        if crab.pos.distance_squared(hp) < DANCER_TRIP_RADIUS_SQ {
+                            hop_src = Some(hp);
+                            break;
+                        }
+                    }
+                    if hop_src.is_some() {
+                        // Trip it: kill the bolt so it wobbles in place, opening a short catch window.
+                        // No magnet_snared flag (keeps the orange snare visual for the Magnet path);
+                        // the stalled prize plus the pink stagger burst tell the Dancer's story.
+                        crab.vel *= 0.15;
+                        crab.speed = 1.0;
+                        crab.fleeing = false;
+                        crab.startle_timer = 0.0;
+                        crab.join_pulse = 1.0; // reuse the squash-pop as a little "tripped" stumble
+                        tripped.push(crab.pos);
+                    }
+                }
+                for pos in tripped {
+                    if self.fear_rings.len() < 32 {
+                        self.fear_rings.push((pos, 0.0));
+                    }
+                    self.floating_texts.spawn(
+                        "STAGGERED!".to_string(),
+                        pos - Vec2::new(52.0, 30.0),
+                        24.0,
+                        [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink so the "a Dancer tripped it" story reads
+                    );
+                    self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
+                }
+            }
+
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
