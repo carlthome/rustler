@@ -773,6 +773,10 @@ struct MainState {
     // Golden crabs snapped up this frame — (pos, its base catch points) so the big lump-sum bonus
     // is paid out after the catch loop (needs &mut self for particles/floating text/score).
     golden_catches_buf: Vec<(Vec2, usize)>,
+    // Reef DJ hype-Dancer catches this frame (see handle_crab_catching) — pooled like its sibling
+    // catch-event buffers above instead of a fresh Vec::new() every frame; almost always empty
+    // (needs a Reef DJ fight in progress plus a hot-beat catch), same reasoning as golden_catches_buf.
+    hype_dancer_hits_buf: Vec<Vec2>,
     // Emergent crossover scratch: free Armored crabs whose shell a charged Magnet's widened vacuum
     // ground down this frame — (pos, whether that grind fully cracked the shell open) so the
     // chip/crack feedback fires after the per-crab borrow ends. Almost always empty (needs a
@@ -1147,6 +1151,7 @@ impl MainState {
             boss_catches_buf: Vec::new(),
             dance_catches_buf: Vec::new(),
             golden_catches_buf: Vec::new(),
+            hype_dancer_hits_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -2380,7 +2385,8 @@ impl MainState {
         let reef_hot_now = (self.beat_timer < BEAT_WINDOW
             || self.beat_timer > self.beat_interval - BEAT_WINDOW)
             && self.reef_phrase[(self.beat_count % 4) as usize];
-        let mut hype_dancer_hits: Vec<Vec2> = Vec::new();
+        let mut hype_dancer_hits = std::mem::take(&mut self.hype_dancer_hits_buf);
+        hype_dancer_hits.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
                 && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
@@ -2588,6 +2594,7 @@ impl MainState {
         self.boss_catches_buf = boss_catches;
         self.dance_catches_buf = dance_catches;
         self.golden_catches_buf = golden_catches;
+        self.hype_dancer_hits_buf = hype_dancer_hits;
         if any_caught {
             self.check_milestone(&mut rand::rng());
         }
