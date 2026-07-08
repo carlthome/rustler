@@ -714,6 +714,11 @@ struct MainState {
     // salted with several fleeing Dancers doesn't turn this into a flat per-crab-per-hop scan.
     dancer_jolt_buf: Vec<Vec2>,
     dancer_trip_buf: Vec<Vec2>,
+    // Scratch buffer for the Dancer-chips-Armored-shell crossover below, same reuse pattern as the
+    // two above — (crab_pos, cracked_clean) so the after-loop feedback can tell a chip apart from a
+    // full shatter. Also reuses dancer_startle_grid_buf, so a herd of Dancers by an Armored crab
+    // doesn't turn this into a per-crab-per-hop scan.
+    dancer_chip_buf: Vec<(Vec2, bool)>,
     // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
     // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
@@ -1085,6 +1090,7 @@ impl MainState {
             dancer_spooked_buf: Vec::new(),
             dancer_jolt_buf: Vec::new(),
             dancer_trip_buf: Vec::new(),
+            dancer_chip_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -6689,6 +6695,75 @@ impl EventHandler for MainState {
                     self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
                 }
                 self.dancer_trip_buf = tripped;
+            }
+
+            // Emergent crossover: a fleeing Dancer's on-beat hop chips a nearby Armored crab's shell.
+            // The Stomp is the game's dedicated shell-breaker (instant full crack), but a Dancer
+            // landing its rhythmic leap right on an Armored crab is a lighter, beat-timed thump — it
+            // knocks a single chink out of the shell rather than shattering it, so it takes a couple
+            // of well-placed hops (or a Dancer-heavy herd) to open a shelled crab the free way. This
+            // is the rhythm-native mirror of the Stomp crack, and it gives both archetypes a new
+            // role: the Dancer as a soft shell-breaker you can herd toward an Armored target, and the
+            // Armored crab as something the herd's own rhythm can wear down without a tool. Reuses the
+            // Dancer landings already gathered above (no extra herd scan) and fires only on the beat,
+            // so it stays a rare, legible "the beat cracked it!" moment, not a constant shell-melter.
+            if !dancer_hops.is_empty() {
+                const DANCER_CHIP_RADIUS: f32 = 66.0; // a Dancer has to land nearly on the shell
+                const DANCER_CHIP_RADIUS_SQ: f32 = DANCER_CHIP_RADIUS * DANCER_CHIP_RADIUS;
+                // Same grid lookup as the ripple / jolt / trip blocks above, built from these same
+                // dancer_hops. Cell size must match the grid's build radius (78.0), not this block's
+                // own smaller trigger radius, or lookups miss buckets.
+                let cell_size: f32 = 78.0_f32.max(1.0);
+                let cell_of = |p: Vec2| -> (i32, i32) {
+                    ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
+                };
+                let mut chipped = std::mem::take(&mut self.dancer_chip_buf);
+                chipped.clear();
+                for crab in self.crabs.iter_mut() {
+                    // Only a free Armored crab with shell left can be chipped.
+                    if crab.caught || !crab.is_armored() || crab.boss_health <= 0.0 {
+                        continue;
+                    }
+                    let (cx, cy) = cell_of(crab.pos);
+                    let mut hit = false;
+                    'search: for dx in -1..=1 {
+                        for dy in -1..=1 {
+                            if let Some(candidates) = self.dancer_startle_grid_buf.get(&(cx + dx, cy + dy)) {
+                                for &i in candidates {
+                                    if crab.pos.distance_squared(dancer_hops[i]) < DANCER_CHIP_RADIUS_SQ {
+                                        hit = true;
+                                        break 'search;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if hit {
+                        // Knock one chink off the shell (never more than one per beat, however many
+                        // Dancers land on it), and settle the crab a touch so a cracked-open shell
+                        // doesn't instantly bolt out of reach.
+                        crab.boss_health = (crab.boss_health - 1.0).max(0.0);
+                        crab.join_pulse = 1.0; // reuse the squash-pop as a "took a hit" flinch
+                        crab.fleeing = false;
+                        crab.spooked_timer = crab.spooked_timer.max(0.3);
+                        chipped.push((crab.pos, crab.boss_health <= 0.0));
+                    }
+                }
+                for &(pos, broke) in chipped.iter() {
+                    let (label, burst) = if broke {
+                        ("SHELL CRACKED!", [0.7, 0.8, 0.95]) // fully open — matches the Stomp crack cue
+                    } else {
+                        ("CHIPPED!", [0.62, 0.68, 0.78]) // a chink knocked loose, more shell to go
+                    };
+                    self.floating_texts.spawn(
+                        label.to_string(),
+                        pos - Vec2::new(58.0, 32.0),
+                        24.0,
+                        [1.0, 0.55, 0.9, 1.0], // hot Dancer-pink so the "a Dancer did this" story reads
+                    );
+                    self.spawn_catch_shockwave(pos, burst);
+                }
+                self.dancer_chip_buf = chipped;
             }
 
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
