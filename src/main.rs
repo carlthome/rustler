@@ -686,6 +686,11 @@ struct MainState {
     // (boss_pos, shell_pos) for each King Crab charge blocked by an Armored shell this frame, so
     // the shell-clang feedback and shell knockback fire after the &mut self.crabs loop ends.
     boss_blocks_buf: Vec<(Vec2, Vec2)>,
+    // Positions of fleeing/amplified Golden panic sources each frame, reused instead of
+    // reallocating — drives the Golden-panic-spooks-Thief crossover in steal_chain_thief. Almost
+    // always empty (a Golden mid-flee is rare), so this used to be a wasted per-frame Vec
+    // allocation before it was pooled like the buffers above.
+    golden_panic_positions_buf: Vec<Vec2>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
@@ -1086,6 +1091,7 @@ impl MainState {
             charged_magnet_positions_buf: Vec::new(),
             armored_positions_buf: Vec::new(),
             boss_blocks_buf: Vec::new(),
+            golden_panic_positions_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
@@ -1617,17 +1623,15 @@ impl MainState {
         // the lookup has no overlapping borrow; almost always an empty scan (no Golden mid-flee).
         const GOLDEN_SPOOK_RADIUS: f32 = 130.0;
         const GOLDEN_SPOOK_RADIUS_SQ: f32 = GOLDEN_SPOOK_RADIUS * GOLDEN_SPOOK_RADIUS;
-        let mut golden_panic_positions: Vec<Vec2> = self
-            .crabs
-            .iter()
-            .filter(|c| {
-                !c.caught
-                    && !c.is_boss()
-                    && (c.fleeing || c.startle_timer > 0.0)
-                    && (c.is_golden() || c.panic_amp > 1.05)
-            })
-            .map(|c| c.pos)
-            .collect();
+        let mut golden_panic_positions = std::mem::take(&mut self.golden_panic_positions_buf);
+        golden_panic_positions.clear();
+        golden_panic_positions.extend(self.crabs.iter().filter_map(|c| {
+            (!c.caught
+                && !c.is_boss()
+                && (c.fleeing || c.startle_timer > 0.0)
+                && (c.is_golden() || c.panic_amp > 1.05))
+                .then_some(c.pos)
+        }));
         let nearest_golden_panic_to = |p: Vec2| -> Option<Vec2> {
             let mut best: Option<(f32, Vec2)> = None;
             for &gp in golden_panic_positions.iter() {
@@ -1705,12 +1709,10 @@ impl MainState {
                 c.latch_timer = PEEL_INTERVAL;
             }
         }
-        // The closure (and its borrow of the taken buffer) is done after the loop above, so hand
-        // the buffer back to self for next frame's reuse.
+        // The closures (and their borrows of the taken buffers) are done after the loop above, so
+        // hand both buffers back to self for next frame's reuse instead of dropping them.
         self.magnet_positions_buf = magnet_positions;
-        // golden_panic_positions was a fresh local (a Golden mid-flee is rare, so no pooled buffer
-        // needed); dropping it here releases the borrow the spook closure held on it.
-        golden_panic_positions.clear();
+        self.golden_panic_positions_buf = golden_panic_positions;
 
         // Feedback for any Thief a Magnet just pried off your tail — a bright orange-green pop and
         // a callout so the save reads as a moment, not a silent stat change. Orange (the Magnet's
