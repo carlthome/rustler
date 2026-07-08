@@ -636,6 +636,9 @@ struct MainState {
     // Positions where a Magnet's field just snared a fleeing Golden this frame (first-snare only),
     // so the "SNARED!" pop and shockwave fire once rather than every frame the tether holds.
     golden_snare_pops_buf: Vec<Vec2>,
+    // Positions where a Magnet's field just intercepted a homing Thief this frame (first-catch
+    // only), so the "INTERCEPTED!" pop and shockwave fire once rather than every frame it's held.
+    thief_snare_pops_buf: Vec<Vec2>,
     boss_broke_buf: Vec<Vec2>,
     armor_broke_buf: Vec<Vec2>,
     attraction_particles_buf: Vec<(Vec2, Vec2, f32, [f32; 3])>,
@@ -1021,6 +1024,7 @@ impl MainState {
             deflect_resolve_buf: Vec::new(),
             flee_pops_buf: Vec::new(),
             golden_snare_pops_buf: Vec::new(),
+            thief_snare_pops_buf: Vec::new(),
             boss_broke_buf: Vec::new(),
             armor_broke_buf: Vec::new(),
             attraction_particles_buf: Vec::new(),
@@ -2737,6 +2741,8 @@ impl MainState {
         // Golden crabs a roaming Magnet's field just snared this frame — celebrated after the loop.
         let mut golden_snare_pops = std::mem::take(&mut self.golden_snare_pops_buf);
         golden_snare_pops.clear();
+        let mut thief_snare_pops = std::mem::take(&mut self.thief_snare_pops_buf);
+        thief_snare_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
         let mut boss_broke = std::mem::take(&mut self.boss_broke_buf);
         boss_broke.clear();
@@ -3186,13 +3192,41 @@ impl MainState {
                     && crab.charm_timer <= 0.0
                     && crab.latch_timer <= 0.0
                 {
-                    if let Some(tp) = thief_tail_pos {
-                        let dir = (tp - crab.pos).normalize_or_zero();
-                        // Drive it in at a good clip so a Thief spawning across the arena still
-                        // reaches your tail while the train is worth stealing from.
-                        let home_speed = crab.crab_type.speed_range().end * 1.4;
-                        crab.vel = crab.vel.lerp(dir * home_speed, 0.08);
-                        crab.speed = 1.0;
+                    // Emergent crossover: a roaming Magnet intercepts a homing Thief. Before the
+                    // Thief reaches your tail to latch, if it strays deep into a Magnet's field the
+                    // lodestone overpowers its beeline and hauls it into the cluster — so parking a
+                    // Magnet between your train and an incoming Thief becomes a defensive routing
+                    // play, the pre-latch mirror of the Magnet-pry that rips an already-latched
+                    // Thief off. Reuses the same deep-field test as the Golden snare.
+                    let mut intercepted = false;
+                    for &mp in magnet_positions.iter() {
+                        let d2 = crab.pos.distance_squared(mp);
+                        if d2 < MAGNET_RADIUS_SQ && d2 > 1.0 {
+                            let prox = 1.0 - d2.sqrt() / MAGNET_RADIUS; // 0 at edge, 1 at magnet
+                            if prox > 0.4 {
+                                let dir = (mp - crab.pos).normalize_or_zero();
+                                // Overpowering drag toward the lodestone, tightening as it sinks in.
+                                let pull = (prox - 0.4) / 0.6 * 240.0;
+                                crab.pos += dir * pull * dt;
+                                crab.vel *= 1.0 - (0.85 * dt).min(0.5); // kill its homing momentum
+                                if crab.magnet_snared <= 0.0 {
+                                    thief_snare_pops.push(crab.pos);
+                                }
+                                crab.magnet_snared = 0.25; // refreshed each frame it stays snared
+                                intercepted = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !intercepted {
+                        if let Some(tp) = thief_tail_pos {
+                            let dir = (tp - crab.pos).normalize_or_zero();
+                            // Drive it in at a good clip so a Thief spawning across the arena still
+                            // reaches your tail while the train is worth stealing from.
+                            let home_speed = crab.crab_type.speed_range().end * 1.4;
+                            crab.vel = crab.vel.lerp(dir * home_speed, 0.08);
+                            crab.speed = 1.0;
+                        }
                     }
                 }
 
@@ -3406,10 +3440,24 @@ impl MainState {
             self.spawn_catch_shockwave(pos, [1.0, 0.78, 0.25]);
         }
 
+        // Celebrate any homing Thief a Magnet just intercepted this frame — a green-into-magnet-
+        // orange pop and a shockwave so "the Magnet caught the raider before it reached your tail"
+        // reads as the defensive save it is, mirroring the Golden snare's callout.
+        for pos in thief_snare_pops.drain(..) {
+            self.floating_texts.spawn(
+                "INTERCEPTED!".to_string(),
+                pos - Vec2::new(0.0, 30.0),
+                24.0,
+                [0.55, 0.9, 0.4, 1.0], // Thief's poison-green pulled into the Magnet's field
+            );
+            self.spawn_catch_shockwave(pos, [0.7, 0.85, 0.35]);
+        }
+
         // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
         // allocation instead of starting from an empty Vec.
         self.flee_pops_buf = flee_pops;
         self.golden_snare_pops_buf = golden_snare_pops;
+        self.thief_snare_pops_buf = thief_snare_pops;
         self.boss_broke_buf = boss_broke;
         self.armor_broke_buf = armor_broke;
         self.attraction_particles_buf = attraction_particles;
@@ -5237,7 +5285,7 @@ impl MainState {
                     // Thief marker — a sly green ring while it prowls, flaring into a fast gnaw-ring
                     // once it's latched onto the tail so the theft-in-progress reads at a glance.
                     let size = crab.scale * CRAB_SIZE;
-                    draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), self.time_elapsed)?;
+                    draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), crab.is_magnet_intercepted(), self.time_elapsed)?;
                 } else if crab.is_golden() {
                     // Golden crab shine — a shimmering ring of orbiting sparkles so the rare prize
                     // catches the eye across the whole field and reads as "chase this one!".

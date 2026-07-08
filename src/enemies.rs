@@ -144,7 +144,7 @@ pub struct EnemyCrab {
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
     pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
     pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
-    pub magnet_snared: f32,       // Golden only: >0 while a roaming Magnet's field has overpowered its bolt and tethered it — the "grab the prize now" window. Counts down; refreshed each frame the Golden stays deep in the field. Drives the snare visual + slowed flee.
+    pub magnet_snared: f32,       // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
 }
 
 impl EnemyCrab {
@@ -233,6 +233,14 @@ impl EnemyCrab {
     /// main.rs). Drives the snare visual and the slowed flee.
     pub fn is_magnet_snared(&self) -> bool {
         self.is_golden() && self.magnet_snared > 0.0
+    }
+
+    /// A free (not-yet-latched) Thief that a roaming Magnet's field has caught and pulled off its
+    /// beeline to your conga tail — the lodestone overpowers its homing before it can latch. Parking
+    /// a Magnet between your train and an incoming Thief becomes a defensive routing play. Drives the
+    /// Thief's aura brightening while intercepted (see the magnet-pull pass in main.rs).
+    pub fn is_magnet_intercepted(&self) -> bool {
+        self.is_thief() && self.magnet_snared > 0.0
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

@@ -4035,13 +4035,15 @@ pub fn draw_thief_aura(
     pos: Vec2,
     size: f32,
     latched: bool,
+    snared: bool,
     time: f32,
 ) -> ggez::GameResult {
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Poison-green, matching the crab's own color.
-    let (r, g, b) = (0.35, 0.95, 0.5);
+    // Poison-green, matching the crab's own color — but while a Magnet has intercepted it, the
+    // green bleeds toward the lodestone's orange so the "caught in the field" crossover reads.
+    let (r, g, b) = if snared { (0.95, 0.6, 0.2) } else { (0.35, 0.95, 0.5) };
 
     if latched {
         // Actively gnawing: a fast, bright, slightly jittering double ring so the theft screams
@@ -4061,6 +4063,17 @@ pub fn draw_thief_aura(
             DrawParam::default()
                 .dest(pos)
                 .color(Color::new(0.6, 1.0, 0.5, 0.25 + pulse * 0.25)),
+        );
+    } else if snared {
+        // Intercepted by a Magnet: a brighter, faster orange ring that reads as "the field's got
+        // it" — livelier than the calm prowl so the save is legible, calmer than the theft frenzy.
+        let pulse = (time * 9.0).sin() * 0.5 + 0.5;
+        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + pulse * 4.0, 2.5)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, 0.45 + pulse * 0.3)),
         );
     } else {
         // Prowling: a steady soft ring that just marks it out, calmer than the latched frenzy.
