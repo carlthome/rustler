@@ -144,6 +144,7 @@ pub struct EnemyCrab {
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
     pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
     pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
+    pub magnet_snared: f32,       // Golden only: >0 while a roaming Magnet's field has overpowered its bolt and tethered it — the "grab the prize now" window. Counts down; refreshed each frame the Golden stays deep in the field. Drives the snare visual + slowed flee.
 }
 
 impl EnemyCrab {
@@ -224,6 +225,14 @@ impl EnemyCrab {
     /// risk/reward chase: commit to snagging the prize before it flees, or stay on the herd.
     pub fn is_golden(&self) -> bool {
         matches!(self.crab_type, CrabType::Golden)
+    }
+
+    /// A Golden crab currently snared by a roaming Magnet's field: its skittish bolt has been
+    /// overpowered by the lodestone pull and it's tethered in place, giving the player a brief
+    /// window to snag the shiny prize it would otherwise never catch (see the magnet-pull pass in
+    /// main.rs). Drives the snare visual and the slowed flee.
+    pub fn is_magnet_snared(&self) -> bool {
+        self.is_golden() && self.magnet_snared > 0.0
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;

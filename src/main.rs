@@ -633,6 +633,9 @@ struct MainState {
     // crab started fleeing, no boss broke, etc.), so a per-frame Vec::new() was pure churn —
     // clearing a buffer that's almost always empty costs nothing, while allocating one does.
     flee_pops_buf: Vec<Vec2>,
+    // Positions where a Magnet's field just snared a fleeing Golden this frame (first-snare only),
+    // so the "SNARED!" pop and shockwave fire once rather than every frame the tether holds.
+    golden_snare_pops_buf: Vec<Vec2>,
     boss_broke_buf: Vec<Vec2>,
     armor_broke_buf: Vec<Vec2>,
     attraction_particles_buf: Vec<(Vec2, Vec2, f32, [f32; 3])>,
@@ -1017,6 +1020,7 @@ impl MainState {
             deflect_collide_buf: Vec::new(),
             deflect_resolve_buf: Vec::new(),
             flee_pops_buf: Vec::new(),
+            golden_snare_pops_buf: Vec::new(),
             boss_broke_buf: Vec::new(),
             armor_broke_buf: Vec::new(),
             attraction_particles_buf: Vec::new(),
@@ -2730,6 +2734,9 @@ impl MainState {
         // Positions of crabs that just entered panic-flee this frame — we'll emit "!" pops after the loop
         let mut flee_pops = std::mem::take(&mut self.flee_pops_buf);
         flee_pops.clear();
+        // Golden crabs a roaming Magnet's field just snared this frame — celebrated after the loop.
+        let mut golden_snare_pops = std::mem::take(&mut self.golden_snare_pops_buf);
+        golden_snare_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
         let mut boss_broke = std::mem::take(&mut self.boss_broke_buf);
         boss_broke.clear();
@@ -3085,6 +3092,14 @@ impl MainState {
                     crab.panic_amp = (crab.panic_amp - dt * 1.2).max(1.0);
                 }
 
+                // The Magnet snare lapses if the Golden isn't re-snared this frame (i.e. it drifted
+                // out of a Magnet's deep field, or the Magnet was caught). The pull pass above
+                // refreshes it back to 0.25 every frame the tether holds, so this only fires the
+                // instant the field releases it.
+                if crab.magnet_snared > 0.0 {
+                    crab.magnet_snared = (crab.magnet_snared - dt).max(0.0);
+                }
+
                 // Whistle charm wears off after a beat or two, at which point the crab is fair
                 // game for the panic contagion again.
                 if crab.charm_timer > 0.0 {
@@ -3131,9 +3146,33 @@ impl MainState {
                     if let Some((d2, mp)) = nearest {
                         // Stronger tug up close, fading to nothing at the edge of the pull radius.
                         let d = d2.sqrt();
-                        let pull = (1.0 - d / MAGNET_RADIUS) * 34.0;
+                        let prox = 1.0 - d / MAGNET_RADIUS; // 0 at the edge, 1 at the magnet
                         let dir = (mp - crab.pos).normalize_or_zero();
-                        crab.pos += dir * pull * dt;
+                        // Emergent crossover: a roaming Magnet snares a fleeing Golden. The shiny
+                        // prize normally bolts too fast to catch by hand, but a lodestone's field
+                        // overpowers even that skittish sprint once the Golden strays deep into it
+                        // (inner ~60% of the radius). While snared the Golden is dragged hard toward
+                        // the Magnet and its bolt is damped, so herding the prize toward a wandering
+                        // Magnet becomes a real way to trap it — the Magnet as accidental savior,
+                        // the mirror of the Magnet-pry-Thief save. Outside the deep zone it just
+                        // gets the ordinary gentle nudge like any other crab.
+                        if crab.is_golden() && prox > 0.4 {
+                            // Overpowering drag: far stronger than the herd nudge, scaling up as it
+                            // sinks deeper so the snare tightens the closer it gets.
+                            let snare_pull = (prox - 0.4) / 0.6 * 260.0;
+                            crab.pos += dir * snare_pull * dt;
+                            // Damp the Golden's bolt so it can't just sprint back out of the field.
+                            crab.vel *= 1.0 - (0.85 * dt).min(0.5);
+                            // First frame of the snare fires a celebratory pop; refresh the tether
+                            // window each frame it stays deep so the visual/slow persists smoothly.
+                            if crab.magnet_snared <= 0.0 {
+                                golden_snare_pops.push(crab.pos);
+                            }
+                            crab.magnet_snared = 0.25;
+                        } else {
+                            let pull = prox * 34.0;
+                            crab.pos += dir * pull * dt;
+                        }
                     }
                 }
 
@@ -3354,9 +3393,23 @@ impl MainState {
             );
         }
 
+        // Celebrate any Golden a Magnet just snared this frame — a bright gold-into-magnet-orange
+        // pop and a shockwave so "the Magnet trapped the prize" reads as a moment, the same way the
+        // Magnet-pry-Thief save does.
+        for pos in golden_snare_pops.drain(..) {
+            self.floating_texts.spawn(
+                "SNARED!".to_string(),
+                pos - Vec2::new(0.0, 30.0),
+                26.0,
+                [1.0, 0.7, 0.2, 1.0], // Magnet's lodestone orange claiming the golden prize
+            );
+            self.spawn_catch_shockwave(pos, [1.0, 0.78, 0.25]);
+        }
+
         // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
         // allocation instead of starting from an empty Vec.
         self.flee_pops_buf = flee_pops;
+        self.golden_snare_pops_buf = golden_snare_pops;
         self.boss_broke_buf = boss_broke;
         self.armor_broke_buf = armor_broke;
         self.attraction_particles_buf = attraction_particles;
@@ -3839,6 +3892,7 @@ impl MainState {
                 charge_cooldown: 0.0,
                 latch_timer: 0.0,
                 panic_amp: 1.0,
+                magnet_snared: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -5188,7 +5242,7 @@ impl MainState {
                     // Golden crab shine — a shimmering ring of orbiting sparkles so the rare prize
                     // catches the eye across the whole field and reads as "chase this one!".
                     let size = crab.scale * CRAB_SIZE;
-                    draw_golden_sparkle(ctx, canvas, pos, size, self.time_elapsed)?;
+                    draw_golden_sparkle(ctx, canvas, pos, size, self.time_elapsed, crab.is_magnet_snared())?;
                 }
             }
         }

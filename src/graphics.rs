@@ -4088,37 +4088,57 @@ pub fn draw_golden_sparkle(
     pos: Vec2,
     size: f32,
     time: f32,
+    snared: bool,
 ) -> ggez::GameResult {
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Soft breathing halo so the prize glows even when it's holding still.
+    // Soft breathing halo so the prize glows even when it's holding still. When a Magnet's field
+    // has snared it, the halo warms toward the lodestone's orange so the "trapped by the Magnet"
+    // state reads instantly against the ordinary gold shine.
     let pulse = (time * 4.0).sin() * 0.5 + 0.5;
+    let (hg, hb) = if snared { (0.6, 0.15) } else { (0.85, 0.3) };
     let halo = cached_stroke_circle(ctx, size * 0.8 + 3.0 + pulse * 4.0, 2.5)?;
     canvas.draw(
         &halo,
         DrawParam::default()
             .dest(pos)
-            .color(Color::new(1.0, 0.85, 0.3, 0.35 + pulse * 0.3)),
+            .color(Color::new(1.0, hg, hb, 0.35 + pulse * 0.3)),
     );
 
+    // While snared, a fast-spinning tether ring cinches in tight around the crab — the visual of
+    // the field clamping the prize in place, drawing the eye to "grab it NOW".
+    if snared {
+        let cinch = 0.5 + 0.5 * (time * 12.0).sin();
+        let tether = cached_stroke_circle(ctx, size * 0.55 + 2.0 + cinch * 3.0, 3.0)?;
+        canvas.draw(
+            &tether,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(1.0, 0.6, 0.15, 0.55 + cinch * 0.35)),
+        );
+    }
+
     // A ring of sparkle dots orbiting the crab, each twinkling on its own phase so the whole thing
-    // shimmers like a coin catching the light.
+    // shimmers like a coin catching the light. Snared, the orbit pulls in tighter and spins faster,
+    // like filings dragged onto the lodestone.
     let dot = unit_circle(ctx)?;
     const SPARKLES: usize = 5;
-    let orbit = size * 0.75 + 6.0;
+    let orbit = if snared { size * 0.55 + 4.0 } else { size * 0.75 + 6.0 };
+    let spin = if snared { 3.4 } else { 1.6 };
     for i in 0..SPARKLES {
         let base = i as f32 / SPARKLES as f32 * std::f32::consts::TAU;
-        let ang = base + time * 1.6;
+        let ang = base + time * spin;
         let twinkle = ((time * 6.0 + i as f32 * 1.7).sin() * 0.5 + 0.5).powf(2.0);
         let dpos = pos + Vec2::new(ang.cos(), ang.sin()) * orbit;
         let r = 1.5 + twinkle * 2.5;
+        let (sg, sb) = if snared { (0.75, 0.35) } else { (0.95, 0.55) };
         canvas.draw(
             dot,
             DrawParam::default()
                 .dest(dpos)
                 .scale(Vec2::splat(r))
-                .color(Color::new(1.0, 0.95, 0.55, 0.4 + twinkle * 0.6)),
+                .color(Color::new(1.0, sg, sb, 0.4 + twinkle * 0.6)),
         );
     }
 
