@@ -149,6 +149,14 @@ thread_local! {
     #[cfg(debug_assertions)]
     static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, Text, f32)>> = RefCell::new(None);
 
+    // The debug-mode "[DEBUG] Pattern: X | Time left: Y.YYs" overlay was rebuilding a fresh
+    // `format!` String + `Text` every single frame debug_mode is on, even though the pattern
+    // name only changes a handful of times per level and the countdown only visibly changes
+    // at the displayed hundredth-of-a-second precision. Same rebuild-on-change idiom as the
+    // perf overlay above: keyed on the pattern name plus the timer rounded to hundredths, so
+    // it's only rebuilt when the printed text would actually differ.
+    static DEBUG_TEXT_CACHE: RefCell<Option<(&'static str, i32, Text)>> = RefCell::new(None);
+
     // The three ability-bar labels ("Stamina (Space)", "Whistle (E)[/READY]", "Stomp (R)[/READY]")
     // were being rebuilt via a fresh Text::new every single frame even though the stamina label
     // never changes at all and the other two only ever flip between one of two fixed strings.
@@ -5066,16 +5074,27 @@ impl MainState {
                 SpawnPattern::BeatGrid => "BeatGrid",
                 SpawnPattern::Spiral => "Spiral",
             };
-            let debug_text = Text::new(format!(
-                "[DEBUG] Pattern: {} | Time left: {:.2}s",
-                pattern_name, self.pattern_timer
-            ));
-            canvas.draw(
-                &debug_text,
-                DrawParam::default()
-                    .dest(Vec2::new(10.0, 80.0))
-                    .color(Color::from_rgb(255, 100, 100)),
-            );
+            let timer_key = (self.pattern_timer * 100.0).round() as i32;
+            DEBUG_TEXT_CACHE.with(|c| {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = match &*cache {
+                    Some((p, t, _)) => *p != pattern_name || *t != timer_key,
+                    None => true,
+                };
+                if needs_rebuild {
+                    let text = Text::new(format!(
+                        "[DEBUG] Pattern: {} | Time left: {:.2}s",
+                        pattern_name, self.pattern_timer
+                    ));
+                    *cache = Some((pattern_name, timer_key, text));
+                }
+                canvas.draw(
+                    &cache.as_ref().unwrap().2,
+                    DrawParam::default()
+                        .dest(Vec2::new(10.0, 80.0))
+                        .color(Color::from_rgb(255, 100, 100)),
+                );
+            });
         }
         // Groove vignette — frame the whole screen in a beat-pulsing edge glow while the player is
         // in the pocket, so "in the groove" reads peripherally, not just from the corner meter.
