@@ -642,6 +642,9 @@ struct MainState {
     // Positions where a roaming Magnet first began chasing a nearby fleeing Golden this frame
     // (first-lure only), so the "LURED!" pop fires once rather than every frame the chase holds.
     magnet_lure_pops_buf: Vec<Vec2>,
+    // Positions where a homing Thief first got diverted off your tail by a nearby fleeing Golden
+    // this frame (first-divert only), so the "SHINY!" pop fires once rather than every frame it holds.
+    thief_lure_pops_buf: Vec<Vec2>,
     boss_broke_buf: Vec<Vec2>,
     armor_broke_buf: Vec<Vec2>,
     attraction_particles_buf: Vec<(Vec2, Vec2, f32, [f32; 3])>,
@@ -1032,6 +1035,7 @@ impl MainState {
             golden_snare_pops_buf: Vec::new(),
             thief_snare_pops_buf: Vec::new(),
             magnet_lure_pops_buf: Vec::new(),
+            thief_lure_pops_buf: Vec::new(),
             boss_broke_buf: Vec::new(),
             armor_broke_buf: Vec::new(),
             attraction_particles_buf: Vec::new(),
@@ -2753,6 +2757,8 @@ impl MainState {
         thief_snare_pops.clear();
         let mut magnet_lure_pops = std::mem::take(&mut self.magnet_lure_pops_buf);
         magnet_lure_pops.clear();
+        let mut thief_lure_pops = std::mem::take(&mut self.thief_lure_pops_buf);
+        thief_lure_pops.clear();
         // Positions of King Crabs that just got worn down this frame — celebrate after the loop
         let mut boss_broke = std::mem::take(&mut self.boss_broke_buf);
         boss_broke.clear();
@@ -3291,7 +3297,56 @@ impl MainState {
                             intercepted = true;
                         }
                     }
-                    if !intercepted {
+                    // Emergent crossover: a fleeing Golden lures a homing Thief off your tail. A
+                    // thief can't resist a shiny thing — if a free Golden is nearer than the tail
+                    // (and inside lure range), its shine overpowers the raider's beeline and it
+                    // chases the prize instead of your train. The mirror of the Golden-lures-Magnet
+                    // pass above: there gold tugs the lodestone, here gold tugs the raider. It turns
+                    // a fleeing Golden into an accidental decoy — a real relief for a train under
+                    // raid — but if the Thief catches the shine it just parks a threat right on the
+                    // prize you were chasing. Magnet interception still wins (that's a physical drag,
+                    // this is only attention), so it only runs when not intercepted. Reuses the
+                    // golden_lure_positions snapshot already built for the Magnet lure — no new scan.
+                    let mut lured = false;
+                    if !intercepted && !golden_lure_positions.is_empty() {
+                        const THIEF_LURE_RADIUS: f32 = 260.0;
+                        const THIEF_LURE_RADIUS_SQ: f32 = THIEF_LURE_RADIUS * THIEF_LURE_RADIUS;
+                        // Only divert to a Golden that's genuinely closer than the tail it's homing
+                        // for — a shine across the arena shouldn't pull it off a tail right beside it.
+                        let tail_d2 = thief_tail_pos.map_or(f32::INFINITY, |tp| crab.pos.distance_squared(tp));
+                        let mut nearest: Option<(f32, Vec2)> = None;
+                        for &gp in golden_lure_positions.iter() {
+                            let d2 = crab.pos.distance_squared(gp);
+                            if d2 < THIEF_LURE_RADIUS_SQ
+                                && d2 < tail_d2
+                                && nearest.map_or(true, |(bd2, _)| d2 < bd2)
+                            {
+                                nearest = Some((d2, gp));
+                            }
+                        }
+                        if let Some((d2, gp)) = nearest {
+                            let d = d2.sqrt();
+                            // Stronger tug the closer the prize; leans hard so the divert reads as
+                            // the Thief abandoning the raid, not just wobbling toward the shine.
+                            let prox = 1.0 - d / THIEF_LURE_RADIUS; // 0 at edge, ~1 up close
+                            let dir = (gp - crab.pos).normalize_or_zero();
+                            let chase_speed = crab.crab_type.speed_range().end * 1.3;
+                            crab.vel = crab.vel.lerp(dir * chase_speed, 0.10 + prox * 0.10);
+                            crab.speed = 1.0;
+                            if crab.thief_lured <= 0.0 {
+                                thief_lure_pops.push(crab.pos);
+                            }
+                            crab.thief_lured = 0.3; // refreshed each frame the divert holds
+                            lured = true;
+                        }
+                    }
+                    // The lure fades the instant the Thief loses its shiny target, so the gold-tinted
+                    // aura only shows while it's actually being pulled off the raid.
+                    if crab.thief_lured > 0.0 {
+                        crab.thief_lured = (crab.thief_lured - dt).max(0.0);
+                    }
+
+                    if !intercepted && !lured {
                         if let Some(tp) = thief_tail_pos {
                             let dir = (tp - crab.pos).normalize_or_zero();
                             // Drive it in at a good clip so a Thief spawning across the arena still
@@ -3540,12 +3595,27 @@ impl MainState {
             );
         }
 
+        // Note when a fleeing Golden first pulls a homing Thief off your tail — a small green-into-
+        // gold callout so the relief reads as a moment ("the shine drew the raider off your train")
+        // rather than the Thief silently wandering. Gentler than the Magnet saves (no shockwave):
+        // like the Magnet lure, it's a routing wrinkle, not a rescue, and the Golden decoy is
+        // accidental, so a big burst every time would be noisy.
+        for pos in thief_lure_pops.drain(..) {
+            self.floating_texts.spawn(
+                "SHINY!".to_string(),
+                pos - Vec2::new(0.0, 30.0),
+                22.0,
+                [0.7, 0.95, 0.4, 1.0], // Thief's poison-green catching the golden gleam
+            );
+        }
+
         // Hand the scratch buffers back so next frame's std::mem::take reuses this frame's
         // allocation instead of starting from an empty Vec.
         self.flee_pops_buf = flee_pops;
         self.golden_snare_pops_buf = golden_snare_pops;
         self.thief_snare_pops_buf = thief_snare_pops;
         self.magnet_lure_pops_buf = magnet_lure_pops;
+        self.thief_lure_pops_buf = thief_lure_pops;
         self.boss_broke_buf = boss_broke;
         self.armor_broke_buf = armor_broke;
         self.attraction_particles_buf = attraction_particles;
@@ -4031,6 +4101,7 @@ impl MainState {
                 panic_amp: 1.0,
                 magnet_snared: 0.0,
                 magnet_lured: 0.0,
+                thief_lured: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -5375,7 +5446,7 @@ impl MainState {
                     // Thief marker — a sly green ring while it prowls, flaring into a fast gnaw-ring
                     // once it's latched onto the tail so the theft-in-progress reads at a glance.
                     let size = crab.scale * CRAB_SIZE;
-                    draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), crab.is_magnet_intercepted(), self.time_elapsed)?;
+                    draw_thief_aura(ctx, canvas, pos, size, crab.is_latched(), crab.is_magnet_intercepted(), crab.is_thief_lured(), self.time_elapsed)?;
                 } else if crab.is_golden() {
                     // Golden crab shine — a shimmering ring of orbiting sparkles so the rare prize
                     // catches the eye across the whole field and reads as "chase this one!".

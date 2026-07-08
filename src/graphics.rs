@@ -4079,14 +4079,23 @@ pub fn draw_thief_aura(
     size: f32,
     latched: bool,
     snared: bool,
+    lured: bool,
     time: f32,
 ) -> ggez::GameResult {
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
     // Poison-green, matching the crab's own color — but while a Magnet has intercepted it, the
-    // green bleeds toward the lodestone's orange so the "caught in the field" crossover reads.
-    let (r, g, b) = if snared { (0.95, 0.6, 0.2) } else { (0.35, 0.95, 0.5) };
+    // green bleeds toward the lodestone's orange so the "caught in the field" crossover reads;
+    // while a fleeing Golden has lured it off your tail, the green catches a golden gleam instead,
+    // so the "the shine drew the raider away" crossover reads distinct from the Magnet interception.
+    let (r, g, b) = if snared {
+        (0.95, 0.6, 0.2)
+    } else if lured {
+        (0.85, 0.95, 0.35) // poison-green warmed by the golden prize it's chasing
+    } else {
+        (0.35, 0.95, 0.5)
+    };
 
     if latched {
         // Actively gnawing: a fast, bright, slightly jittering double ring so the theft screams
@@ -4117,6 +4126,17 @@ pub fn draw_thief_aura(
             DrawParam::default()
                 .dest(pos)
                 .color(Color::new(r, g, b, 0.45 + pulse * 0.3)),
+        );
+    } else if lured {
+        // Lured off your tail by a Golden's shine: a brisk, brighter golden-green ring — livelier
+        // than the calm prowl so the divert reads as the raider actively chasing the prize.
+        let pulse = (time * 7.0).sin() * 0.5 + 0.5;
+        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + pulse * 4.0, 2.5)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, 0.4 + pulse * 0.3)),
         );
     } else {
         // Prowling: a steady soft ring that just marks it out, calmer than the latched frenzy.

@@ -146,6 +146,7 @@ pub struct EnemyCrab {
     pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
     pub magnet_snared: f32,       // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
     pub magnet_lured: f32,        // Magnet only: >0 while this roaming Magnet is being pulled off its cluster toward a nearby fleeing Golden — the shiny prize's shine luring the lodestone. Counts down; refreshed each frame it keeps chasing. Drives the aura shifting gold-ward.
+    pub thief_lured: f32,         // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
 }
 
 impl EnemyCrab {
@@ -251,6 +252,16 @@ impl EnemyCrab {
     /// (see the magnet-lure pass in main.rs).
     pub fn is_magnet_lured(&self) -> bool {
         self.is_magnet() && self.magnet_lured > 0.0
+    }
+
+    /// A homing Thief currently lured off its beeline by a nearby fleeing Golden — a thief can't
+    /// resist a shiny thing, so the prize's shine pulls it away from raiding your conga tail and it
+    /// chases the Golden instead. Cross-archetype mirror of the Magnet-lure: there gold tugs the
+    /// lodestone, here gold tugs the raider. A fleeing Golden becomes an accidental decoy that
+    /// draws a Thief off your train. Drives the Thief aura bleeding gold-ward while lured (see the
+    /// thief-lure pass in main.rs).
+    pub fn is_thief_lured(&self) -> bool {
+        self.is_thief() && self.thief_lured > 0.0
     }
 
     /// Whether the crab can be snagged this frame. Regular crabs are catchable whenever free;
