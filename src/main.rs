@@ -144,10 +144,12 @@ thread_local! {
     // Debug-build-only perf overlay ("avg X.XXms (YY fps), worst Z.ZZms") in the top-right
     // corner, so frame-time regressions are visible during actual play instead of only in a
     // terminal that may not be in view. Same rebuild-on-change pattern as HUD_TEXT_CACHE above:
-    // keyed by the last-printed avg/worst (rounded to hundredths, as displayed), so the Text is
-    // only rebuilt on the same ~2s cadence the underlying numbers actually change, not every frame.
+    // keyed by the last-printed avg/worst (rounded to hundredths, as displayed) plus the live
+    // crab count, so the Text is only rebuilt when one of those actually changes, not every frame
+    // — the crab count rides along so a frame-time spike can be correlated with herd/train size
+    // at a glance instead of guessing from code inspection alone.
     #[cfg(debug_assertions)]
-    static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, Text, f32)>> = RefCell::new(None);
+    static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, Text, f32)>> = RefCell::new(None);
 
     // The debug-mode "[DEBUG] Pattern: X | Time left: Y.YYs" overlay was rebuilding a fresh
     // `format!` String + `Text` every single frame debug_mode is on, even though the pattern
@@ -4931,20 +4933,22 @@ impl MainState {
             // when the printed numbers would actually change, not every frame.
             let avg_key = (self.perf_last_avg_ms * 100.0).round() as i32;
             let worst_key = (self.perf_last_worst_ms * 100.0).round() as i32;
+            let crab_key = self.crabs.len() as i32;
             let needs_rebuild = match &*cache {
-                Some((a, w, _, _)) => *a != avg_key || *w != worst_key,
+                Some((a, w, c, _, _)) => *a != avg_key || *w != worst_key || *c != crab_key,
                 None => true,
             };
             if needs_rebuild {
                 let msg = format!(
-                    "avg {:.2}ms ({:.0} fps)  worst {:.2}ms",
+                    "avg {:.2}ms ({:.0} fps)  worst {:.2}ms  {} crabs ({} chained)",
                     self.perf_last_avg_ms, self.perf_last_fps, self.perf_last_worst_ms,
+                    self.crabs.len(), self.chain_count,
                 );
                 let text = Text::new(msg);
                 let width = text.measure(ctx).map(|m| m.x).unwrap_or(0.0);
-                *cache = Some((avg_key, worst_key, text, width));
+                *cache = Some((avg_key, worst_key, crab_key, text, width));
             }
-            let (_, _, text, width) = cache.as_ref().unwrap();
+            let (_, _, _, text, width) = cache.as_ref().unwrap();
             canvas.draw(
                 text,
                 DrawParam::default()
@@ -6214,13 +6218,18 @@ impl EventHandler for MainState {
             if self.perf_time_accum >= 2.0 {
                 let avg_ms = (self.perf_time_accum / self.perf_frame_count as f32) * 1000.0;
                 let worst_ms = self.perf_worst_frame * 1000.0;
+                // Crab count alongside the timing so a future optimizer pass can correlate a
+                // frame-time regression with herd/train size instead of guessing — cheap: reuses
+                // self.crabs.len() and self.chain_count, no extra scan.
                 println!(
-                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms",
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained)",
                     self.perf_frame_count,
                     self.perf_time_accum,
                     avg_ms,
                     1000.0 / avg_ms,
                     worst_ms,
+                    self.crabs.len(),
+                    self.chain_count,
                 );
                 // Stash for the on-screen overlay (see draw()) so the number is visible during
                 // play too, not just in a terminal that may not be in view.
