@@ -4076,8 +4076,9 @@ pub fn draw_attracted_crab_glow(
 
     let [r, g, b] = crab_color;
 
-    let original_blend = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
+    // Additively blended — the caller (draw_crabs_with_shake) already has the canvas in ADD
+    // mode for this whole per-crab aura pass, so this doesn't toggle blend mode itself; see the
+    // comment there for why (per-crab toggling used to cause a GPU pipeline switch per crab).
 
     // Outer soft glow ring — attracted crabs tend to share similar size/pulse phase (same
     // global beat clock), so this cache lookup is often shared across every glowing crab
@@ -4104,7 +4105,6 @@ pub fn draw_attracted_crab_glow(
         )),
     );
 
-    canvas.set_blend_mode(original_blend);
     Ok(())
 }
 
@@ -4122,8 +4122,8 @@ pub fn draw_magnet_aura(
     lured: bool,
     charged: bool,
 ) -> ggez::GameResult {
-    let original_blend = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
+    // Additively blended — see draw_attracted_crab_glow's comment: the caller already has the
+    // canvas in ADD mode for this whole per-crab aura pass, so no toggle here.
 
     // Lodestone red-orange, matching the crab's own color — but while a Golden's shine has lured
     // this Magnet off its cluster, the aura brightens gold-ward so the "chasing the prize"
@@ -4172,7 +4172,6 @@ pub fn draw_magnet_aura(
             .color(Color::new(1.0, core_g, core_b, 0.55)),
     );
 
-    canvas.set_blend_mode(original_blend);
     Ok(())
 }
 
@@ -4190,8 +4189,8 @@ pub fn draw_thief_aura(
     lured: bool,
     time: f32,
 ) -> ggez::GameResult {
-    let original_blend = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
+    // Additively blended — see draw_attracted_crab_glow's comment: the caller already has the
+    // canvas in ADD mode for this whole per-crab aura pass, so no toggle here.
 
     // Poison-green, matching the crab's own color — but while a Magnet has intercepted it, the
     // green bleeds toward the lodestone's orange so the "caught in the field" crossover reads;
@@ -4258,14 +4257,15 @@ pub fn draw_thief_aura(
         );
     }
 
-    canvas.set_blend_mode(original_blend);
     Ok(())
 }
 
 /// Golden crab shine — a soft shimmering halo plus a handful of sparkle dots orbiting the crab, so
 /// the rare high-value prize catches the eye across the whole field and reads as "chase this one!".
-/// Additively blended for a glowy treasure look. Reuses the cached unit-circle and stroke-circle
-/// meshes (scaled/positioned per element via DrawParam) so no fresh GPU buffers are allocated.
+/// Additively blended for a glowy treasure look — the caller (draw_crabs_with_shake) already has
+/// the canvas in ADD mode for this whole per-crab aura pass, so this doesn't toggle blend mode
+/// itself. Reuses the cached unit-circle and stroke-circle meshes (scaled/positioned per element
+/// via DrawParam) so no fresh GPU buffers are allocated.
 pub fn draw_golden_sparkle(
     ctx: &mut Context,
     canvas: &mut Canvas,
@@ -4274,9 +4274,6 @@ pub fn draw_golden_sparkle(
     time: f32,
     snared: bool,
 ) -> ggez::GameResult {
-    let original_blend = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
-
     // Soft breathing halo so the prize glows even when it's holding still. When a Magnet's field
     // has snared it, the halo warms toward the lodestone's orange so the "trapped by the Magnet"
     // state reads instantly against the ordinary gold shine.
@@ -4326,6 +4323,5 @@ pub fn draw_golden_sparkle(
         );
     }
 
-    canvas.set_blend_mode(original_blend);
     Ok(())
 }

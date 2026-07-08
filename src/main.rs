@@ -6122,6 +6122,15 @@ impl MainState {
 
     fn draw_crabs_with_shake(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         let mut rng = rand::rng();
+        // Every free crab's aura below (flashlight glow, Magnet/Thief/Golden rings) additively
+        // blends, and used to flip the canvas's blend mode ADD -> ALPHA -> ADD per crab (each aura
+        // helper toggled it around itself). ggez only actually switches the GPU pipeline on a
+        // transition between consecutive queued draws, so that per-crab toggling was a real
+        // per-crab pipeline-state churn. Setting ADD once for this whole aura pass and restoring
+        // once after collapses that into a single transition in, one out — same visuals (draw_crab
+        // itself defers into batched buffers and isn't blended here, so it's unaffected).
+        let original_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
         for (i, crab) in self.crabs.iter().enumerate() {
             if !crab.caught {
                 let mut pos = crab.pos;
@@ -6200,6 +6209,7 @@ impl MainState {
                 }
             }
         }
+        canvas.set_blend_mode(original_blend);
         // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
             if crab.caught {
