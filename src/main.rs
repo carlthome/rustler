@@ -79,6 +79,7 @@ const BOSS_CHARGE_ARM_RANGE: f32 = 430.0; // only wind up when the train is with
 const BOSS_ENRAGE_THRESHOLD: f32 = 0.4; // fraction of BOSS_MAX_HEALTH below which the boss enrages
 const BOSS_ENRAGE_COOLDOWN_SCALE: f32 = 0.5; // charge/pulse rest time multiplier while enraged (shorter)
 const BOSS_ENRAGE_CHARGE_SPEED_SCALE: f32 = 1.25; // King Crab lunges this much faster while enraged
+const BOSS_STUN_DURATION: f32 = 1.6; // seconds a King Crab is dazed after ramming a parked Armored shell
 // Tide Boss pulse: instead of charging, it swells and releases an expanding shockwave ring that
 // scatters nearby free crabs and knocks the train's tail loose if it's clustered too close.
 const TIDE_PULSE_COOLDOWN: f32 = 5.0;   // drift time between pulses
@@ -703,11 +704,22 @@ struct MainState {
     // (boss_pos, shell_pos) for each King Crab charge blocked by an Armored shell this frame, so
     // the shell-clang feedback and shell knockback fire after the &mut self.crabs loop ends.
     boss_blocks_buf: Vec<(Vec2, Vec2)>,
+    // King Crab positions stunned by ramming a parked Armored shell this frame, reused instead of
+    // reallocating — mirrors boss_blocks_buf above (almost always empty).
+    boss_stuns_buf: Vec<Vec2>,
     // Positions of fleeing/amplified Golden panic sources each frame, reused instead of
     // reallocating — drives the Golden-panic-spooks-Thief crossover in steal_chain_thief. Almost
     // always empty (a Golden mid-flee is rare), so this used to be a wasted per-frame Vec
     // allocation before it was pooled like the buffers above.
     golden_panic_positions_buf: Vec<Vec2>,
+    // Event buffers for steal_chain_thief's three latched-Thief saves (Magnet pry, Golden panic
+    // spook, Golden lure), reused instead of reallocating three fresh Vecs every single frame —
+    // this function runs unconditionally whenever the train is long enough to be raidable, so an
+    // unpooled Vec::new() here paid an allocation every frame even though a save firing on any
+    // given frame is rare. Same pattern as the other event buffers on this struct.
+    pried_by_magnet_buf: Vec<Vec2>,
+    spooked_by_golden_buf: Vec<Vec2>,
+    lured_by_golden_buf: Vec<Vec2>,
     // Landing spots of fleeing Dancers each beat, reused instead of reallocating — drives the
     // per-beat Dancer-hop startle ripple (see the beat block in update).
     dancer_hop_scratch: Vec<Vec2>,
@@ -1128,7 +1140,11 @@ impl MainState {
             magnet_grind_buf: Vec::new(),
             armored_positions_buf: Vec::new(),
             boss_blocks_buf: Vec::new(),
+            boss_stuns_buf: Vec::new(),
             golden_panic_positions_buf: Vec::new(),
+            pried_by_magnet_buf: Vec::new(),
+            spooked_by_golden_buf: Vec::new(),
+            lured_by_golden_buf: Vec::new(),
             dancer_hop_scratch: Vec::new(),
             contagion_carriers_buf: Vec::new(),
             contagion_grid_buf: std::collections::HashMap::new(),
@@ -1716,9 +1732,14 @@ impl MainState {
         // Thieves a Magnet pried loose, a Golden's panic spooked loose, or a Golden's shine lured
         // off (deferred out of the &mut loop for their freed feedback).
         let mut peel_from: Option<Vec2> = None;
-        let mut pried_by_magnet: Vec<Vec2> = Vec::new();
-        let mut spooked_by_golden: Vec<Vec2> = Vec::new();
-        let mut lured_by_golden: Vec<Vec2> = Vec::new();
+        // Reused scratch buffers (almost always empty — a save firing is rare) instead of three
+        // fresh Vec::new() allocations every single frame this unconditionally-run function pays.
+        let mut pried_by_magnet = std::mem::take(&mut self.pried_by_magnet_buf);
+        pried_by_magnet.clear();
+        let mut spooked_by_golden = std::mem::take(&mut self.spooked_by_golden_buf);
+        spooked_by_golden.clear();
+        let mut lured_by_golden = std::mem::take(&mut self.lured_by_golden_buf);
+        lured_by_golden.clear();
         for c in &mut self.crabs {
             if !c.is_thief() || c.caught {
                 if c.is_thief() {
@@ -1847,6 +1868,10 @@ impl MainState {
                 [0.7, 0.95, 0.4, 1.0], // Thief's poison-green catching the golden gleam
             );
         }
+        // Drained (so empty) either way — hand back for next frame's reuse before any early return.
+        self.pried_by_magnet_buf = pried_by_magnet;
+        self.spooked_by_golden_buf = spooked_by_golden;
+        self.lured_by_golden_buf = lured_by_golden;
 
         let Some(tail_pos) = peel_from else { return };
         if self.chain_snap_cooldown > 0.0 {
@@ -3273,6 +3298,10 @@ impl MainState {
         // mid-lunge overlapping a shell), so a reused scratch Vec keeps it allocation-free.
         let mut boss_blocks = std::mem::take(&mut self.boss_blocks_buf);
         boss_blocks.clear();
+        // King Crab positions stunned by ramming a parked Armored shell this frame — daze feedback
+        // fires after the borrow ends, same deferred pattern as boss_blocks above.
+        let mut boss_stuns = std::mem::take(&mut self.boss_stuns_buf);
+        boss_stuns.clear();
 
         // Snapshot the current conga tail position so free Thief crabs can home in on it below
         // (they ignore the herd and beeline for the train's exposed end). Only meaningful once the
@@ -3513,10 +3542,26 @@ impl MainState {
                             } else {
                                 BOSS_CHARGE_COOLDOWN
                             };
+                            // Slamming a shell doesn't just stop the lunge — the impact DAZES the
+                            // King Crab. For the stun window it can't wind up a new charge and its
+                            // own shell drains far faster under the beam (see the stunned-drain boost
+                            // above), turning the Armored block from a purely defensive save into a
+                            // real damage opportunity: bait the lunge into a parked shell, then hold
+                            // the light on the reeling boss to chunk it down. Fuses the archetype web
+                            // with the boss fight, exactly when the fight peaks. Enraged bosses shake
+                            // it off a little quicker.
+                            crab.stun_timer = if crab.enraged {
+                                BOSS_STUN_DURATION * 0.7
+                            } else {
+                                BOSS_STUN_DURATION
+                            };
+                            // Keep it dazed at least as long as it's stunned before it can charge again.
+                            crab.charge_cooldown = crab.charge_cooldown.max(crab.stun_timer + 0.3);
                             // Bounce the boss back off the shell so the stop reads as an impact,
                             // not a stall, then let it settle into Idle next.
                             crab.vel = -crab.vel.normalize_or_zero() * crab.speed * 0.6;
                             boss_blocks.push((crab.pos, shell_pos));
+                            boss_stuns.push(crab.pos);
                             crab.charge_state = BossCharge::Idle;
                         } else {
                         crab.charge_state = if nt <= 0.0 {
@@ -4168,6 +4213,18 @@ impl MainState {
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 7.0 * 60.0;
         }
 
+        // Feedback for a King Crab dazed by the shell ram above: a woozy callout on top of the
+        // BLOCKED! pop, so the stun window (see stun_timer/is_stunned in enemies.rs) reads as a
+        // real payoff moment, not a silent state flip.
+        for &pos in boss_stuns.iter() {
+            self.floating_texts.spawn(
+                "DAZED!".to_string(),
+                pos - Vec2::new(36.0, 70.0),
+                26.0,
+                [1.0, 0.9, 0.4, 1.0],
+            );
+        }
+
         // Tide Boss starting to swell a pulse: a cold warning ring + shout so the player can pull
         // the train back out of range before the shockwave lands.
         for &pos in tide_swells.iter() {
@@ -4328,6 +4385,7 @@ impl MainState {
         self.charged_magnet_positions_buf = charged_magnet_positions;
         self.armored_positions_buf = armored_positions;
         self.boss_blocks_buf = boss_blocks;
+        self.boss_stuns_buf = boss_stuns;
 
         // Move chain crabs to their historical positions (conga train). Walking self.crabs
         // mutably and consulting self.position_history in the same pass (rather than
@@ -4809,6 +4867,7 @@ impl MainState {
                 magnet_lured: 0.0,
                 thief_lured: 0.0,
                 magnet_charged: 0.0,
+                stun_timer: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
