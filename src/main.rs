@@ -1673,12 +1673,39 @@ impl MainState {
             best.map(|(_, gp)| gp)
         };
 
+        // Emergent crossover: a passing Golden's shine lures a *latched* Thief off your tail. The
+        // Golden-lures-Thief pull already diverts a *homing* raider mid-beeline (see update_crabs),
+        // but a thief this greedy can't resist a shiny thing even once it's clamped on and gnawing:
+        // if a free Golden bolts near a Thief that's already raiding your train, its greed overpowers
+        // its grip and it drops the link it was stealing to chase the bigger prize. A third, distinct
+        // flavor of latched-Thief save from the two above — the Magnet pry is a physical drag (hauled
+        // in), the Golden-panic spook is fright (flees off), and this is pure *greed* (chases away
+        // toward the shine, thief_lured aura and all). Softer than both, so it only fires when neither
+        // a Magnet nor a fleeing Golden's panic already grabbed the Thief this frame. Reuses the
+        // golden_lure_positions_buf snapshot update_crabs already built this frame (free, un-snared
+        // Goldens) — no new scan. Almost always an empty check (a free Golden near a raided train is
+        // rare), so it costs nothing most frames.
+        const GOLDEN_LURE_LATCH_RADIUS: f32 = 220.0;
+        const GOLDEN_LURE_LATCH_RADIUS_SQ: f32 = GOLDEN_LURE_LATCH_RADIUS * GOLDEN_LURE_LATCH_RADIUS;
+        let golden_lure_positions = std::mem::take(&mut self.golden_lure_positions_buf);
+        let nearest_golden_lure_to = |p: Vec2| -> Option<Vec2> {
+            let mut best: Option<(f32, Vec2)> = None;
+            for &gp in golden_lure_positions.iter() {
+                let d2 = p.distance_squared(gp);
+                if d2 < GOLDEN_LURE_LATCH_RADIUS_SQ && best.map_or(true, |(bd2, _)| d2 < bd2) {
+                    best = Some((d2, gp));
+                }
+            }
+            best.map(|(_, gp)| gp)
+        };
+
         // Advance every Thief's latch state; collect whether any peel fired this frame, plus any
-        // Thieves a Magnet pried loose or a Golden's panic spooked loose (deferred out of the &mut
-        // loop for their freed feedback).
+        // Thieves a Magnet pried loose, a Golden's panic spooked loose, or a Golden's shine lured
+        // off (deferred out of the &mut loop for their freed feedback).
         let mut peel_from: Option<Vec2> = None;
         let mut pried_by_magnet: Vec<Vec2> = Vec::new();
         let mut spooked_by_golden: Vec<Vec2> = Vec::new();
+        let mut lured_by_golden: Vec<Vec2> = Vec::new();
         for c in &mut self.crabs {
             if !c.is_thief() || c.caught {
                 if c.is_thief() {
@@ -1716,6 +1743,23 @@ impl MainState {
                     spooked_by_golden.push(c.pos);
                     continue;
                 }
+                // A free Golden's shine catches the raiding Thief's eye: greed wins over grip, so it
+                // unclamps and darts off toward the prize instead of peeling your links. Unlike the
+                // fright spook above it isn't fleeing — it *chases* the shine, so it heads toward the
+                // Golden with the same thief_lured gold aura the homing-lure crossover uses. Yields to
+                // the Magnet pry and the panic spook (checked first), which are harder pulls.
+                if let Some(gp) = nearest_golden_lure_to(c.pos) {
+                    c.latch_timer = 0.0;
+                    let dir = (gp - c.pos).normalize_or_zero();
+                    let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
+                    c.vel = dir * c.crab_type.speed_range().end * 1.3;
+                    c.speed = 1.0;
+                    c.fleeing = false;
+                    c.startle_timer = 0.0;
+                    c.thief_lured = 0.3; // light the gold "chasing shine" aura
+                    lured_by_golden.push(c.pos);
+                    continue;
+                }
                 // Already clamped. Ride the tail so it visually hangs off the back of the train.
                 if d > UNLATCH_DIST {
                     c.latch_timer = 0.0; // the train outran it — it drops off
@@ -1743,6 +1787,7 @@ impl MainState {
         // hand both buffers back to self for next frame's reuse instead of dropping them.
         self.magnet_positions_buf = magnet_positions;
         self.golden_panic_positions_buf = golden_panic_positions;
+        self.golden_lure_positions_buf = golden_lure_positions;
 
         // Feedback for any Thief a Magnet just pried off your tail — a bright orange-green pop and
         // a callout so the save reads as a moment, not a silent stat change. Orange (the Magnet's
@@ -1775,6 +1820,19 @@ impl MainState {
                 [1.0, 0.85, 0.3, 1.0],
             );
             self.spawn_catch_shockwave(pos, [1.0, 0.8, 0.25]);
+        }
+
+        // Feedback for any Thief a Golden's shine just lured off your tail — a poison-green "SHINY!"
+        // pop matching the homing-lure crossover's cue, so the "it dropped the raid to chase gold"
+        // story reads the same whether the Thief was homing or already clamped on. Distinct from the
+        // gold "SPOOKED OFF!" fright pop above: this one is greed, not fear.
+        for pos in lured_by_golden.drain(..) {
+            self.floating_texts.spawn(
+                "SHINY!".to_string(),
+                pos - Vec2::new(0.0, 30.0),
+                22.0,
+                [0.7, 0.95, 0.4, 1.0], // Thief's poison-green catching the golden gleam
+            );
         }
 
         let Some(tail_pos) = peel_from else { return };
