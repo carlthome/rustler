@@ -200,6 +200,17 @@ thread_local! {
     // same draw order within a beat's rings, identical on-screen output.
     static CHAIN_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
     static CHAIN_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+
+    // Reusable instance buffers for draw_crab_radar's two passes (arrow + glow outline). A big
+    // wild herd can put a couple dozen uncaught crabs near the screen edges at once, each
+    // previously costing 2 individual canvas.draw() calls (arrow + glow) every frame it lingered
+    // there — the same per-call overhead already eliminated for particles/legs/bodies/trails/
+    // marchers/grass/chain rings. Same UNIT_TRIANGLE mesh, same positions/rotations/scales/colors,
+    // identical on-screen output, just batched into one InstanceArray fill + draw per pass.
+    static RADAR_ARROW_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static RADAR_GLOW_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static RADAR_ARROW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static RADAR_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -2428,71 +2439,98 @@ pub fn draw_crab_radar(
         }
     };
 
-    for crab in crabs {
-        if crab.caught {
-            continue;
-        }
-        // Only show arrow if crab is near an edge (within margin*5) or fully off-screen
-        let cx = crab.pos.x;
-        let cy = crab.pos.y;
-        let near_edge = cx < margin * 5.0
-            || cx > width - margin * 5.0
-            || cy < margin * 5.0
-            || cy > height - margin * 5.0;
-        if !near_edge {
-            continue;
-        }
+    let triangle = triangle.clone();
+    RADAR_ARROW_PARAMS.with(|arrow_cell| -> ggez::GameResult {
+        RADAR_GLOW_PARAMS.with(|glow_cell| -> ggez::GameResult {
+            let mut arrow_params = arrow_cell.borrow_mut();
+            let mut glow_params = glow_cell.borrow_mut();
+            arrow_params.clear();
+            glow_params.clear();
 
-        // Clamp the indicator to the screen edge
-        let edge_x = cx.clamp(margin, width - margin);
-        let edge_y = cy.clamp(margin, height - margin);
+            for crab in crabs {
+                if crab.caught {
+                    continue;
+                }
+                // Only show arrow if crab is near an edge (within margin*5) or fully off-screen
+                let cx = crab.pos.x;
+                let cy = crab.pos.y;
+                let near_edge = cx < margin * 5.0
+                    || cx > width - margin * 5.0
+                    || cy < margin * 5.0
+                    || cy > height - margin * 5.0;
+                if !near_edge {
+                    continue;
+                }
 
-        // Direction from indicator position to actual crab position (points inward)
-        let dir = Vec2::new(cx - edge_x, cy - edge_y);
-        let angle = if dir.length() > 0.1 {
-            dir.y.atan2(dir.x)
-        } else {
-            // crab is right at edge, just point inward from nearest edge
-            let dx = cx - width / 2.0;
-            let dy = cy - height / 2.0;
-            dy.atan2(dx)
-        };
+                // Clamp the indicator to the screen edge
+                let edge_x = cx.clamp(margin, width - margin);
+                let edge_y = cy.clamp(margin, height - margin);
 
-        // Arrow points toward `angle` from the edge position — the cached unit triangle already
-        // points along +x with its tip at local (1,0), so a rotation to `angle` plus a scale by
-        // `arrow_size` reproduces the old per-crab tip/left/right geometry exactly, without
-        // rebuilding it.
-        let origin = Vec2::new(edge_x, edge_y);
+                // Direction from indicator position to actual crab position (points inward)
+                let dir = Vec2::new(cx - edge_x, cy - edge_y);
+                let angle = if dir.length() > 0.1 {
+                    dir.y.atan2(dir.x)
+                } else {
+                    // crab is right at edge, just point inward from nearest edge
+                    let dx = cx - width / 2.0;
+                    let dy = cy - height / 2.0;
+                    dy.atan2(dx)
+                };
 
-        let [r, g, b] = crab.crab_color();
-        // Add brightness boost so arrow reads even when washed out
-        let brightness = 0.4 + beat_intensity * 0.3;
-        let color = Color::new(
-            (r + brightness).min(1.0),
-            (g + brightness).min(1.0),
-            (b + brightness).min(1.0),
-            0.75 + beat_intensity * 0.2,
-        );
-        canvas.draw(
-            triangle,
-            DrawParam::default()
-                .dest(origin)
-                .rotation(angle)
-                .scale(Vec2::splat(arrow_size))
-                .color(color),
-        );
+                // Arrow points toward `angle` from the edge position — the cached unit triangle
+                // already points along +x with its tip at local (1,0), so a rotation to `angle`
+                // plus a scale by `arrow_size` reproduces the old per-crab tip/left/right
+                // geometry exactly, without rebuilding it.
+                let origin = Vec2::new(edge_x, edge_y);
 
-        // Glow outline — same shape at 1.5x scale, matching the old glow_pts geometry.
-        let glow_color = Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 0.35 + beat_intensity * 0.15);
-        canvas.draw(
-            triangle,
-            DrawParam::default()
-                .dest(origin)
-                .rotation(angle)
-                .scale(Vec2::splat(arrow_size * 1.5))
-                .color(glow_color),
-        );
-    }
+                let [r, g, b] = crab.crab_color();
+                // Add brightness boost so arrow reads even when washed out
+                let brightness = 0.4 + beat_intensity * 0.3;
+                let color = Color::new(
+                    (r + brightness).min(1.0),
+                    (g + brightness).min(1.0),
+                    (b + brightness).min(1.0),
+                    0.75 + beat_intensity * 0.2,
+                );
+                arrow_params.push(
+                    DrawParam::default()
+                        .dest(origin)
+                        .rotation(angle)
+                        .scale(Vec2::splat(arrow_size))
+                        .color(color),
+                );
+
+                // Glow outline — same shape at 1.5x scale, matching the old glow_pts geometry.
+                let glow_color =
+                    Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 0.35 + beat_intensity * 0.15);
+                glow_params.push(
+                    DrawParam::default()
+                        .dest(origin)
+                        .rotation(angle)
+                        .scale(Vec2::splat(arrow_size * 1.5))
+                        .color(glow_color),
+                );
+            }
+
+            if !arrow_params.is_empty() {
+                RADAR_ARROW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(arrow_params.iter().copied());
+                    canvas.draw_instanced_mesh(triangle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
+                RADAR_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(glow_params.iter().copied());
+                    canvas.draw_instanced_mesh(triangle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
     Ok(())
