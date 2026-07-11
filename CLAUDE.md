@@ -95,9 +95,11 @@ Steps:
 1. Read git log: `git -C $HOME/Repos/carlthome/rustler log --oneline -8`
 2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
 3. Read ROADMAP.md if it exists — it's maintained by the Game Director agent (cron 6) and
-   reflects both a bird's-eye view of the game and Carl's actual Slack feedback. Pick the
-   single most impactful fun improvement not yet done, preferring a concrete, buildable item
-   from ROADMAP.md when one fits this run. Otherwise fall back to priority order:
+   reflects both a bird's-eye view of the game and Carl's actual Slack feedback. If it has a
+   "Bugs" section, fix the top item there before anything else — a crash or broken control
+   beats any new feature, no matter how good. Otherwise, pick the single most impactful fun
+   improvement not yet done, preferring a concrete, buildable item from ROADMAP.md when one
+   fits this run. Otherwise fall back to priority order:
    (a) game feel/juice, (b) visual spectacle, (c) new mechanics, (d) difficulty balance
 4. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
@@ -171,9 +173,11 @@ Steps:
 1. Read git log: `git -C $HOME/Repos/carlthome/rustler log --oneline -8`
 2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
 3. Read ROADMAP.md if it exists — it's maintained by the Game Director agent (cron 6) and
-   reflects both a bird's-eye view of the game and Carl's actual Slack feedback. Pick the
-   single most impactful fun improvement not yet done, preferring a concrete, buildable item
-   from ROADMAP.md when one fits this run. Otherwise fall back to priority order:
+   reflects both a bird's-eye view of the game and Carl's actual Slack feedback. If it has a
+   "Bugs" section, fix the top item there before anything else — a crash or broken control
+   beats any new feature, no matter how good. Otherwise, pick the single most impactful fun
+   improvement not yet done, preferring a concrete, buildable item from ROADMAP.md when one
+   fits this run. Otherwise fall back to priority order:
    (a) game feel/juice, (b) visual spectacle, (c) new mechanics, (d) difficulty balance
 4. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
@@ -244,11 +248,13 @@ Steps:
    considered reply much more heavily than a passing emoji reaction — a 👍 is weak signal, a
    sentence of opinion is strong signal. If Carl reacted negatively or asked to walk something
    back, that overrides anything below.
-5. Update ROADMAP.md. It's organized in three sections — respect this structure, don't flatten
-   it back into one list: "Now" (sequenced, build these), "Later (outer loop — not yet)"
-   (sequenced, deliberately deferred), and "Also on our mind" (unsequenced ideas worth keeping
-   around but not yet ready to promote into "Now" — move one up only when it's clearly
-   buildable and fits the current phase):
+5. Update ROADMAP.md. It's organized in sections — respect this structure, don't flatten it
+   back into one list: "Bugs" (if present — crashes/broken controls Carl hit while playing,
+   always the top priority, above every other section — never demote or bury one, only remove
+   it once you've confirmed from the git log it's actually been fixed), "Now" (sequenced, build
+   these), "Later (outer loop — not yet)" (sequenced, deliberately deferred), and "Also on our
+   mind" (unsequenced ideas worth keeping around but not yet ready to promote into "Now" — move
+   one up only when it's clearly buildable and fits the current phase):
    - Remove or check off items that are now shipped
    - Fold in Carl's feedback from step 4: add, reprioritize, or drop roadmap items to match
      what he responded well or badly to. If he commented on something specific, write the
