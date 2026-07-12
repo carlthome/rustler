@@ -8,7 +8,7 @@ use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, p
 
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
-use ggez::conf::WindowMode;
+use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
 use ggez::glam::Vec2;
 use ggez::graphics::{
@@ -482,6 +482,20 @@ struct MainState {
     // conga train amplifies its forward stomp while this is high, so the whole train visibly
     // "lands the one" together — a big unified footfall on the downbeat, smaller steps between.
     bar_accent: f32,
+    // Drum Roll (hold T): the one player-driven rhythm verb that's a fresh VERB, not a passive
+    // multiplier. Hold T across consecutive beats to build a charge; each beat that T is held
+    // while on-beat counts as a "roll hit" and stacks. Release to FIRE a focused beam blast down
+    // the flashlight's aim — a short window where the cone widens and reaches far, snapping every
+    // free crab in that aimed arc into the train at once. It's directional (down your aim, unlike
+    // the radial Slam), timing-gated (only pays if you land the beats), and costs no Groove meter,
+    // so it's a skill move you perform rather than a meter you spend. Missing a beat while holding
+    // resets the stack, so the tension is holding the roll clean through a full bar for the big pop.
+    drum_roll_held: bool,       // was T held last frame — edge-detects press/release in update
+    drum_roll_hits: u32,        // consecutive on-beat "roll hits" banked while holding (the charge)
+    drum_roll_beat_done: bool,  // guards one hit per beat so a held key doesn't double-count a beat
+    drum_roll_charge: f32,      // 0..1 visual charge level, eased toward drum_roll_hits for a smooth telegraph
+    drum_roll_fire: f32,        // 1..0 timer while a fired blast's wide beam is live (drives the catch boost + glow)
+    drum_roll_power: u32,       // roll hits captured at the moment of firing — scales the fired blast's reach/arc
     beat_wave_active: bool,                    // Whether beat wave is expanding
     beat_wave_radius: f32,                     // Current radius of expanding wave
     // Bar-quantized spawns: when a pattern ends we don't drop the next wave at an arbitrary
@@ -1045,6 +1059,12 @@ impl MainState {
             combo_timer: 0.0,
             beat_count: 0,
             bar_accent: 0.0,
+            drum_roll_held: false,
+            drum_roll_hits: 0,
+            drum_roll_beat_done: false,
+            drum_roll_charge: 0.0,
+            drum_roll_fire: 0.0,
+            drum_roll_power: 0,
             beat_wave_active: false,
             beat_wave_radius: 0.0,
             wave_armed: false,
@@ -4637,6 +4657,12 @@ impl MainState {
         self.combo_timer = 0.0;
         self.beat_count = 0;
         self.bar_accent = 0.0;
+        self.drum_roll_held = false;
+        self.drum_roll_hits = 0;
+        self.drum_roll_beat_done = false;
+        self.drum_roll_charge = 0.0;
+        self.drum_roll_fire = 0.0;
+        self.drum_roll_power = 0;
         self.beat_wave_active = false;
         self.beat_wave_radius = 0.0;
         self.wave_armed = false;
@@ -6774,22 +6800,12 @@ impl EventHandler for MainState {
         if !self.fullscreen_applied {
             // current_monitor() can still be None on the very first tick, so keep retrying
             // until it resolves instead of only trying once.
-            if let Some(monitor_size) = ctx.gfx.window().current_monitor().map(|m| m.size()) {
-                ctx.gfx
-                    .window()
-                    .set_fullscreen(Some(ggez::winit::window::Fullscreen::Borderless(None)));
-                // On Wayland, set_fullscreen() alone changes the window's on-screen chrome but
-                // doesn't reliably trigger ggez to reconfigure its wgpu surface, leaving the
-                // swapchain at its old (windowed) size while the compositor letterboxes it.
-                // set_drawable_size() goes through ggez's own window-mode path, which resizes
-                // the surface synchronously instead of waiting on a resize event.
-                // On macOS, monitor.size() returns physical pixels (2× on Retina), and the macOS
-                // compositor handles surface resize automatically after fullscreen — calling
-                // set_drawable_size with physical dimensions here breaks the wgpu surface.
-                #[cfg(not(target_os = "macos"))]
-                ctx.gfx
-                    .set_drawable_size(monitor_size.width as f32, monitor_size.height as f32)?;
-                let _ = monitor_size; // suppress unused-variable warning on macOS
+            if ctx.gfx.window().current_monitor().is_some() {
+                // FullscreenType::Desktop removes decorations and resizes the window to cover
+                // the monitor without using the OS native fullscreen API, so it works the same
+                // on macOS, Wayland, and Windows. It also reconfigures the wgpu surface
+                // internally so we don't need to call set_drawable_size separately.
+                ctx.gfx.set_fullscreen(FullscreenType::Desktop)?;
                 self.fullscreen_applied = true;
             }
         }
