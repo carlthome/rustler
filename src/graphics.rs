@@ -5,7 +5,7 @@ use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{
     BlendMode, Canvas, Color, DrawMode, DrawParam, Image, InstanceArray, Mesh, Rect, Shader,
-    ShaderParamsBuilder,
+    ShaderParamsBuilder, Text,
 };
 use rand::Rng;
 use std::cell::RefCell;
@@ -2158,6 +2158,11 @@ pub struct FloatingText {
     pub max_life: f32,
     pub scale: f32,
     pub color: [f32; 4], // rgba 0..1
+    // Glyph-shaped Text object built once at spawn — reused every frame so we avoid re-running
+    // ggez's layout/shaping pass on every draw call. The scale set here is the logical font
+    // size (ft.scale); the per-frame fade-pop factor is applied via DrawParam::scale instead,
+    // which only transforms the already-rasterized glyphs without re-shaping.
+    pub cached_text: Text,
 }
 
 pub struct FloatingTextSystem {
@@ -2170,6 +2175,11 @@ impl FloatingTextSystem {
     }
 
     pub fn spawn(&mut self, text: String, pos: Vec2, scale: f32, color: [f32; 4]) {
+        // Build the Text object once at spawn (glyph shaping/layout runs here, not per frame).
+        // set_scale bakes the logical font size into the layout; per-frame DrawParam::scale
+        // only transforms the rasterized result without re-triggering shaping.
+        let mut cached_text = Text::new(&text);
+        cached_text.set_scale(scale);
         self.texts.push(FloatingText {
             text,
             pos,
@@ -2178,6 +2188,7 @@ impl FloatingTextSystem {
             max_life: 1.1,
             scale,
             color,
+            cached_text,
         });
     }
 
@@ -2192,20 +2203,26 @@ impl FloatingTextSystem {
 }
 
 pub fn draw_floating_texts(
-    ctx: &mut Context,
+    _ctx: &mut Context,
     canvas: &mut Canvas,
     system: &FloatingTextSystem,
 ) -> ggez::GameResult {
-    use ggez::graphics::Text;
     for ft in &system.texts {
         let ratio = ft.life / ft.max_life;
         let alpha = (ft.color[3] * ratio).clamp(0.0, 1.0);
         let color = Color::new(ft.color[0], ft.color[1], ft.color[2], alpha);
-        // Slight upward scale pop at start, shrinks as it fades
-        let scale = ft.scale * (0.8 + 0.2 * ratio);
-        let mut text = Text::new(&ft.text);
-        text.set_scale(scale);
-        canvas.draw(&text, DrawParam::default().dest(ft.pos).color(color));
+        // Slight upward scale pop at start, shrinks as it fades. Applied via DrawParam::scale
+        // so we transform the already-rasterized glyphs from ft.cached_text rather than
+        // rebuilding the Text (glyph shaping) every frame. Factor ≤1.0 so the downscale of
+        // full-size glyphs stays clean even under nearest-clamp sampling.
+        let pop = 0.8 + 0.2 * ratio;
+        canvas.draw(
+            &ft.cached_text,
+            DrawParam::default()
+                .dest(ft.pos)
+                .scale(Vec2::splat(pop))
+                .color(color),
+        );
     }
     Ok(())
 }
