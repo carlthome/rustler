@@ -6778,13 +6778,18 @@ impl EventHandler for MainState {
                 ctx.gfx
                     .window()
                     .set_fullscreen(Some(ggez::winit::window::Fullscreen::Borderless(None)));
-                // set_fullscreen() alone changes the window's on-screen chrome but doesn't
-                // reliably trigger ggez to reconfigure its wgpu surface on this winit/Wayland
-                // combo, leaving the swapchain at its old (windowed) size while the compositor
-                // letterboxes it. set_drawable_size() goes through ggez's own window-mode path,
-                // which resizes the surface synchronously instead of waiting on a resize event.
+                // On Wayland, set_fullscreen() alone changes the window's on-screen chrome but
+                // doesn't reliably trigger ggez to reconfigure its wgpu surface, leaving the
+                // swapchain at its old (windowed) size while the compositor letterboxes it.
+                // set_drawable_size() goes through ggez's own window-mode path, which resizes
+                // the surface synchronously instead of waiting on a resize event.
+                // On macOS, monitor.size() returns physical pixels (2× on Retina), and the macOS
+                // compositor handles surface resize automatically after fullscreen — calling
+                // set_drawable_size with physical dimensions here breaks the wgpu surface.
+                #[cfg(not(target_os = "macos"))]
                 ctx.gfx
                     .set_drawable_size(monitor_size.width as f32, monitor_size.height as f32)?;
+                let _ = monitor_size; // suppress unused-variable warning on macOS
                 self.fullscreen_applied = true;
             }
         }
