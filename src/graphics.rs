@@ -234,6 +234,22 @@ thread_local! {
     // once on first use and reuse forever. DrawParam::scale still handles the per-frame beat-pulse
     // size, so no re-layout is needed when the pulse changes.
     static COMBO_LABEL_CACHE: RefCell<[Option<Text>; 3]> = RefCell::new([const { None }; 3]);
+
+    // Reusable instance buffers for draw_boss_fissures' batched passes. While a King Crab's
+    // enrage phase is open (up to 5 fissures with 7 radial crack-spokes each) the old per-spoke,
+    // per-cap, per-pit canvas.draw() loop issued up to ~65 individual GPU submissions a frame plus
+    // one set_blend_mode toggle per fissure (5 extra pipeline switches). The enrage climax is the
+    // most visually dense moment of a run (screen shake + particles + chain rings + boss aura all
+    // firing together), so extra draw-call cost there hurts the most. Collapsed into five
+    // InstanceArray submissions total with a single blend-mode switch pair for the whole pass.
+    // Same unit_circle / unit_line meshes, identical on-screen output — pure batch reduction.
+    static FISSURE_PIT_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static FISSURE_CORE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static FISSURE_SPOKE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static FISSURE_GEYSER_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static FISSURE_CAP_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static FISSURE_CIRCLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static FISSURE_LINE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -3729,65 +3745,183 @@ pub fn draw_boss_fissures(
     };
     let beat = beat_intensity.clamp(0.0, 1.0);
 
+    // Batch all fissure draws into five InstanceArray submissions instead of one canvas.draw()
+    // per spoke/cap/pit per fissure. With 5 fissures x (1 pit + 1 core + 7 spokes + conditional
+    // geyser column + cap) the old loop issued up to 65 individual GPU submissions plus 5 per-
+    // fissure blend-mode switches. The new layout: one ALPHA pass (pit fills), one ADD pass
+    // (cores + spokes + geyser columns + geyser caps), and one per-fissure stroke-circle rim
+    // (still individual — each fissure's rim has a distinct radius so they can't be grouped by key
+    // the way chain rings are; the rim count is bounded by 5, so it's cheap). Total GPU submissions
+    // drop from ~65 + 5 blend switches to ~7 + 1 blend switch pair, with identical on-screen output.
+    FISSURE_PIT_PARAMS.with(|pp| {
+        FISSURE_CORE_PARAMS.with(|cp| {
+            FISSURE_SPOKE_PARAMS.with(|sp| {
+                FISSURE_GEYSER_PARAMS.with(|gp| {
+                    FISSURE_CAP_PARAMS.with(|cap| {
+                        let mut pit_params = pp.borrow_mut();
+                        let mut core_params = cp.borrow_mut();
+                        let mut spoke_params = sp.borrow_mut();
+                        let mut geyser_params = gp.borrow_mut();
+                        let mut cap_params = cap.borrow_mut();
+                        pit_params.clear();
+                        core_params.clear();
+                        spoke_params.clear();
+                        geyser_params.clear();
+                        cap_params.clear();
+
+                        for (i, &(center, radius, age)) in fissures.iter().enumerate() {
+                            let open = age.clamp(0.0, 1.0);
+                            let phase = i as f32 * 1.9;
+                            let glow = 0.5 + 0.5 * (time * 4.0 + phase).sin();
+
+                            // Pass 1 (ALPHA): dark scorched pit.
+                            pit_params.push(
+                                DrawParam::default()
+                                    .dest(center)
+                                    .scale(Vec2::splat(radius * open))
+                                    .color(Color::new(0.12, 0.03, 0.02, 0.5)),
+                            );
+
+                            // Pass 2 (ADD): molten core.
+                            core_params.push(
+                                DrawParam::default()
+                                    .dest(center)
+                                    .scale(Vec2::splat(radius * (0.55 + 0.22 * erupt) * open))
+                                    .color(Color::new(
+                                        1.0,
+                                        0.35 + 0.2 * glow + 0.15 * beat + 0.25 * erupt,
+                                        0.08 + 0.15 * erupt,
+                                        (0.28 + 0.18 * glow + 0.3 * erupt) * open,
+                                    )),
+                            );
+
+                            // Pass 2 (ADD): geyser column and cap when erupting.
+                            if erupt > 0.02 && open > 0.5 {
+                                let col_h = radius * (0.9 + 1.4 * erupt);
+                                let col_w = radius * 0.5;
+                                geyser_params.push(
+                                    DrawParam::default()
+                                        .dest(center + Vec2::new(0.0, -col_h * 0.5))
+                                        .rotation(-std::f32::consts::FRAC_PI_2)
+                                        .scale(Vec2::new(col_h, col_w))
+                                        .color(Color::new(1.0, 0.55 + 0.35 * glow, 0.2, 0.35 * erupt)),
+                                );
+                                cap_params.push(
+                                    DrawParam::default()
+                                        .dest(center + Vec2::new(0.0, -col_h))
+                                        .scale(Vec2::splat(radius * 0.28 * erupt))
+                                        .color(Color::new(1.0, 0.85, 0.5, 0.55 * erupt)),
+                                );
+                            }
+
+                            // Pass 2 (ADD): 7 radial crack spokes per fissure.
+                            let spokes = 7;
+                            let thickness = 2.0 + 1.5 * beat;
+                            for s in 0..spokes {
+                                let a = s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
+                                let jitter = (time * 3.0 + s as f32 * 2.1).sin() * 0.15;
+                                let dir = Vec2::new((a + jitter).cos(), (a + jitter).sin());
+                                let inner = center + dir * radius * 0.35 * open;
+                                let outer_len = (radius * (0.9 + 0.15 * glow) * open
+                                    - radius * 0.35 * open)
+                                    .max(0.0);
+                                spoke_params.push(
+                                    DrawParam::default()
+                                        .dest(inner)
+                                        .rotation(dir.y.atan2(dir.x))
+                                        .scale(Vec2::new(outer_len, thickness))
+                                        .color(Color::new(
+                                            1.0,
+                                            0.55 + 0.25 * glow,
+                                            0.15,
+                                            (0.45 + 0.3 * glow) * open,
+                                        )),
+                                );
+                            }
+                        }
+                    });
+                });
+            });
+        });
+    });
+
+    // Issue the batched draws now that all params are collected.
+    // Pass 1: dark pit fills, standard ALPHA blend (canvas is already in ALPHA).
+    FISSURE_PIT_PARAMS.with(|pp| {
+        FISSURE_CIRCLE_INSTANCES.with(|ci| -> ggez::GameResult {
+            let pit_params = pp.borrow();
+            let mut inst_slot = ci.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(pit_params.iter().copied());
+            canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+            Ok(())
+        })
+    })?;
+
+    // Pass 2 (ADD): cores, spokes, geyser columns, geyser caps — all with the same blend.
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    FISSURE_CORE_PARAMS.with(|cp| {
+        FISSURE_CIRCLE_INSTANCES.with(|ci| -> ggez::GameResult {
+            let core_params = cp.borrow();
+            if !core_params.is_empty() {
+                let mut inst_slot = ci.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(core_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
+
+    FISSURE_GEYSER_PARAMS.with(|gp| {
+        FISSURE_LINE_INSTANCES.with(|li| -> ggez::GameResult {
+            let geyser_params = gp.borrow();
+            if !geyser_params.is_empty() {
+                let mut inst_slot = li.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(geyser_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
+
+    FISSURE_CAP_PARAMS.with(|cap| {
+        FISSURE_CIRCLE_INSTANCES.with(|ci| -> ggez::GameResult {
+            let cap_params = cap.borrow();
+            if !cap_params.is_empty() {
+                let mut inst_slot = ci.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(cap_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
+
+    FISSURE_SPOKE_PARAMS.with(|sp| {
+        FISSURE_LINE_INSTANCES.with(|li| -> ggez::GameResult {
+            let spoke_params = sp.borrow();
+            if !spoke_params.is_empty() {
+                let mut inst_slot = li.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(spoke_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
+
+    // Per-fissure hazard rims drawn individually (each has a distinct cached-stroke-circle key
+    // — radius and thickness depend on per-fissure `reach` and `erupt` — so they can't be
+    // instanced together the way same-age chain rings can). There are at most 5, so this is a
+    // bounded-cost tail on an otherwise fully-batched pass.
     for (i, &(center, radius, age)) in fissures.iter().enumerate() {
-        // `open` eases the crack from a bright hot slit to a settled hazard as it forms.
         let open = age.clamp(0.0, 1.0);
         let phase = i as f32 * 1.9;
         let glow = 0.5 + 0.5 * (time * 4.0 + phase).sin();
-
-        // Dark scorched pit so the ground reads as broken, under an additive molten glow.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius * open))
-                .color(Color::new(0.12, 0.03, 0.02, 0.5)),
-        );
-
-        let orig_blend = canvas.blend_mode();
-        canvas.set_blend_mode(BlendMode::ADD);
-
-        // Molten inner core, hotter on the beat — the "lava" welling up through the crack. On the
-        // geyser pulse the core flares brighter and larger, as if the lava surges up the shaft.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius * (0.55 + 0.22 * erupt) * open))
-                .color(Color::new(
-                    1.0,
-                    0.35 + 0.2 * glow + 0.15 * beat + 0.25 * erupt,
-                    0.08 + 0.15 * erupt,
-                    (0.28 + 0.18 * glow + 0.3 * erupt) * open,
-                )),
-        );
-
-        // Geyser column: on the beat, a bright molten spout jets straight up out of the pit mouth,
-        // fading as it rises. Only draws while erupting, so between beats the pit just glows.
-        if erupt > 0.02 && open > 0.5 {
-            let col_h = radius * (0.9 + 1.4 * erupt);
-            let col_w = radius * 0.5;
-            canvas.draw(
-                unit_line,
-                DrawParam::default()
-                    .dest(center + Vec2::new(0.0, -col_h * 0.5))
-                    .rotation(-std::f32::consts::FRAC_PI_2)
-                    .scale(Vec2::new(col_h, col_w))
-                    .color(Color::new(1.0, 0.55 + 0.35 * glow, 0.2, 0.35 * erupt)),
-            );
-            // A hot bright cap where the spout crests, brightest at the peak of the pulse.
-            canvas.draw(
-                unit_circle,
-                DrawParam::default()
-                    .dest(center + Vec2::new(0.0, -col_h))
-                    .scale(Vec2::splat(radius * 0.28 * erupt))
-                    .color(Color::new(1.0, 0.85, 0.5, 0.55 * erupt)),
-            );
-        }
-
-        // Hard hazard rim so the edge you route around reads clearly, flaring on formation. During
-        // the geyser it swells outward to trace the widened bite radius (1.35x at peak) so the
-        // "danger zone" the player must clear reads visibly bigger on the beat than off it.
         let reach = 1.0 + 0.35 * erupt;
         let rim_a = (0.4 + 0.35 * glow + 0.3 * erupt) * open + (1.0 - open) * 0.9;
         let rim = cached_stroke_circle(ctx, (radius * reach) * open.max(0.05), 3.0 + 1.5 * erupt)?;
@@ -3797,37 +3931,9 @@ pub fn draw_boss_fissures(
                 .dest(center)
                 .color(Color::new(1.0, 0.5 + 0.3 * beat, 0.12, rim_a.clamp(0.0, 1.0))),
         );
-
-        // Jagged radial cracks spidering out from the pit, flickering with the molten glow.
-        // Drawn from the cached `unit_line` mesh (rotated/scaled per spoke via DrawParam)
-        // instead of a fresh `Mesh::new_line` GPU buffer per spoke — with 5 fissures x 7
-        // spokes this was up to 35 brand-new GPU mesh allocations every single frame while
-        // a King Crab's enrage phase was open.
-        let spokes = 7;
-        let thickness = 2.0 + 1.5 * beat;
-        for s in 0..spokes {
-            let a = s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
-            let jitter = (time * 3.0 + s as f32 * 2.1).sin() * 0.15;
-            let dir = Vec2::new((a + jitter).cos(), (a + jitter).sin());
-            let inner = center + dir * radius * 0.35 * open;
-            let outer_len = (radius * (0.9 + 0.15 * glow) * open - radius * 0.35 * open).max(0.0);
-            canvas.draw(
-                unit_line,
-                DrawParam::default()
-                    .dest(inner)
-                    .rotation(dir.y.atan2(dir.x))
-                    .scale(Vec2::new(outer_len, thickness))
-                    .color(Color::new(
-                        1.0,
-                        0.55 + 0.25 * glow,
-                        0.15,
-                        (0.45 + 0.3 * glow) * open,
-                    )),
-            );
-        }
-
-        canvas.set_blend_mode(orig_blend);
     }
+
+    canvas.set_blend_mode(orig_blend);
     Ok(())
 }
 
