@@ -4554,3 +4554,126 @@ pub fn draw_golden_sparkle(
 
     Ok(())
 }
+
+/// Campaign world map screen. Draws a simple node-and-path layout over a dark backdrop.
+/// Nodes are colored by state: locked=dim gray, unlocked=white, completed=teal, selected=gold ring.
+/// Call this instead of the game/title draw when `show_world_map` is true.
+pub fn draw_world_map(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    map: &crate::world_map::WorldMap,
+    width: f32,
+    height: f32,
+    menu_time: f32,
+) -> ggez::GameResult {
+    // Dark sea background.
+    canvas.draw(
+        &Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(0.0, 0.0, width, height),
+            Color::new(0.04, 0.07, 0.12, 1.0),
+        )?,
+        DrawParam::default(),
+    );
+
+    let (sx, sy) = (width, height);
+
+    let node_to_screen = |(nx, ny): (f32, f32)| -> Vec2 {
+        Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
+    };
+
+    // Connecting path lines between consecutive nodes.
+    for i in 0..map.nodes.len().saturating_sub(1) {
+        let a = node_to_screen(map.nodes[i].position);
+        let b = node_to_screen(map.nodes[i + 1].position);
+        let color = if map.nodes[i + 1].unlocked {
+            Color::new(0.5, 0.7, 0.5, 0.6)
+        } else {
+            Color::new(0.3, 0.3, 0.3, 0.4)
+        };
+        canvas.draw(
+            &Mesh::new_line(ctx, &[a, b], 3.0, color)?,
+            DrawParam::default(),
+        );
+    }
+
+    let circle = Mesh::new_circle(ctx, DrawMode::fill(), Vec2::ZERO, 1.0, 0.05, Color::WHITE)?;
+
+    for (i, node) in map.nodes.iter().enumerate() {
+        let pos = node_to_screen(node.position);
+        let is_selected = i == map.selected;
+
+        // Selection ring — gentle pulse.
+        if is_selected {
+            let pulse = (menu_time * 3.0).sin() * 0.15 + 0.85;
+            canvas.draw(
+                &circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(28.0 * pulse))
+                    .color(Color::new(1.0, 0.85, 0.2, 0.35)),
+            );
+        }
+
+        // Node fill.
+        let fill_color = if !node.unlocked {
+            Color::new(0.25, 0.25, 0.25, 1.0)
+        } else if node.completed {
+            Color::new(0.25, 0.75, 0.65, 1.0)
+        } else if is_selected {
+            Color::new(1.0, 0.9, 0.3, 1.0)
+        } else {
+            Color::new(0.85, 0.85, 0.85, 1.0)
+        };
+        canvas.draw(
+            &circle,
+            DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(18.0))
+                .color(fill_color),
+        );
+
+        // Node label.
+        let label_color = if node.unlocked {
+            Color::WHITE
+        } else {
+            Color::new(0.4, 0.4, 0.4, 1.0)
+        };
+        let suffix = if node.completed { " ✓" } else { "" };
+        let lock = if !node.unlocked { " [locked]" } else { "" };
+        let mut label = Text::new(format!("{}{}{}", node.name, suffix, lock));
+        label.set_scale(16.0);
+        let label_dims = label.measure(ctx)?;
+        canvas.draw(
+            &label,
+            DrawParam::default()
+                .dest(Vec2::new(pos.x - label_dims.x * 0.5, pos.y + 24.0))
+                .color(label_color),
+        );
+    }
+
+    // Title.
+    let mut title = Text::new("— World Map —");
+    title.set_scale(28.0);
+    let tdims = title.measure(ctx)?;
+    canvas.draw(
+        &title,
+        DrawParam::default()
+            .dest(Vec2::new((sx - tdims.x) * 0.5, sy * 0.08))
+            .color(Color::new(0.8, 0.9, 1.0, 1.0)),
+    );
+
+    // Controls hint.
+    let mut hint = Text::new("Left / Right: Navigate     Space / Enter: Play     Esc: Back");
+    hint.set_scale(15.0);
+    let hdims = hint.measure(ctx)?;
+    canvas.draw(
+        &hint,
+        DrawParam::default()
+            .dest(Vec2::new((sx - hdims.x) * 0.5, sy * 0.88))
+            .color(Color::new(0.55, 0.65, 0.75, 1.0)),
+    );
+
+    Ok(())
+}

@@ -151,9 +151,39 @@ pub fn handle_key_down_event(
     keycode: Option<KeyCode>,
 ) -> bool {
     if let Some(key) = keycode {
-        if state.show_instructions {
+        if state.show_world_map {
+            match key {
+                KeyCode::Left | KeyCode::A => {
+                    if let Some(map) = &mut state.world_map {
+                        map.move_selection(-1);
+                    }
+                    return true;
+                }
+                KeyCode::Right | KeyCode::D => {
+                    if let Some(map) = &mut state.world_map {
+                        map.move_selection(1);
+                    }
+                    return true;
+                }
+                KeyCode::Space | KeyCode::Return => {
+                    state.enter_campaign_level();
+                    return true;
+                }
+                KeyCode::Escape => {
+                    state.show_world_map = false;
+                    state.show_instructions = true;
+                    return true;
+                }
+                _ => {}
+            }
+        } else if state.show_instructions {
             if key == KeyCode::Space || key == KeyCode::Return {
                 state.show_instructions = false;
+                return true;
+            }
+            // "C" opens the campaign world map.
+            if key == KeyCode::C {
+                state.enter_world_map();
                 return true;
             }
             // "How to Play": drop into an opt-in, scripted tutorial sandbox instead of a real run.
@@ -183,7 +213,11 @@ pub fn handle_key_down_event(
             }
         } else if state.game_over {
             if key == KeyCode::Space || key == KeyCode::Return {
-                state.reset_game();
+                if state.in_campaign {
+                    state.return_to_world_map();
+                } else {
+                    state.reset_game();
+                }
                 return true;
             }
         } else {

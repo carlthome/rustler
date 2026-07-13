@@ -5,6 +5,7 @@ mod levels;
 mod sounds;
 mod spawnings;
 mod tutorial;
+mod world_map;
 
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
 
@@ -32,7 +33,7 @@ use crate::graphics::{
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, unit_circle, unit_square,
+    draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
 use crate::spawnings::{
@@ -40,6 +41,7 @@ use crate::spawnings::{
     spawn_tutorial_crabs,
 };
 use crate::tutorial::{Tutorial, TutorialKind};
+use crate::world_map::WorldMap;
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -407,6 +409,12 @@ struct MainState {
     beat_synth: sounds::BeatSynth,             // Procedural kick drum played on every beat tick
     flashlight: Flashlight,                    // Flashlight settings and upgrades
     show_instructions: bool,                   // Show instructions screen
+    // Campaign world map — `Some` once the player has entered campaign mode from the title.
+    // Persists across runs so node completion carries over. `show_world_map` gates whether the
+    // map screen is currently visible; `in_campaign` is true during an active campaign run.
+    world_map: Option<WorldMap>,
+    show_world_map: bool,
+    in_campaign: bool,
     // Active "How to Play" tutorial session, if any. `Some` while a scripted learn-session runs;
     // it uses the normal live update/draw path but constrains the run (no bosses, no wave
     // escalation, no level advance) and tracks its own machine-readable pass condition. `None`
@@ -1024,6 +1032,9 @@ impl MainState {
             beat_synth,
             flashlight,
             show_instructions: true,
+            world_map: None,
+            show_world_map: false,
+            in_campaign: false,
             tutorial: None,
             last_dir: Vec2::ZERO,
             shake_timer: 0.0,
@@ -4951,6 +4962,45 @@ impl MainState {
     /// `self.tutorial` instead of staying on the paused menu screen. Exit is opt-in: passing (or
     /// pressing Escape) returns to the menu without ever touching `game_over`, so tutorial runs
     /// never pollute the persistent career.
+    /// Open the campaign world map. Creates it on first visit; subsequent visits reuse the same
+    /// instance so node completion persists across runs.
+    fn enter_world_map(&mut self) {
+        if self.world_map.is_none() {
+            self.world_map = Some(WorldMap::new());
+        }
+        self.show_instructions = false;
+        self.show_world_map = true;
+        self.game_over = false;
+        self.in_campaign = false;
+    }
+
+    /// Start a campaign run from the currently selected world map node.
+    fn enter_campaign_level(&mut self) {
+        let level_index = self
+            .world_map
+            .as_ref()
+            .map(|m| m.selected_level_index())
+            .unwrap_or(0);
+        self.reset_game();
+        self.current_level = level_index.min(self.levels.len().saturating_sub(1));
+        self.current_pattern = 0;
+        let (w, h) = (self.width, self.height);
+        self.start_current_pattern((w, h));
+        self.show_world_map = false;
+        self.in_campaign = true;
+    }
+
+    /// Called when a campaign run ends — marks the level done, unlocks the next, and returns to
+    /// the world map screen. Career stats are NOT updated here (that path stays in `record_run`).
+    fn return_to_world_map(&mut self) {
+        if let Some(map) = &mut self.world_map {
+            map.complete_selected();
+        }
+        self.game_over = false;
+        self.show_world_map = true;
+        self.in_campaign = false;
+    }
+
     fn enter_tutorial(&mut self, kind: TutorialKind) {
         self.reset_game();
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
@@ -5310,7 +5360,7 @@ impl MainState {
         let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — How to Play");
+                let mut prompt = Text::new("Press  H  — How to Play     C  — Campaign");
                 prompt.set_scale(22.0);
                 let w = prompt.measure(ctx)?.x;
                 *cache = Some((prompt, w));
@@ -7225,7 +7275,7 @@ impl EventHandler for MainState {
             }
         }
 
-        if self.show_instructions || self.game_over || self.pending_upgrade {
+        if self.show_instructions || self.show_world_map || self.game_over || self.pending_upgrade {
             // The run just ended — bank its result into the persistent career exactly once.
             // Every game_over set-site funnels through here on the next tick, so one guarded
             // call covers them all.
@@ -8548,6 +8598,18 @@ impl EventHandler for MainState {
         ));
         canvas.set_blend_mode(BlendMode::ALPHA);
         canvas.set_sampler(Sampler::nearest_clamp());
+
+        if self.show_world_map {
+            if let Some(map) = &self.world_map {
+                self.sounds.action_music.pause();
+                if !self.sounds.intro_music.playing() {
+                    self.sounds.intro_music.play(ctx)?;
+                }
+                draw_world_map(ctx, &mut canvas, map, width, height, self.menu_time)?;
+                canvas.finish(ctx)?;
+                return Ok(());
+            }
+        }
 
         if self.show_instructions {
             if self.sounds.outro_music.playing() {
