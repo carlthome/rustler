@@ -187,8 +187,13 @@ pub fn handle_key_down_event(
                 return true;
             }
             // "How to Play": drop into an opt-in, scripted tutorial sandbox instead of a real run.
+            // Each key launches a different mechanic lesson: H = beat timing, J = chain & deliver.
             if key == KeyCode::H {
                 state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
+                return true;
+            }
+            if key == KeyCode::J {
+                state.enter_tutorial(crate::tutorial::TutorialKind::ChainDeliver);
                 return true;
             }
             // Perk shop: spend banked crabs on permanent starting tool ranks before a run.

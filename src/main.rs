@@ -2386,6 +2386,16 @@ impl MainState {
         let bank = (base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
         self.score += bank;
 
+        // Tutorial pass tracking: count real train deliveries for the chain-and-deliver learn-
+        // session. This is the one write behind that tutorial's pure pass predicate
+        // (`Tutorial::passed` for ChainDeliver), so a headless run of the scenario reaches the same
+        // boolean without any rendering.
+        if let Some(t) = self.tutorial.as_mut() {
+            if t.kind == TutorialKind::ChainDeliver {
+                t.deliveries += 1;
+            }
+        }
+
         // Before the delivered crabs leave the field, snapshot them (in chain order, head first)
         // so they can visibly march into the pen instead of blinking out — the parade is purely
         // cosmetic; the score above is already banked.
@@ -5443,7 +5453,7 @@ impl MainState {
         let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — How to Play     C  — Campaign");
+                let mut prompt = Text::new("Press  H  — Beat Timing     J  — Chain & Deliver     C  — Campaign");
                 prompt.set_scale(22.0);
                 let w = prompt.measure(ctx)?.x;
                 *cache = Some((prompt, w));
@@ -7481,8 +7491,19 @@ impl EventHandler for MainState {
             // length regardless of any slow-mo the catch triggered.
             let real_dt = ctx.time.delta().as_secs_f32();
             // If the learner clears the whole sandbox before passing, quietly restock so they can
-            // keep practising instead of standing in an empty field.
-            if !self.tutorial.as_ref().unwrap().completed && self.crabs.iter().all(|c| c.caught) {
+            // keep practising instead of standing in an empty field. The "cleared" test differs by
+            // scenario: BeatTiming crabs stay on the field once caught (nothing removes them), so
+            // "no free crabs left to catch" means all-caught; ChainDeliver *removes* banked crabs at
+            // the pen (retain(!caught) in try_deliver_train), so a fresh train to haul is needed
+            // whenever the field is genuinely empty. Keying ChainDeliver off is_empty() is what
+            // stops this branch from wiping a train the player is still hauling toward the pen.
+            let tut_kind = self.tutorial.as_ref().unwrap().kind;
+            let completed = self.tutorial.as_ref().unwrap().completed;
+            let needs_restock = match tut_kind {
+                TutorialKind::BeatTiming => self.crabs.iter().all(|c| c.caught),
+                TutorialKind::ChainDeliver => self.crabs.is_empty(),
+            };
+            if !completed && needs_restock {
                 self.crabs = spawn_tutorial_crabs(6, (self.width, self.height), &mut rand::rng());
             }
             let t = self.tutorial.as_mut().unwrap();
