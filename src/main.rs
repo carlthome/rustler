@@ -105,6 +105,13 @@ const STOMP_COOLDOWN: f32 = 3.0;       // seconds between ground-pound Stomps
 const STOMP_RING_SPEED: f32 = 900.0;   // how fast the shockwave slams outward (px/s)
 const STOMP_MAX_RADIUS: f32 = 155.0;   // short reach — the Stomp is a close-range melee counter
 const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the train in to bank it
+// Tide Pool current: in the Water biome, the shallow pools carry a steady drift. Every free crab
+// inside a native pool gets nudged along this fixed direction, so the pools stop being just a
+// wade-drag on the player and become a routing tool on the herd — park your train downstream and
+// the current delivers loose crabs toward you. Fixed heading (down-and-right, normalized) so it's
+// learnable and exploitable, not a homing pull that would duplicate the whistle/magnet.
+pub const TIDE_CURRENT_DIR: Vec2 = Vec2::new(0.6, 0.8); // roughly normalized (len ≈ 1.0); pub so graphics.rs draws flow streaks along the same heading
+const TIDE_CURRENT_STRENGTH: f32 = 46.0; // px/s drift — a touch stronger than the Magnet herd-nudge so it reads at a glance
 const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
 const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
 // Cinematic slow-motion (bullet time) on the biggest climax moments. Kept short so it punctuates
@@ -274,6 +281,25 @@ thread_local! {
     // level transition), matching the MENU_PANEL_CACHE pattern for mesh storage.
     #[allow(clippy::type_complexity)]
     static LEVEL_TITLE_OVERLAY_CACHE: RefCell<Option<(String, &'static str, Text, Mesh, Mesh, Text, f32, f32, f32, f32, f32)>> = RefCell::new(None);
+
+    // The upgrade-card screen (draw_upgrade_screen) was building ~26 fresh Text/Mesh objects
+    // every frame it was shown — every Text::new + measure() is a glyph-shaping pass, and
+    // every Mesh::new_rectangle is a GPU buffer upload. The screen can stay up indefinitely
+    // while a player decides, so each second idle = ~60 redundant GPU-buffer allocations.
+    // The Text objects (title, hint, and all four cards' icon/name/rank/desc/key labels) only
+    // change when a rank actually changes — which is what *dismisses* the screen — so in
+    // practice they never change while the screen is visible. Cache them keyed by the four
+    // current ranks; the hover highlight (which varies per frame with mouse position) is still
+    // computed dynamically as a DrawParam color, so this doesn't freeze the hover effect.
+    // Tuple: (key=(beam,lasso,whistle,stomp), title_text, title_w, hint_text, hint_w,
+    //         per-card [(icon_text, icon_w, name_text, name_w, rank_text, rank_w, desc_text, desc_w, key_text, key_w); 4])
+    #[allow(clippy::type_complexity)]
+    static UPGRADE_SCREEN_CACHE: RefCell<Option<(
+        (u32, u32, u32, u32),
+        Text, f32,         // title text + width
+        Text, f32,         // hint text + width
+        [(Text, f32, Text, f32, Text, f32, Text, f32, Text, f32); 4], // per card: icon, name, rank, desc, key (each + width)
+    )>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -3564,6 +3590,21 @@ impl MainState {
         // Live Reef DJ position, captured so we can ring its backup "hype Dancers" out from it.
         let mut reef_boss_pos = Vec2::ZERO;
 
+        // Tide Pool current snapshot: only the Water biome's native pools carry a drift. Precomputed
+        // once here (a &self method + a slice bound) so the per-crab loop below can drift free crabs
+        // without re-borrowing self. Trailing flood pools are Tide Boss surge water, not native
+        // current, so we drift only within `tide_current_pools`. Empty on any non-Water biome, which
+        // makes the per-crab check below a cheap `is_empty()` short-circuit on those zones.
+        let tide_current_active = self.current_terrain() == TerrainKind::Water;
+        let tide_current_native = if tide_current_active {
+            self.tide_pools
+                .len()
+                .saturating_sub(self.boss_flood_pools)
+        } else {
+            0
+        };
+        let tide_current_pools: &[(Vec2, f32)] = &self.tide_pools[..tide_current_native];
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -4031,6 +4072,32 @@ impl MainState {
                 // Older crabs are faster so the player should catch them early.
                 let age_boost = 1.0 + (crab.spawn_time / 10.0).min(1.5);
                 crab.pos += crab.vel * crab.speed * speed_multiplier * age_boost * dt;
+
+                // Tide Pool current: a free crab standing in one of the Water biome's native pools is
+                // carried along a fixed drift heading — the pools ferry the loose herd downstream. A
+                // gentle positional nudge (like the Magnet herd-pull), so it composes with flee/attract
+                // rather than overriding: the flashlight still wins (a lit crab is heading to the player),
+                // and a fleeing crab still bolts, just curving with the flow. This turns the pools into a
+                // routing puzzle — position your train downstream and let the current deliver crabs to it.
+                // `tide_current_pools` is empty on every non-Water biome, so this whole block short-
+                // circuits to a single `!is_empty()` check outside the Tide Pools. Bosses are handled in
+                // their own branch above and never reach here; caught crabs are gated out by `!crab.caught`.
+                if !crab_in_light && !tide_current_pools.is_empty() {
+                    let center = crab.pos + Vec2::splat(crab.scale / 2.0);
+                    if tide_current_pools
+                        .iter()
+                        .any(|(c, r)| center.distance(*c) < *r)
+                    {
+                        crab.pos += TIDE_CURRENT_DIR * TIDE_CURRENT_STRENGTH * dt;
+                        // Nudge facing so a drifting crab visibly leans into the flow between its own
+                        // wander steps, reinforcing the current's direction to the player.
+                        let target = TIDE_CURRENT_DIR.y.atan2(TIDE_CURRENT_DIR.x);
+                        let mut delta = target - crab.facing_angle;
+                        while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
+                        while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
+                        crab.facing_angle += delta * (dt * 1.5).min(1.0);
+                    }
+                }
 
                 // Magnet pull: an ordinary free crab drifts toward the nearest roaming Magnet crab,
                 // so the herd bunches up around Magnets. A gentle positional nudge (not a velocity
@@ -6936,28 +7003,14 @@ impl MainState {
         let w = self.width;
         let h = self.height;
 
-        // Dark overlay
-        let bg = Mesh::new_rectangle(
-            ctx, ggez::graphics::DrawMode::fill(),
-            Rect::new(0.0, 0.0, w, h), Color::from_rgba(8, 4, 22, 210),
-        )?;
-        canvas.draw(&bg, DrawParam::default());
-
-        // Title
-        let mut title = Text::new("CHOOSE AN UPGRADE");
-        title.set_scale(46.0);
-        let tw = title.measure(ctx)?.x;
-        canvas.draw(&title, DrawParam::default()
-            .dest(Vec2::new((w - tw) / 2.0, 58.0))
-            .color(Color::from_rgb(255, 215, 50)));
-
-        // Subtitle: make it obvious the cards are clickable, not just number-key driven.
-        let mut hint = Text::new("Click a card or press its number");
-        hint.set_scale(20.0);
-        let hw = hint.measure(ctx)?.x;
-        canvas.draw(&hint, DrawParam::default()
-            .dest(Vec2::new((w - hw) / 2.0, 110.0))
-            .color(Color::from_rgba(210, 210, 210, 200)));
+        // Dark overlay — reuse the cached unit square instead of a fresh Mesh::new_rectangle GPU
+        // buffer every frame (same fix used for every other full-screen flash/fill in draw_game).
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .scale(Vec2::new(w, h))
+                .color(Color::from_rgba(8, 4, 22, 210)),
+        );
 
         // Each card is a build LANE that deepens one tool, not a one-off stat bump. Pouring
         // level-ups into a lane branches the run into a playstyle (see apply_upgrade). The current
@@ -6974,81 +7027,121 @@ impl MainState {
         let card_w = rects[0].w;
         let card_h = rects[0].h;
 
-        for (i, &(key, icon, name, desc, r, g, b, rank)) in cards.iter().enumerate() {
-            let cx = rects[i].x;
-            let y0 = rects[i].y;
-            let m = self.mouse_pos;
-            let hovered = m.x >= cx && m.x <= cx + card_w && m.y >= y0 && m.y <= y0 + card_h;
+        // Build or reuse cached Text objects (title, hint, and all per-card labels). Every
+        // Text::new + measure() is a glyph-shaping pass; the card border Mesh::new_rectangle calls
+        // were also GPU buffer allocations. The texts only change when a rank changes, which is
+        // what dismisses this screen — so in practice the cache hits every frame after the first.
+        // The hover highlight is applied as DrawParam color below; no re-layout needed for that.
+        let cache_key = (self.beam_rank, self.lasso_rank, self.whistle_rank, self.stomp_rank);
+        UPGRADE_SCREEN_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((k, ..)) if *k == cache_key);
+            if needs_rebuild {
+                // Title
+                let mut title_text = Text::new("CHOOSE AN UPGRADE");
+                title_text.set_scale(46.0);
+                let title_w = title_text.measure(ctx)?.x;
+                // Subtitle
+                let mut hint_text = Text::new("Click a card or press its number");
+                hint_text.set_scale(20.0);
+                let hint_w = hint_text.measure(ctx)?.x;
+                // Per-card texts — built explicitly for each of the 4 cards (try_from_fn is not
+                // stable yet on this toolchain) and stored as a fixed-size array.
+                let mut build_card = |i: usize| -> ggez::GameResult<(Text, f32, Text, f32, Text, f32, Text, f32, Text, f32)> {
+                    let (key, icon, name, desc, _, _, _, rank) = cards[i];
+                    let mut ico = Text::new(icon);
+                    ico.set_scale(82.0);
+                    let iw = ico.measure(ctx)?.x;
+                    let mut nm = Text::new(name);
+                    nm.set_scale(26.0);
+                    let nw = nm.measure(ctx)?.x;
+                    let rank_str = if rank == 0 {
+                        "NEW LANE".to_string()
+                    } else {
+                        format!("LV {}  ->  {}", rank, rank + 1)
+                    };
+                    let mut rk = Text::new(rank_str);
+                    rk.set_scale(16.0);
+                    let rkw = rk.measure(ctx)?.x;
+                    let mut dsc = Text::new(desc);
+                    dsc.set_scale(18.0);
+                    let dw = dsc.measure(ctx)?.x;
+                    let mut kh = Text::new(format!("[ {} ]", key));
+                    kh.set_scale(24.0);
+                    let kw = kh.measure(ctx)?.x;
+                    Ok((ico, iw, nm, nw, rk, rkw, dsc, dw, kh, kw))
+                };
+                let card_texts: [(Text, f32, Text, f32, Text, f32, Text, f32, Text, f32); 4] = [
+                    build_card(0)?,
+                    build_card(1)?,
+                    build_card(2)?,
+                    build_card(3)?,
+                ];
+                *cache = Some((cache_key, title_text, title_w, hint_text, hint_w, card_texts));
+            }
+            let (_, title_text, title_w, hint_text, hint_w, card_texts) = cache.as_ref().unwrap();
 
-            let accent = Color::from_rgb(r, g, b);
-            let bg_a   = if hovered { 190u8 } else { 115u8 };
-            let bdr_w  = if hovered { 4.0_f32 } else { 2.0_f32 };
+            // Title
+            canvas.draw(title_text, DrawParam::default()
+                .dest(Vec2::new((w - title_w) / 2.0, 58.0))
+                .color(Color::from_rgb(255, 215, 50)));
 
-            // Card background
-            canvas.draw(
-                &Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
-                    Rect::new(cx, y0, card_w, card_h), Color::from_rgba(18, 12, 38, bg_a))?,
-                DrawParam::default(),
-            );
-            // Coloured border
-            canvas.draw(
-                &Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::stroke(bdr_w),
-                    Rect::new(cx, y0, card_w, card_h), accent)?,
-                DrawParam::default(),
-            );
+            // Subtitle: make it obvious the cards are clickable, not just number-key driven.
+            canvas.draw(hint_text, DrawParam::default()
+                .dest(Vec2::new((w - hint_w) / 2.0, 110.0))
+                .color(Color::from_rgba(210, 210, 210, 200)));
 
-            // Icon
-            let mut ico = Text::new(icon);
-            ico.set_scale(82.0);
-            let iw = ico.measure(ctx)?.x;
-            canvas.draw(&ico, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - iw) / 2.0, y0 + 18.0))
-                .color(accent));
+            for (i, &(_, _, _, _, r, g, b, rank)) in cards.iter().enumerate() {
+                let cx = rects[i].x;
+                let y0 = rects[i].y;
+                let m = self.mouse_pos;
+                let hovered = m.x >= cx && m.x <= cx + card_w && m.y >= y0 && m.y <= y0 + card_h;
 
-            // Name
-            let mut nm = Text::new(name);
-            nm.set_scale(26.0);
-            let nw = nm.measure(ctx)?.x;
-            canvas.draw(&nm, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - nw) / 2.0, y0 + 118.0))
-                .color(Color::WHITE));
+                let accent = Color::from_rgb(r, g, b);
+                let bg_a = if hovered { 190u8 } else { 115u8 };
+                let bdr_w = if hovered { 4.0_f32 } else { 2.0_f32 };
 
-            // Lane rank badge — makes it clear you're committing to (and deepening) a lane, and
-            // that a picked lane keeps paying off. Lit in the lane accent once invested.
-            let rank_str = if rank == 0 {
-                "NEW LANE".to_string()
-            } else {
-                format!("LV {}  ->  {}", rank, rank + 1)
-            };
-            let mut rk = Text::new(rank_str);
-            rk.set_scale(16.0);
-            let rkw = rk.measure(ctx)?.x;
-            let rank_col = if rank == 0 {
-                Color::from_rgba(180, 180, 180, 200)
-            } else {
-                accent
-            };
-            canvas.draw(&rk, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - rkw) / 2.0, y0 + 146.0))
-                .color(rank_col));
+                // Card background — unit square scaled to card size, no per-frame GPU buffer alloc.
+                canvas.draw(
+                    unit_square(ctx)?,
+                    DrawParam::default()
+                        .dest(Vec2::new(cx, y0))
+                        .scale(Vec2::new(card_w, card_h))
+                        .color(Color::from_rgba(18, 12, 38, bg_a)),
+                );
+                // Coloured border — cached stroke rect, same mesh reused per bdr_w key.
+                canvas.draw(
+                    &cached_stroke_rect(ctx, card_w, card_h, bdr_w)?,
+                    DrawParam::default()
+                        .dest(Vec2::new(cx, y0))
+                        .color(accent),
+                );
 
-            // Description
-            let mut dsc = Text::new(desc);
-            dsc.set_scale(18.0);
-            let dw = dsc.measure(ctx)?.x;
-            canvas.draw(&dsc, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 176.0))
-                .color(Color::from_rgba(205, 205, 205, 215)));
-
-            // Key hint
-            let mut kh = Text::new(format!("[ {} ]", key));
-            kh.set_scale(24.0);
-            let kw = kh.measure(ctx)?.x;
-            canvas.draw(&kh, DrawParam::default()
-                .dest(Vec2::new(cx + (card_w - kw) / 2.0, y0 + card_h - 46.0))
-                .color(accent));
-        }
-        Ok(())
+                let (ico, iw, nm, nw, rk, rkw, dsc, dw, kh, kw) = &card_texts[i];
+                let rank_col = if rank == 0 {
+                    Color::from_rgba(180, 180, 180, 200)
+                } else {
+                    accent
+                };
+                // Lane rank badge — lit in the lane accent once invested.
+                canvas.draw(ico, DrawParam::default()
+                    .dest(Vec2::new(cx + (card_w - iw) / 2.0, y0 + 18.0))
+                    .color(accent));
+                canvas.draw(nm, DrawParam::default()
+                    .dest(Vec2::new(cx + (card_w - nw) / 2.0, y0 + 118.0))
+                    .color(Color::WHITE));
+                canvas.draw(rk, DrawParam::default()
+                    .dest(Vec2::new(cx + (card_w - rkw) / 2.0, y0 + 146.0))
+                    .color(rank_col));
+                canvas.draw(dsc, DrawParam::default()
+                    .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 176.0))
+                    .color(Color::from_rgba(205, 205, 205, 215)));
+                canvas.draw(kh, DrawParam::default()
+                    .dest(Vec2::new(cx + (card_w - kw) / 2.0, y0 + card_h - 46.0))
+                    .color(accent));
+            }
+            Ok(())
+        })
     }
 
     // --- Effective per-tool values, derived from the chosen upgrade lanes ---

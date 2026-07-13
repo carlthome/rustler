@@ -3679,6 +3679,11 @@ pub fn draw_tide_pools(
     beat_intensity: f32,
     player_center: Vec2,
     terrain: crate::levels::TerrainKind,
+    // Whether these pools carry the Tide Pool current (and so should draw flow streaks). True only
+    // for the Water biome's *native* pools — the drift the sim actually applies. Tide Boss flood
+    // pools also render as Water but carry no current, so they pass false: a flow streak that lies
+    // about where the herd drifts is worse than none, especially mid-boss-fight when Carl's watching.
+    show_current: bool,
 ) -> ggez::GameResult {
     use crate::levels::TerrainKind;
     if pools.is_empty() || terrain == TerrainKind::Open {
@@ -3779,6 +3784,39 @@ pub fn draw_tide_pools(
                 .scale(Vec2::splat(6.0 + 3.0 * beat))
                 .color(Color::new(0.7, 0.95, 1.0, 0.18 + 0.25 * beat)),
         );
+
+        // Current flow streaks: short bright dashes that stream across the pool along the same fixed
+        // heading the sim drifts free crabs (crate::TIDE_CURRENT_DIR), so the routing mechanic is
+        // legible — the player can *see* which way the pool ferries the herd and set up downstream.
+        // Only the native Water pools carry a current, so skip these on flood pools (show_current).
+        if show_current {
+        // Each streak marches from the pool's upstream edge to its downstream edge, then wraps, its
+        // alpha fading in at entry and out at exit so dashes don't pop at the rim. Stretched into a
+        // capsule-ish sliver by scaling the unit circle wide along the flow and thin across it.
+        let flow = crate::TIDE_CURRENT_DIR.normalize_or_zero();
+        let perp = Vec2::new(-flow.y, flow.x);
+        const STREAKS: usize = 4;
+        for s in 0..STREAKS {
+            // Progress 0..1 along the flow axis, offset per streak and per pool so they don't line up.
+            let t = (time * 0.5 + s as f32 / STREAKS as f32 + phase * 0.3).fract();
+            // Lateral offset so streaks spread across the pool's width instead of stacking on the axis.
+            let lateral = ((s as f32 / (STREAKS - 1) as f32) - 0.5) * 1.4 * radius;
+            let along = (t - 0.5) * 2.0 * radius; // -radius (upstream) .. +radius (downstream)
+            let p = center + flow * along + perp * lateral;
+            // Fade in/out at the ends of the run so a streak eases into and out of the pool.
+            let edge_fade = (t * (1.0 - t) * 4.0).clamp(0.0, 1.0);
+            let a = (0.16 + 0.18 * beat) * edge_fade;
+            if a > 0.01 {
+                canvas.draw(
+                    unit_circle,
+                    DrawParam::default()
+                        .dest(p)
+                        .rotation(flow.y.atan2(flow.x))
+                        .scale(Vec2::new(9.0 + 4.0 * beat, 2.2))
+                        .color(Color::new(0.65, 0.92, 1.0, a)),
+                );
+            }
+        }
     }
     canvas.set_blend_mode(orig_blend);
     Ok(())
