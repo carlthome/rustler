@@ -274,6 +274,10 @@ thread_local! {
     static KELP_FROND_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static KELP_FILL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static KELP_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // Funnel-lane streaks that show where the kelp channels a fleeing crab (crate::KELP_FUNNEL_DIR).
+    // Batched into one InstanceArray the same way as the fronds so the routing cue costs one draw.
+    static KELP_FUNNEL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static KELP_FUNNEL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
     // Reusable instance buffers for draw_rock_patches' fill and sparkle passes. Up to 5 rock
     // patches, each with 3 fill draws (shadow + body + face) and 1 sparkle = up to 20 individual
@@ -4280,6 +4284,56 @@ fn draw_kelp_patches(
             )),
         );
     }
+
+    // Funnel-lane streaks: short bright dashes marching along the fixed funnel heading
+    // (crate::KELP_FUNNEL_DIR), the same way the Tide Pool current draws its flow. This makes the
+    // Kelp routing mechanic legible — the player can see which way the weeds shepherd a panicking
+    // crab and set up a train across the lane. Where the water streaks span the whole pool, the
+    // kelp streaks hug a narrow central lane (small lateral spread) to read as a *channel* through
+    // the weeds rather than a broad drift, matching that the sim only funnels *fleeing* crabs.
+    // Batched into one InstanceArray so all pools' streaks cost a single draw call.
+    let flow = crate::KELP_FUNNEL_DIR.normalize_or_zero();
+    let perp = Vec2::new(-flow.y, flow.x);
+    let flow_rot = flow.y.atan2(flow.x);
+    KELP_FUNNEL_PARAMS.with(|streak_cell| -> ggez::GameResult {
+        let mut streak_params = streak_cell.borrow_mut();
+        streak_params.clear();
+        const STREAKS: usize = 3;
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 1.9;
+            for s in 0..STREAKS {
+                // Progress 0..1 along the lane axis, offset per streak and per pool so they stagger.
+                let t = (time * 0.55 + s as f32 / STREAKS as f32 + phase * 0.3).fract();
+                // Narrow lateral spread so the dashes hug a central channel, not the full width.
+                let lateral = ((s as f32 / (STREAKS - 1) as f32) - 0.5) * 0.7 * radius;
+                let along = (t - 0.5) * 2.0 * radius;
+                let p = center + flow * along + perp * lateral;
+                let edge_fade = (t * (1.0 - t) * 4.0).clamp(0.0, 1.0);
+                let a = (0.18 + 0.2 * beat) * edge_fade;
+                if a > 0.01 {
+                    streak_params.push(
+                        DrawParam::default()
+                            .dest(p)
+                            .rotation(flow_rot)
+                            .scale(Vec2::new(10.0 + 4.0 * beat, 2.4))
+                            .color(Color::new(0.55, 1.0, 0.7, a)),
+                    );
+                }
+            }
+        }
+        if !streak_params.is_empty() {
+            KELP_FUNNEL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(streak_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
 
     canvas.set_blend_mode(orig);
     Ok(())

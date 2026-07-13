@@ -112,6 +112,15 @@ const PEN_RADIUS: f32 = 90.0;          // delivery-pen goal zone; drive the trai
 // learnable and exploitable, not a homing pull that would duplicate the whistle/magnet.
 pub const TIDE_CURRENT_DIR: Vec2 = Vec2::new(0.6, 0.8); // roughly normalized (len ≈ 1.0); pub so graphics.rs draws flow streaks along the same heading
 const TIDE_CURRENT_STRENGTH: f32 = 46.0; // px/s drift — a touch stronger than the Magnet herd-nudge so it reads at a glance
+// Neon Kelp funnel: the Water biome's routing mechanic ported to Kelp as its own flavour. Where the
+// Tide Pool current sweeps *every* free crab along a steady drift, the kelp weeds instead grab and
+// *funnel a panicking crab* — only a crab that's actively fleeing (bolting from the player) gets
+// channelled, and it's slung sideways along a fixed lane heading rather than drifting freely. So the
+// kelp turns a panic flee into a routing opportunity: spook the herd near a kelp bed and the weeds
+// shepherd the scattering crabs into a lane you can park your train across. Distinct heading from the
+// Tide current (a near-horizontal sweep vs. the water's down-right drift) so the two biomes read apart.
+pub const KELP_FUNNEL_DIR: Vec2 = Vec2::new(0.97, -0.24); // roughly normalized; pub so graphics.rs draws the funnel arrows along the same lane
+const KELP_FUNNEL_STRENGTH: f32 = 58.0; // px/s — stronger than the tide drift because it only grabs already-fleeing crabs, so it has to visibly redirect a bolt
 const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
 const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
 // Cinematic slow-motion (bullet time) on the biggest climax moments. Kept short so it punctuates
@@ -3605,6 +3614,21 @@ impl MainState {
         };
         let tide_current_pools: &[(Vec2, f32)] = &self.tide_pools[..tide_current_native];
 
+        // Neon Kelp funnel snapshot: the Kelp biome's routing mechanic, mirroring the tide-current
+        // slice above. Only the Kelp biome's native patches funnel — trailing flood pools are Tide
+        // Boss water, not weed. Empty on every non-Kelp biome, so the per-crab check below short-
+        // circuits on a cheap `is_empty()` everywhere else. Unlike the water current this only grabs
+        // *fleeing* crabs, but the pool slice it channels through is computed the same way.
+        let kelp_funnel_active = self.current_terrain() == TerrainKind::Kelp;
+        let kelp_funnel_native = if kelp_funnel_active {
+            self.tide_pools
+                .len()
+                .saturating_sub(self.boss_flood_pools)
+        } else {
+            0
+        };
+        let kelp_funnel_pools: &[(Vec2, f32)] = &self.tide_pools[..kelp_funnel_native];
+
         for crab in &mut self.crabs {
             // King Crab boss runs its own charge AI instead of the herd flee/attract logic.
             if crab.is_boss() && !crab.caught {
@@ -4092,6 +4116,26 @@ impl MainState {
                         // velocity below (the flow streaks in the pool carry the direction cue), so we
                         // don't fight that here.
                         crab.pos += TIDE_CURRENT_DIR * TIDE_CURRENT_STRENGTH * dt;
+                    }
+                }
+
+                // Neon Kelp funnel: a *fleeing* free crab inside one of the Kelp biome's native
+                // weed patches gets channelled along a fixed lane heading, so the weeds catch a
+                // panicking bolt and shepherd it sideways into a lane instead of letting it scatter.
+                // Deliberately narrower than the Tide current (which sweeps every free crab): the
+                // kelp only grabs a crab that's already fleeing, so it reads as "spook the herd near
+                // the weeds and they funnel into a catchable lane" rather than an ambient drift. A
+                // positional nudge (like the tide/Magnet pulls) so it composes with the bolt rather
+                // than overriding it — the crab keeps fleeing, just curving along the lane; the beam
+                // still wins (a lit crab is already gated out). `kelp_funnel_pools` is empty on every
+                // non-Kelp biome, so this whole block short-circuits to one `!is_empty()` check.
+                if crab.fleeing && !crab_in_light && !kelp_funnel_pools.is_empty() {
+                    let center = crab.pos + Vec2::splat(crab.scale / 2.0);
+                    if kelp_funnel_pools
+                        .iter()
+                        .any(|(c, r)| center.distance(*c) < *r)
+                    {
+                        crab.pos += KELP_FUNNEL_DIR * KELP_FUNNEL_STRENGTH * dt;
                     }
                 }
 
