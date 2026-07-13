@@ -73,6 +73,20 @@ item in "Now" below.
   that dodges a boss telegraph, or a beat-chained catch combo that rewards catching *on consecutive*
   downbeats. One concrete addition that deepens the groove the player actively performs, not another
   passive multiplier.
+- **Synthesise a kick drum on the beat.** Carl wants the BPM to be visceral, not just visual. Add a
+  new `sounds.rs` (or similar) with a simple procedural audio synthesiser — a short sine-wave thump
+  with a fast pitch drop, generated at runtime and played through ggez's audio at every beat tick.
+  No external audio files needed; pure synthesis. This gives every player instant tactile confirmation
+  of the beat and makes the rhythm mechanics legible without reading any UI. Once in, it can be
+  layered or filtered with groove intensity for extra juice.
+- **Tutorial mode — per-mechanic learn sessions from the main menu.** Carl wants players to actually
+  understand the mechanics before a run. Add a "How to Play" entry on the title screen that
+  presents isolated tutorial levels — one per major mechanic (lasso, chain/delivery, beat timing,
+  tools, bosses). Each session: a short plain-language instruction card, a tiny scripted sandbox
+  level with only the relevant enemies/objects, and a clear pass condition the player must fulfil
+  (e.g. "catch 3 crabs on the beat", "deliver a chain of 5 to the pen") before advancing. No
+  progression gating — purely opt-in teaching. New `src/tutorial.rs` (or a level-type flag in
+  `levels.rs`) is the natural home for the scripted scenario logic.
 
 ## Later (outer loop — not yet)
 
