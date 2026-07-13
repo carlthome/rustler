@@ -5204,7 +5204,10 @@ impl MainState {
         self.reset_game();
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
-        self.crabs = spawn_tutorial_crabs(6, (self.width, self.height), &mut rand::rng());
+        self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut rand::rng());
+        // Stomp is gated only by its cooldown (not by rank), so a rank-0 career can still Stomp in
+        // the ShellCrack lesson — clear the cooldown so the very first press lands immediately.
+        self.stomp_cooldown = 0.0;
         // A tutorial isn't a scored run — keep bosses far away and never advance the level.
         self.next_boss_score = usize::MAX;
         self.wave_armed = false;
@@ -5560,7 +5563,7 @@ impl MainState {
         let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — Beat Timing     J  — Chain & Deliver     C  — Campaign");
+                let mut prompt = Text::new("Press  H  — Beat Timing    J  — Chain & Deliver    K  — Crack Shells    C  — Campaign");
                 prompt.set_scale(22.0);
                 let w = prompt.measure(ctx)?.x;
                 *cache = Some((prompt, w));
@@ -7641,9 +7644,14 @@ impl EventHandler for MainState {
             let needs_restock = match tut_kind {
                 TutorialKind::BeatTiming => self.crabs.iter().all(|c| c.caught),
                 TutorialKind::ChainDeliver => self.crabs.is_empty(),
+                // ShellCrack crabs aren't removed on a crack — their shell just drops to 0. Once
+                // every crab has an open (or missing) shell there's nothing hard left to Stomp, so
+                // drop in a fresh Armored ring to keep practising.
+                TutorialKind::ShellCrack => self.crabs.iter().all(|c| c.boss_health <= 0.0),
             };
             if !completed && needs_restock {
-                self.crabs = spawn_tutorial_crabs(6, (self.width, self.height), &mut rand::rng());
+                self.crabs =
+                    spawn_tutorial_crabs(tut_kind, 6, (self.width, self.height), &mut rand::rng());
             }
             let t = self.tutorial.as_mut().unwrap();
             if t.completed {
@@ -8629,6 +8637,15 @@ impl EventHandler for MainState {
                 self.snatch_thief_on_beat(i, pos);
             }
             self.stomp_thief_snatch_buf = thief_snatched; // hand the buffer back for reuse next frame
+            // Tutorial pass tracking: count real Stomp shell-cracks for the shell-cracking learn-
+            // session. Bumped only here (the crack event), guarded by the tutorial being active and
+            // its kind, so a headless run of the same scenario reaches the same `passed()` predicate
+            // — and it can't be satisfied by beam wear-down, since that never enters this Stomp loop.
+            if let Some(t) = self.tutorial.as_mut() {
+                if t.kind == TutorialKind::ShellCrack {
+                    t.shells_cracked = t.shells_cracked.saturating_add(cracked.len() as u32);
+                }
+            }
             for &pos in cracked.iter() {
                 self.floating_texts.spawn(
                     "SHELL CRACKED!".to_string(),

@@ -1,4 +1,5 @@
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
+use crate::tutorial::TutorialKind;
 use ggez::glam::Vec2;
 use rand::Rng;
 
@@ -151,10 +152,22 @@ pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -
 /// to `CrabType::Normal` (no Armored/Dancer/Golden wrinkles) and laid out in a gentle ring around
 /// the arena center so the beat-timing lesson isn't muddied by any archetype behaviour. The player
 /// starts in the middle, so every crab is a short, unhurried stroll away.
-pub fn spawn_tutorial_crabs(count: usize, area: (f32, f32), rng: &mut impl Rng) -> Vec<EnemyCrab> {
+pub fn spawn_tutorial_crabs(
+    kind: TutorialKind,
+    count: usize,
+    area: (f32, f32),
+    rng: &mut impl Rng,
+) -> Vec<EnemyCrab> {
     let (width, height) = area;
     let center = Vec2::new(width * 0.5, height * 0.5);
     let radius = width.min(height) * 0.28;
+    // The ShellCrack lesson needs a hard target the beam can't clear, so it spawns Armored crabs
+    // (shell HP from initial_shell) that the learner must Stomp open. Every other scenario uses a
+    // calm ring of shell-less Normals easy to intercept on the beat or chain into a train.
+    let crab_type = match kind {
+        TutorialKind::ShellCrack => CrabType::Armored,
+        _ => CrabType::Normal,
+    };
     (0..count)
         .map(|i| {
             let angle = std::f32::consts::TAU * (i as f32 + 0.5) / count as f32;
@@ -162,11 +175,13 @@ pub fn spawn_tutorial_crabs(count: usize, area: (f32, f32), rng: &mut impl Rng) 
             // Drift slowly so they read as alive but stay easy to intercept on the beat.
             let vel = Vec2::new(angle.cos(), angle.sin()) * 0.2;
             let mut crab = make_crab(pos, vel, 0.0, rng);
-            crab.crab_type = CrabType::Normal;
+            crab.crab_type = crab_type;
             crab.speed = 30.0;
             crab.scale = 1.0;
-            crab.boss_health = 0.0;
-            crab.boss_max_health = 0.0001;
+            // Armored tutorial crabs carry a shell to crack; everything else is shell-less.
+            let shell = crab_type.initial_shell();
+            crab.boss_health = shell;
+            crab.boss_max_health = shell.max(0.0001);
             crab
         })
         .collect()

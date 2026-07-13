@@ -9,8 +9,9 @@
 //! `passed()` a plain function of counters (no rendering, no input polling) is what makes that
 //! future harness trivial to wire, so resist entangling it with draw/input state.
 //!
-//! This slice ships two scenarios (beat-timing, chain-and-deliver). More live here as their own
-//! `TutorialKind` variants; each stays a tiny sandbox with one card and one counter.
+//! This slice ships three scenarios (beat-timing, chain-and-deliver, shell-cracking). More live
+//! here as their own `TutorialKind` variants; each stays a tiny sandbox with one card and one
+//! counter.
 
 /// Which mechanic a tutorial session teaches. One variant per major mechanic. Each is a tiny
 /// scripted sandbox with one instruction card and one pure boolean pass predicate.
@@ -21,6 +22,9 @@ pub enum TutorialKind {
     /// Build a conga train and drive it into the delivery pen: teaches catching to grow the
     /// chain and banking it for points — the game's central risk/reward loop.
     ChainDeliver,
+    /// Ground-pound the Stomp (R) to crack Armored shells the beam can't wear down: teaches the
+    /// right tool for a hard target — pick the verb the herd needs, not just the beam.
+    ShellCrack,
 }
 
 /// A live, scripted tutorial session. It runs the *normal* update/draw path (the beat clock and
@@ -35,6 +39,10 @@ pub struct Tutorial {
     /// delivery branch in `try_deliver_train`, guarded by the tutorial being active — so it counts
     /// real banks at the pen.
     pub deliveries: u32,
+    /// Armored shells cracked open by a Stomp so far this session (ShellCrack only). Bumped at the
+    /// shell-crack branch in the Stomp loop in `update`, guarded by the tutorial being active — so
+    /// it counts real Stomp cracks, not beam wear-down.
+    pub shells_cracked: u32,
     /// How many of the session's tracked action (on-beat catches, or deliveries) clear it.
     pub target: u32,
     /// Eases 0->1 once the pass condition trips, so the draw layer can play a "PASSED!" beat
@@ -52,11 +60,13 @@ impl Tutorial {
         let target = match kind {
             TutorialKind::BeatTiming => 3,
             TutorialKind::ChainDeliver => 2,
+            TutorialKind::ShellCrack => 3,
         };
         Tutorial {
             kind,
             on_beat_catches: 0,
             deliveries: 0,
+            shells_cracked: 0,
             target,
             pass_glow: 0.0,
             completed: false,
@@ -69,6 +79,7 @@ impl Tutorial {
         match self.kind {
             TutorialKind::BeatTiming => "How to Play — Catching on the Beat",
             TutorialKind::ChainDeliver => "How to Play — Building & Banking a Train",
+            TutorialKind::ShellCrack => "How to Play — Cracking Armored Shells",
         }
     }
 
@@ -83,6 +94,10 @@ impl Tutorial {
                 "Catch a few crabs to grow your conga train, then drive the train into the glowing\n\
                  delivery pen to bank them for points. Bank 2 trains to finish."
             }
+            TutorialKind::ShellCrack => {
+                "These Armored crabs shrug off your beam. Get close and press R to STOMP — the\n\
+                 shockwave cracks their shells wide open. Crack 3 shells to finish."
+            }
         }
     }
 
@@ -93,6 +108,7 @@ impl Tutorial {
         match self.kind {
             TutorialKind::BeatTiming => self.on_beat_catches >= self.target,
             TutorialKind::ChainDeliver => self.deliveries >= self.target,
+            TutorialKind::ShellCrack => self.shells_cracked >= self.target,
         }
     }
 
@@ -107,6 +123,11 @@ impl Tutorial {
             TutorialKind::ChainDeliver => format!(
                 "Trains banked: {} / {}",
                 self.deliveries.min(self.target),
+                self.target
+            ),
+            TutorialKind::ShellCrack => format!(
+                "Shells cracked: {} / {}",
+                self.shells_cracked.min(self.target),
                 self.target
             ),
         }
@@ -177,6 +198,40 @@ mod tests {
         t.deliveries = 1;
         let line = t.progress_line();
         assert!(line.contains('1'), "progress line should show current count");
+        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+    }
+
+    #[test]
+    fn shell_crack_not_passed_before_target() {
+        let mut t = Tutorial::new(TutorialKind::ShellCrack);
+        assert!(!t.passed());
+        t.shells_cracked = t.target - 1;
+        assert!(!t.passed());
+    }
+
+    #[test]
+    fn shell_crack_passes_at_target() {
+        let mut t = Tutorial::new(TutorialKind::ShellCrack);
+        t.shells_cracked = t.target;
+        assert!(t.passed());
+    }
+
+    #[test]
+    fn shell_crack_ignores_other_counters() {
+        // A shell-cracking session must not be cleared by catching or banking — only Stomp cracks
+        // count, so a learner can't skip the lesson by leaning on the beam or the train.
+        let mut t = Tutorial::new(TutorialKind::ShellCrack);
+        t.on_beat_catches = 99;
+        t.deliveries = 99;
+        assert!(!t.passed());
+    }
+
+    #[test]
+    fn shell_crack_progress_line_format() {
+        let mut t = Tutorial::new(TutorialKind::ShellCrack);
+        t.shells_cracked = 2;
+        let line = t.progress_line();
+        assert!(line.contains('2'), "progress line should show current count");
         assert!(line.contains(&t.target.to_string()), "progress line should show target");
     }
 }
