@@ -84,3 +84,39 @@ impl Tutorial {
         format!("On-beat catches: {} / {}", self.on_beat_catches.min(self.target), self.target)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn beat_timing_not_passed_before_target() {
+        let mut t = Tutorial::new(TutorialKind::BeatTiming);
+        assert!(!t.passed());
+        t.on_beat_catches = t.target - 1;
+        assert!(!t.passed());
+    }
+
+    #[test]
+    fn beat_timing_passes_at_target() {
+        let mut t = Tutorial::new(TutorialKind::BeatTiming);
+        t.on_beat_catches = t.target;
+        assert!(t.passed());
+    }
+
+    #[test]
+    fn beat_timing_passes_when_over_target() {
+        let mut t = Tutorial::new(TutorialKind::BeatTiming);
+        t.on_beat_catches = t.target + 5;
+        assert!(t.passed());
+    }
+
+    #[test]
+    fn progress_line_format() {
+        let mut t = Tutorial::new(TutorialKind::BeatTiming);
+        t.on_beat_catches = 2;
+        let line = t.progress_line();
+        assert!(line.contains("2"), "progress line should show current count");
+        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+    }
+}

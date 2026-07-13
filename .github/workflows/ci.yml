@@ -20,3 +20,8 @@ jobs:
 
       - name: Build
         run: nix build .#packages.x86_64-linux.default
+
+      # Unit tests run headlessly (no GPU/window needed) — they verify mechanic predicates
+      # like Tutorial::passed() so a broken mechanic fails CI, not just a failed build.
+      - name: Test
+        run: nix develop . --command cargo test
