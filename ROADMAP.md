@@ -15,38 +15,28 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back.
 
-**Where we are.** The inner loop is deep, closed, and has a spine, a real climax, and now genuine
-routing hazards. Four catching tools (beam/lasso/whistle/stomp) with four upgrade playstyle lanes,
-the conga train with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring
-that **drives real mechanics**: bar-quantized spawn drops on the downbeat, on-beat PERFECT tool hits,
-a beat-stepping train, an on-beat Call that Dancers answer for a Dance Catch bonus, a full-meter
-**Downbeat Slam ultimate** (G on the beat), and a **Groove Gamble** risk/reward layer with a real
-**cash-out decision** — press B to bank the live multiplier into a safe floor before an off-beat
-miss wipes it, banking on the beat locks the whole stack. Pacing is not flat: a **staged difficulty
-ramp** climbs through named intensity stages, with Frenzy spikes and a **beat-tempo shift** that
-speeds the whole run up. Biomes **play differently** — Rocky Shore chokepoints, Neon Kelp tail-snag,
-Tide Pool wade-drag. **Six enemy archetypes** now: base plus Armored → stomp, Dancer → rhythm,
-Magnet → routing, **Thief → chain pressure** (latches to the tail and peels links until you deal
-with it) and **Golden → chase decision** (rare shiny that bolts fast and pays a big lump sum). **Three
-bosses now rotate as arena-shifting set-pieces**: a boss catch clears the herd for a focused duel, and
-below 40% health the boss enrages and reshapes the *space* — King Crab cracks the floor into
-beat-pulsing hazard fissures that bite the tail, Tide Boss floods extra wade-drag water, and the new
-**Reef DJ** turns its whole fight into rhythm: a call-and-response duel where it flashes a hot-beat
-phrase each bar and its shell only drains when you land the light on a *called* beat, so all three
-climaxes now hit different notes (route, dodge, groove). A first slice of **meta-progression** is
-in (persistent career + banked-crab perk shop). Slack momentum stays positive with no pushback;
-Carl's one fresh reply this cycle is still the diary-post note — *"Would be nice to see example videos
-here!"* — a task for the Developer Diary agent (cron 3) to capture short clips/GIFs, not a game-
-direction change, but it confirms the rhythm/visual-spectacle bet is what he wants to *watch*, so keep
-leaning into legible, screenshot-worthy moments. Both prior "Now" items shipped this cycle: the
-**rhythm-duel boss** (Reef DJ, above) and a whole run of new **emergent archetype crossovers** — well
-past "one more": Dancer on-beat hops now chip Armored shells, jolt latched Thieves loose, trip fleeing
-Goldens, and thump free Magnets into a pull surge; a snared Golden supercharges its captor Magnet into
-a herd vacuum whose field grinds an Armored shell open; a passing Golden's shine lures both roaming
-Magnets and latched Thieves off their targets. The archetype web is now dense and clearly the game's
-signature fun. The inner loop is essentially complete on depth — we still want Carl's explicit "the
-core feels done" call before pivoting to outer-loop work, so the frontier stays: give the *archetypes*
-a reason to matter inside boss fights, and give the rhythm layer one more move the player actively drives.
+**Where we are.** The inner loop is deep, closed, and has a spine, a real climax, and genuine
+routing hazards. Four catching tools (beam/lasso/whistle/stomp) with upgrade lanes, the conga train
+with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring that **drives real
+mechanics**: downbeat spawn drops, on-beat PERFECT hits, a beat-stepping train, an on-beat Call that
+Dancers answer, a full-meter **Downbeat Slam** (G), a **Groove Gamble** cash-out (B), and now a
+player-driven **Drum Roll** (hold T) that charges over a bar of on-beat holds and releases a wide beam
+blast. Pacing ramps through named intensity stages with a **beat-tempo shift**. Biomes **play
+differently** (Rocky Shore chokepoints, Neon Kelp tail-snag, Tide Pool wade-drag). **Six archetypes**
+(base, Armored → stomp, Dancer → rhythm, Magnet → routing, Thief → chain pressure, Golden → chase
+decision) form a dense **emergent web** — the game's signature fun — where Dancer hops chip shells and
+trip Goldens, snared Goldens supercharge Magnets, and shine lures Thieves off your tail. **Three bosses
+rotate as arena-shifting set-pieces** (King Crab fissures, Tide Boss flood, Reef DJ call-and-response),
+and the arena now keeps the archetype web alive mid-fight: the **Reef DJ summons hype Dancers** to catch
+on its hot beats, and a **King Crab charge can be baited into a parked Armored crab to stun it**. A first
+slice of **meta-progression** is in (persistent career + perk shop). No new Slack signal this cycle;
+Carl's standing note is still *"Would be nice to see example videos here!"* — a task for the diary agent,
+but it confirms the rhythm/visual-spectacle bet is what he wants to *watch*, so keep favoring legible,
+watchable moments. Both prior "Now" items shipped: the **boss-archetype fusion** (above) and the
+player-driven **Drum Roll** rhythm verb. The inner loop is essentially complete on depth — still want
+Carl's explicit "the core feels done" call before pivoting to outer-loop work, so the frontier now:
+finish the boss-archetype fusion on the one boss still fought in a bubble (Tide Boss), and pull the
+player's new rhythm verbs *into* the boss fights.
 
 ## Bugs (fix before anything else in Now)
 
@@ -59,20 +49,19 @@ item in "Now" below.
 
 ## Now
 
-- **Make the archetypes matter *inside* boss fights. (Top Now item.)** Right now bosses clear the herd
-  for a clean duel, so all the fun archetype interactions we've built go quiet exactly when the fight
-  peaks. Bring one archetype into the arena as a fight mechanic: e.g. the Reef DJ spawns Dancers that
-  echo its called phrase (herd them onto the hot beat to help crack the shell), the King Crab's charge
-  can be baited into a parked Armored crab to stun it, or a Magnet on the floor lets you slingshot a
-  Golden into the boss for burst damage. This is the natural next depth step — it fuses our two strongest
-  systems (bosses + the archetype web) instead of running them in separate rooms, and it's a legible,
-  watchable moment for the videos Carl wants.
-- **One more player-driven rhythm move.** The rhythm layer mostly *modifies* things you'd do anyway
-  (on-beat hits, Slam, Gamble bank). Give the player one fresh verb they choose to time — e.g. a
-  two-beat "drum roll" hold that charges then releases a bigger beam sweep, a syncopated off-beat feint
-  that dodges a boss telegraph, or a beat-chained catch combo that rewards catching *on consecutive*
-  downbeats. One concrete addition that deepens the groove the player actively performs, not another
-  passive multiplier.
+- **Finish the boss-archetype fusion — give the Tide Boss its archetype play. (Top Now item.)** Two of
+  the three bosses now keep the archetype web alive mid-fight (Reef DJ hype Dancers, King Crab bait-into-
+  Armored), but the Tide Boss is still fought in a bubble — its surge only touches a caught Magnet
+  defensively. Bring an archetype into its arena as an *offensive* play the player performs: e.g. a floor
+  Magnet the player lures a Golden into and slingshots at the boss for burst shell damage on the beat, or
+  Dancers whose on-beat hops ride the surge to chip it. Completes the "every climax uses the web" symmetry
+  and lands another legible, watchable moment for the videos Carl wants.
+- **Pull the player's rhythm verbs *into* the boss fights.** The new Drum Roll (hold T), Downbeat Slam,
+  and Groove Gamble mostly shine while herding the open field, then go quiet or feel unfocused once a boss
+  clears the herd. Make one of them matter at the climax: e.g. a charged Drum Roll blast that cracks a
+  boss shell far faster than a held beam (a real reason to spend a bar charging mid-duel), or a Slam that
+  staggers a King Crab mid-charge. Fuses the two systems that just shipped — the rhythm verbs and the
+  boss climaxes — instead of leaving them in separate rooms.
 - **Synthesise a kick drum on the beat.** Carl wants the BPM to be visceral, not just visual. Add a
   new `sounds.rs` (or similar) with a simple procedural audio synthesiser — a short sine-wave thump
   with a fast pitch drop, generated at runtime and played through ggez's audio at every beat tick.
