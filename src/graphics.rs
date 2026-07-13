@@ -211,6 +211,29 @@ thread_local! {
     static RADAR_GLOW_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static RADAR_ARROW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static RADAR_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Reusable instance buffers for draw_combo_meter's two arc passes (main arc + soft glow).
+    // The combo meter draws up to 32 arc segments per pass, each previously costing its own
+    // canvas.draw() call — up to 64 GPU submissions a frame while any x2/x3/x5 combo is live,
+    // which is most of active play once a run gets going. Filling one InstanceArray per pass and
+    // issuing a single draw_instanced_mesh collapses that to 2 draw calls total regardless of
+    // how full the arc is, identical on-screen output (same unit_line mesh, same positions/
+    // rotations/scales/colors). The segment DrawParams are rebuilt fresh each frame (arc fill
+    // fraction and rotation offset change continuously), so a scratch Vec is cleared-and-filled
+    // rather than accumulated across frames.
+    static COMBO_ARC_MAIN_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static COMBO_ARC_GLOW_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static COMBO_ARC_MAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static COMBO_ARC_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Cache for the three combo-meter multiplier labels ("x2", "x3", "x5"). draw_combo_meter
+    // called Text::new(multiplier_label) every single frame the meter was visible — a glyph-
+    // shaping pass ~60 times/sec during any hot run, the same per-frame Text::new pattern the
+    // other HUD caches (FRENZY_BANNER_CACHE, GROOVE_LABEL_CACHE, etc.) already fixed. The label
+    // is one of exactly three fixed strings keyed by combo tier (0=x2, 1=x3, 2=x5), so build each
+    // once on first use and reuse forever. DrawParam::scale still handles the per-frame beat-pulse
+    // size, so no re-layout is needed when the pulse changes.
+    static COMBO_LABEL_CACHE: RefCell<[Option<Text>; 3]> = RefCell::new([const { None }; 3]);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -2424,19 +2447,17 @@ pub fn draw_combo_meter(
     beat_intensity: f32,
     time: f32,
 ) -> ggez::GameResult {
-    use ggez::graphics::Text;
-
     if combo_count < 3 {
         return Ok(());
     }
 
-    // Determine multiplier tier
-    let (multiplier_label, tier_color) = if combo_count >= 10 {
-        ("x5", Color::new(0.8, 0.3, 1.0, 1.0))
+    // Determine multiplier tier (0=x2, 1=x3, 2=x5) for the label cache index.
+    let (tier_idx, multiplier_label, tier_color) = if combo_count >= 10 {
+        (2usize, "x5", Color::new(0.8, 0.3, 1.0, 1.0))
     } else if combo_count >= 6 {
-        ("x3", Color::new(1.0, 0.2, 0.2, 1.0))
+        (1usize, "x3", Color::new(1.0, 0.2, 0.2, 1.0))
     } else {
-        ("x2", Color::new(1.0, 0.6, 0.1, 1.0))
+        (0usize, "x2", Color::new(1.0, 0.6, 0.1, 1.0))
     };
 
     let center = player_pos + Vec2::new(player_size / 2.0, player_size / 2.0);
@@ -2448,75 +2469,106 @@ pub fn draw_combo_meter(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Reuse the cached unit-line mesh (placed per segment via DrawParam) instead of calling
-    // Mesh::new_line fresh for every arc segment — this built up to 64 brand-new GPU line
-    // buffers (32 segments x main+glow passes) every single frame the combo meter was on
-    // screen, which is most of active play once a run gets going.
-    let line = unit_line(ctx)?;
+    // Reuse the cached unit-line mesh for all arc segments, same as the conga rope and catch
+    // trails — no per-segment GPU buffer allocation.
+    let line = unit_line(ctx)?.clone();
 
-    // Draw the main arc
-    for i in 0..SEGMENTS {
-        let t0 = i as f32 / SEGMENTS as f32;
-        let t1 = (i + 1) as f32 / SEGMENTS as f32;
-        if t0 >= fill_fraction {
-            break;
-        }
-        let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
-        let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
-        let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * radius;
-        let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * radius;
-        let d = p0.distance(p1);
-        if d > 0.5 {
-            let dir = (p1 - p0) / d;
-            canvas.draw(
-                line,
-                DrawParam::default()
-                    .dest(p0)
-                    .rotation(dir.y.atan2(dir.x))
-                    .scale(Vec2::new(d, 3.0))
-                    .color(tier_color),
-            );
-        }
-    }
-
-    // Draw glow duplicate with larger radius and lower alpha
+    // Build both arc passes into scratch DrawParam buffers, then flush each as a single
+    // draw_instanced_mesh call. The combo meter draws up to 32 segments per pass; the old
+    // per-segment canvas.draw() loop was up to 64 GPU submissions a frame while a combo was
+    // live (most of active play). Two instanced draws is the same technique already used for
+    // particles/legs/bodies/rope/trails/marchers/radar.
     let glow_radius = radius + 5.0;
     let glow_color = Color::new(tier_color.r, tier_color.g, tier_color.b, tier_color.a * 0.35);
-    for i in 0..SEGMENTS {
-        let t0 = i as f32 / SEGMENTS as f32;
-        let t1 = (i + 1) as f32 / SEGMENTS as f32;
-        if t0 >= fill_fraction {
-            break;
-        }
-        let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
-        let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
-        let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * glow_radius;
-        let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * glow_radius;
-        let d = p0.distance(p1);
-        if d > 0.5 {
-            let dir = (p1 - p0) / d;
-            canvas.draw(
-                line,
-                DrawParam::default()
-                    .dest(p0)
-                    .rotation(dir.y.atan2(dir.x))
-                    .scale(Vec2::new(d, 6.0))
-                    .color(glow_color),
-            );
-        }
-    }
+
+    COMBO_ARC_MAIN_PARAMS.with(|main_cell| -> ggez::GameResult {
+        COMBO_ARC_GLOW_PARAMS.with(|glow_cell| -> ggez::GameResult {
+            let mut main_params = main_cell.borrow_mut();
+            let mut glow_params = glow_cell.borrow_mut();
+            main_params.clear();
+            glow_params.clear();
+
+            for i in 0..SEGMENTS {
+                let t0 = i as f32 / SEGMENTS as f32;
+                let t1 = (i + 1) as f32 / SEGMENTS as f32;
+                if t0 >= fill_fraction {
+                    break;
+                }
+                let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
+                let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
+
+                // Main arc segment
+                let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * radius;
+                let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * radius;
+                let d = p0.distance(p1);
+                if d > 0.5 {
+                    let rot = ((p1 - p0) / d);
+                    main_params.push(
+                        DrawParam::default()
+                            .dest(p0)
+                            .rotation(rot.y.atan2(rot.x))
+                            .scale(Vec2::new(d, 3.0))
+                            .color(tier_color),
+                    );
+                }
+
+                // Glow arc segment (slightly larger radius, softer alpha)
+                let g0 = center + Vec2::new(angle0.cos(), angle0.sin()) * glow_radius;
+                let g1 = center + Vec2::new(angle1.cos(), angle1.sin()) * glow_radius;
+                let dg = g0.distance(g1);
+                if dg > 0.5 {
+                    let grot = (g1 - g0) / dg;
+                    glow_params.push(
+                        DrawParam::default()
+                            .dest(g0)
+                            .rotation(grot.y.atan2(grot.x))
+                            .scale(Vec2::new(dg, 6.0))
+                            .color(glow_color),
+                    );
+                }
+            }
+
+            if !main_params.is_empty() {
+                COMBO_ARC_MAIN_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(main_params.iter().copied());
+                    canvas.draw_instanced_mesh(line.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
+            }
+            if !glow_params.is_empty() {
+                COMBO_ARC_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(glow_params.iter().copied());
+                    canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
 
-    // Draw multiplier text just above the player center
+    // Draw multiplier label above the player. The label is one of three fixed strings ("x2",
+    // "x3", "x5") that never change for a given tier, so cache the built Text (glyph shaping
+    // runs once per tier per session) and reuse it forever — same pattern as the other HUD label
+    // caches (FRENZY_BANNER_CACHE, GROOVE_LABEL_CACHE, etc.).
     let text_alpha = (0.7 + 0.3 * beat_intensity).clamp(0.0, 1.0);
     let text_color = Color::new(tier_color.r, tier_color.g, tier_color.b, text_alpha);
-    let mut label = Text::new(multiplier_label);
-    label.set_scale(22.0);
     let text_pos = center - Vec2::new(14.0, radius + 20.0);
-    canvas.draw(&label, DrawParam::default().dest(text_pos).color(text_color));
-
-    Ok(())
+    COMBO_LABEL_CACHE.with(|cache_cell| -> ggez::GameResult {
+        let mut cache = cache_cell.borrow_mut();
+        let label = cache[tier_idx].get_or_insert_with(|| {
+            let mut t = Text::new(multiplier_label);
+            t.set_scale(22.0);
+            t
+        });
+        canvas.draw(label, DrawParam::default().dest(text_pos).color(text_color));
+        Ok(())
+    })
 }
 
 /// Draw screen-edge radar arrows pointing to free (uncaught) crabs.
