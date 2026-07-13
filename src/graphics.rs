@@ -260,6 +260,29 @@ thread_local! {
     // deduplicates the bind group so no fresh GPU buffer is created on the hot path.
     static GRASS_SHADER_PARAMS: RefCell<Option<ShaderParams<ResolutionUniform>>> = RefCell::new(None);
     static FLASHLIGHT_SHADER_PARAMS: RefCell<Option<ShaderParams<FlashlightUniform>>> = RefCell::new(None);
+
+    // Reusable instance buffers for draw_kelp_patches' frond-stroke and fill passes. Each pool
+    // used to issue 7 individual canvas.draw(unit_line) calls for the swaying fronds plus one
+    // canvas.draw(unit_circle) per fill layer — up to 5 pools means ~35 frond draws + 10 fill
+    // draws + 5 rim draws = 50 separate GPU submissions every frame in the Kelp biome. The same
+    // batching technique used for legs/bodies/combo-arcs/trails/radar-arrows: collect all DrawParams
+    // into a scratch Vec, fill one InstanceArray, and issue a single draw_instanced_mesh. Zero
+    // visible difference (same unit_line/unit_circle mesh, same positions/scales/colors/rotations),
+    // just far fewer GPU submissions on a biome that already has a lot of other draw-call action
+    // (crabs + rope + particles + chain rings all on screen at once in the Kelp zone).
+    static KELP_FROND_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static KELP_FROND_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static KELP_FILL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static KELP_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Reusable instance buffers for draw_rock_patches' fill and sparkle passes. Up to 5 rock
+    // patches, each with 3 fill draws (shadow + body + face) and 1 sparkle = up to 20 individual
+    // canvas.draw(unit_circle) calls a frame in the Rock biome. Collapsed into one fill batch and
+    // one sparkle batch, matching the kelp and fissure batching above.
+    static ROCK_FILL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static ROCK_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static ROCK_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static ROCK_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -4004,35 +4027,54 @@ fn draw_rock_patches(
     unit_circle: &Mesh,
     beat: f32,
 ) -> ggez::GameResult {
-    // Pass 1 (normal blend): opaque fills and rims for all rocks.
+    // Pass 1 (normal blend): opaque fills for all rocks, batched into one InstanceArray draw.
+    // Each rock previously issued 3 canvas.draw(unit_circle) calls (shadow + body + face) plus
+    // a cached_stroke_circle rim — up to 5 pools × 3 = 15 fill submissions collapsed to 1.
+    // Rims stay individual (each is a different radius stroke mesh, can't share one InstanceArray).
+    ROCK_FILL_PARAMS.with(|fill_cell| -> ggez::GameResult {
+        let mut fill_params = fill_cell.borrow_mut();
+        fill_params.clear();
+        for (_i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            // Dark base shadow, offset down a touch to sit the rock on the ground.
+            fill_params.push(
+                DrawParam::default()
+                    .dest(center + Vec2::new(0.0, radius * 0.12))
+                    .scale(Vec2::splat(radius))
+                    .color(Color::new(0.10, 0.11, 0.13, 0.55)),
+            );
+            // Main stone body — opaque so it reads as impassable.
+            fill_params.push(
+                DrawParam::default()
+                    .dest(center)
+                    .scale(Vec2::splat(radius * 0.96))
+                    .color(Color::new(0.34, 0.36, 0.40, 0.95)),
+            );
+            // Lighter top face, offset up, for a lit-from-above boulder read.
+            fill_params.push(
+                DrawParam::default()
+                    .dest(center - Vec2::new(radius * 0.12, radius * 0.16))
+                    .scale(Vec2::splat(radius * 0.6))
+                    .color(Color::new(0.52, 0.54, 0.58, 0.9)),
+            );
+        }
+        if !fill_params.is_empty() {
+            ROCK_FILL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(fill_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
+
+    // Hard rim per rock — different stroke radius per patch, so stays individual (at most 5 draws).
     for (_i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
         let radius = *radius;
-        // Dark base shadow, offset down a touch to sit the rock on the ground.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center + Vec2::new(0.0, radius * 0.12))
-                .scale(Vec2::splat(radius))
-                .color(Color::new(0.10, 0.11, 0.13, 0.55)),
-        );
-        // Main stone body — opaque so it reads as impassable.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius * 0.96))
-                .color(Color::new(0.34, 0.36, 0.40, 0.95)),
-        );
-        // Lighter top face, offset up, for a lit-from-above boulder read.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center - Vec2::new(radius * 0.12, radius * 0.16))
-                .scale(Vec2::splat(radius * 0.6))
-                .color(Color::new(0.52, 0.54, 0.58, 0.9)),
-        );
-        // Hard rim so the collision edge you route around is unmistakable.
         let rim = cached_stroke_circle(ctx, radius * 0.96, 3.0)?;
         canvas.draw(
             &rim,
@@ -4041,24 +4083,38 @@ fn draw_rock_patches(
                 .color(Color::new(0.18, 0.19, 0.22, 0.9)),
         );
     }
-    // Pass 2 (one ADD switch for all rocks): beat-lit mineral sparkles.
+
+    // Pass 2 (one ADD switch for all rocks): beat-lit mineral sparkles, batched.
     if beat > 0.05 {
         let orig = canvas.blend_mode();
         canvas.set_blend_mode(BlendMode::ADD);
-        for (i, (center, radius)) in pools.iter().enumerate() {
-            let center = *center;
-            let radius = *radius;
-            let phase = i as f32 * 2.3;
-            let ang = phase;
-            let fleck = center + Vec2::new(ang.cos(), ang.sin() * 0.5) * radius * 0.35;
-            canvas.draw(
-                unit_circle,
-                DrawParam::default()
-                    .dest(fleck)
-                    .scale(Vec2::splat(4.0 + 3.0 * beat))
-                    .color(Color::new(0.7, 0.72, 0.8, 0.25 * beat)),
-            );
-        }
+        ROCK_SPARKLE_PARAMS.with(|sparkle_cell| -> ggez::GameResult {
+            let mut sparkle_params = sparkle_cell.borrow_mut();
+            sparkle_params.clear();
+            for (i, (center, radius)) in pools.iter().enumerate() {
+                let center = *center;
+                let radius = *radius;
+                let phase = i as f32 * 2.3;
+                let ang = phase;
+                let fleck = center + Vec2::new(ang.cos(), ang.sin() * 0.5) * radius * 0.35;
+                sparkle_params.push(
+                    DrawParam::default()
+                        .dest(fleck)
+                        .scale(Vec2::splat(4.0 + 3.0 * beat))
+                        .color(Color::new(0.7, 0.72, 0.8, 0.25 * beat)),
+                );
+            }
+            if !sparkle_params.is_empty() {
+                ROCK_SPARKLE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(sparkle_params.iter().copied());
+                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })?;
         canvas.set_blend_mode(orig);
     }
     Ok(())
@@ -4089,56 +4145,91 @@ fn draw_kelp_patches(
         }
     };
 
-    // Pass 1 (normal blend): base weed-bed fills for all patches.
-    for (i, (center, radius)) in pools.iter().enumerate() {
-        let center = *center;
-        let radius = *radius;
-        let phase = i as f32 * 1.9;
-        let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
-        let inside = player_center.distance(center) < radius;
-        let fill_a = 0.28 + 0.05 * breathe + if inside { 0.12 } else { 0.0 };
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius))
-                .color(Color::new(0.10, 0.30, 0.16, fill_a)),
-        );
-    }
-
-    // Pass 2 (one ADD switch for all patches): frond strokes and neon rims.
-    let orig = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
-    for (i, (center, radius)) in pools.iter().enumerate() {
-        let center = *center;
-        let radius = *radius;
-        let phase = i as f32 * 1.9;
-        let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
-        let inside = player_center.distance(center) < radius;
-
-        // Swaying frond strokes radiating from the center, drifting with time so the bed feels alive.
-        let fronds = 7;
-        for f in 0..fronds {
-            let base_ang = f as f32 / fronds as f32 * std::f32::consts::TAU + phase;
-            let sway = (time * 1.6 + f as f32 * 0.9).sin() * 0.25;
-            let ang = base_ang + sway;
-            let len = radius * (0.55 + 0.25 * breathe);
-            let start = center + Vec2::new(base_ang.cos(), base_ang.sin() * 0.6) * radius * 0.15;
-            let end = center + Vec2::new(ang.cos(), ang.sin() * 0.6) * len;
-            let dir = end - start;
-            let dist = dir.length().max(0.001);
-            let rot = dir.y.atan2(dir.x);
-            canvas.draw(
-                unit_line,
+    // Pass 1 (normal blend): base weed-bed fills for all patches — batched into one
+    // InstanceArray draw instead of one canvas.draw(unit_circle) per patch.
+    KELP_FILL_PARAMS.with(|fill_cell| -> ggez::GameResult {
+        let mut fill_params = fill_cell.borrow_mut();
+        fill_params.clear();
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 1.9;
+            let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
+            let inside = player_center.distance(center) < radius;
+            let fill_a = 0.28 + 0.05 * breathe + if inside { 0.12 } else { 0.0 };
+            fill_params.push(
                 DrawParam::default()
-                    .dest(start)
-                    .rotation(rot)
-                    .scale(Vec2::new(dist, 2.5))
-                    .color(Color::new(0.35, 1.0, 0.55, 0.30 + 0.2 * beat)),
+                    .dest(center)
+                    .scale(Vec2::splat(radius))
+                    .color(Color::new(0.10, 0.30, 0.16, fill_a)),
             );
         }
+        if !fill_params.is_empty() {
+            KELP_FILL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(fill_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
 
-        // Pulsing neon rim so the snag-risk edge is legible and on-theme with the disco zone.
+    // Pass 2 (one ADD switch for all patches): frond strokes batched into one InstanceArray
+    // draw, then per-pool neon rims (each a different radius mesh, so they stay individual).
+    // Fronds: up to 5 pools × 7 fronds = 35 individual unit_line draws reduced to 1 instanced call.
+    let orig = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    KELP_FROND_PARAMS.with(|frond_cell| -> ggez::GameResult {
+        let mut frond_params = frond_cell.borrow_mut();
+        frond_params.clear();
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 1.9;
+            let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
+            let fronds = 7;
+            for f in 0..fronds {
+                let base_ang = f as f32 / fronds as f32 * std::f32::consts::TAU + phase;
+                let sway = (time * 1.6 + f as f32 * 0.9).sin() * 0.25;
+                let ang = base_ang + sway;
+                let len = radius * (0.55 + 0.25 * breathe);
+                let start = center + Vec2::new(base_ang.cos(), base_ang.sin() * 0.6) * radius * 0.15;
+                let end = center + Vec2::new(ang.cos(), ang.sin() * 0.6) * len;
+                let dir = end - start;
+                let dist = dir.length().max(0.001);
+                let rot = dir.y.atan2(dir.x);
+                frond_params.push(
+                    DrawParam::default()
+                        .dest(start)
+                        .rotation(rot)
+                        .scale(Vec2::new(dist, 2.5))
+                        .color(Color::new(0.35, 1.0, 0.55, 0.30 + 0.2 * beat)),
+                );
+            }
+        }
+        if !frond_params.is_empty() {
+            KELP_FROND_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(frond_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
+
+    // Pulsing neon rims — one per pool, each a different stroke radius, so they can't share
+    // one InstanceArray and stay as individual draws. There are at most 5 of them per frame.
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        let phase = i as f32 * 1.9;
+        let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
+        let inside = player_center.distance(center) < radius;
         let rim = cached_stroke_circle(ctx, radius, 2.5)?;
         canvas.draw(
             &rim,
@@ -4150,6 +4241,7 @@ fn draw_kelp_patches(
             )),
         );
     }
+
     canvas.set_blend_mode(orig);
     Ok(())
 }
