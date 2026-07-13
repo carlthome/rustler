@@ -287,6 +287,19 @@ thread_local! {
     static ROCK_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static ROCK_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static ROCK_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
+    // measure() for every node label, the title, and the controls hint on every frame the map
+    // screen was visible — the same unbounded-idle-time pattern every other menu screen already
+    // fixed. Node labels: keyed per-node by (completed, unlocked); those are the only two booleans
+    // that change label text (suffix " ✓" and lock " [locked]"). Selection changes fill color only,
+    // never the label text, so it's not part of the key. Title and hint are static literals →
+    // cached unconditionally. A path-line segment cache is skipped: there are only N-1 ≤ 3 path
+    // segments and they're connection-only (two endpoint positions, no text/glyphs), so the per-
+    // frame cost of `Mesh::new_line` for three lines is negligible compared to glyph-shaping.
+    static WORLD_MAP_NODE_LABELS: RefCell<Vec<Option<((bool, bool), Text, f32)>>> = RefCell::new(Vec::new());
+    static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -4826,15 +4839,14 @@ pub fn draw_world_map(
     height: f32,
     menu_time: f32,
 ) -> ggez::GameResult {
-    // Dark sea background.
+    // Dark sea background — unit square scaled to screen size, same pattern as the beat pulse in
+    // draw_game. Avoids a fresh Mesh::new_rectangle GPU buffer upload on every frame.
+    let sq = unit_square(ctx)?;
     canvas.draw(
-        &Mesh::new_rectangle(
-            ctx,
-            DrawMode::fill(),
-            Rect::new(0.0, 0.0, width, height),
-            Color::new(0.04, 0.07, 0.12, 1.0),
-        )?,
-        DrawParam::default(),
+        sq,
+        DrawParam::default()
+            .scale(Vec2::new(width, height))
+            .color(Color::new(0.04, 0.07, 0.12, 1.0)),
     );
 
     let (sx, sy) = (width, height);
@@ -4843,7 +4855,9 @@ pub fn draw_world_map(
         Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
     };
 
-    // Connecting path lines between consecutive nodes.
+    // Connecting path lines between consecutive nodes. Only N-1 ≤ 3 lines total and each is a
+    // plain two-point Mesh::new_line; the per-frame glyph-shaping cost is absent here so these
+    // don't need caching — they're cheap geometry, not text.
     for i in 0..map.nodes.len().saturating_sub(1) {
         let a = node_to_screen(map.nodes[i].position);
         let b = node_to_screen(map.nodes[i + 1].position);
@@ -4858,17 +4872,20 @@ pub fn draw_world_map(
         );
     }
 
-    let circle = Mesh::new_circle(ctx, DrawMode::fill(), Vec2::ZERO, 1.0, 0.05, Color::WHITE)?;
+    // Reuse UNIT_CIRCLE (built once, scaled via DrawParam) instead of a fresh Mesh::new_circle
+    // every frame. Same technique used for all other fill-circle draws in this file.
+    let circle = unit_circle(ctx)?;
 
     for (i, node) in map.nodes.iter().enumerate() {
         let pos = node_to_screen(node.position);
         let is_selected = i == map.selected;
 
-        // Selection ring — gentle pulse.
+        // Selection ring — gentle pulse. Scale and alpha are per-frame (menu_time-driven), so they
+        // stay as DrawParam; only the mesh itself is reused.
         if is_selected {
             let pulse = (menu_time * 3.0).sin() * 0.15 + 0.85;
             canvas.draw(
-                &circle,
+                circle,
                 DrawParam::default()
                     .dest(pos)
                     .scale(Vec2::splat(28.0 * pulse))
@@ -4876,7 +4893,8 @@ pub fn draw_world_map(
             );
         }
 
-        // Node fill.
+        // Node fill — color varies by state but is computed as a DrawParam, not baked into a mesh,
+        // so a single cached unit circle covers all fill states.
         let fill_color = if !node.unlocked {
             Color::new(0.25, 0.25, 0.25, 1.0)
         } else if node.completed {
@@ -4887,53 +4905,90 @@ pub fn draw_world_map(
             Color::new(0.85, 0.85, 0.85, 1.0)
         };
         canvas.draw(
-            &circle,
+            circle,
             DrawParam::default()
                 .dest(pos)
                 .scale(Vec2::splat(18.0))
                 .color(fill_color),
         );
 
-        // Node label.
+        // Node label — cached per-node by (completed, unlocked). Selection changes fill color
+        // only, never the label text (suffix " ✓" derives from completed, lock " [locked]" from
+        // unlocked), so it's not part of the cache key. Same rebuild-on-change pattern as
+        // WHISTLE_LABEL_CACHE, STOMP_LABEL_CACHE, and all the other HUD caches in main.rs.
         let label_color = if node.unlocked {
             Color::WHITE
         } else {
             Color::new(0.4, 0.4, 0.4, 1.0)
         };
-        let suffix = if node.completed { " ✓" } else { "" };
-        let lock = if !node.unlocked { " [locked]" } else { "" };
-        let mut label = Text::new(format!("{}{}{}", node.name, suffix, lock));
-        label.set_scale(16.0);
-        let label_dims = label.measure(ctx)?;
-        canvas.draw(
-            &label,
-            DrawParam::default()
-                .dest(Vec2::new(pos.x - label_dims.x * 0.5, pos.y + 24.0))
-                .color(label_color),
-        );
+        let label_key = (node.completed, node.unlocked);
+        WORLD_MAP_NODE_LABELS.with(|c| -> ggez::GameResult {
+            let mut labels = c.borrow_mut();
+            // Grow the Vec to cover this node index if needed (the map never shrinks mid-session).
+            if labels.len() <= i {
+                labels.resize_with(i + 1, || None);
+            }
+            let entry = &mut labels[i];
+            // Rebuild only when the node's (completed, unlocked) state actually changes.
+            if entry.as_ref().map(|(k, _, _)| *k) != Some(label_key) {
+                let suffix = if node.completed { " ✓" } else { "" };
+                let lock = if !node.unlocked { " [locked]" } else { "" };
+                let mut label = Text::new(format!("{}{}{}", node.name, suffix, lock));
+                label.set_scale(16.0);
+                let w = label.measure(ctx)?.x;
+                *entry = Some((label_key, label, w));
+            }
+            if let Some((_, label, w)) = entry.as_ref() {
+                canvas.draw(
+                    label,
+                    DrawParam::default()
+                        .dest(Vec2::new(pos.x - w * 0.5, pos.y + 24.0))
+                        .color(label_color),
+                );
+            }
+            Ok(())
+        })?;
     }
 
-    // Title.
-    let mut title = Text::new("— World Map —");
-    title.set_scale(28.0);
-    let tdims = title.measure(ctx)?;
-    canvas.draw(
-        &title,
-        DrawParam::default()
-            .dest(Vec2::new((sx - tdims.x) * 0.5, sy * 0.08))
-            .color(Color::new(0.8, 0.9, 1.0, 1.0)),
-    );
+    // Title — static literal, built once and reused forever. Same pattern as MENU_PROMPT_CACHE.
+    WORLD_MAP_TITLE_CACHE.with(|c| -> ggez::GameResult {
+        let mut cache = c.borrow_mut();
+        if cache.is_none() {
+            let mut title = Text::new("— World Map —");
+            title.set_scale(28.0);
+            let w = title.measure(ctx)?.x;
+            *cache = Some((title, w));
+        }
+        if let Some((title, w)) = cache.as_ref() {
+            canvas.draw(
+                title,
+                DrawParam::default()
+                    .dest(Vec2::new((sx - w) * 0.5, sy * 0.08))
+                    .color(Color::new(0.8, 0.9, 1.0, 1.0)),
+            );
+        }
+        Ok(())
+    })?;
 
-    // Controls hint.
-    let mut hint = Text::new("Left / Right: Navigate     Space / Enter: Play     Esc: Back");
-    hint.set_scale(15.0);
-    let hdims = hint.measure(ctx)?;
-    canvas.draw(
-        &hint,
-        DrawParam::default()
-            .dest(Vec2::new((sx - hdims.x) * 0.5, sy * 0.88))
-            .color(Color::new(0.55, 0.65, 0.75, 1.0)),
-    );
+    // Controls hint — static literal, built once and reused forever.
+    WORLD_MAP_HINT_CACHE.with(|c| -> ggez::GameResult {
+        let mut cache = c.borrow_mut();
+        if cache.is_none() {
+            let mut hint = Text::new("Left / Right: Navigate     Space / Enter: Play     Esc: Back");
+            hint.set_scale(15.0);
+            let w = hint.measure(ctx)?.x;
+            *cache = Some((hint, w));
+        }
+        if let Some((hint, w)) = cache.as_ref() {
+            canvas.draw(
+                hint,
+                DrawParam::default()
+                    .dest(Vec2::new((sx - w) * 0.5, sy * 0.88))
+                    .color(Color::new(0.55, 0.65, 0.75, 1.0)),
+            );
+        }
+        Ok(())
+    })?;
 
     Ok(())
 }
