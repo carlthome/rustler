@@ -43,6 +43,9 @@ const SPEED: f32 = 200.0;
 const CHAIN_LINK_FRAMES: usize = 12;
 const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
+// Drum Roll (hold T): a full bar of clean on-beat holds (4 hits) maxes the charge for the biggest
+// fired blast; beyond that it caps so you can't hold forever for infinite reach.
+const DRUM_ROLL_MAX: u32 = 4;
 // Staged difficulty ramp: a run escalates in named stages over elapsed time so tension rises
 // within a zone instead of staying flat. Each entry is (elapsed-seconds threshold to enter the
 // stage, its shout name, its density multiplier applied to every wave's crab count, its tempo
@@ -492,7 +495,6 @@ struct MainState {
     // resets the stack, so the tension is holding the roll clean through a full bar for the big pop.
     drum_roll_held: bool,       // was T held last frame — edge-detects press/release in update
     drum_roll_hits: u32,        // consecutive on-beat "roll hits" banked while holding (the charge)
-    drum_roll_beat_done: bool,  // guards one hit per beat so a held key doesn't double-count a beat
     drum_roll_charge: f32,      // 0..1 visual charge level, eased toward drum_roll_hits for a smooth telegraph
     drum_roll_fire: f32,        // 1..0 timer while a fired blast's wide beam is live (drives the catch boost + glow)
     drum_roll_power: u32,       // roll hits captured at the moment of firing — scales the fired blast's reach/arc
@@ -1061,7 +1063,6 @@ impl MainState {
             bar_accent: 0.0,
             drum_roll_held: false,
             drum_roll_hits: 0,
-            drum_roll_beat_done: false,
             drum_roll_charge: 0.0,
             drum_roll_fire: 0.0,
             drum_roll_power: 0,
@@ -3143,8 +3144,19 @@ impl MainState {
         let base_cone_angle = std::f32::consts::FRAC_PI_3;
         let base_range = 320.0;
 
-        let flashlight_cone_angle = base_cone_angle + self.flashlight.cone_upgrade;
-        let flashlight_range = base_range + self.flashlight.range_upgrade;
+        let mut flashlight_cone_angle = base_cone_angle + self.flashlight.cone_upgrade;
+        let mut flashlight_range = base_range + self.flashlight.range_upgrade;
+        // Drum Roll fired blast: while the release window is live, the beam FLARES WIDE and FAR down
+        // the aim — the fired charge (drum_roll_power) scales how much. This reuses the existing beam
+        // catch path below (the cone/range tests at ~3348 and ~3616) instead of a second scan over
+        // the crabs, so every free crab caught in the widened aimed arc snaps in exactly like a
+        // normal beam catch — no parallel catch loop, no double-catch. Directional, not radial: it's
+        // a big sweep down where you're pointing, distinct from the Downbeat Slam's all-around yank.
+        if self.drum_roll_fire > 0.0 {
+            let boost = self.drum_roll_fire * (self.drum_roll_power as f32 / DRUM_ROLL_MAX as f32);
+            flashlight_cone_angle += boost * std::f32::consts::FRAC_PI_3; // up to +60° half-angle at full power
+            flashlight_range += boost * 260.0; // up to +260px reach at full power
+        }
         // Beam-lane-scaled boss/shell drain, read once so the &mut self.crabs loop can use it.
         let boss_drain = self.boss_drain_rate();
 
@@ -3360,6 +3372,12 @@ impl MainState {
                     reef_boss_pos = crab.pos;
                 }
                 crab.spawn_time += dt;
+                // Tick down the King Crab's daze from ramming a parked Armored shell (set in the
+                // charge-block pass below). While it's >0 the boss can't wind up a new charge and
+                // its shell drains faster (see the stunned-drain boost above).
+                if crab.stun_timer > 0.0 {
+                    crab.stun_timer = (crab.stun_timer - dt).max(0.0);
+                }
                 let distance = self.player_pos.distance(crab.pos);
                 let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
                 let angle_to_crab = flashlight_dir.angle_between(to_crab).abs();
@@ -3380,13 +3398,20 @@ impl MainState {
                     reef_hit_landed = true;
                 }
                 if crab.boss_health > 0.0 && drain_active {
-                    let rate = if crab.is_rhythm_boss() {
+                    let mut rate = if crab.is_rhythm_boss() {
                         // The window is narrow AND only some beats are hot, so per-hit drain is boosted
                         // to keep the fight a comparable length to the other bosses; enrage sharpens it.
                         boss_drain * if crab.enraged { 5.0 } else { 3.5 }
                     } else {
                         boss_drain
                     };
+                    // Stunned-drain boost: a King Crab reeling from ramming a parked Armored shell
+                    // takes far more beam damage, so baiting the lunge into a shell then holding the
+                    // light on the dazed boss is a real damage window — the archetype block fused into
+                    // the boss fight (see the block pass below where stun_timer is set).
+                    if crab.is_stunned() {
+                        rate *= 2.5;
+                    }
                     crab.boss_health -= rate * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
@@ -3508,7 +3533,9 @@ impl MainState {
                         crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
                         crab.pos += crab.vel * dt;
                         // Arm a charge once it's rested, the train is worth scattering, and in range.
+                        // A stunned (recently-blocked) King Crab can't wind up until the daze passes.
                         if crab.charge_cooldown <= 0.0
+                            && !crab.is_stunned()
                             && self.chain_count >= 3
                             && crab.pos.distance(charge_target) < BOSS_CHARGE_ARM_RANGE
                         {
@@ -4659,7 +4686,6 @@ impl MainState {
         self.bar_accent = 0.0;
         self.drum_roll_held = false;
         self.drum_roll_hits = 0;
-        self.drum_roll_beat_done = false;
         self.drum_roll_charge = 0.0;
         self.drum_roll_fire = 0.0;
         self.drum_roll_power = 0;
@@ -5006,7 +5032,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -5478,6 +5504,20 @@ impl MainState {
         // Draw the Downbeat Slam shockwave — the big gold rhythm-ultimate blast.
         if self.slam_active > 0.0 && self.slam_radius > 0.0 {
             draw_slam_ring(ctx, canvas, self.slam_center, self.slam_radius, SLAM_RADIUS)?;
+        }
+
+        // Drum Roll telegraph: while holding T and building a charge, pulse tightening rings at the
+        // player (reuses the Call-ring draw) so the roll reads as a visible wind-up before release —
+        // the more hits banked, the tighter/brighter. On the fired blast the ring flashes out wide.
+        if self.drum_roll_charge > 0.02 || self.drum_roll_fire > 0.0 {
+            let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            if self.drum_roll_fire > 0.0 {
+                draw_call_ring(ctx, canvas, center, self.drum_roll_fire, 340.0)?;
+            } else {
+                // Charging: a small, growing beckon-ring — pulse tracks the charge, reach grows with it.
+                let reach = 60.0 + 120.0 * self.drum_roll_charge;
+                draw_call_ring(ctx, canvas, center, self.drum_roll_charge.min(1.0), reach)?;
+            }
         }
 
         // Draw lasso line and tip
@@ -6541,6 +6581,47 @@ impl MainState {
             1.0
         }
     }
+    /// Fire the Drum Roll: the player released T after banking `drum_roll_hits` on-beat roll hits,
+    /// so unleash a focused beam blast down the flashlight's aim. The catch itself is handled by
+    /// update_crabs, which widens the flashlight cone/range while `drum_roll_fire` is live (so it
+    /// reuses the existing beam catch path rather than a second scan over the crabs) — here we just
+    /// arm that window, snapshot the power, and throw the juice/telegraph. Releasing ON the beat
+    /// pays a bonus: a fuller charge window and an extra groove/flash kick, so the release is itself
+    /// a timed move. Directional (down your aim) and free of the Groove meter, unlike the radial
+    /// Downbeat Slam — a skill verb you perform, not a meter you spend.
+    fn fire_drum_roll(&mut self) {
+        let power = self.drum_roll_hits.min(DRUM_ROLL_MAX);
+        if power == 0 {
+            return;
+        }
+        self.drum_roll_power = power;
+        let on_beat = self.on_beat_now();
+        // A clean release on the beat holds the wide beam open longer (more crabs sweep in) and
+        // banks extra groove; a sloppy off-beat release still fires but fades faster.
+        self.drum_roll_fire = if on_beat { 1.0 } else { 0.7 };
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        // Juice scales with how big the roll was — a full-bar roll released on the beat is a real event.
+        let intensity = power as f32 / DRUM_ROLL_MAX as f32;
+        self.screen_shake = self.screen_shake.max(8.0 + 10.0 * intensity);
+        self.zoom_punch = self.zoom_punch.max(0.05 + 0.06 * intensity);
+        self.on_beat_flash = (self.on_beat_flash + if on_beat { 0.6 } else { 0.35 }).min(0.85);
+        self.groove = (self.groove + if on_beat { 0.25 } else { 0.12 } * intensity).min(1.0);
+        self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+        // Ring the release so it reads on screen — a gold shockwave down at the player like the Slam.
+        let ring_col = if on_beat { [1.0, 0.85, 0.35] } else { [0.9, 0.6, 0.3] };
+        self.spawn_catch_shockwave(center, ring_col);
+        let label = if on_beat {
+            format!("DRUM ROLL! x{}", power)
+        } else {
+            format!("drum roll x{}", power)
+        };
+        self.floating_texts.spawn(
+            label,
+            center - Vec2::new(70.0, 70.0),
+            30.0 + 6.0 * intensity,
+            [1.0, 0.9, 0.4, 1.0],
+        );
+    }
     /// On-beat Thief shake payoff: an on-beat whistle/stomp that rips a latched Thief loose doesn't
     /// just free the tail — it flings the Thief straight into the train as a bonus catch. Enlists the
     /// crab at `idx` (mark caught, assign the next chain_index, bump chain_count), banks a bonus via
@@ -6936,6 +7017,23 @@ impl EventHandler for MainState {
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
+            // Drum Roll: if T is being held as this beat fires, bank a roll hit (the charge). The
+            // beat handler runs at most once per beat, so a held key naturally counts exactly one
+            // hit per beat. A hit kicks a tick of feedback (beat flash + a bump of groove) so each
+            // roll lands audibly/visibly, building tension toward the release blast. The held flag
+            // is set by the update poll before update_crabs, so it's current for this beat.
+            if self.drum_roll_held {
+                self.drum_roll_hits = (self.drum_roll_hits + 1).min(DRUM_ROLL_MAX);
+                self.on_beat_flash = (self.on_beat_flash + 0.2).min(0.7);
+                self.groove = (self.groove + 0.05).min(1.0);
+                let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                self.floating_texts.spawn(
+                    "ROLL!".to_string(),
+                    center - Vec2::new(28.0, 96.0),
+                    22.0 + self.drum_roll_hits as f32 * 3.0,
+                    [1.0, 0.8, 0.4, 1.0],
+                );
+            }
             // Reef DJ call-and-response: on every downbeat while the rhythm boss is on the field,
             // it CALLS a fresh phrase for the coming bar — a random subset of the four beats that
             // are "hot" (its shell is only vulnerable on those). Rolled once per bar, always with
@@ -7514,6 +7612,35 @@ impl EventHandler for MainState {
 
         let area = (self.width, self.height);
         handle_player_movement(self, ctx, dt, SPEED, area);
+
+        // Drum Roll (hold T): poll the held key here rather than off the key-down event, since the
+        // event fires unreliably on key-repeat and we need a clean "held across beats" charge. The
+        // per-beat hit counting lives in the beat handler; here we only edge-detect press/release
+        // and drive the timers. Releasing after landing at least one on-beat roll hit FIRES a
+        // focused beam blast; releasing with nothing charged just cancels quietly.
+        let t_held = !self.show_instructions
+            && !self.game_over
+            && ctx.keyboard.is_key_pressed(ggez::input::keyboard::KeyCode::T);
+        if !t_held && self.drum_roll_held {
+            // Release edge: fire if we banked any roll hits, otherwise drop the (empty) charge.
+            if self.drum_roll_hits > 0 {
+                self.fire_drum_roll();
+            }
+            self.drum_roll_hits = 0;
+        }
+        self.drum_roll_held = t_held;
+        // Ease the visual charge toward the banked hit count (capped for the telegraph), and decay
+        // the fired-blast window. drum_roll_fire gates the widened beam in update_crabs + the glow.
+        let charge_target = if t_held {
+            (self.drum_roll_hits as f32 / DRUM_ROLL_MAX as f32).min(1.0)
+        } else {
+            0.0
+        };
+        self.drum_roll_charge += (charge_target - self.drum_roll_charge) * (dt * 12.0).min(1.0);
+        if self.drum_roll_fire > 0.0 {
+            // ~0.5s window so the widened, yanking beam has time to actually reel the arc in.
+            self.drum_roll_fire = (self.drum_roll_fire - dt * 2.0).max(0.0);
+        }
 
         // Dash particle burst — fires only in the first frame (threshold near 1.0)
         if self.dash_flash > 0.95 {

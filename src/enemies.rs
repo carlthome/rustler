@@ -146,6 +146,7 @@ pub struct EnemyCrab {
     pub enraged: bool,        // latched true once a boss crosses into its final enrage phase — drives the one-shot telegraph
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
     pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
+    pub stun_timer: f32,          // King Crab only: >0 while dazed after ramming a parked Armored shell — can't charge and its shell drains far faster under the beam, turning the block into a damage window
     pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
     pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
     pub magnet_snared: f32,       // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
@@ -236,6 +237,13 @@ impl EnemyCrab {
     /// True while a Thief is actively clamped onto the tail (used to drive its "gnawing" visual).
     pub fn is_latched(&self) -> bool {
         self.is_thief() && self.latch_timer > 0.0
+    }
+
+    /// True while a King Crab is dazed after ramming a parked Armored shell mid-charge. While
+    /// stunned it can't wind up a new charge and its own shell drains far faster under the beam,
+    /// so baiting the lunge into a shell opens a real damage window (see the block pass in main.rs).
+    pub fn is_stunned(&self) -> bool {
+        self.stun_timer > 0.0
     }
 
     /// A rare "Golden Crab": a shiny, skittish high-value target that bolts fast and sparkles.
