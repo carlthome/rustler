@@ -3271,6 +3271,19 @@ impl MainState {
         }
         // Beam-lane-scaled boss/shell drain, read once so the &mut self.crabs loop can use it.
         let boss_drain = self.boss_drain_rate();
+        // Drum Roll fired blast → a boss-shell CRACKER. While the release window is live, the beam
+        // doesn't just widen (above) — it hammers a boss shell far harder than a held beam, scaled by
+        // the charge power banked at fire. This is the rhythm verb pulled *into* the boss duel: a
+        // real reason to spend a bar charging mid-fight instead of only using it to sweep the herd.
+        // Read once here so the &mut self.crabs loop can fold it into the existing gated drain path
+        // below (line ~3512) rather than a parallel damage pass — crucially, that keeps it *inside*
+        // `drain_active`, so against the call-locked Reef DJ the blast only bites on a hot beat and
+        // its echo-the-phrase identity is preserved instead of being cracked off-phrase.
+        let drum_roll_boss_mult = if self.drum_roll_fire > 0.0 {
+            1.0 + 6.0 * (self.drum_roll_power as f32 / DRUM_ROLL_MAX as f32)
+        } else {
+            1.0
+        };
 
         // Event-collection scratch buffers, reused every frame (see field docs) instead of
         // being freshly allocated here — most frames leave every one of these empty. Taken out
@@ -3524,6 +3537,12 @@ impl MainState {
                     if crab.is_stunned() {
                         rate *= 2.5;
                     }
+                    // Fired Drum Roll blast cracks the shell far faster than a plain held beam
+                    // (up to 7x at full charge). Multiplies the drain here inside the same
+                    // `drain_active` gate — so it stacks with a stun window on a King Crab, and
+                    // still only lands on a hot beat against the Reef DJ. The wide fired cone also
+                    // makes it easier to keep the light on the boss for the short release window.
+                    rate *= drum_roll_boss_mult;
                     crab.boss_health -= rate * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
