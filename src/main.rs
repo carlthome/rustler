@@ -2932,6 +2932,109 @@ impl MainState {
             self.tide_pulses.push((center, crate::CRAB_SIZE));
         }
 
+        // OFFENSIVE archetype-in-boss crossover — the GOLDEN SLINGSHOT. The Tide Boss is otherwise
+        // fought in a bubble; this is the player's active play *against* it, the mirror of the King
+        // Crab's bait-into-Armored stun and the Reef DJ's hype-Dancer chip. Setup: lure a fleeing
+        // Golden into a free Magnet's field (the existing snare→supercharge crossover) and park that
+        // loaded Magnet where the boss's swell will wash over it. When the surge hits, instead of
+        // scattering the Magnet's catch, the wall of water FIRES the pinned Golden's shine straight
+        // through the lodestone and into the boss — a bright lance that cracks a big chunk off the
+        // shell far faster than the beam ever could. It's a real reason to spend the whole telegraph
+        // wrangling a Golden into position rather than just backing the train out of the ring, and
+        // it's a legible, watchable moment (gold streak → boss stagger) for the videos Carl wants.
+        const SLINGSHOT_CHIP: f32 = 0.7; // ~a bar of beam per shot — a deliberate setup deserves a real dent
+        let mut slingshots: Vec<(Vec2, Vec2)> = Vec::new(); // (magnet_pos, golden_pos) that fired this pulse
+        {
+            // A Magnet is "loaded" if it's charged (pinning shine) and a snared Golden sits inside its
+            // reach — the same pairing the charged-magnet pass already recognizes elsewhere. Collect
+            // loaded pairs the surge washes over, sparing them from the scatter below (they fire, not flee).
+            let mut loaded_magnets: Vec<Vec2> = Vec::new();
+            for m in &self.crabs {
+                if m.caught || m.is_boss() || !m.is_magnet() || m.magnet_charged <= 0.0 {
+                    continue;
+                }
+                if m.pos.distance_squared(center) > r2 {
+                    continue; // only Magnets the swell actually reaches can be fired by it
+                }
+                // Find a snared Golden this Magnet is holding (nearest inside its pull reach).
+                let mut fired_golden: Option<Vec2> = None;
+                for g in &self.crabs {
+                    if g.caught || !g.is_golden() || g.magnet_snared <= 0.0 {
+                        continue;
+                    }
+                    if g.pos.distance_squared(m.pos) <= MAGNET_ANCHOR_RADIUS_SQ {
+                        fired_golden = Some(g.pos);
+                        break;
+                    }
+                }
+                if let Some(gpos) = fired_golden {
+                    loaded_magnets.push(m.pos);
+                    slingshots.push((m.pos, gpos));
+                }
+            }
+            // Chip the live Tide Boss once per shot, and consume the Golden the surge spent (it's
+            // flung out of the snare into a flee — the shot expends the prize, so the play is a
+            // trade: give up the Golden catch for a big crack in the shell).
+            if !slingshots.is_empty() {
+                let mut broke_at: Option<Vec2> = None;
+                let mut boss_pos: Option<Vec2> = None;
+                for crab in &mut self.crabs {
+                    if crab.is_tide_boss() && !crab.caught && crab.boss_health > 0.0 {
+                        boss_pos = Some(crab.pos);
+                        crab.boss_health = (crab.boss_health - SLINGSHOT_CHIP * slingshots.len() as f32).max(0.0);
+                        if crab.boss_health <= 0.0 {
+                            broke_at = Some(crab.pos);
+                        }
+                        break;
+                    }
+                }
+                // A bright gold lance streaks from each fired Golden into the boss — the reused
+                // catch-trail plumbing (from → to, retracting, self-expiring) gives it the watchable
+                // "shot connects" beat for free. Only fires when a live boss actually took the hit.
+                if let Some(bpos) = boss_pos {
+                    for &(_, gpos) in &slingshots {
+                        if self.catch_trails.len() < 48 {
+                            self.catch_trails.push((gpos, bpos, -0.25, [1.0, 0.85, 0.25]));
+                        }
+                    }
+                }
+                // Spend each fired Golden — release the snare and fling it clear so it can't be
+                // fired twice by the same pulse and reads as "the shot used it up".
+                for &(_, gpos) in &slingshots {
+                    for crab in &mut self.crabs {
+                        if crab.is_golden() && !crab.caught && crab.magnet_snared > 0.0 && crab.pos == gpos {
+                            crab.magnet_snared = 0.0;
+                            crab.fleeing = true;
+                            crab.startle_timer = crab.startle_timer.max(0.5);
+                            break;
+                        }
+                    }
+                }
+                for &(mpos, _) in &slingshots {
+                    self.floating_texts.spawn(
+                        "SLINGSHOT!".to_string(),
+                        mpos - Vec2::new(55.0, 40.0),
+                        30.0,
+                        [1.0, 0.85, 0.3, 1.0],
+                    );
+                    self.particle_system
+                        .spawn_milestone_fireworks(mpos, 10, &mut rand::rng());
+                }
+                self.screen_shake = self.screen_shake.max(10.0);
+                self.on_beat_flash = self.on_beat_flash.max(0.35);
+                if let Some(bpos) = broke_at {
+                    self.floating_texts.spawn(
+                        "WASHED DOWN — CATCH IT!".to_string(),
+                        bpos - Vec2::new(120.0, 46.0),
+                        34.0,
+                        [0.4, 1.0, 0.5, 1.0],
+                    );
+                    self.spawn_catch_shockwave(bpos, [0.3, 0.75, 1.0]);
+                    self.screen_shake = self.screen_shake.max(14.0);
+                }
+            }
+        }
+
         // First pass: supercharge every free Magnet the surge washes over, and remember where each
         // anchoring field sits so the shove and the snap below can spare crabs inside it.
         let mut anchor_positions: Vec<Vec2> = Vec::new();
