@@ -288,6 +288,20 @@ thread_local! {
     static ROCK_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static ROCK_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffers for draw_tide_pools' fill and additive passes. Water pools
+    // previously issued ~10 individual canvas.draw() calls per pool per frame (2 fill discs, 1 rim,
+    // 2 ripple rings, 1 glint, 4 current streaks). With 6-10 native pools on the Water biome level
+    // that was 60-100 GPU submissions every frame — plus Tide Boss flood pools on top. The fills
+    // (base disc + shallow center) and the additive fills (glints + current streaks) each use the
+    // same shared unit_circle mesh at different scales, so they're ideal for InstanceArray batching
+    // exactly like the Rock/Kelp fills above: collect all DrawParams, fill one InstanceArray, one
+    // draw_instanced_mesh. Rims and ripple rings stay individual (each uses a different-radius stroke
+    // mesh; at most ~3 per pool they're already cached by cached_stroke_circle).
+    static POOL_FILL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static POOL_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static POOL_ADD_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static POOL_ADD_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -3701,6 +3715,9 @@ pub fn draw_tide_pools(
     // pools also render as Water but carry no current, so they pass false: a flow streak that lies
     // about where the herd drifts is worse than none, especially mid-boss-fight when Carl's watching.
     show_current: bool,
+    // Rocky Shore tide level in [0,1] (0 = fully ebbed, 1 = fully flooded). Only the Rock biome uses
+    // it — it drives the rising water sheet drawn over the low rocks. Other terrains ignore it.
+    rock_tide_fill: f32,
 ) -> ggez::GameResult {
     use crate::levels::TerrainKind;
     if pools.is_empty() || terrain == TerrainKind::Open {
@@ -3718,44 +3735,63 @@ pub fn draw_tide_pools(
     // Rock and Kelp reuse the same patch geometry as water but read completely differently, so the
     // player sees at a glance what a patch will do to them in this zone.
     match terrain {
-        TerrainKind::Rock => return draw_rock_patches(ctx, canvas, pools, unit_circle, beat),
+        TerrainKind::Rock => {
+            return draw_rock_patches(ctx, canvas, pools, unit_circle, beat, rock_tide_fill)
+        }
         TerrainKind::Kelp => {
             return draw_kelp_patches(ctx, canvas, pools, unit_circle, time, beat, player_center);
         }
         _ => {}
     }
 
-    // Pass 1 (normal blend): base fills for all pools first, then one ADD switch for all
-    // additive elements — eliminates one blend-mode pipeline switch per pool per frame.
-    for (i, (center, radius)) in pools.iter().enumerate() {
-        let center = *center;
-        let radius = *radius;
-        let phase = i as f32 * 1.7;
-        let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
-        let wading = player_center.distance(center) < radius;
+    // Pass 1 (normal blend): batch all base fills and shallow centers into one InstanceArray draw
+    // instead of 2 × pool_count individual canvas.draw() calls — the same technique Rock/Kelp
+    // patches use. With 5-10 pools (plus flood pools) this collapses ~20 fill submissions into 1.
+    POOL_FILL_PARAMS.with(|fill_cell| -> ggez::GameResult {
+        let mut fill_params = fill_cell.borrow_mut();
+        fill_params.clear();
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 1.7;
+            let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
+            let wading = player_center.distance(center) < radius;
+            // Base water disc — normal blend so it reads as a darker, cooler patch of ground.
+            let fill_a = 0.30 + 0.06 * breathe + if wading { 0.10 } else { 0.0 };
+            fill_params.push(
+                DrawParam::default()
+                    .dest(center)
+                    .scale(Vec2::splat(radius))
+                    .color(Color::new(0.16, 0.34, 0.52, fill_a)),
+            );
+            // Lighter shallow center for a bit of depth.
+            fill_params.push(
+                DrawParam::default()
+                    .dest(center)
+                    .scale(Vec2::splat(radius * 0.6))
+                    .color(Color::new(0.30, 0.55, 0.72, 0.16)),
+            );
+        }
+        if !fill_params.is_empty() {
+            POOL_FILL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(fill_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })?;
 
-        // Base water disc — normal blend so it reads as a darker, cooler patch of ground.
-        let fill_a = 0.30 + 0.06 * breathe + if wading { 0.10 } else { 0.0 };
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius))
-                .color(Color::new(0.16, 0.34, 0.52, fill_a)),
-        );
-        // Lighter shallow center for a bit of depth.
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(center)
-                .scale(Vec2::splat(radius * 0.6))
-                .color(Color::new(0.30, 0.55, 0.72, 0.16)),
-        );
-    }
-
-    // Pass 2 (one ADD switch for all pools): rims, ripple rings, and glints.
+    // Pass 2 (one ADD switch for all pools): rims and ripple rings stay individual (each has a
+    // distinct stroke radius — at most 3 per pool, all cache-hits from cached_stroke_circle).
+    // Glints and current streaks are unit_circle fills so they're batched into a second
+    // InstanceArray: one draw_instanced_mesh call replaces up to 5 per-pool ADD draws.
     let orig_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
+
+    // Rims and ripple rings — stays individual because each pool has a unique stroke radius.
     for (i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
         let radius = *radius;
@@ -3790,52 +3826,64 @@ pub fn draw_tide_pools(
                 );
             }
         }
+    }
 
-        // A drifting glint highlight, brighter on the beat, to sell the wet surface.
-        let g_ang = time * 0.6 + phase;
-        let glint = center + Vec2::new(g_ang.cos(), g_ang.sin() * 0.5) * radius * 0.4;
-        canvas.draw(
-            unit_circle,
-            DrawParam::default()
-                .dest(glint)
-                .scale(Vec2::splat(6.0 + 3.0 * beat))
-                .color(Color::new(0.7, 0.95, 1.0, 0.18 + 0.25 * beat)),
-        );
-
-        // Current flow streaks: short bright dashes that stream across the pool along the same fixed
-        // heading the sim drifts free crabs (crate::TIDE_CURRENT_DIR), so the routing mechanic is
-        // legible — the player can *see* which way the pool ferries the herd and set up downstream.
-        // Only the native Water pools carry a current, so skip these on flood pools (show_current).
-        if show_current {
-        // Each streak marches from the pool's upstream edge to its downstream edge, then wraps, its
-        // alpha fading in at entry and out at exit so dashes don't pop at the rim. Stretched into a
-        // capsule-ish sliver by scaling the unit circle wide along the flow and thin across it.
+    // Glints and current streaks — batched into one InstanceArray (all unit_circle draws).
+    // Precompute flow constants once outside the pool loop instead of per pool.
+    POOL_ADD_PARAMS.with(|add_cell| -> ggez::GameResult {
+        let mut add_params = add_cell.borrow_mut();
+        add_params.clear();
         let flow = crate::TIDE_CURRENT_DIR.normalize_or_zero();
         let perp = Vec2::new(-flow.y, flow.x);
+        let streak_angle = flow.y.atan2(flow.x);
         const STREAKS: usize = 4;
-        for s in 0..STREAKS {
-            // Progress 0..1 along the flow axis, offset per streak and per pool so they don't line up.
-            let t = (time * 0.5 + s as f32 / STREAKS as f32 + phase * 0.3).fract();
-            // Lateral offset so streaks spread across the pool's width instead of stacking on the axis.
-            let lateral = ((s as f32 / (STREAKS - 1) as f32) - 0.5) * 1.4 * radius;
-            let along = (t - 0.5) * 2.0 * radius; // -radius (upstream) .. +radius (downstream)
-            let p = center + flow * along + perp * lateral;
-            // Fade in/out at the ends of the run so a streak eases into and out of the pool.
-            let edge_fade = (t * (1.0 - t) * 4.0).clamp(0.0, 1.0);
-            let a = (0.16 + 0.18 * beat) * edge_fade;
-            if a > 0.01 {
-                canvas.draw(
-                    unit_circle,
-                    DrawParam::default()
-                        .dest(p)
-                        .rotation(flow.y.atan2(flow.x))
-                        .scale(Vec2::new(9.0 + 4.0 * beat, 2.2))
-                        .color(Color::new(0.65, 0.92, 1.0, a)),
-                );
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 1.7;
+            // A drifting glint highlight, brighter on the beat, to sell the wet surface.
+            let g_ang = time * 0.6 + phase;
+            let glint = center + Vec2::new(g_ang.cos(), g_ang.sin() * 0.5) * radius * 0.4;
+            add_params.push(
+                DrawParam::default()
+                    .dest(glint)
+                    .scale(Vec2::splat(6.0 + 3.0 * beat))
+                    .color(Color::new(0.7, 0.95, 1.0, 0.18 + 0.25 * beat)),
+            );
+            // Current flow streaks: short bright dashes streaming along TIDE_CURRENT_DIR.
+            // Only native Water pools carry a current; flood pools skip streaks (show_current).
+            if show_current {
+                for s in 0..STREAKS {
+                    let t = (time * 0.5 + s as f32 / STREAKS as f32 + phase * 0.3).fract();
+                    let lateral = ((s as f32 / (STREAKS - 1) as f32) - 0.5) * 1.4 * radius;
+                    let along = (t - 0.5) * 2.0 * radius;
+                    let p = center + flow * along + perp * lateral;
+                    let edge_fade = (t * (1.0 - t) * 4.0).clamp(0.0, 1.0);
+                    let a = (0.16 + 0.18 * beat) * edge_fade;
+                    if a > 0.01 {
+                        add_params.push(
+                            DrawParam::default()
+                                .dest(p)
+                                .rotation(streak_angle)
+                                .scale(Vec2::new(9.0 + 4.0 * beat, 2.2))
+                                .color(Color::new(0.65, 0.92, 1.0, a)),
+                        );
+                    }
+                }
             }
         }
+        if !add_params.is_empty() {
+            POOL_ADD_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(add_params.iter().copied());
+                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                Ok(())
+            })?;
         }
-    }
+        Ok(())
+    })?;
+
     canvas.set_blend_mode(orig_blend);
     Ok(())
 }
@@ -4082,6 +4130,10 @@ fn draw_rock_patches(
     pools: &[(Vec2, f32)],
     unit_circle: &Mesh,
     beat: f32,
+    // Rocky Shore tide level in [0,1]: 0 = fully ebbed (all rock exposed), 1 = fully flooded. Drives
+    // the rising water sheet drawn over the *low* rocks (see MainState::rock_is_low), so the player
+    // can read at a glance which chokepoints are opening this beat and time a dash through them.
+    tide_fill: f32,
 ) -> ggez::GameResult {
     // Pass 1 (normal blend): opaque fills for all rocks, batched into one InstanceArray draw.
     // Each rock previously issued 3 canvas.draw(unit_circle) calls (shadow + body + face) plus
@@ -4172,6 +4224,60 @@ fn draw_rock_patches(
             Ok(())
         })?;
         canvas.set_blend_mode(orig);
+    }
+
+    // Rocky Shore tide sheet: a translucent water disc swells over each low rock as the sea comes in,
+    // draining away as it goes out — the visible read of which chokepoints are opening this beat.
+    // Only the low rocks flood (indices where rock_is_low), matching exactly the patches the movement
+    // resolver lets you wade through, so what you see is what you can cross. Drawn last so the water
+    // sits on top of the stone; the disc grows with tide_fill and brightens/adds a foam rim once it
+    // crosses the passable threshold, giving a clear "OPEN NOW" flash the instant the shortcut unlocks.
+    if tide_fill > 0.01 {
+        let submerged = tide_fill > crate::ROCK_SUBMERGE_LEVEL;
+        // Water body: normal-blend translucent disc, scaled by how far the tide has risen.
+        ROCK_FILL_PARAMS.with(|fill_cell| -> ggez::GameResult {
+            let mut water = fill_cell.borrow_mut();
+            water.clear();
+            for (i, (center, radius)) in pools.iter().enumerate() {
+                if !crate::MainState::rock_is_low(i) {
+                    continue;
+                }
+                let center = *center;
+                let radius = *radius;
+                // The disc reaches the rock's edge only near full tide; alpha deepens as it rises.
+                let cover = 0.55 + 0.45 * tide_fill;
+                let alpha = 0.18 + 0.34 * tide_fill;
+                water.push(
+                    DrawParam::default()
+                        .dest(center)
+                        .scale(Vec2::splat(radius * cover))
+                        .color(Color::new(0.24, 0.52, 0.72, alpha)),
+                );
+            }
+            if !water.is_empty() {
+                ROCK_FILL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                    let mut inst_slot = inst_cell.borrow_mut();
+                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    instances.set(water.iter().copied());
+                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })?;
+
+        // Foam highlight rim on each flooded low rock — brighter once it's actually passable, so the
+        // moment the shortcut opens reads as a clear pop of light rather than a gradual fade.
+        let rim_alpha = if submerged { 0.85 } else { 0.35 * tide_fill };
+        let rim_col = Color::new(0.65, 0.85, 0.95, rim_alpha);
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            if !crate::MainState::rock_is_low(i) {
+                continue;
+            }
+            let cover = 0.55 + 0.45 * tide_fill;
+            let ring = cached_stroke_circle(ctx, radius * cover, 2.5)?;
+            canvas.draw(&ring, DrawParam::default().dest(*center).color(rim_col));
+        }
     }
     Ok(())
 }
