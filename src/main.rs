@@ -121,6 +121,11 @@ const TIDE_CURRENT_STRENGTH: f32 = 46.0; // px/s drift — a touch stronger than
 // Tide current (a near-horizontal sweep vs. the water's down-right drift) so the two biomes read apart.
 pub const KELP_FUNNEL_DIR: Vec2 = Vec2::new(0.97, -0.24); // roughly normalized; pub so graphics.rs draws the funnel arrows along the same lane
 const KELP_FUNNEL_STRENGTH: f32 = 58.0; // px/s — stronger than the tide drift because it only grabs already-fleeing crabs, so it has to visibly redirect a bolt
+// Rocky Shore tide (see the `rock_tide_fill` field): the low rocks flip from solid wall to passable
+// wade once the rising water covers more than this fraction of them. Set above 0.5 so a rock is
+// clearly under water — not just wet at the rim — before it opens, keeping the crossover legible.
+pub const ROCK_SUBMERGE_LEVEL: f32 = 0.55; // pub so graphics.rs shares the exact submerged/exposed threshold it draws
+const ROCK_TIDE_EASE: f32 = 3.2; // per-second ease rate of rock_tide_fill toward its target — fast enough to swell within a beat, slow enough to visibly ebb and flow
 const SLAM_RADIUS: f32 = 480.0;        // reach of the Downbeat Slam — every free crab inside gets yanked into the train
 const SLAM_RING_SPEED: f32 = 1400.0;   // how fast the slam ring erupts outward (px/s)
 // Cinematic slow-motion (bullet time) on the biggest climax moments. Kept short so it punctuates
@@ -696,6 +701,17 @@ struct MainState {
     // — skirt the pools or dash across them — stays a live, geography-driven decision.
     tide_pools: Vec<(Vec2, f32)>,        // (center, radius) of each shallow-water drag zone
     in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
+    // Rocky Shore tide: on the Rock biome the sea rises and falls on the 4-beat bar cycle. Every
+    // other native rock patch (see `rock_is_low` — the even-indexed ones) is a *low rock* that the
+    // rising tide submerges: while covered it stops blocking and instead wade-drags like water, so a
+    // chokepoint you can't cross at low tide opens into a shortcut you dash through on the beat. The
+    // three-and-below rocks and odd-indexed high rocks never submerge, so there's always a solid
+    // wall to thread — the tide reshapes the route, it doesn't erase it. `rock_tide_fill` is the
+    // smoothed 0->1 water level (0 = fully ebbed/exposed, 1 = fully flooded/covered), eased toward
+    // its target each frame so the sea visibly swells and drains rather than snapping; the crossover
+    // where a low rock flips passable is `rock_tide_fill > ROCK_SUBMERGE_LEVEL`. Only meaningful on
+    // the Rock biome; parked at 0 elsewhere so no other zone pays for it.
+    rock_tide_fill: f32,
     // Arena-shifting boss enrage: when a boss crosses its enrage threshold it reshapes the space of
     // the duel. A King Crab CRACKS THE FLOOR into these fissures — (center, radius, age) hazard pits
     // that snap the conga tail if it lingers in one, so the finale is a routing gauntlet, not just a
@@ -1210,6 +1226,7 @@ impl MainState {
             deliver_streak: 0,
             deliver_streak_timer: 0.0,
             tide_pools: init_tide_pools,
+            rock_tide_fill: 0.0,
             in_tide_pool: false,
             boss_fissures: Vec::new(),
             boss_fissure_erupt: 0.0,
@@ -1562,6 +1579,51 @@ impl MainState {
         self.levels[self.current_level.min(self.levels.len() - 1)]
             .biome
             .terrain
+    }
+
+    /// Rocky Shore tide: is the native rock patch at `index` a *low rock* the tide can submerge?
+    /// Every other patch (even index) counts as low, so at any given tide there's a mix of covered
+    /// shortcuts and still-solid high rocks to thread between — the tide reshapes the route, it never
+    /// clears it. Pure function of the index so both the movement resolver (controls.rs) and the draw
+    /// pass (graphics.rs) classify the same patches identically without sharing extra state.
+    pub fn rock_is_low(index: usize) -> bool {
+        index % 2 == 0
+    }
+
+    /// Is a low rock currently under enough water to walk through? True once the smoothed tide level
+    /// has risen past the submerge threshold. The one boolean behind the whole mechanic: while true,
+    /// low rocks stop blocking and wade-drag instead; while false they're solid stone again.
+    pub fn rock_tide_open(&self) -> bool {
+        self.rock_tide_fill > ROCK_SUBMERGE_LEVEL
+    }
+
+    /// Advance the Rocky Shore tide one frame. The sea's *target* level is driven by the 4-beat bar
+    /// phase — it swells to full over the first half of the bar (beats "1" and "2") and drains back
+    /// over the second half (beats "3" and "4"), so the flood peaks around the bar's midpoint and the
+    /// shortcut is open on a predictable, on-beat cadence you can learn and time a dash to. The
+    /// smoothed `rock_tide_fill` eases toward that target so the water visibly rises and falls rather
+    /// than snapping. Only ticks on the Rock biome; every other zone holds it at 0 (no low rocks to
+    /// flood there anyway) so nothing else pays for it.
+    fn update_rock_tide(&mut self, dt: f32) {
+        if self.current_terrain() != TerrainKind::Rock {
+            // Ebb any leftover level back out so re-entering a Rock zone starts fully drained.
+            self.rock_tide_fill = (self.rock_tide_fill - ROCK_TIDE_EASE * dt).max(0.0);
+            return;
+        }
+        // Continuous bar phase in [0,1): which fraction of the current 4-beat bar we're in, using the
+        // live beat clock so the tide keeps pace with the difficulty-ramp tempo shifts like everything
+        // else. beat_count advances on each beat; beat_timer counts down within a beat.
+        let within_beat = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
+        let bar_phase = ((self.beat_count % 4) as f32 + within_beat) / 4.0;
+        // Triangle wave over the bar: 0 at the downbeat, up to 1 at the midpoint, back to 0 — a clean
+        // in-and-out swell that peaks once per bar.
+        let target = 1.0 - (bar_phase * 2.0 - 1.0).abs();
+        let step = ROCK_TIDE_EASE * dt;
+        if self.rock_tide_fill < target {
+            self.rock_tide_fill = (self.rock_tide_fill + step).min(target);
+        } else {
+            self.rock_tide_fill = (self.rock_tide_fill - step).max(target);
+        }
     }
 
     /// Kelp snag: while the conga tail sits in a kelp patch, the fronds can catch and strip a link
@@ -5778,6 +5840,7 @@ impl MainState {
             self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             biome.terrain,
             native_has_current,
+            self.rock_tide_fill,
         )?;
         if self.boss_flood_pools > 0 {
             draw_tide_pools(
@@ -5790,6 +5853,8 @@ impl MainState {
                 crate::levels::TerrainKind::Water,
                 // Flood pools render as water but carry no current — never streak them.
                 false,
+                // Flood pools draw as water, not rock, so the tide level is irrelevant here.
+                0.0,
             )?;
         }
 
@@ -8378,6 +8443,10 @@ impl EventHandler for MainState {
         // Biome wrinkle (Neon Kelp Forest): clinging fronds can snag and strip the tail if you
         // route a long train through the weeds instead of around them.
         self.snag_chain_on_kelp(dt);
+
+        // Biome wrinkle (Rocky Shore): the tide rises and falls on the bar cycle, submerging the
+        // low rocks into passable shortcuts on the beat and draining them back to solid walls.
+        self.update_rock_tide(dt);
 
         // Thief archetype: a parasite crab clamped onto the tail steadily peels links loose on a
         // timer until you catch or dislodge it — pressure on the train you've already built.

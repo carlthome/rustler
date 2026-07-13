@@ -121,11 +121,19 @@ pub fn handle_player_movement(
 
     // Rock chokepoints: patches are solid on the Rocky Shore. Push the player back out of any rock
     // they've overlapped and kill the inward velocity, so rocks read as walls to thread between
-    // rather than terrain you can wade through.
+    // rather than terrain you can wade through. The tide wrinkle: while the sea is in (rock_tide_open),
+    // the *low* rocks (see MainState::rock_is_low) are submerged — they stop blocking and instead
+    // wade-drag the player like shallow water, opening a beat-timed shortcut through the chokepoint.
+    // High rocks stay solid regardless, so there's always a wall to route around.
     if terrain == TerrainKind::Rock {
+        let tide_open = state.rock_tide_open();
+        // First resolve solid collisions, skipping any low rock that's currently under water.
         let mut center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
         // Only the biome's native patches are solid rock; trailing flood pools are water, not walls.
-        for (c, r) in &state.tide_pools[..native_count] {
+        for (i, (c, r)) in state.tide_pools[..native_count].iter().enumerate() {
+            if tide_open && crate::MainState::rock_is_low(i) {
+                continue; // submerged low rock — passable this beat, handled as wade-drag below
+            }
             let to_player = center - *c;
             let dist = to_player.length();
             if dist < *r && dist > 0.0001 {
@@ -142,6 +150,20 @@ pub fn handle_player_movement(
         }
         state.player_pos.x = state.player_pos.x.clamp(0.0, width - crate::PLAYER_SIZE);
         state.player_pos.y = state.player_pos.y.clamp(0.0, height - crate::PLAYER_SIZE);
+        // If the player is standing in a submerged low rock, it wades like water: mark it wet so the
+        // splash juice fires, and bleed a touch of speed so crossing the flooded gap still costs
+        // something (a dash still blows through it — routing skill rewarded, same as the water biome).
+        if tide_open {
+            let here = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+            let in_low_rock = state.tide_pools[..native_count]
+                .iter()
+                .enumerate()
+                .any(|(i, (c, r))| crate::MainState::rock_is_low(i) && here.distance(*c) < *r);
+            if in_low_rock {
+                state.in_tide_pool = true;
+                state.player_vel *= 0.78; // gentle wade drag on the flooded shortcut
+            }
+        }
     }
 }
 

@@ -287,6 +287,11 @@ thread_local! {
     static ROCK_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static ROCK_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static ROCK_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // Dedicated buffer for the Rocky Shore tide water-sheet pass. Must NOT share ROCK_FILL_INSTANCES:
+    // the rock-body fill batch is still referenced by the canvas when the water sheet draws in the
+    // same frame, and a single InstanceArray is one persistent GPU buffer — a second set() on it
+    // would clobber the body params before the frame's draws resolve. Own array, own correctness.
+    static ROCK_TIDE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
     // Reusable instance buffers for draw_tide_pools' fill and additive passes. Water pools
     // previously issued ~10 individual canvas.draw() calls per pool per frame (2 fill discs, 1 rim,
@@ -4255,7 +4260,7 @@ fn draw_rock_patches(
                 );
             }
             if !water.is_empty() {
-                ROCK_FILL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                ROCK_TIDE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(water.iter().copied());
