@@ -3817,6 +3817,7 @@ pub fn draw_tide_pools(
                 );
             }
         }
+        }
     }
     canvas.set_blend_mode(orig_blend);
     Ok(())

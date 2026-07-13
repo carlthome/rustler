@@ -4088,14 +4088,10 @@ impl MainState {
                         .iter()
                         .any(|(c, r)| center.distance(*c) < *r)
                     {
+                        // Positional drift only — the crab's facing is recomputed from its own
+                        // velocity below (the flow streaks in the pool carry the direction cue), so we
+                        // don't fight that here.
                         crab.pos += TIDE_CURRENT_DIR * TIDE_CURRENT_STRENGTH * dt;
-                        // Nudge facing so a drifting crab visibly leans into the flow between its own
-                        // wander steps, reinforcing the current's direction to the player.
-                        let target = TIDE_CURRENT_DIR.y.atan2(TIDE_CURRENT_DIR.x);
-                        let mut delta = target - crab.facing_angle;
-                        while delta > std::f32::consts::PI { delta -= std::f32::consts::TAU; }
-                        while delta < -std::f32::consts::PI { delta += std::f32::consts::TAU; }
-                        crab.facing_angle += delta * (dt * 1.5).min(1.0);
                     }
                 }
 
@@ -5723,6 +5719,9 @@ impl MainState {
         // regardless of the biome's native terrain skin (rock/kelp/open), so we draw the biome's own
         // pools with the biome terrain, then the flood slice explicitly as water on top.
         let native_pool_count = self.tide_pools.len().saturating_sub(self.boss_flood_pools);
+        // Only the Water biome's native pools carry the Tide Pool current, so only they draw the flow
+        // streaks — matching exactly where the sim applies the drift (see update_crabs).
+        let native_has_current = biome.terrain == crate::levels::TerrainKind::Water;
         draw_tide_pools(
             ctx,
             canvas,
@@ -5731,6 +5730,7 @@ impl MainState {
             self.beat_intensity,
             self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             biome.terrain,
+            native_has_current,
         )?;
         if self.boss_flood_pools > 0 {
             draw_tide_pools(
@@ -5741,6 +5741,8 @@ impl MainState {
                 self.beat_intensity,
                 self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
                 crate::levels::TerrainKind::Water,
+                // Flood pools render as water but carry no current — never streak them.
+                false,
             )?;
         }
 
