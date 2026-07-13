@@ -153,6 +153,7 @@ pub struct EnemyCrab {
     pub magnet_lured: f32,        // Magnet only: >0 while this roaming Magnet is being pulled off its cluster toward a nearby fleeing Golden — the shiny prize's shine luring the lodestone. Counts down; refreshed each frame it keeps chasing. Drives the aura shifting gold-ward.
     pub thief_lured: f32,         // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
     pub magnet_charged: f32,      // Magnet only: >0 while this Magnet is pinning a snared Golden — the prize's shine supercharges the lodestone into a wider, stronger herd-vacuum. Counts down; refreshed each frame it holds a snared Golden. Drives the aura flaring gold and wide.
+    pub slingshot_spent: f32,     // Golden only: >0 for a brief window after a Tide Boss surge FIRED this Golden through a loaded Magnet at the boss. While it counts down the Magnet field can't re-snare the Golden, so the shot genuinely spends the prize (the trade the slingshot promises) instead of it reloading in place next frame.
 }
 
 impl EnemyCrab {

@@ -2998,14 +2998,23 @@ impl MainState {
                         }
                     }
                 }
-                // Spend each fired Golden — release the snare and fling it clear so it can't be
-                // fired twice by the same pulse and reads as "the shot used it up".
+                // Spend each fired Golden — the shot expends the prize (the whole point of the trade).
+                // Release the snare AND set slingshot_spent so the Magnet field can't re-snare it next
+                // frame (see the Golden re-snare pass), and fling it outward from the boss under its own
+                // velocity so it visibly leaves the field rather than reloading in place. Without the
+                // spent-window the anchor/re-snare passes would keep it loaded and the chip would repeat
+                // every pulse from one setup — turning a deliberate one-shot into a beam-free boss kill.
                 for &(_, gpos) in &slingshots {
                     for crab in &mut self.crabs {
                         if crab.is_golden() && !crab.caught && crab.magnet_snared > 0.0 && crab.pos == gpos {
                             crab.magnet_snared = 0.0;
+                            crab.slingshot_spent = 1.2; // ~a couple beats of no-reload while it clears the field
                             crab.fleeing = true;
                             crab.startle_timer = crab.startle_timer.max(0.5);
+                            let away = (crab.pos - center).normalize_or_zero();
+                            let away = if away == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { away };
+                            crab.vel = away * crab.crab_type.speed_range().end * 2.0;
+                            crab.speed = 1.0;
                             break;
                         }
                     }
@@ -3865,6 +3874,12 @@ impl MainState {
                     crab.magnet_snared = (crab.magnet_snared - dt).max(0.0);
                 }
 
+                // A Golden fired by a Tide Boss slingshot stays re-snare-immune for a short window so
+                // it escapes its captor Magnet before the field can reload it (see the Golden snare pass).
+                if crab.slingshot_spent > 0.0 {
+                    crab.slingshot_spent = (crab.slingshot_spent - dt).max(0.0);
+                }
+
                 // Whistle charm wears off after a beat or two, at which point the crab is fair
                 // game for the panic contagion again.
                 if crab.charm_timer > 0.0 {
@@ -3929,9 +3944,11 @@ impl MainState {
                         // Magnet becomes a real way to trap it — the Magnet as accidental savior,
                         // the mirror of the Magnet-pry-Thief save. Outside the deep zone it just
                         // gets the ordinary gentle nudge like any other crab.
-                        if crab.is_golden() && prox > 0.4 {
+                        if crab.is_golden() && prox > 0.4 && crab.slingshot_spent <= 0.0 {
                             // Overpowering drag: far stronger than the herd nudge, scaling up as it
-                            // sinks deeper so the snare tightens the closer it gets.
+                            // sinks deeper so the snare tightens the closer it gets. A Golden just fired
+                            // by a Tide Boss slingshot (slingshot_spent > 0) is immune to re-snare for a
+                            // beat or two so it actually clears the field instead of reloading in place.
                             let snare_pull = (prox - 0.4) / 0.6 * 260.0;
                             crab.pos += dir * snare_pull * dt;
                             // Damp the Golden's bolt so it can't just sprint back out of the field.
@@ -5022,6 +5039,7 @@ impl MainState {
                 magnet_lured: 0.0,
                 thief_lured: 0.0,
                 magnet_charged: 0.0,
+                slingshot_spent: 0.0,
                 stun_timer: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
