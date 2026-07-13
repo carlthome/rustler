@@ -263,6 +263,17 @@ thread_local! {
     // travels with the position, sidestepping the borrow) drops that to zero allocations per
     // frame once the chain's high-water mark is reached.
     static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2)>> = RefCell::new(Vec::new());
+
+    // Cache for the level-title overlay (the "Level Up!" card shown for ~1s at each level
+    // transition). draw_level_title was building 4 GPU/glyph objects per frame for every
+    // one of those ~60 frames: two Mesh::new_rectangle GPU buffers (fill + stroke), one
+    // Text + set_scale + two .measure() calls (title), and another Text + set_scale + .measure()
+    // (biome subtitle). None of those values change while level_title_timer counts down — only
+    // the fade/position (computed as DrawParam, not baked into the objects) varies. Keyed by
+    // (level_title, biome_name) so it invalidates if those ever differ (in practice: once per
+    // level transition), matching the MENU_PANEL_CACHE pattern for mesh storage.
+    #[allow(clippy::type_complexity)]
+    static LEVEL_TITLE_OVERLAY_CACHE: RefCell<Option<(String, &'static str, Text, Mesh, Mesh, Text, f32, f32, f32, f32, f32)>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -6380,49 +6391,76 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> Result<(), ggez::GameError> {
-        let mut title = Text::new(&self.level_title);
-        title.set_scale(96.0);
-        let title_width = title.measure(ctx)?.x;
-        let title_height = title.measure(ctx)?.y;
-        let rect_x = (width - title_width) / 2.0 - 32.0;
-        let rect_y = (height - title_height) / 2.0 - 16.0;
-        let rect_w = title_width + 64.0;
-        let rect_h = title_height + 32.0;
-        let bg_rect = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(rect_x, rect_y, rect_w, rect_h),
-            Color::from_rgb(30, 30, 30),
-        )?;
-        canvas.draw(&bg_rect, DrawParam::default());
-        let border_rect = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::stroke(3.0),
-            Rect::new(rect_x, rect_y, rect_w, rect_h),
-            Color::from_rgb(220, 220, 220),
-        )?;
-        canvas.draw(&border_rect, DrawParam::default());
-        let destination = Vec2::new((width - title_width) / 2.0, (height - title_height) / 2.0);
-        canvas.draw(
-            &title,
-            DrawParam::default()
-                .dest(destination)
-                .color(Color::from_rgb(240, 240, 240)),
-        );
-
-        // Announce the biome under the title so the player registers the change of zone.
+        // The title overlay shows for ~1s (~60 frames) each level transition. All 4 objects
+        // (title Text, biome Text, fill Mesh, stroke Mesh) are constant for the entire window
+        // — only the fade alpha (a DrawParam, not baked into the objects) varies per frame.
+        // Build and cache them on the first frame, reuse for the remaining ~59.
         let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
-        let mut subtitle = Text::new(biome.name);
-        subtitle.set_scale(40.0);
-        let sub_width = subtitle.measure(ctx)?.x;
-        let (pr, pg, pb) = biome.pulse;
-        canvas.draw(
-            &subtitle,
-            DrawParam::default()
-                .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
-                .color(Color::from_rgb(pr, pg, pb)),
-        );
-        Ok(())
+        LEVEL_TITLE_OVERLAY_CACHE.with(|c| -> Result<(), ggez::GameError> {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = match &*cache {
+                Some((cached_title, cached_biome, _, _, _, _, _, _, _, _, _)) => {
+                    cached_title != &self.level_title || *cached_biome != biome.name
+                }
+                None => true,
+            };
+            if needs_rebuild {
+                let mut title = Text::new(&self.level_title);
+                title.set_scale(96.0);
+                let title_width = title.measure(ctx)?.x;
+                let title_height = title.measure(ctx)?.y;
+                let rect_x = (width - title_width) / 2.0 - 32.0;
+                let rect_y = (height - title_height) / 2.0 - 16.0;
+                let rect_w = title_width + 64.0;
+                let rect_h = title_height + 32.0;
+                let bg_rect = Mesh::new_rectangle(
+                    ctx,
+                    ggez::graphics::DrawMode::fill(),
+                    Rect::new(rect_x, rect_y, rect_w, rect_h),
+                    Color::from_rgb(30, 30, 30),
+                )?;
+                let border_rect = Mesh::new_rectangle(
+                    ctx,
+                    ggez::graphics::DrawMode::stroke(3.0),
+                    Rect::new(rect_x, rect_y, rect_w, rect_h),
+                    Color::from_rgb(220, 220, 220),
+                )?;
+                let mut subtitle = Text::new(biome.name);
+                subtitle.set_scale(40.0);
+                let sub_width = subtitle.measure(ctx)?.x;
+                *cache = Some((
+                    self.level_title.clone(),
+                    biome.name,
+                    title,
+                    bg_rect,
+                    border_rect,
+                    subtitle,
+                    title_width,
+                    title_height,
+                    rect_y,
+                    rect_h,
+                    sub_width,
+                ));
+            }
+            let (_, _, title, bg_rect, border_rect, subtitle, title_width, title_height, rect_y, rect_h, sub_width) =
+                cache.as_ref().unwrap();
+            canvas.draw(bg_rect, DrawParam::default());
+            canvas.draw(border_rect, DrawParam::default());
+            canvas.draw(
+                title,
+                DrawParam::default()
+                    .dest(Vec2::new((width - title_width) / 2.0, (height - title_height) / 2.0))
+                    .color(Color::from_rgb(240, 240, 240)),
+            );
+            let (pr, pg, pb) = biome.pulse;
+            canvas.draw(
+                subtitle,
+                DrawParam::default()
+                    .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
+                    .color(Color::from_rgb(pr, pg, pb)),
+            );
+            Ok(())
+        })
     }
 
     /// Big gold "FRENZY!" shout when a frenzy wave lands. Pops in with a scale punch and fades
