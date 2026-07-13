@@ -20,6 +20,7 @@ pub enum CrabType {
     Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
     Magnet,  // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
     Thief,   // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
+    Hermit,  // "Hermit Crab": hunkers inside a borrowed shell that the beam CAN'T wear down — only the ecosystem cracks it (a Stomp pops it, a Dancer's on-beat hop chips it, and a roaming Magnet's field RIPS it clean out). While shelled it periodically darts to a new host spot; once cracked it pops out defenceless and bolts, opening a brief catch window. Three existing verbs, one new target — the archetype web's newest edge.
     Golden,  // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
@@ -40,13 +41,16 @@ impl CrabType {
         // Thief crabs are rare too (~8%): each one latches onto the conga tail and peels links
         // loose, so a couple per run keeps you defending the train you built without the herd
         // constantly gnawing it apart.
+        // Hermit crabs are rare too (~7%): a shelled target the beam can't touch, so each one is a
+        // little puzzle to solve with the ecosystem (Stomp / Dancer-hop / Magnet-rip). A couple per
+        // run keep those crossover verbs in play without gating every catch behind a shell.
         // Golden crabs are the rarest of the herd (~3%, 1 in ~33): a shiny high-value target that
         // shows up just often enough to be a delightful surprise and a real "chase it or not" call,
         // never so often it becomes the main way to score. Rolled first so its rarity is exact.
         if rng.random_range(0..33) == 0 {
             return Golden;
         }
-        match rng.random_range(0..13) {
+        match rng.random_range(0..14) {
             0 | 1 => Normal,
             2 | 3 => Fast,
             4 => Big,
@@ -54,6 +58,7 @@ impl CrabType {
             7 => Armored,
             8 | 9 => Dancer,
             10 | 11 => Magnet,
+            12 => Hermit,
             _ => Thief,
         }
     }
@@ -67,6 +72,7 @@ impl CrabType {
             CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
             CrabType::Magnet => 26.0..48.0,  // roams steadily — you chase it because the herd trails it
             CrabType::Thief => 55.0..95.0,   // quick and darty — it makes a beeline for your tail
+            CrabType::Hermit => 70.0..120.0, // the *popped* Hermit bolts fast once cracked; while shelled it barely drifts and darts in scripted hops (see the host-swap block in main.rs)
             CrabType::Golden => 85.0..135.0, // skittish and fast — the shiny prize bolts, so you have to commit to the chase
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
@@ -80,6 +86,10 @@ impl CrabType {
     pub fn initial_shell(&self) -> f32 {
         match self {
             CrabType::Armored => 2.0,
+            // The Hermit hunkers in a borrowed shell. Same shell HP as Armored, but unlike Armored
+            // the beam can't wear it down (gated out in main.rs): only a Stomp, a Dancer's on-beat
+            // hop, or a Magnet's field cracks it — so its shell is a puzzle for the ecosystem verbs.
+            CrabType::Hermit => 2.0,
             _ => 0.0,
         }
     }
@@ -97,6 +107,7 @@ impl CrabType {
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Magnet => 0.9, // a touch heavy from all the crabs it's dragging along
             CrabType::Thief => 1.3,  // light and skittish — a whistle yanks it off your tail nicely
+            CrabType::Hermit => 0.35, // the borrowed shell is heavy and it clamps to the ground — a whistle barely budges a shelled Hermit (crack it first, then it's catchable)
             CrabType::Golden => 1.6, // flighty featherweight — a whistle is the surest way to reel the shiny prize in before it bolts
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
@@ -114,6 +125,7 @@ impl CrabType {
             CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
             CrabType::Magnet => 0.40..=0.56,  // chunky, so its aura reads at a glance
             CrabType::Thief => 0.26..=0.38,   // small and wiry — easy to lose against the herd until it's on your tail
+            CrabType::Hermit => 0.40..=0.56,  // stocky like the Armored — the borrowed shell reads as a chunky lump the herd could bunch near
             CrabType::Golden => 0.34..=0.48,  // a hair bigger than a normal crab so the shine reads at a glance
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
@@ -154,6 +166,7 @@ pub struct EnemyCrab {
     pub thief_lured: f32,         // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
     pub magnet_charged: f32,      // Magnet only: >0 while this Magnet is pinning a snared Golden — the prize's shine supercharges the lodestone into a wider, stronger herd-vacuum. Counts down; refreshed each frame it holds a snared Golden. Drives the aura flaring gold and wide.
     pub slingshot_spent: f32,     // Golden only: >0 for a brief window after a Tide Boss surge FIRED this Golden through a loaded Magnet at the boss. While it counts down the Magnet field can't re-snare the Golden, so the shot genuinely spends the prize (the trade the slingshot promises) instead of it reloading in place next frame.
+    pub host_swap_timer: f32,     // Hermit only: counts down while shelled; when it fires the Hermit darts to a new host spot (a scripted hop, like the Dancer's beat hop but on its own irregular timer), then resets. Gives the shelled Hermit its signature "hides and swaps hosts" movement so it isn't a stationary Armored reskin.
 }
 
 impl EnemyCrab {
@@ -172,6 +185,7 @@ impl EnemyCrab {
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Magnet => [0.95, 0.30 + 0.15 * t, 0.20],  // magnetic lodestone red-orange
             CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t],    // sly poison-green — reads as "trouble" against the herd
+            CrabType::Hermit => [0.72, 0.44, 0.24],             // warm coppery-brown borrowed shell — reads as an earthy shelled lump, distinct from Armored's cold steel
             CrabType::Golden => [1.0, 0.86, 0.28],              // bright treasure-gold — the shiny prize pops against the whole herd
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
@@ -211,6 +225,22 @@ impl EnemyCrab {
     /// (instant) or worn down under the beam (slow) — before the lasso or chain can grab it.
     pub fn is_armored(&self) -> bool {
         matches!(self.crab_type, CrabType::Armored)
+    }
+
+    /// A "Hermit" crab: it hunkers in a borrowed shell (stored in `boss_health`) that the beam
+    /// can't wear down — only the ecosystem cracks it. A Stomp pops it instantly, a Dancer's on-beat
+    /// hop chips it, and a roaming Magnet's field rips it clean out. While shelled it periodically
+    /// darts to a new host spot (see the host-swap block in main.rs); once its shell is cracked it
+    /// pops out defenceless and bolts fast, opening a brief catch window.
+    pub fn is_hermit(&self) -> bool {
+        matches!(self.crab_type, CrabType::Hermit)
+    }
+
+    /// A Hermit that still has its shell up — the state where the beam/lasso/chain can't touch it and
+    /// only the Stomp/Dancer-hop/Magnet-rip verbs get through. Once cracked (`boss_health <= 0`) it's
+    /// an ordinary skittish catchable crab, just a fast-fleeing one.
+    pub fn is_shelled_hermit(&self) -> bool {
+        self.is_hermit() && self.boss_health > 0.0
     }
 
     /// A rhythm "Dancer" crab: it drifts slowly between beats and takes a sharp hop on each beat

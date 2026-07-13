@@ -324,6 +324,20 @@ pub fn flush_crab_bodies(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameRe
     })
 }
 
+/// Fetch the shared unit filled-circle mesh (radius 1, centered at origin) — the same one the
+/// crab-body instanced batch uses. Draw it with `.scale(Vec2::splat(r))` to get an r-radius dot
+/// without allocating a fresh circle mesh per call. Lazily initialized once, then cloned (a Mesh
+/// clone is a cheap handle clone, not a GPU re-upload).
+fn cached_unit_circle(ctx: &mut Context) -> ggez::GameResult<Mesh> {
+    Ok(match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh.clone(),
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh).clone()
+        }
+    })
+}
+
 /// Fetch a cached stroke-arc mesh spanning `filled` of `segs` segments of a circle of the given
 /// `radius`/`thickness`, starting at the top and sweeping clockwise — the same shape
 /// `draw_boss_health_ring`'s health arc needs, but built once per (radius, thickness, filled)
@@ -773,6 +787,7 @@ impl ParticleSystem {
             CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
             CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true),  // Chunky lodestone burst — the cluster pops with it
             CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true),  // Wiry poison-green burst — catching it feels like relief
+            CrabType::Hermit => (42, 70.0..200.0, 3.0..8.0, true),  // Chunky coppery shell-shard burst — the borrowed shell scatters as it pops out
             CrabType::Golden => (55, 100.0..320.0, 2.5..7.0, true), // Lavish gold coin-burst — the treasure catch pops
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
@@ -4282,6 +4297,66 @@ pub fn draw_armor_ring(
             .dest(pos)
             .color(Color::new(0.6, 0.72, 0.88, 0.85 + pulse * 0.15)),
     );
+    Ok(())
+}
+
+/// Draw a Hermit crab's borrowed-shell indicator — a warm coppery coiled shell, visually distinct
+/// from the Armored crab's cold steely arc so the player reads at a glance "this shell the beam
+/// won't crack; use a Stomp, a Dancer's hop, or a Magnet". The shell depletes as it's chipped, and
+/// a slow-rotating coil of dots reads as the spiral of a borrowed conch shell.
+pub fn draw_hermit_shell(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    shell_frac: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let radius = size * 0.82;
+    let pulse = (time * 4.0).sin() * 0.5 + 0.5;
+    let frac = shell_frac.clamp(0.0, 1.0);
+
+    // Faint full track so the chipped-away portion still reads as progress.
+    let track = cached_stroke_circle(ctx, radius, 3.0)?;
+    canvas.draw(
+        &track,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(0.0, 0.0, 0.0, 0.32)),
+    );
+
+    // Depleting coppery arc — the remaining shell.
+    let segs = 40usize;
+    let filled = ((segs as f32) * frac).ceil().max(1.0) as usize;
+    let arc = cached_stroke_arc(ctx, radius, 3.5, segs, filled)?;
+    canvas.draw(
+        &arc,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(0.85, 0.55, 0.28, 0.82 + pulse * 0.18)),
+    );
+
+    // A slow-turning spiral of little coil dots inside the ring — the borrowed-shell whorl. Uses the
+    // shared unit-circle mesh (like the crab bodies) so it's a handful of cheap instanced draws, and
+    // only draws as many dots as shell remains so the coil visibly unwinds as the shell is chipped.
+    let coil_dots = 5usize;
+    let shown = ((coil_dots as f32) * frac).ceil().max(1.0) as usize;
+    let unit = cached_unit_circle(ctx)?;
+    for k in 0..shown {
+        let f = k as f32 / coil_dots as f32;
+        // Tightening spiral: angle winds faster than one turn, radius shrinks toward the center.
+        let ang = time * 1.2 + f * std::f32::consts::TAU * 1.6;
+        let rr = radius * (0.62 - f * 0.42);
+        let d = pos + Vec2::new(ang.cos(), ang.sin()) * rr;
+        let dot_r = (2.6 - f * 1.2).max(1.0);
+        canvas.draw(
+            &unit,
+            DrawParam::default()
+                .dest(d)
+                .scale(Vec2::splat(dot_r))
+                .color(Color::new(0.95, 0.68, 0.38, 0.7)),
+        );
+    }
     Ok(())
 }
 

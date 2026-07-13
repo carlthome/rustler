@@ -50,6 +50,10 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         thief_lured: 0.0,
         magnet_charged: 0.0,
         slingshot_spent: 0.0,
+        // Hermits stagger their first host-swap so a cluster of them doesn't all dart on the same
+        // frame. Non-Hermits never read this field. A short-ish irregular window keeps the shelled
+        // Hermit visibly restless without teleporting so fast it's impossible to line up a crack.
+        host_swap_timer: rng.random_range(1.6..3.2),
     }
 }
 

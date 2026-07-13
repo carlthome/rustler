@@ -29,7 +29,7 @@ use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
     FloatingTextSystem, ParticleSystem, PennedMarcherSystem, cached_stroke_rect, draw_attracted_crab_glow,
-    draw_armor_ring, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
+    draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
@@ -3865,7 +3865,12 @@ impl MainState {
                 // can be caught: holding the beam on one drains its shell. This is the slow universal
                 // path — a Stomp cracks an Armored shell instantly, but the beam always works too, so
                 // no crab is ever impossible without the right tool.
-                if crab.boss_health > 0.0 && crab_in_light {
+                //
+                // The Hermit is the deliberate exception: the beam CAN'T touch its borrowed shell, so
+                // it forces the ecosystem verbs (Stomp / Dancer-hop / Magnet-rip). That's what makes
+                // it a genuinely new target rather than an Armored reskin — Armored = crack it with
+                // your own tools; Hermit = crack it with the archetype web.
+                if crab.boss_health > 0.0 && crab_in_light && !crab.is_hermit() {
                     crab.boss_health -= boss_drain * dt;
                     if crab.boss_health <= 0.0 {
                         crab.boss_health = 0.0;
@@ -3889,10 +3894,15 @@ impl MainState {
                 // it's single-minded about reaching the train. (A whistle charm still stops it, and
                 // once latched it's handled in steal_chain_thief.) This keeps it a committed threat
                 // rather than one more crab that scatters when you sweep the beam past it.
+                // A shelled Hermit doesn't panic-flee either: clamped inside its borrowed shell it
+                // hunkers and holds ground between its scripted host-swap darts (see the dart block
+                // below), so it reads as a hiding lump you have to crack rather than a chaser. Once
+                // cracked it's an ordinary crab and flees like anything else.
                 let now_fleeing = !crab_in_light
                     && distance < FLEE_RADIUS
                     && !crab.is_boss()
                     && !crab.is_dancer()
+                    && !crab.is_shelled_hermit()
                     && !(crab.is_thief() && self.chain_count >= 4)
                     && crab.charm_timer <= 0.0;
 
@@ -3976,6 +3986,31 @@ impl MainState {
                     crab.answering_call = (crab.answering_call - dt).max(0.0);
                 }
 
+                // Hermit host-swap: while shelled, the Hermit hunkers in place, then periodically
+                // scurries to a new host spot in a short scripted dart — its signature "hides and
+                // swaps hosts" restlessness that keeps it from being a stationary Armored reskin. The
+                // dart is a quick directional burst (not sustained flee speed) followed by a reset of
+                // its irregular timer. It never darts while lit (the player's beam is a truce — you
+                // can't crack the shell but you can pin its position to line up a Stomp/Magnet play).
+                if crab.is_shelled_hermit() {
+                    crab.host_swap_timer -= dt;
+                    if crab.host_swap_timer <= 0.0 && !crab_in_light {
+                        // Scurry off at a random heading: a brief burst that carries it a short hop
+                        // before the movement below damps it back to a hunker. `speed = 1.0` keeps the
+                        // multiplier neutral so `vel` alone encodes the dart, matching the flee path.
+                        let ang = rng.random_range(0.0_f32..std::f32::consts::TAU);
+                        let dart = crab.crab_type.speed_range().start * 1.4;
+                        crab.vel = Vec2::new(ang.cos(), ang.sin()) * dart;
+                        crab.speed = 1.0;
+                        crab.join_pulse = crab.join_pulse.max(0.6); // little squash-pop as it scuttles
+                        crab.host_swap_timer = rng.random_range(1.6..3.2);
+                    } else {
+                        // Between darts it hunkers: bleed velocity so the shelled lump settles and
+                        // holds ground rather than coasting on the last dart's momentum.
+                        crab.vel *= 1.0 - (4.0 * dt).min(0.9);
+                    }
+                }
+
                 // If player is within 150 pixels and crab is in the light, add a small extra speed boost
                 let mut speed_multiplier = 1.0;
                 if crab_in_light && distance < 150.0 {
@@ -4043,6 +4078,35 @@ impl MainState {
                                 golden_snare_pops.push(crab.pos);
                             }
                             crab.magnet_snared = 0.25;
+                        } else if crab.is_shelled_hermit() {
+                            // Signature Hermit edge — a roaming Magnet's field RIPS the borrowed shell
+                            // clean out. Unlike the Armored crab (which only wears down slowly under a
+                            // *charged* Magnet's vacuum), an ordinary Magnet cracks a Hermit the moment
+                            // it drags it deep into the field: the lodestone yanks the crab so hard the
+                            // shell tears off. This is *the* new crossover the Hermit exists for — the
+                            // beam can't touch its shell, but a Magnet you've parked in its path pops it.
+                            //
+                            // A shelled Hermit is heavy but the Magnet overpowers it: it gets a firm drag
+                            // from anywhere in the field (stronger than the 34-unit herd nudge, scaling
+                            // with depth) so a hunkered Hermit actually slides into the lodestone rather
+                            // than the weak nudge failing to reach it — then the deep zone rips the shell.
+                            let drag = (0.4 + prox * 1.6) * 90.0;
+                            crab.pos += dir * drag * dt;
+                            if prox > 0.45 {
+                                let before = crab.boss_health;
+                                // ~5 shell/sec at the core — a full 2.0 shell rips in well under half a
+                                // second once it's deep, so the Magnet reads as a decisive cracker, not
+                                // the slow grind the Armored gets. Reuses the Armored grind pop/visual.
+                                crab.boss_health = (crab.boss_health - 5.0 * dt).max(0.0);
+                                let broke = crab.boss_health <= 0.0;
+                                let step = crab.crab_type.initial_shell().max(0.001) / 2.0;
+                                if broke || (before / step).floor() != (crab.boss_health / step).floor() {
+                                    magnet_grind.push((crab.pos, broke));
+                                }
+                                if broke {
+                                    crab.join_pulse = 1.0; // pop out of the shell with a squash-and-flee
+                                }
+                            }
                         } else {
                             let pull = prox * 34.0;
                             crab.pos += dir * pull * dt;
@@ -5186,6 +5250,7 @@ impl MainState {
                 magnet_charged: 0.0,
                 slingshot_spent: 0.0,
                 stun_timer: 0.0,
+                host_swap_timer: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -6745,6 +6810,13 @@ impl MainState {
                     let size = crab.scale * CRAB_SIZE;
                     let frac = crab.boss_health / crab.crab_type.initial_shell().max(0.001);
                     draw_armor_ring(ctx, canvas, pos, size, frac, self.time_elapsed)?;
+                } else if crab.is_shelled_hermit() {
+                    // Hermit borrowed-shell indicator — a warm coppery coiled ring, visually distinct
+                    // from the Armored crab's cold steely arc, so the player learns "this one the beam
+                    // won't crack; use the ecosystem" at a glance. Depletes as the shell is chipped.
+                    let size = crab.scale * CRAB_SIZE;
+                    let frac = crab.boss_health / crab.crab_type.initial_shell().max(0.001);
+                    draw_hermit_shell(ctx, canvas, pos, size, frac, self.time_elapsed)?;
                 } else if crab.is_magnet() {
                     // Magnetic field aura — inward-sweeping rings showing its pull radius, so the
                     // player can see the catchment and chase it for the two-for-one cluster catch.
@@ -7793,7 +7865,10 @@ impl EventHandler for MainState {
                             crab.join_pulse = 1.0;
                             tripped.push(crab.pos);
                         }
-                    } else if crab.is_armored() {
+                    } else if crab.is_armored() || crab.is_shelled_hermit() {
+                        // A Dancer's on-beat hop chips a hard shell — Armored or Hermit alike. For the
+                        // Hermit this is one of its three intended cracks (the beam can't touch it), so
+                        // herding a hopping Dancer next to a hunkered Hermit is a real way to pop it.
                         if crab.boss_health <= 0.0 {
                             continue;
                         }
@@ -8366,8 +8441,10 @@ impl EventHandler for MainState {
                 if dist >= self.stomp_radius {
                     continue; // only crabs the front has already swept past are hit this frame
                 }
-                // Crack an armored shell wide open the instant the shockwave reaches it.
-                if crab.is_armored() && crab.boss_health > 0.0 {
+                // Crack a hard shell wide open the instant the shockwave reaches it — an Armored
+                // crab, or a shelled Hermit (whose shell the beam can't touch, so the Stomp is one of
+                // its three intended cracks). A cracked Hermit pops out defenceless and bolts.
+                if (crab.is_armored() || crab.is_shelled_hermit()) && crab.boss_health > 0.0 {
                     crab.boss_health = 0.0;
                     cracked.push(crab.pos);
                 }
