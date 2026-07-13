@@ -5,6 +5,7 @@ mod levels;
 mod sounds;
 mod spawnings;
 mod tutorial;
+mod skins;
 mod world_map;
 
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
@@ -41,6 +42,7 @@ use crate::spawnings::{
     spawn_tutorial_crabs,
 };
 use crate::tutorial::{Tutorial, TutorialKind};
+use crate::skins::PlayerSkin;
 use crate::world_map::WorldMap;
 
 const PLAYER_SIZE: f32 = 48.0;
@@ -409,6 +411,10 @@ struct MainState {
     beat_synth: sounds::BeatSynth,             // Procedural kick drum played on every beat tick
     flashlight: Flashlight,                    // Flashlight settings and upgrades
     show_instructions: bool,                   // Show instructions screen
+    // Active cosmetic loadout for the player character (hat, facial hair, accessory).
+    // Loaded from career.txt on startup; changed from the title screen customisation menu.
+    // Purely visual — never affects gameplay.
+    player_skin: PlayerSkin,
     // Campaign world map — `Some` once the player has entered campaign mode from the title.
     // Persists across runs so node completion carries over. `show_world_map` gates whether the
     // map screen is currently visible; `in_campaign` is true during an active campaign run.
@@ -1032,6 +1038,7 @@ impl MainState {
             beat_synth,
             flashlight,
             show_instructions: true,
+            player_skin: PlayerSkin::default_skin(),
             world_map: None,
             show_world_map: false,
             in_campaign: false,
