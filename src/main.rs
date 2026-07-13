@@ -2,6 +2,7 @@ mod controls;
 mod enemies;
 mod graphics;
 mod levels;
+mod sounds;
 mod spawnings;
 
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
@@ -235,6 +236,13 @@ thread_local! {
     static SHOP_CACHE: RefCell<Option<((usize, u32, u32, u32, u32), Text, f32, Text, f32)>> =
         RefCell::new(None);
 
+    // The "BANK NOW  [B]" prompt appears every frame that `beat_gamble_mult > beat_gamble_locked
+    // + 0.5`, which is most of active play once a Groove Gamble streak builds — it was
+    // previously rebuilding a fresh Text plus a `.measure()` glyph-layout pass every single
+    // one of those frames. The string is a fixed literal that never changes, so build and measure
+    // it once and reuse the cached Text/width forever, same pattern as ON_BEAT_TEXT_CACHE.
+    static BANK_NOW_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
     // Scratch buffer for draw_game's chain-crab ordering. draw_game takes &self and runs every
     // frame, so — same reasoning as the caches above — this lives in a thread_local RefCell
     // instead of a struct field. Chain length grows unbounded over a run (it's the whole point
@@ -389,6 +397,7 @@ struct MainState {
     menu_time: f32,                            // Free-running clock for the title/menu screen animation
     game_over: bool,                           // Game over flag
     sounds: GameSounds,                        // All game sound effects
+    beat_synth: sounds::BeatSynth,             // Procedural kick drum played on every beat tick
     flashlight: Flashlight,                    // Flashlight settings and upgrades
     show_instructions: bool,                   // Show instructions screen
     last_dir: Vec2,                            // Last movement direction for flashlight
@@ -853,6 +862,10 @@ impl MainState {
             // Add more sounds here as needed
         };
 
+        // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
+        // than as silence on the first beat.
+        let beat_synth = sounds::BeatSynth::new(ctx)?;
+
         // Load both grass and sand textures.
         let textures = GameTextures {
             grass: Image::from_path(ctx, "/grass.png")?,
@@ -996,6 +1009,7 @@ impl MainState {
             menu_time: 0.0,
             game_over: false,
             sounds,
+            beat_synth,
             flashlight,
             show_instructions: true,
             last_dir: Vec2::ZERO,
@@ -6135,17 +6149,27 @@ impl MainState {
 
             // "BANK NOW  [B]" prompt — breathes under the badge while there's an unbanked stack big
             // enough to be worth cashing out, so the player learns the fork is theirs to call.
+            // Built once and cached (same static-string-measure pattern as ON_BEAT_TEXT_CACHE /
+            // STAMINA_LABEL_CACHE) since it's visible every frame a hot Groove Gamble streak runs.
             if self.beat_gamble_mult > self.beat_gamble_locked + 0.5 {
                 let breathe = 0.55 + 0.45 * (self.gamble_bank_pulse.sin() * 0.5 + 0.5);
-                let mut prompt = Text::new("BANK NOW  [B]");
-                prompt.set_scale(18.0);
-                let pw = prompt.measure(ctx)?.x;
-                canvas.draw(
-                    &prompt,
-                    DrawParam::default()
-                        .dest(Vec2::new((width - pw) / 2.0, 82.0))
-                        .color(Color::new(1.0, 0.9, 0.35, breathe)),
-                );
+                BANK_NOW_PROMPT_CACHE.with(|c| -> GameResult {
+                    let mut cache = c.borrow_mut();
+                    if cache.is_none() {
+                        let mut prompt = Text::new("BANK NOW  [B]");
+                        prompt.set_scale(18.0);
+                        let pw = prompt.measure(ctx)?.x;
+                        *cache = Some((prompt, pw));
+                    }
+                    let (prompt, pw) = cache.as_ref().unwrap();
+                    canvas.draw(
+                        prompt,
+                        DrawParam::default()
+                            .dest(Vec2::new((width - pw) / 2.0, 82.0))
+                            .color(Color::new(1.0, 0.9, 0.35, breathe)),
+                    );
+                    Ok(())
+                })?;
             }
         }
 
@@ -7157,6 +7181,11 @@ impl EventHandler for MainState {
             self.beat_intensity = 1.0;
             self.beat_count = self.beat_count.wrapping_add(1);
             let downbeat = self.beat_count % 4 == 0;
+            // Visceral beat: thump a synthesised kick drum on every beat so the tempo is *felt*,
+            // not just seen. The heavier, lower voice lands on the downbeat so the bar has a clear
+            // accent structure. This block only runs during live gameplay (the update guard returns
+            // early on menu/upgrade/game-over screens), so the kick never thumps through menus.
+            self.beat_synth.play_kick(ctx, downbeat);
             // Drum Roll: if T is being held as this beat fires, bank a roll hit (the charge). The
             // beat handler runs at most once per beat, so a held key naturally counts exactly one
             // hit per beat. A hit kicks a tick of feedback (beat flash + a bump of groove) so each
