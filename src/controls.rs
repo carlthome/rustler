@@ -156,6 +156,11 @@ pub fn handle_key_down_event(
                 state.show_instructions = false;
                 return true;
             }
+            // "How to Play": drop into an opt-in, scripted tutorial sandbox instead of a real run.
+            if key == KeyCode::H {
+                state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
+                return true;
+            }
             // Perk shop: spend banked crabs on permanent starting tool ranks before a run.
             match key {
                 KeyCode::Key1 => {
@@ -259,7 +264,14 @@ pub fn handle_key_down_event(
                 state.bank_gamble();
             }
             if key == KeyCode::Escape {
-                ctx.request_quit();
+                if state.tutorial.is_some() {
+                    // In a tutorial, Escape backs out to the title screen (opt-in exit) rather than
+                    // quitting the game — and never through game_over, so career stats stay clean.
+                    state.tutorial = None;
+                    state.show_instructions = true;
+                } else {
+                    ctx.request_quit();
+                }
             }
             if key == KeyCode::F2 {
                 state.debug_mode = !state.debug_mode;

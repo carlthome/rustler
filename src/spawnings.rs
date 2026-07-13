@@ -143,6 +143,31 @@ pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -
     crab
 }
 
+/// Spawn a small, calm set of plain Normal crabs for the "How to Play" tutorial sandbox. Forced
+/// to `CrabType::Normal` (no Armored/Dancer/Golden wrinkles) and laid out in a gentle ring around
+/// the arena center so the beat-timing lesson isn't muddied by any archetype behaviour. The player
+/// starts in the middle, so every crab is a short, unhurried stroll away.
+pub fn spawn_tutorial_crabs(count: usize, area: (f32, f32), rng: &mut impl Rng) -> Vec<EnemyCrab> {
+    let (width, height) = area;
+    let center = Vec2::new(width * 0.5, height * 0.5);
+    let radius = width.min(height) * 0.28;
+    (0..count)
+        .map(|i| {
+            let angle = std::f32::consts::TAU * (i as f32 + 0.5) / count as f32;
+            let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+            // Drift slowly so they read as alive but stay easy to intercept on the beat.
+            let vel = Vec2::new(angle.cos(), angle.sin()) * 0.2;
+            let mut crab = make_crab(pos, vel, 0.0, rng);
+            crab.crab_type = CrabType::Normal;
+            crab.speed = 30.0;
+            crab.scale = 1.0;
+            crab.boss_health = 0.0;
+            crab.boss_max_health = 0.0001;
+            crab
+        })
+        .collect()
+}
+
 pub fn spawn_enemies(
     pattern: SpawnPattern,
     count: usize,

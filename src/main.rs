@@ -4,6 +4,7 @@ mod graphics;
 mod levels;
 mod sounds;
 mod spawnings;
+mod tutorial;
 
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
 
@@ -36,7 +37,9 @@ use crate::graphics::{
 use crate::levels::{Level, TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
+    spawn_tutorial_crabs,
 };
+use crate::tutorial::{Tutorial, TutorialKind};
 
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
@@ -222,6 +225,10 @@ thread_local! {
     static MENU_INSTRUCTIONS_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
     static MENU_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
+    // The title screen's "Press H — How to Play" tutorial prompt, cached like the start prompt
+    // above so the idle menu doesn't rebuild the glyph layout every frame.
+    static MENU_TUTORIAL_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
     // The title screen's "Career best ... crabs banked over N runs" line was rebuilt from a
     // fresh `format!` String + `Text::new` (plus a `.measure()` glyph-layout pass) every single
     // frame the title screen sits on-screen — same unbounded-idle-time cost as the panel/prompt
@@ -400,6 +407,11 @@ struct MainState {
     beat_synth: sounds::BeatSynth,             // Procedural kick drum played on every beat tick
     flashlight: Flashlight,                    // Flashlight settings and upgrades
     show_instructions: bool,                   // Show instructions screen
+    // Active "How to Play" tutorial session, if any. `Some` while a scripted learn-session runs;
+    // it uses the normal live update/draw path but constrains the run (no bosses, no wave
+    // escalation, no level advance) and tracks its own machine-readable pass condition. `None`
+    // during a real run or on the menus.
+    tutorial: Option<Tutorial>,
     last_dir: Vec2,                            // Last movement direction for flashlight
     shake_timer: f32,                          // Timer for crab shake effect
     time_since_catch: f32,                     // Time since last crab was caught
@@ -1012,6 +1024,7 @@ impl MainState {
             beat_synth,
             flashlight,
             show_instructions: true,
+            tutorial: None,
             last_dir: Vec2::ZERO,
             shake_timer: 0.0,
             time_since_catch: 0.0,
@@ -2490,6 +2503,15 @@ impl MainState {
                     || self.beat_timer > self.beat_interval - BEAT_WINDOW;
                 let bonus;
                 if on_beat {
+                    // Tutorial pass tracking: count real on-beat catches for the beat-timing
+                    // learn-session. This is the one write behind the tutorial's pure pass
+                    // predicate (`Tutorial::passed`), so a headless run of the same scenario reaches
+                    // the same boolean without any rendering.
+                    if let Some(t) = self.tutorial.as_mut() {
+                        if t.kind == TutorialKind::BeatTiming {
+                            t.on_beat_catches += 1;
+                        }
+                    }
                     // On-beat catch: build the groove. Consecutive on-beat catches escalate the
                     // score bonus and fill the groove meter, which in turn swells the music.
                     self.beat_streak += 1;
@@ -4921,6 +4943,28 @@ impl MainState {
         self.start_current_pattern((width, height));
     }
 
+    /// Enter a scripted "How to Play" tutorial session from the title screen. Starts from a clean
+    /// run state (so no leftover herd/boss), then constrains it into a tiny sandbox: leave the
+    /// spawn patterns alone (the tutorial gates them off in update) and drop in just a handful of
+    /// plain crabs to catch. The session runs the normal LIVE update/draw path — the beat clock and
+    /// catches have to actually tick for a rhythm lesson — so we clear `show_instructions` and set
+    /// `self.tutorial` instead of staying on the paused menu screen. Exit is opt-in: passing (or
+    /// pressing Escape) returns to the menu without ever touching `game_over`, so tutorial runs
+    /// never pollute the persistent career.
+    fn enter_tutorial(&mut self, kind: TutorialKind) {
+        self.reset_game();
+        // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
+        self.crabs.clear();
+        self.crabs = spawn_tutorial_crabs(6, (self.width, self.height), &mut rand::rng());
+        // A tutorial isn't a scored run — keep bosses far away and never advance the level.
+        self.next_boss_score = usize::MAX;
+        self.wave_armed = false;
+        self.wave_telegraph = 0.0;
+        self.show_instructions = false;
+        self.game_over = false;
+        self.tutorial = Some(Tutorial::new(kind));
+    }
+
     fn draw_instructions_screen(
         &mut self,
         ctx: &mut Context,
@@ -5259,6 +5303,31 @@ impl MainState {
                         text_y + text_height + pad * 2.0 + 22.0,
                     ))
                     .color(Color::new(1.0, 0.9, 0.25, pulse)),
+            );
+        });
+
+        // --- "Press H — How to Play" tutorial prompt, sitting just under the start prompt --------
+        let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut prompt = Text::new("Press  H  — How to Play");
+                prompt.set_scale(22.0);
+                let w = prompt.measure(ctx)?.x;
+                *cache = Some((prompt, w));
+            }
+            Ok(cache.as_ref().unwrap().1)
+        })?;
+        MENU_TUTORIAL_CACHE.with(|c| {
+            let cache = c.borrow();
+            let (prompt, _) = cache.as_ref().unwrap();
+            canvas.draw(
+                prompt,
+                DrawParam::default()
+                    .dest(Vec2::new(
+                        (width - tut_width) / 2.0,
+                        text_y + text_height + pad * 2.0 + 58.0,
+                    ))
+                    .color(Color::new(0.6, 0.85, 1.0, 0.55 + 0.35 * pulse)),
             );
         });
 
@@ -5950,6 +6019,12 @@ impl MainState {
             self.draw_stage_banner(ctx, canvas, width, height)?;
         }
 
+        // Tutorial overlay — the "How to Play" instruction card and pass-progress readout, plus the
+        // big "PASSED!" celebration once the pass predicate trips. Only present in a tutorial session.
+        if self.tutorial.is_some() {
+            self.draw_tutorial_overlay(ctx, canvas, width, height)?;
+        }
+
         if self.debug_mode {
             let level = &self.levels[self.current_level];
             let pat = &level.patterns[self.current_pattern];
@@ -6406,6 +6481,101 @@ impl MainState {
                     .color(Color::from_rgba(90, 230, b, a)),
             );
         });
+        Ok(())
+    }
+
+    /// Draw the tutorial session's instruction card (title + what-to-do + live progress) pinned to
+    /// the top of the screen, plus a big centered "PASSED!" flourish once the session is cleared.
+    /// Text is rebuilt each frame here (cheap: three short strings, only ever on-screen during an
+    /// opt-in tutorial, never during a scored run) so the progress line can update live.
+    fn draw_tutorial_overlay(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        width: f32,
+        height: f32,
+    ) -> Result<(), ggez::GameError> {
+        let t = match &self.tutorial {
+            Some(t) => t,
+            None => return Ok(()),
+        };
+
+        // Translucent card backdrop across the top so the instruction text reads over any terrain.
+        let card = Mesh::new_rounded_rectangle(
+            ctx,
+            ggez::graphics::DrawMode::fill(),
+            Rect::new(width * 0.5 - 360.0, 24.0, 720.0, 132.0),
+            14.0,
+            Color::from_rgba(8, 14, 26, 200),
+        )?;
+        canvas.draw(&card, DrawParam::default());
+
+        let mut title = Text::new(t.title());
+        title.set_scale(30.0);
+        let tdims: Vec2 = title.measure(ctx)?.into();
+        canvas.draw(
+            &title,
+            DrawParam::default()
+                .dest(Vec2::new(width * 0.5 - tdims.x / 2.0, 38.0))
+                .color(Color::from_rgb(255, 226, 120)),
+        );
+
+        let mut instr = Text::new(t.instruction());
+        instr.set_scale(20.0);
+        let idims: Vec2 = instr.measure(ctx)?.into();
+        canvas.draw(
+            &instr,
+            DrawParam::default()
+                .dest(Vec2::new(width * 0.5 - idims.x / 2.0, 76.0))
+                .color(Color::from_rgb(220, 232, 245)),
+        );
+
+        let mut prog = Text::new(t.progress_line());
+        prog.set_scale(24.0);
+        let pdims: Vec2 = prog.measure(ctx)?.into();
+        canvas.draw(
+            &prog,
+            DrawParam::default()
+                .dest(Vec2::new(width * 0.5 - pdims.x / 2.0, 124.0))
+                .color(Color::from_rgb(120, 255, 150)),
+        );
+
+        // Bottom hint so a player who wants out knows how — this is opt-in teaching, no gating.
+        let mut hint = Text::new("Esc — back to menu");
+        hint.set_scale(18.0);
+        let hdims: Vec2 = hint.measure(ctx)?.into();
+        canvas.draw(
+            &hint,
+            DrawParam::default()
+                .dest(Vec2::new(width * 0.5 - hdims.x / 2.0, height - 40.0))
+                .color(Color::from_rgba(200, 210, 225, 180)),
+        );
+
+        // Cleared: a big pulsing "PASSED!" centered while the exit hold runs out.
+        if t.completed {
+            let scale = 1.0 + t.pass_glow * 0.15;
+            let mut passed = Text::new("PASSED!");
+            passed.set_scale(80.0);
+            let dims: Vec2 = passed.measure(ctx)?.into();
+            let dest = Vec2::new(
+                width / 2.0 - dims.x * scale / 2.0,
+                height * 0.42 - dims.y * scale / 2.0,
+            );
+            canvas.draw(
+                &passed,
+                DrawParam::default()
+                    .dest(dest + Vec2::splat(3.0))
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgba(4, 20, 8, 180)),
+            );
+            canvas.draw(
+                &passed,
+                DrawParam::default()
+                    .dest(dest)
+                    .scale(Vec2::splat(scale))
+                    .color(Color::from_rgb(110, 255, 140)),
+            );
+        }
         Ok(())
     }
 
@@ -7135,6 +7305,45 @@ impl EventHandler for MainState {
 
         self.time_elapsed += dt;
         self.time_since_catch += dt;
+
+        // Tutorial session bookkeeping: keep the sandbox stocked, detect the pass condition, and
+        // run a short celebratory hold before handing control back to the title screen. Kept here
+        // in the live path (not the paused menu gate) because a rhythm lesson needs the sim ticking.
+        if self.tutorial.is_some() {
+            // Real (undilated) time for the exit hold so the celebration is a fixed wall-clock
+            // length regardless of any slow-mo the catch triggered.
+            let real_dt = ctx.time.delta().as_secs_f32();
+            // If the learner clears the whole sandbox before passing, quietly restock so they can
+            // keep practising instead of standing in an empty field.
+            if !self.tutorial.as_ref().unwrap().completed && self.crabs.iter().all(|c| c.caught) {
+                self.crabs = spawn_tutorial_crabs(6, (self.width, self.height), &mut rand::rng());
+            }
+            let t = self.tutorial.as_mut().unwrap();
+            if t.completed {
+                t.pass_glow = (t.pass_glow + real_dt * 2.5).min(1.0);
+                t.exit_timer = (t.exit_timer - real_dt).max(0.0);
+                if t.exit_timer <= 0.0 {
+                    // Opt-in exit: back to the title screen, never through game_over, so this
+                    // teaching run leaves the persistent career untouched.
+                    self.tutorial = None;
+                    self.show_instructions = true;
+                }
+            } else if t.passed() {
+                // Latch the win exactly once: celebrate, then start the return countdown.
+                t.completed = true;
+                t.pass_glow = 0.0;
+                t.exit_timer = 2.2;
+                let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+                self.floating_texts.spawn(
+                    "TUTORIAL PASSED!".to_string(),
+                    center - Vec2::new(90.0, 70.0),
+                    44.0,
+                    [0.4, 1.0, 0.5, 1.0],
+                );
+                self.on_beat_flash = self.on_beat_flash.max(0.85);
+                self.screen_shake = self.screen_shake.max(8.0);
+            }
+        }
 
         // Staged difficulty ramp: as elapsed time crosses the next stage threshold, climb one
         // stage and make it a telegraphed event — a shout banner plus a musical punch — so the run
@@ -8294,7 +8503,8 @@ impl EventHandler for MainState {
         if boss_active {
             self.pattern_timer = self.pattern_timer.max(-1.0);
         }
-        if !self.wave_armed
+        if self.tutorial.is_none()
+            && !self.wave_armed
             && !boss_active
             && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0)
         {
