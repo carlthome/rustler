@@ -5,7 +5,7 @@ use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{
     BlendMode, Canvas, Color, DrawMode, DrawParam, Image, InstanceArray, Mesh, Rect, Shader,
-    ShaderParamsBuilder, Text,
+    ShaderParams, ShaderParamsBuilder, Text,
 };
 use rand::Rng;
 use std::cell::RefCell;
@@ -250,6 +250,16 @@ thread_local! {
     static FISSURE_CAP_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static FISSURE_CIRCLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static FISSURE_LINE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Cached ShaderParams for the two shaders that ran ShaderParamsBuilder::new(...).build(ctx)
+    // every single gameplay frame — each build() call allocates a GPU buffer (device.create_buffer
+    // inside GrowingBufferArena::new) and builds a fresh bind group, even though only the uniform
+    // DATA changes (time, beat, player position) while the buffer layout never does. Caching the
+    // ShaderParams object across frames and calling set_uniforms() instead of build() re-uploads
+    // the uniform data to the GPU queue each frame as before, but reuses the existing arena and
+    // deduplicates the bind group so no fresh GPU buffer is created on the hot path.
+    static GRASS_SHADER_PARAMS: RefCell<Option<ShaderParams<ResolutionUniform>>> = RefCell::new(None);
+    static FLASHLIGHT_SHADER_PARAMS: RefCell<Option<ShaderParams<FlashlightUniform>>> = RefCell::new(None);
 }
 
 /// Draw (and clear) every leg DrawParam accumulated by draw_crab() calls since the last flush, as
@@ -1191,14 +1201,25 @@ pub fn draw_grass(
     );
 
     // Draw a full-screen quad using the grass shader.
-    let params = ShaderParamsBuilder::new(&ResolutionUniform {
-        width,
-        height,
-        time,
-        beat,
-    })
-    .build(ctx);
-    canvas.set_shader_params(&params);
+    // Reuse a cached ShaderParams instead of calling ShaderParamsBuilder::build() every frame:
+    // build() allocates a fresh GPU buffer (device.create_buffer in GrowingBufferArena::new) and
+    // builds a bind group each call. set_uniforms() re-uploads the changed uniform data (time, beat)
+    // to the GPU queue and rebuilds the bind group, but reuses the existing arena buffer so no
+    // fresh device.create_buffer call fires on the gameplay hot path.
+    let uniform = ResolutionUniform { width, height, time, beat };
+    GRASS_SHADER_PARAMS.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if let Some(params) = slot.as_mut() {
+            params.set_uniforms(ctx, &uniform);
+        } else {
+            *slot = Some(ShaderParamsBuilder::new(&uniform).build(ctx));
+        }
+    });
+    GRASS_SHADER_PARAMS.with(|cell| {
+        if let Some(params) = cell.borrow().as_ref() {
+            canvas.set_shader_params(params);
+        }
+    });
     canvas.set_shader(shader);
     let quad = cached_fill_rect(ctx, -width / 2.0, -height / 2.0, width, height, Color::RED)?;
     canvas.draw(&quad, DrawParam::default());
@@ -1699,9 +1720,22 @@ pub fn draw_flashlight(
         screen_height,
     };
 
-    // Set up shader parameters
-    let params = ShaderParamsBuilder::new(&uniform_data).build(ctx);
-    canvas.set_shader_params(&params);
+    // Set up shader parameters — same cached-ShaderParams pattern as draw_grass: reuse the
+    // existing arena buffer and bind group via set_uniforms() instead of calling build() (which
+    // creates a fresh device.create_buffer + bind group) every frame the flashlight is lit.
+    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if let Some(params) = slot.as_mut() {
+            params.set_uniforms(ctx, &uniform_data);
+        } else {
+            *slot = Some(ShaderParamsBuilder::new(&uniform_data).build(ctx));
+        }
+    });
+    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+        if let Some(params) = cell.borrow().as_ref() {
+            canvas.set_shader_params(params);
+        }
+    });
     canvas.set_shader(shader);
 
     // Draw a full-screen quad that the shader will render the flashlight onto
