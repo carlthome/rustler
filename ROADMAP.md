@@ -87,6 +87,13 @@ item in "Now" below.
   (e.g. "catch 3 crabs on the beat", "deliver a chain of 5 to the pen") before advancing. No
   progression gating — purely opt-in teaching. New `src/tutorial.rs` (or a level-type flag in
   `levels.rs`) is the natural home for the scripted scenario logic.
+  **Bonus — agent feedback loop.** Because each tutorial has a machine-readable pass condition,
+  the same scenario can be driven headlessly (simulated inputs, deterministic RNG seed) and used
+  by dev agents to verify that a mechanic still works after they change it — "does the beat-timing
+  tutorial still pass?" is a much tighter signal than "does it build?". Design the pass conditions
+  as plain boolean predicates on game state so they're trivially queryable from a test harness or a
+  short `--tutorial-check` CLI flag, with no rendering required. This turns every tutorial into a
+  living mechanic regression test the agents can run themselves.
 
 ## Later (outer loop — not yet)
 
