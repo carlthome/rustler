@@ -3631,10 +3631,11 @@ pub fn draw_tide_pools(
         _ => {}
     }
 
+    // Pass 1 (normal blend): base fills for all pools first, then one ADD switch for all
+    // additive elements — eliminates one blend-mode pipeline switch per pool per frame.
     for (i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
         let radius = *radius;
-        // Per-pool phase so they don't all breathe in lockstep.
         let phase = i as f32 * 1.7;
         let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
         let wading = player_center.distance(center) < radius;
@@ -3656,9 +3657,17 @@ pub fn draw_tide_pools(
                 .scale(Vec2::splat(radius * 0.6))
                 .color(Color::new(0.30, 0.55, 0.72, 0.16)),
         );
+    }
 
-        let orig_blend = canvas.blend_mode();
-        canvas.set_blend_mode(BlendMode::ADD);
+    // Pass 2 (one ADD switch for all pools): rims, ripple rings, and glints.
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        let phase = i as f32 * 1.7;
+        let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
+        let wading = player_center.distance(center) < radius;
 
         // Soft rim so the pool edge — the line you route around — reads clearly.
         let rim = cached_stroke_circle(ctx, radius, 2.5)?;
@@ -3698,9 +3707,8 @@ pub fn draw_tide_pools(
                 .scale(Vec2::splat(6.0 + 3.0 * beat))
                 .color(Color::new(0.7, 0.95, 1.0, 0.18 + 0.25 * beat)),
         );
-
-        canvas.set_blend_mode(orig_blend);
     }
+    canvas.set_blend_mode(orig_blend);
     Ok(())
 }
 
@@ -3947,10 +3955,10 @@ fn draw_rock_patches(
     unit_circle: &Mesh,
     beat: f32,
 ) -> ggez::GameResult {
-    for (i, (center, radius)) in pools.iter().enumerate() {
+    // Pass 1 (normal blend): opaque fills and rims for all rocks.
+    for (_i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
         let radius = *radius;
-        let phase = i as f32 * 2.3;
         // Dark base shadow, offset down a touch to sit the rock on the ground.
         canvas.draw(
             unit_circle,
@@ -3983,12 +3991,17 @@ fn draw_rock_patches(
                 .dest(center)
                 .color(Color::new(0.18, 0.19, 0.22, 0.9)),
         );
-        // A faint beat-lit sparkle of mineral flecks on top so rocks aren't dead on the beat.
-        if beat > 0.05 {
+    }
+    // Pass 2 (one ADD switch for all rocks): beat-lit mineral sparkles.
+    if beat > 0.05 {
+        let orig = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        for (i, (center, radius)) in pools.iter().enumerate() {
+            let center = *center;
+            let radius = *radius;
+            let phase = i as f32 * 2.3;
             let ang = phase;
             let fleck = center + Vec2::new(ang.cos(), ang.sin() * 0.5) * radius * 0.35;
-            let orig = canvas.blend_mode();
-            canvas.set_blend_mode(BlendMode::ADD);
             canvas.draw(
                 unit_circle,
                 DrawParam::default()
@@ -3996,8 +4009,8 @@ fn draw_rock_patches(
                     .scale(Vec2::splat(4.0 + 3.0 * beat))
                     .color(Color::new(0.7, 0.72, 0.8, 0.25 * beat)),
             );
-            canvas.set_blend_mode(orig);
         }
+        canvas.set_blend_mode(orig);
     }
     Ok(())
 }
@@ -4014,14 +4027,26 @@ fn draw_kelp_patches(
     beat: f32,
     player_center: Vec2,
 ) -> ggez::GameResult {
+    let unit_line = match UNIT_LINE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
+            UNIT_LINE.get_or_init(|| mesh)
+        }
+    };
+
+    // Pass 1 (normal blend): base weed-bed fills for all patches.
     for (i, (center, radius)) in pools.iter().enumerate() {
         let center = *center;
         let radius = *radius;
         let phase = i as f32 * 1.9;
         let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
         let inside = player_center.distance(center) < radius;
-
-        // Dark weed bed — normal blend, a shade of murky green.
         let fill_a = 0.28 + 0.05 * breathe + if inside { 0.12 } else { 0.0 };
         canvas.draw(
             unit_circle,
@@ -4030,23 +4055,19 @@ fn draw_kelp_patches(
                 .scale(Vec2::splat(radius))
                 .color(Color::new(0.10, 0.30, 0.16, fill_a)),
         );
+    }
 
-        let orig = canvas.blend_mode();
-        canvas.set_blend_mode(BlendMode::ADD);
+    // Pass 2 (one ADD switch for all patches): frond strokes and neon rims.
+    let orig = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        let phase = i as f32 * 1.9;
+        let breathe = 0.5 + 0.5 * (time * 1.1 + phase).sin();
+        let inside = player_center.distance(center) < radius;
 
         // Swaying frond strokes radiating from the center, drifting with time so the bed feels alive.
-        let unit_line = match UNIT_LINE.get() {
-            Some(mesh) => mesh,
-            None => {
-                let mesh = Mesh::new_rectangle(
-                    ctx,
-                    DrawMode::fill(),
-                    Rect::new(0.0, -0.5, 1.0, 1.0),
-                    Color::WHITE,
-                )?;
-                UNIT_LINE.get_or_init(|| mesh)
-            }
-        };
         let fronds = 7;
         for f in 0..fronds {
             let base_ang = f as f32 / fronds as f32 * std::f32::consts::TAU + phase;
@@ -4079,9 +4100,8 @@ fn draw_kelp_patches(
                 (0.22 + 0.2 * breathe + if inside { 0.28 } else { 0.0 }).clamp(0.0, 1.0),
             )),
         );
-
-        canvas.set_blend_mode(orig);
     }
+    canvas.set_blend_mode(orig);
     Ok(())
 }
 
