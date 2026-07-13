@@ -83,6 +83,14 @@ item in "Now" below.
   archetype, a cosmetic, a starting biome), a run-history readout, small run-to-run goals. Keep
   it a single save file, not a sprawling meta-tree. Deliberately held here so depth-first inner-
   loop work stays first.
+- **Campaign / story mode + world map** *(much later, after meta-progression is solid)*. Carl's
+  vision: a campaign mode acts as the mainstream "learn to play the game" path — a world map,
+  hand-crafted levels, choices with consequences, narrative stakes. Most players finish it once.
+  Then the **arcade mode** (leaderboards, scoring pressure, ruthless difficulty) is the real game
+  to master for the players who want to go deep. The two modes complement rather than compete:
+  campaign funnels players into arcade, arcade is the prestige path. Don't start this until the
+  inner loop and meta-progression feel done — the arcade mode has to be worth mastering before
+  the campaign exists to funnel people toward it.
 
 ## Blocked (needs a human, not a code agent)
 
