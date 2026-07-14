@@ -606,6 +606,14 @@ struct MainState {
     gamble_bank_pulse: f32,  // "BANK NOW?" prompt pulse while a bankable streak is live
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
+    // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
+    // beat the head's catch radius blooms wider (widest on the downbeat) and settles back before the
+    // next hit, so a crab drifting just out of reach gets scooped if you cross it ON the beat but
+    // slips past between beats. Timing plain grabs to the bar becomes live herd management, distinct
+    // from the Dash (movement), Call (Dancer lure), and whistle (radial pulse). Set in the beat
+    // handler, decayed each frame in update_crabs, added to catch_radius in catch_by_chain, and
+    // drawn as a pulsing ring around the head so the widened window is legible on screen.
+    beat_catch_bloom: f32,
     // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
     // bumps, so committing to a lane branches the run into a distinct playstyle (beam boss-hunter,
     // lasso chain-catcher, whistle crowd-control, stomp shell-breaker). Each rank scales the tool
@@ -1255,6 +1263,7 @@ impl MainState {
             beat_streak: 0,
             music_layers,
             catch_radius_upgrade: 0.0,
+            beat_catch_bloom: 0.0,
             // Runs begin at the permanent starting ranks bought with banked crabs (the spend side
             // of meta-progression), not flat zero.
             beam_rank: start_beam_rank,
@@ -2310,9 +2319,9 @@ impl MainState {
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        for bucket in self.deflect_grid_buf.values_mut() {
-            bucket.clear();
-        }
+        // Same unbounded-key fix as catch_grid_buf: full map clear keeps capacity but bounds
+        // iteration to "cells touched this frame", not "cells ever touched over the session".
+        self.deflect_grid_buf.clear();
         for (i, &seg) in self.deflect_body_buf.iter().enumerate() {
             self.deflect_grid_buf.entry(cell_of(seg)).or_default().push(i);
         }
@@ -2396,9 +2405,8 @@ impl MainState {
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        for bucket in self.deflect_ricochet_grid_buf.values_mut() {
-            bucket.clear();
-        }
+        // Same unbounded-key fix as the other two grids above.
+        self.deflect_ricochet_grid_buf.clear();
         for (bi, &(_, pos)) in self.deflect_ricochet_buf.iter().enumerate() {
             self.deflect_ricochet_grid_buf.entry(cell_of(pos)).or_default().push(bi);
         }
@@ -3671,9 +3679,12 @@ impl MainState {
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        for bucket in self.catch_grid_buf.values_mut() {
-            bucket.clear();
-        }
+        // Full-map clear instead of per-bucket clear: over a long session crabs wander the whole
+        // arena, filling this grid with keys for every cell ever visited. Per-bucket iteration
+        // re-scanned all those dead cells every frame; map.clear() resets the key count to "cells
+        // touched this frame" while keeping the HashMap's allocated capacity — same pooling win,
+        // bounded iteration cost (same fix applied to contagion_grid_buf and dancer_startle_grid_buf).
+        self.catch_grid_buf.clear();
         for (i, c) in self.crabs.iter().enumerate() {
             if c.is_catchable() {
                 self.catch_grid_buf.entry(cell_of(c.pos)).or_default().push(i);
@@ -5437,6 +5448,7 @@ impl MainState {
         self.deliver_streak = 0;
         self.deliver_streak_timer = 0.0;
         self.catch_radius_upgrade = 0.0;
+        self.beat_catch_bloom = 0.0;
         // Seed tool ranks from the permanently-purchased starting ranks, not zero, so bought perks
         // carry into every fresh run.
         self.beam_rank = self.start_beam_rank;
@@ -8227,6 +8239,12 @@ impl EventHandler for MainState {
             // accent structure. This block only runs during live gameplay (the update guard returns
             // early on menu/upgrade/game-over screens), so the kick never thumps through menus.
             self.beat_synth.play_kick(ctx, downbeat);
+            // On-beat catch bloom: every beat the head's catch window blooms wide, then settles back
+            // before the next hit (decayed in update_crabs). The downbeat blooms hardest so the "1"
+            // is the widest scoop of the bar — a groove-savvy player learns to cross a drifting crab
+            // exactly on the beat to hoover it in, while an off-beat pass just misses. This reshapes
+            // ordinary catching around the bar without adding a new key to press.
+            self.beat_catch_bloom = if downbeat { 30.0 } else { 20.0 };
             // Drum Roll: if T is being held as this beat fires, bank a roll hit (the charge). The
             // beat handler runs at most once per beat, so a held key naturally counts exactly one
             // hit per beat. A hit kicks a tick of feedback (beat flash + a bump of groove) so each
@@ -9092,6 +9110,12 @@ impl EventHandler for MainState {
                 }
             }
         }
+
+        // On-beat catch bloom settles back toward zero between beats: it's punched wide on each beat
+        // (widest on the downbeat) and eases off before the next hit, so the widened scoop is a
+        // rhythmic pulse tied to the bar rather than a permanent radius buff. Tuned to fade over most
+        // of a beat at typical tempo so there's a clear on-beat/off-beat difference.
+        self.beat_catch_bloom = (self.beat_catch_bloom - 90.0 * dt).max(0.0);
 
         // Groove Dash gather-wake: a dash fired ON the beat drags free crabs into your slipstream as
         // you punch through, so timing your movement to the beat becomes a live routing tool between
