@@ -54,6 +54,58 @@ fn synth_kick_wav(start_hz: f32, end_hz: f32, duration: f32, gain: f32) -> Vec<u
     encode_wav_mono16(&pcm)
 }
 
+/// Synthesise a snare hit: filtered noise burst with a brief tonal body (200 Hz sine), giving
+/// the classic crack-and-sizzle of a snare without any sample files.
+///
+/// * `duration` — total length (~0.09s = tight snare crack).
+/// * `gain` — peak amplitude 0..1.
+fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
+    let n_samples = (SAMPLE_RATE as f32 * duration) as usize;
+    let mut pcm: Vec<i16> = Vec::with_capacity(n_samples);
+
+    // Simple LCG for deterministic noise without pulling in rand here.
+    let mut rng_state: u32 = 0xdeadbeef;
+    let mut white_noise = || -> f32 {
+        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
+        // Map u32 to -1..1
+        (rng_state as i32 as f32) / i32::MAX as f32
+    };
+
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut tone_phase = 0.0_f32;
+    // One-pole highpass state — bleeds low freqs out of the noise so it reads as sizzle.
+    let mut hp_prev_in = 0.0_f32;
+    let mut hp_prev_out = 0.0_f32;
+    // Highpass RC coefficient: cutoff ~800 Hz.
+    let rc = 1.0 / (2.0 * std::f32::consts::PI * 800.0 * dt + 1.0);
+
+    for i in 0..n_samples {
+        let t = i as f32 * dt;
+        let progress = t / duration;
+
+        // Fast attack (2 ms), then exponential decay.
+        let attack = (t / 0.002).min(1.0);
+        let env = attack * (-12.0 * progress).exp();
+
+        // Tonal body: a 200 Hz sine gives the snare its crack (predominant in the first ~10 ms).
+        tone_phase += std::f32::consts::TAU * 200.0 * dt;
+        let tone = tone_phase.sin() * (-30.0 * progress).exp(); // dies fast
+
+        // Noise component: highpass-filtered to remove the muddy low end.
+        let noise_in = white_noise();
+        let hp = rc * (hp_prev_out + noise_in - hp_prev_in);
+        hp_prev_in = noise_in;
+        hp_prev_out = hp;
+
+        // Mix: 30% tone crack + 70% sizzle noise, under the shared envelope.
+        let sample = (0.3 * tone + 0.7 * hp) * env * gain;
+        let driven = (sample * 1.2).tanh();
+        pcm.push((driven * i16::MAX as f32) as i16);
+    }
+
+    encode_wav_mono16(&pcm)
+}
+
 /// Wrap 16-bit mono PCM samples in a canonical 44-byte WAV header (PCM format code 1). Must be
 /// byte-exact or rodio's decoder rejects it and the `Source` fails to build.
 fn encode_wav_mono16(pcm: &[i16]) -> Vec<u8> {
@@ -101,12 +153,23 @@ fn kick_source(
     Source::from_data(ctx, data)
 }
 
+fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Source> {
+    let bytes = synth_snare_wav(duration, gain);
+    let data = SoundData::from_bytes(&bytes);
+    Source::from_data(ctx, data)
+}
+
 /// The synthesised percussion voices, built once and replayed on the beat.
 pub struct BeatSynth {
     /// The heavier, lower kick for the downbeat ("1" of the bar).
     downbeat_kick: Source,
     /// The lighter kick for the three beats between downbeats.
     offbeat_kick: Source,
+    /// Snare hit — played on beats 2 & 4 (the backbeat) during boss fights.
+    snare: Source,
+    /// Current snare volume, 0..1. Fades in when a boss is present, fades out when cleared.
+    /// Smoothly interpolated each beat so it never pops in or disappears abruptly.
+    pub snare_volume: f32,
 }
 
 impl BeatSynth {
@@ -116,7 +179,21 @@ impl BeatSynth {
             downbeat_kick: kick_source(ctx, 150.0, 45.0, 0.14, 0.9)?,
             // Offbeat: higher pitched, tighter, quieter so the bar has a clear accent structure.
             offbeat_kick: kick_source(ctx, 130.0, 55.0, 0.10, 0.55)?,
+            // Snare: tight crack, full gain baked in — volume is controlled via snare_volume.
+            snare: snare_source(ctx, 0.09, 0.75)?,
+            snare_volume: 0.0,
         })
+    }
+
+    /// Fade snare volume toward target each beat (call once per beat tick).
+    /// `boss_present` drives the target; the rate is ~4 beats to full so the entry
+    /// feels like a DJ bringing a layer in, not a sudden switch.
+    pub fn update_snare_volume(&mut self, boss_present: bool) {
+        let target = if boss_present { 1.0 } else { 0.0 };
+        // Move ~25% of the remaining gap each beat — smooth exponential approach.
+        self.snare_volume += (target - self.snare_volume) * 0.25;
+        // Clamp so floating-point drift never escapes the valid range.
+        self.snare_volume = self.snare_volume.clamp(0.0, 1.0);
     }
 
     /// Play a kick for this beat. `downbeat` picks the heavier voice on the "1".
@@ -128,5 +205,20 @@ impl BeatSynth {
             &mut self.offbeat_kick
         };
         let _ = src.play_detached(ctx);
+    }
+
+    /// Play the snare if it has audible volume. `beat_index` is the beat position within the bar
+    /// (0-based); the snare lands on beats 1 and 3 (the "2" and "4" of the bar in 1-based terms).
+    pub fn play_snare(&mut self, ctx: &mut Context, beat_index: u32) {
+        use ggez::audio::SoundSource;
+        // Only fire on the backbeat (beats 2 & 4 in musical 1-based terms).
+        if beat_index % 4 != 1 && beat_index % 4 != 3 {
+            return;
+        }
+        if self.snare_volume < 0.01 {
+            return;
+        }
+        self.snare.set_volume(self.snare_volume);
+        let _ = self.snare.play_detached(ctx);
     }
 }
