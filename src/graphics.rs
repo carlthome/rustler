@@ -4010,6 +4010,43 @@ pub fn draw_groove_call_ring(
     Ok(())
 }
 
+/// Draw the passive downbeat herd-pulse cue — warm rings that snap INWARD toward the player on the
+/// "1" of the bar, the visual tell that the beat itself is sweeping loose crabs toward you. Inward
+/// motion (opposite the Groove Call's outward broadcast) reads as "the herd is being drawn in", not
+/// "a signal going out". `pulse` is 1.0 on the downbeat and decays; `reach` is the pull radius.
+pub fn draw_downbeat_pulse_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    pulse: f32,
+    reach: f32,
+) -> ggez::GameResult {
+    if pulse <= 0.0 {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Two rings collapsing inward as the pulse decays — arrows of the herd being scooped in.
+    for phase in [0.0_f32, 0.4] {
+        let p = (pulse - phase).clamp(0.0, 1.0);
+        // r shrinks from `reach` toward the player as the pulse fades (p: 1 → 0).
+        let r = reach * p.max(0.05);
+        let alpha = (pulse * 0.5).clamp(0.0, 1.0);
+        let thickness = 2.0 + 3.0 * (1.0 - p);
+        let ring = cached_stroke_circle(ctx, r, thickness)?;
+        canvas.draw(
+            &ring,
+            DrawParam::default()
+                .dest(center)
+                .color(Color::new(1.0, 0.72, 0.3, alpha)),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the Stomp ground-pound shockwave — a fast, dusty ring that slams outward from the player.
 /// Earthier and heavier than the whistle's bright horn-blast so the two abilities read differently.
 pub fn draw_stomp_ring(

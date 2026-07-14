@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -372,6 +372,25 @@ thread_local! {
         Mesh,                                          // background box
         Text,                                          // main stats block
         Option<(Text, f32)>,                           // "NEW CAREER BEST!" banner (text + width); None if not a new best
+    )>> = RefCell::new(None);
+
+    // The Loadout page (menu_page == 1 in draw_instructions_screen) was building 7+ fresh Text
+    // objects plus a fresh Mesh::new_rounded_rectangle GPU buffer every single frame the menu is
+    // open — the same unbounded-idle-time per-frame-allocation antipattern already fixed for
+    // every other screen. The text content only changes when the player changes their cosmetic
+    // selection (skin_slot, hat, facial_hair, accessory), and the panel mesh only changes if the
+    // window resolution changes (in practice: never after startup). Cache them all keyed by the
+    // stable inputs; only the per-frame animated values (bob offset, focus pulse alpha) continue
+    // to be computed dynamically as DrawParam, not baked into the objects.
+    // Key: (Hat, FacialHair, Accessory, skin_slot, width f32 bits, height f32 bits).
+    // Value: (panel Mesh, tagline Text,
+    //         [(label Text, label_w, name Text, name_w, flavour Text, flavour_w); 3])
+    #[allow(clippy::type_complexity)]
+    static LOADOUT_PAGE_CACHE: RefCell<Option<(
+        (crate::skins::Hat, crate::skins::FacialHair, crate::skins::Accessory, usize, u32, u32),  // key
+        Mesh,                            // picker backdrop panel
+        Text,                            // persona tagline
+        [(Text, f32, Text, f32, Text, f32); 3], // per column: (label, lw, name, nw, flavour, fw)
     )>> = RefCell::new(None);
 }
 
@@ -764,6 +783,16 @@ struct MainState {
     groove_dash_timer: f32,
     groove_dash_center: Vec2,
     groove_dash_dir: Vec2,
+    // Downbeat herd pulse — a PASSIVE, no-keypress routing tool: on every downbeat the whole free
+    // herd gets a brief nudge toward the player, so the beat *itself* clumps loose crabs around you.
+    // Distinct from Groove Dash (movement-triggered), the Dancer Call (F, nearby Dancers), and the
+    // Groove Call (V, a full field-wide yank you fire): this is always-on, tiny, and rhythmic — a
+    // groove-savvy player learns to stand where the next downbeat will sweep drifting crabs into
+    // their beam. Set to 1.0 on each downbeat, decayed each frame in update_crabs; the impulse is a
+    // gentle tug (a routing nudge, not a catch), applied only to free, non-fleeing crabs so it never
+    // fights the flee/lure passes or becomes an autocatcher next to the on-beat catch bloom.
+    downbeat_pull: f32,
+    downbeat_pull_center: Vec2, // player center captured on the downbeat, for the visual clump ring
     // Camera shake
     screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     screen_shake_vel: Vec2,     // current shake offset velocity
@@ -1406,6 +1435,8 @@ impl MainState {
             groove_dash_timer: 0.0,
             groove_dash_center: Vec2::ZERO,
             groove_dash_dir: Vec2::ZERO,
+            downbeat_pull: 0.0,
+            downbeat_pull_center: Vec2::ZERO,
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
@@ -4285,6 +4316,13 @@ impl MainState {
         // player already feels for PERFECT tool hits and the on-beat Call.
         let on_beat_now =
             self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        // Downbeat herd-pulse strength for this frame, snapshotted so the per-crab loop can apply a
+        // gentle player-ward nudge to free crabs without re-borrowing self. Decays over the frames
+        // after each downbeat (set to 1.0 in the beat handler), so the tug fades between beats and
+        // the herd only visibly clumps on the "1". Player center is read once here too.
+        let downbeat_pull = self.downbeat_pull;
+        let downbeat_pull_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        self.downbeat_pull = (self.downbeat_pull - dt * 4.0).max(0.0); // ~0.25s falloff
         // Is *this* on-beat one the Reef DJ called? Its shell only drains on a hot beat of the
         // current phrase (see the phrase roll in the beat handler), so holding light on it during a
         // silent beat does nothing — you have to echo the called pattern back. beat_count is already
@@ -4659,6 +4697,10 @@ impl MainState {
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
                 // Bosses are unshakeable — they lumber on rather than panic-bolting.
                 const FLEE_RADIUS: f32 = 220.0;
+                // How far the downbeat herd pulse reaches — a bit past the flee radius so crabs
+                // hovering just outside panic range are the ones the beat sweeps in, without yanking
+                // the whole screen.
+                const DOWNBEAT_PULL_RADIUS: f32 = 300.0;
                 // A whistle-charmed crab holds its nerve near the player instead of bolting, so a
                 // well-timed pulse pins a spooked herd in place long enough to sweep them up.
                 // Dancer crabs don't panic-flee continuously — their escape is the beat hop
@@ -4707,6 +4749,23 @@ impl MainState {
                     crab.speed = 1.0; // vel already encodes speed, keep multiplier neutral
                 } else {
                     crab.fleeing = false;
+                    // Downbeat herd pulse: a passive, rhythmic routing nudge. A free, un-spooked crab
+                    // drifts a little toward the player on the "1" of the bar, so a groove-savvy
+                    // player can stand where the next downbeat will sweep loose crabs into their beam.
+                    // Deliberately gentle and range-gated (a routing tug, not a yank or a catch), and
+                    // skipped for charmed/startled/snared crabs so it never fights the other passes or
+                    // turns into an autocatcher next to the on-beat catch bloom. Only meaningful for a
+                    // few frames after each downbeat, then it fades and the crab wanders freely again.
+                    if downbeat_pull > 0.0
+                        && crab.startle_timer <= 0.0
+                        && crab.charm_timer <= 0.0
+                        && crab.magnet_snared <= 0.0
+                        && distance < DOWNBEAT_PULL_RADIUS
+                    {
+                        let toward = (downbeat_pull_center - crab.pos).normalize_or_zero();
+                        let nudge = crab.crab_type.speed_range().start * 0.6 * downbeat_pull;
+                        crab.vel = crab.vel.lerp(toward * nudge, 0.08 * downbeat_pull);
+                    }
                 }
 
                 // Calm down after timer
@@ -5892,6 +5951,8 @@ impl MainState {
         self.groove_dash_timer = 0.0;
         self.groove_dash_center = Vec2::ZERO;
         self.groove_dash_dir = Vec2::ZERO;
+        self.downbeat_pull = 0.0;
+        self.downbeat_pull_center = Vec2::ZERO;
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
@@ -7012,6 +7073,18 @@ impl MainState {
                     reach * 0.55,
                 )?;
             }
+        }
+
+        // Draw the passive downbeat herd-pulse cue — warm rings collapsing toward the player on the
+        // "1" of the bar, so the always-on rhythmic routing tug is legible without a keypress.
+        if self.downbeat_pull > 0.0 {
+            draw_downbeat_pulse_ring(
+                ctx,
+                canvas,
+                self.downbeat_pull_center,
+                self.downbeat_pull,
+                300.0, // matches DOWNBEAT_PULL_RADIUS in update_crabs
+            )?;
         }
 
         // Draw the Downbeat Slam shockwave — the big gold rhythm-ultimate blast.
@@ -8961,6 +9034,14 @@ impl EventHandler for MainState {
             // exactly on the beat to hoover it in, while an off-beat pass just misses. This reshapes
             // ordinary catching around the bar without adding a new key to press.
             self.beat_catch_bloom = if downbeat { 30.0 } else { 20.0 };
+            // Downbeat herd pulse: on the "1" of the bar, nudge the whole free herd toward the
+            // player so the beat itself becomes a routing tool. Light it up only on the downbeat so
+            // it reads as a rhythmic thump, not a constant tug; the impulse is applied per-crab in
+            // update_crabs and decays over the frames after. Captured center drives the visual ring.
+            if downbeat {
+                self.downbeat_pull = 1.0;
+                self.downbeat_pull_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            }
             // Drum Roll: if T is being held as this beat fires, bank a roll hit (the charge). The
             // beat handler runs at most once per beat, so a held key naturally counts exactly one
             // hit per beat. A hit kicks a tick of feedback (beat flash + a bump of groove) so each
