@@ -8201,8 +8201,15 @@ impl MainState {
                 } else if crab.is_splitter() {
                     // Splitter cleave aura — a teal ring with two halves pulsing apart, so the
                     // player reads "this one splits my train" and can decide to set it up or dodge.
+                    // `beat_prox` peaks (→1) as the beat lands so the aura flares gold in the
+                    // clean-cut window, telegraphing the timing bet BEFORE the catch: grab it while
+                    // it's hot for the full jackpot cut, or it's a sloppy half-cut. Distance to the
+                    // nearest beat edge, scaled by the same BEAT_WINDOW the clean-cut gate uses, so
+                    // the flare and the actual reward window agree.
                     let size = crab.scale * CRAB_SIZE;
-                    draw_splitter_aura(ctx, canvas, pos, size, self.time_elapsed)?;
+                    let to_beat = self.beat_timer.min(self.beat_interval - self.beat_timer);
+                    let beat_prox = (1.0 - to_beat / (BEAT_WINDOW * 1.5)).clamp(0.0, 1.0);
+                    draw_splitter_aura(ctx, canvas, pos, size, self.time_elapsed, beat_prox)?;
                 }
             }
         }

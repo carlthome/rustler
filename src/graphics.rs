@@ -5831,6 +5831,7 @@ pub fn draw_splitter_aura(
     pos: Vec2,
     size: f32,
     time: f32,
+    beat_prox: f32,
 ) -> ggez::GameResult {
     // Breathing halo so the cleaver reads even while it's holding still — teal, the archetype tint.
     let pulse = (time * 3.5).sin() * 0.5 + 0.5;
@@ -5842,19 +5843,47 @@ pub fn draw_splitter_aura(
             .color(Color::new(0.2, 0.95, 0.85, 0.30 + pulse * 0.28)),
     );
 
+    // Beat telegraph — the Splitter's whole gimmick is a timing bet (catch it ON the beat for a
+    // clean, full-jackpot cut; off-beat is a sloppy half-cut). `beat_prox` (0..1, peaking on the
+    // beat) drives a gold "grab NOW" flare so the clean-cut window is legible BEFORE the catch, not
+    // just afterward: as the beat lands the teal aura blooms into a bright gold ring that snaps in
+    // and fades between beats. This is the anticipation cue that lets a player set the cleave up on
+    // purpose instead of grabbing blind and hoping.
+    if beat_prox > 0.01 {
+        let flare = cached_stroke_circle(ctx, size * 0.75 + 6.0 + beat_prox * 10.0, 2.0 + beat_prox * 2.5)?;
+        canvas.draw(
+            &flare,
+            DrawParam::default()
+                .dest(pos)
+                // Teal→gold as the beat approaches, so the aura visibly "goes hot" in the window.
+                .color(Color::new(
+                    0.4 + 0.6 * beat_prox,
+                    0.95,
+                    0.85 - 0.55 * beat_prox,
+                    0.25 + 0.55 * beat_prox,
+                )),
+        );
+    }
+
     // The "cleave" tell: two small dots split apart from center along the horizontal, snapping back
     // on each pulse cycle — the visual shorthand for "I halve your train". The spread pulses so the
-    // two halves visibly separate and rejoin, drawing the eye.
+    // two halves visibly separate and rejoin, drawing the eye. On the beat the split snaps WIDER
+    // (beat_prox term) so the two halves fling apart exactly when a clean cut is available.
     let dot = unit_circle(ctx)?;
-    let spread = (size * 0.35 + 4.0) * (0.4 + 0.6 * pulse);
+    let spread = (size * 0.35 + 4.0) * (0.4 + 0.6 * pulse) + beat_prox * size * 0.3;
     for &dir in &[-1.0_f32, 1.0] {
         let dpos = pos + Vec2::new(dir * spread, 0.0);
         canvas.draw(
             dot,
             DrawParam::default()
                 .dest(dpos)
-                .scale(Vec2::splat(2.0 + pulse * 2.0))
-                .color(Color::new(0.5, 1.0, 0.9, 0.45 + pulse * 0.5)),
+                .scale(Vec2::splat(2.0 + pulse * 2.0 + beat_prox * 2.5))
+                .color(Color::new(
+                    0.5 + 0.5 * beat_prox,
+                    1.0,
+                    0.9 - 0.5 * beat_prox,
+                    0.45 + pulse * 0.5,
+                )),
         );
     }
 
