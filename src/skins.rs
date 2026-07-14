@@ -181,7 +181,7 @@ impl Accessory {
 
 /// The full cosmetic loadout — a crab persona. Three slots, all optional.
 /// Default is `None`/`None`/`None` (bare crab, no judgement).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PlayerSkin {
     pub hat: Hat,
     pub facial_hair: FacialHair,
