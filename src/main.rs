@@ -2697,7 +2697,9 @@ impl MainState {
     }
 
     fn check_milestone(&mut self, rng: &mut impl rand::Rng) {
-        let chain_len = self.crabs.iter().filter(|c| c.caught).count();
+        // chain_count is incremented on every catch and decremented on every snap/steal/deliver,
+        // so it exactly equals the count of caught crabs — no need to rescan the whole vec.
+        let chain_len = self.chain_count;
         if chain_len >= self.next_milestone {
             let milestone = self.next_milestone;
             self.next_milestone += 5;
@@ -6627,16 +6629,88 @@ impl MainState {
                 panel_w,
                 122.0,
             );
-            let picker_panel = Mesh::new_rounded_rectangle(
-                ctx,
-                DrawMode::fill(),
-                panel_rect,
-                14.0,
-                Color::from_rgba(10, 14, 30, 150),
-            )?;
-            canvas.draw(&picker_panel, DrawParam::default());
 
-            // Live crab preview to the left of the columns, using the same in-game renderer.
+            // Build and cache the panel mesh + all text objects. They only change when the
+            // player switches a cosmetic slot (skin_slot, hat, facial_hair, accessory) or the
+            // window is resized. Previously rebuilt every frame: 1 GPU mesh upload +
+            // 7 glyph-shaping passes per frame the Loadout page sat open.
+            let cache_key = (skin.hat, skin.facial_hair, skin.accessory, self.skin_slot,
+                             width.to_bits(), height.to_bits());
+            LOADOUT_PAGE_CACHE.with(|cell| -> GameResult {
+                let mut slot = cell.borrow_mut();
+                if slot.as_ref().map_or(true, |(k, _, _, _)| *k != cache_key) {
+                    let picker_panel = Mesh::new_rounded_rectangle(
+                        ctx, DrawMode::fill(), panel_rect, 14.0,
+                        Color::from_rgba(10, 14, 30, 150),
+                    )?;
+                    let mut tagline = Text::new(skin.tagline());
+                    tagline.set_scale(15.0);
+                    let mut build_col = |i: usize| -> GameResult<(Text, f32, Text, f32, Text, f32)> {
+                        let focused = self.skin_slot == i;
+                        let mut lbl = Text::new(labels[i]);
+                        lbl.set_scale(17.0);
+                        let lw = lbl.measure(ctx)?.x;
+                        let name_str = if focused {
+                            format!("\u{25C4} {} \u{25BA}", names[i])
+                        } else {
+                            names[i].to_string()
+                        };
+                        let mut nm = Text::new(name_str);
+                        nm.set_scale(22.0);
+                        let nw = nm.measure(ctx)?.x;
+                        let mut fl = Text::new(flavours[i]);
+                        fl.set_scale(13.0);
+                        let fw = fl.measure(ctx)?.x;
+                        Ok((lbl, lw, nm, nw, fl, fw))
+                    };
+                    let cols: [(Text, f32, Text, f32, Text, f32); 3] =
+                        [build_col(0)?, build_col(1)?, build_col(2)?];
+                    *slot = Some((cache_key, picker_panel, tagline, cols));
+                }
+                let (_, panel_mesh, tagline, cols) = slot.as_ref().unwrap();
+                canvas.draw(panel_mesh, DrawParam::default());
+                canvas.draw(
+                    tagline,
+                    DrawParam::default()
+                        .dest(Vec2::new(panel_rect.x + 108.0, picker_y + 4.0))
+                        .color(Color::from_rgb(255, 220, 140)),
+                );
+                for (i, (lbl, lw, nm, nw, fl, fw)) in cols.iter().enumerate() {
+                    let focused = self.skin_slot == i;
+                    let label_color = if focused {
+                        Color::from_rgb(120, 255, 220)
+                    } else {
+                        Color::from_rgb(150, 150, 175)
+                    };
+                    let name_color = if focused {
+                        Color::new(1.0, 1.0, 0.6, 0.85 + 0.15 * (t * 4.0).sin().abs())
+                    } else {
+                        Color::from_rgb(220, 220, 235)
+                    };
+                    let fl_alpha = if focused { 0.95 } else { 0.5 };
+                    canvas.draw(
+                        lbl,
+                        DrawParam::default()
+                            .dest(Vec2::new(col_x[i] - lw / 2.0, picker_y + 2.0))
+                            .color(label_color),
+                    );
+                    canvas.draw(
+                        nm,
+                        DrawParam::default()
+                            .dest(Vec2::new(col_x[i] - nw / 2.0, picker_y + 26.0))
+                            .color(name_color),
+                    );
+                    canvas.draw(
+                        fl,
+                        DrawParam::default()
+                            .dest(Vec2::new(col_x[i] - fw / 2.0, picker_y + 56.0))
+                            .color(Color::new(0.85, 0.85, 0.95, fl_alpha)),
+                    );
+                }
+                Ok(())
+            })?;
+
+            // Live crab preview — bob/beat are per-frame animated, drawn after the cached panel.
             let preview_center = Vec2::new(panel_rect.x + 70.0, picker_y + 46.0);
             let bob = (t * 3.0).sin() * 3.0;
             draw_rustler(
@@ -6650,69 +6724,6 @@ impl MainState {
                 false,
                 skin,
             )?;
-
-            // Persona tagline sits along the panel's top edge, left of the columns beside the
-            // preview crab, so it never overlaps the centred perk-shop rows above the panel.
-            let mut tagline = Text::new(skin.tagline());
-            tagline.set_scale(15.0);
-            canvas.draw(
-                &tagline,
-                DrawParam::default()
-                    .dest(Vec2::new(panel_rect.x + 108.0, picker_y + 4.0))
-                    .color(Color::from_rgb(255, 220, 140)),
-            );
-
-            for i in 0..3 {
-                let focused = self.skin_slot == i;
-                let label_color = if focused {
-                    Color::from_rgb(120, 255, 220)
-                } else {
-                    Color::from_rgb(150, 150, 175)
-                };
-                let name_color = if focused {
-                    Color::new(1.0, 1.0, 0.6, 0.85 + 0.15 * (t * 4.0).sin().abs())
-                } else {
-                    Color::from_rgb(220, 220, 235)
-                };
-
-                let mut label = Text::new(labels[i]);
-                label.set_scale(17.0);
-                let lw = label.measure(ctx)?.x;
-                canvas.draw(
-                    &label,
-                    DrawParam::default()
-                        .dest(Vec2::new(col_x[i] - lw / 2.0, picker_y + 2.0))
-                        .color(label_color),
-                );
-
-                // The option name flanked by ◄ ► so it reads as cyclable.
-                let name_str = if focused {
-                    format!("\u{25C4} {} \u{25BA}", names[i])
-                } else {
-                    names[i].to_string()
-                };
-                let mut name = Text::new(name_str);
-                name.set_scale(22.0);
-                let nw = name.measure(ctx)?.x;
-                canvas.draw(
-                    &name,
-                    DrawParam::default()
-                        .dest(Vec2::new(col_x[i] - nw / 2.0, picker_y + 26.0))
-                        .color(name_color),
-                );
-
-                // Flavour blurb, dimmer when the column isn't focused.
-                let mut fl = Text::new(flavours[i]);
-                fl.set_scale(13.0);
-                let fw = fl.measure(ctx)?.x;
-                let fl_alpha = if focused { 0.95 } else { 0.5 };
-                canvas.draw(
-                    &fl,
-                    DrawParam::default()
-                        .dest(Vec2::new(col_x[i] - fw / 2.0, picker_y + 56.0))
-                        .color(Color::new(0.85, 0.85, 0.95, fl_alpha)),
-                );
-            }
 
         }
         } // end menu_page == 1 (Loadout)
