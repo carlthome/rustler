@@ -9359,7 +9359,11 @@ impl EventHandler for MainState {
             let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             // Base drift speed, scaled by call quality and the on-beat surge. Between beats the surge
             // decays toward ~0 so the herd coasts; on the beat it snaps back to full for the lunge.
-            let base = 46.0 * self.groove_call_strength;
+            // Tuned against WHISTLE_PULL_SPEED (240) and the ~1280×960 view: at ~150 a crab covers a
+            // few hundred units across the 2-bar (~4s) window, so even far-side crabs visibly stream
+            // most of the way in — genuinely field-wide — while staying a gentle current, not the
+            // whistle's hard instant yank, which is what keeps this a distinct verb.
+            let base = 150.0 * self.groove_call_strength;
             let surge = 0.35 + 0.65 * self.groove_call_surge; // never fully stops, but pumps on-beat
             for crab in self.crabs.iter_mut() {
                 if crab.caught {
