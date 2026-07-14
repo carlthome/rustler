@@ -5537,11 +5537,23 @@ pub fn draw_magnet_aura(
 
     // Three rings sweeping inward on a shared phase, staggered a third of a cycle apart, so the
     // aura reads as a steady inward pull rather than a single blip. Brightest as they close in.
+    //
+    // These rings sweep over a ~215px radius range (ring_radius → inner). The shared
+    // stroke-circle cache uses 2px buckets, which would generate ~108 distinct mesh keys per
+    // ring per sweep cycle — with multiple Magnets on screen this easily pushes past the 512-entry
+    // cap, evicting every other cached ring (chain ghosts, auras, shockwaves) and forcing full
+    // rebuilds. Round to 8px buckets here instead: visually indistinguishable at these radii
+    // (the sweep is a fluid animation, not a precise size) but reduces key count to ~27 per ring
+    // per sweep, keeping the cache far below the cap even with several Magnets in play.
     for k in 0..3 {
         let phase = ((time * sweep_speed + k as f32 / 3.0) % 1.0) as f32; // 0..1, 0 = far, 1 = at crab
         let radius = ring_radius - (ring_radius - inner) * phase;
         let alpha = (phase * alpha_scale).clamp(0.0, alpha_scale);
-        let ring = cached_stroke_circle(ctx, radius, 2.0)?;
+        // Snap to 8px bucket before the cache lookup so the sweep only ever uses ~27 distinct
+        // mesh keys across its full range instead of ~108. The 8px step is imperceptible on a
+        // smoothly animating ring that sweeps 215px over ~1.5 seconds.
+        let radius_q = ((radius / 8.0).round() * 8.0).max(0.5);
+        let ring = cached_stroke_circle(ctx, radius_q, 2.0)?;
         canvas.draw(
             &ring,
             DrawParam::default()
