@@ -1,4 +1,5 @@
 use crate::enemies::{CrabType, EnemyCrab};
+use crate::skins::{Accessory, FacialHair, Hat, PlayerSkin};
 use crate::{CRAB_SIZE, Flashlight, PLAYER_SIZE};
 use crevice::std140::AsStd140;
 use ggez::Context;
@@ -1502,6 +1503,7 @@ pub fn draw_rustler(
     beat_intensity: f32,
     time: f32,
     dashing: bool,
+    skin: PlayerSkin,
 ) -> ggez::GameResult {
     let base = 0.05_f32;
     let dims = Vec2::new(sprite.width() as f32, sprite.height() as f32) * base;
@@ -1563,7 +1565,450 @@ pub fn draw_rustler(
             .color(Color::from_rgba(255, 255, 255, 255)),
     );
 
+    // Cosmetic layers: hat / facial hair / accessory. Everything is drawn on top of the
+    // sprite and anchored to `center` + `bob` (the same hop offset the sprite uses) so it
+    // sticks to the crab through the beat hop. All offsets scale off `dims` (the on-screen
+    // crab size) so they stay proportional. `w`/`h` are the sprite's on-screen extents.
+    draw_player_cosmetics(ctx, canvas, center + Vec2::new(0.0, bob), dims, skin)?;
+
     Ok(())
+}
+
+/// Draw the player's chosen cosmetics on top of the crab sprite. `c` is the sprite centre
+/// (already including the beat hop), `dims` its on-screen size. All offsets are proportional
+/// to `dims` so the drip reads correctly at any player scale. Cheap fresh meshes are fine here:
+/// draw_rustler runs once per frame (one player), not per-crab.
+fn draw_player_cosmetics(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    c: Vec2,
+    dims: Vec2,
+    skin: PlayerSkin,
+) -> ggez::GameResult {
+    let w = dims.x;
+    let h = dims.y;
+    // Handy reference points on the sprite (see resources/rustler.png: upright red crab,
+    // face in the upper-centre, top of shell above it, claws to the sides).
+    let head_top = Vec2::new(c.x, c.y - h * 0.40); // above the shell
+    let face = Vec2::new(c.x, c.y - h * 0.08); // between the eyes
+    let mouth = Vec2::new(c.x, c.y + h * 0.06);
+    let shell = Vec2::new(c.x, c.y + h * 0.10); // lower-centre shell for badges
+
+    let col = |r: u8, g: u8, b: u8| Color::from_rgb(r, g, b);
+
+    // ---- Hats -------------------------------------------------------------------------
+    match skin.hat {
+        Hat::None => {}
+        Hat::Cowboy => {
+            let brim = col(0xC8, 0xA4, 0x6E);
+            // wide brim
+            let brim_rect = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.32, head_top.y + h * 0.04, w * 0.64, h * 0.07),
+                brim,
+            )?;
+            canvas.draw(&brim_rect, DrawParam::default());
+            // crown
+            let crown = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.15, head_top.y - h * 0.10, w * 0.30, h * 0.15),
+                brim,
+            )?;
+            canvas.draw(&crown, DrawParam::default());
+        }
+        Hat::TopHat => {
+            let black = col(0x1A, 0x1A, 0x2E);
+            let brim = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.28, head_top.y + h * 0.06, w * 0.56, h * 0.06),
+                black,
+            )?;
+            canvas.draw(&brim, DrawParam::default());
+            let tall = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.14, head_top.y - h * 0.20, w * 0.28, h * 0.28),
+                black,
+            )?;
+            canvas.draw(&tall, DrawParam::default());
+        }
+        Hat::Sombrero => {
+            let yellow = col(0xF5, 0xC8, 0x42);
+            // very wide brim as a flat ellipse
+            let unit_circle = unit_circle(ctx)?;
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(head_top.x, head_top.y + h * 0.10))
+                    .scale(Vec2::new(w * 0.48, h * 0.10))
+                    .color(yellow),
+            );
+            // dome
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(head_top.x, head_top.y + h * 0.02))
+                    .scale(Vec2::new(w * 0.16, h * 0.14))
+                    .color(yellow),
+            );
+        }
+        Hat::Bucket => {
+            let olive = col(0x7A, 0x8C, 0x5E);
+            let brim = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.24, head_top.y + h * 0.08, w * 0.48, h * 0.05),
+                olive,
+            )?;
+            canvas.draw(&brim, DrawParam::default());
+            let cyl = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.18, head_top.y - h * 0.02, w * 0.36, h * 0.11),
+                olive,
+            )?;
+            canvas.draw(&cyl, DrawParam::default());
+        }
+        Hat::Bandana => {
+            let red = col(0xD9, 0x3B, 0x3B);
+            // band across the top of the shell
+            let band = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.26, head_top.y + h * 0.06, w * 0.52, h * 0.08),
+                red,
+            )?;
+            canvas.draw(&band, DrawParam::default());
+            // knot + tails tied off to one side (triangle)
+            let knot = Mesh::new_polygon(
+                ctx,
+                DrawMode::fill(),
+                &[
+                    [head_top.x + w * 0.26, head_top.y + h * 0.06],
+                    [head_top.x + w * 0.40, head_top.y + h * 0.02],
+                    [head_top.x + w * 0.40, head_top.y + h * 0.18],
+                ],
+                red,
+            )?;
+            canvas.draw(&knot, DrawParam::default());
+        }
+        Hat::Beret => {
+            let teal = col(0x2E, 0x7D, 0x6E);
+            let unit_circle = unit_circle(ctx)?;
+            // tilted disc sitting off to one side of the shell top
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(head_top.x - w * 0.06, head_top.y + h * 0.06))
+                    .scale(Vec2::new(w * 0.22, h * 0.13))
+                    .rotation(-0.35)
+                    .color(teal),
+            );
+            // little nub on top
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(head_top.x + w * 0.10, head_top.y - h * 0.02))
+                    .scale(Vec2::splat(w * 0.03))
+                    .color(teal),
+            );
+        }
+        Hat::Crown => {
+            let gold = col(0xFF, 0xD7, 0x00);
+            let base_y = head_top.y + h * 0.10;
+            let pts = [
+                [head_top.x - w * 0.22, base_y],
+                [head_top.x - w * 0.22, head_top.y - h * 0.02],
+                [head_top.x - w * 0.11, base_y - h * 0.06],
+                [head_top.x, head_top.y - h * 0.06],
+                [head_top.x + w * 0.11, base_y - h * 0.06],
+                [head_top.x + w * 0.22, head_top.y - h * 0.02],
+                [head_top.x + w * 0.22, base_y],
+            ];
+            let crown = Mesh::new_polygon(ctx, DrawMode::fill(), &pts, gold)?;
+            canvas.draw(&crown, DrawParam::default());
+        }
+        Hat::HardHat => {
+            let yellow = col(0xFF, 0xD6, 0x00);
+            let unit_circle = unit_circle(ctx)?;
+            // hard dome
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(head_top.x, head_top.y + h * 0.06))
+                    .scale(Vec2::new(w * 0.22, h * 0.20))
+                    .color(yellow),
+            );
+            // short front brim
+            let brim = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(head_top.x - w * 0.22, head_top.y + h * 0.10, w * 0.44, h * 0.04),
+                yellow,
+            )?;
+            canvas.draw(&brim, DrawParam::default());
+        }
+    }
+
+    // ---- Facial hair ------------------------------------------------------------------
+    let brown = col(0x6B, 0x3D, 0x1E);
+    match skin.facial_hair {
+        FacialHair::None => {}
+        FacialHair::Mustache => {
+            // two curled ends meeting under the face
+            let m = Mesh::new_polygon(
+                ctx,
+                DrawMode::fill(),
+                &[
+                    [mouth.x - w * 0.16, mouth.y - h * 0.02],
+                    [mouth.x, mouth.y + h * 0.01],
+                    [mouth.x + w * 0.16, mouth.y - h * 0.02],
+                    [mouth.x + w * 0.14, mouth.y + h * 0.04],
+                    [mouth.x, mouth.y + h * 0.03],
+                    [mouth.x - w * 0.14, mouth.y + h * 0.04],
+                ],
+                brown,
+            )?;
+            canvas.draw(&m, DrawParam::default());
+        }
+        FacialHair::Handlebar => {
+            // wide dramatic sweep with upturned ends
+            let m = Mesh::new_polygon(
+                ctx,
+                DrawMode::fill(),
+                &[
+                    [mouth.x - w * 0.26, mouth.y - h * 0.06],
+                    [mouth.x - w * 0.18, mouth.y + h * 0.02],
+                    [mouth.x, mouth.y + h * 0.03],
+                    [mouth.x + w * 0.18, mouth.y + h * 0.02],
+                    [mouth.x + w * 0.26, mouth.y - h * 0.06],
+                    [mouth.x + w * 0.20, mouth.y + h * 0.02],
+                    [mouth.x, mouth.y + h * 0.06],
+                    [mouth.x - w * 0.20, mouth.y + h * 0.02],
+                ],
+                brown,
+            )?;
+            canvas.draw(&m, DrawParam::default());
+        }
+        FacialHair::Beard => {
+            // filled rounded rect below the face
+            let b = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(mouth.x - w * 0.18, mouth.y, w * 0.36, h * 0.22),
+                brown,
+            )?;
+            canvas.draw(&b, DrawParam::default());
+            let unit_circle = unit_circle(ctx)?;
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(mouth.x, mouth.y + h * 0.22))
+                    .scale(Vec2::new(w * 0.18, h * 0.09))
+                    .color(brown),
+            );
+        }
+        FacialHair::GoateePatch => {
+            let unit_circle = unit_circle(ctx)?;
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(mouth.x, mouth.y + h * 0.09))
+                    .scale(Vec2::new(w * 0.07, h * 0.07))
+                    .color(brown),
+            );
+        }
+        FacialHair::Mutton => {
+            // side chops on either cheek
+            let unit_circle = unit_circle(ctx)?;
+            for s in [-1.0_f32, 1.0] {
+                canvas.draw(
+                    unit_circle,
+                    DrawParam::default()
+                        .dest(Vec2::new(face.x + s * w * 0.24, face.y + h * 0.06))
+                        .scale(Vec2::new(w * 0.06, h * 0.11))
+                        .color(brown),
+                );
+            }
+        }
+        FacialHair::FuManchu => {
+            // long thin drops from the mouth corners
+            let line = unit_line(ctx)?;
+            for s in [-1.0_f32, 1.0] {
+                let a = Vec2::new(mouth.x + s * w * 0.12, mouth.y);
+                let b = Vec2::new(mouth.x + s * w * 0.16, mouth.y + h * 0.24);
+                draw_thick_line(canvas, line, a, b, w * 0.03, brown);
+            }
+        }
+    }
+
+    // ---- Accessories ------------------------------------------------------------------
+    match skin.accessory {
+        Accessory::None => {}
+        Accessory::StarBadge => {
+            let star = star_mesh(ctx, w * 0.11, col(0xFF, 0xD7, 0x00))?;
+            canvas.draw(
+                &star,
+                DrawParam::default().dest(Vec2::new(shell.x - w * 0.14, shell.y)),
+            );
+        }
+        Accessory::Monocle => {
+            // white ring on one eyestalk
+            let ring = Mesh::new_circle(
+                ctx,
+                DrawMode::stroke(w * 0.02),
+                [0.0, 0.0],
+                w * 0.09,
+                0.5,
+                Color::WHITE,
+            )?;
+            canvas.draw(
+                &ring,
+                DrawParam::default().dest(Vec2::new(face.x + w * 0.13, face.y - h * 0.02)),
+            );
+        }
+        Accessory::BowTie => {
+            let white = Color::WHITE;
+            let neck = Vec2::new(c.x, c.y + h * 0.02);
+            let left = Mesh::new_polygon(
+                ctx,
+                DrawMode::fill(),
+                &[
+                    [neck.x, neck.y],
+                    [neck.x - w * 0.12, neck.y - h * 0.06],
+                    [neck.x - w * 0.12, neck.y + h * 0.06],
+                ],
+                white,
+            )?;
+            canvas.draw(&left, DrawParam::default());
+            let right = Mesh::new_polygon(
+                ctx,
+                DrawMode::fill(),
+                &[
+                    [neck.x, neck.y],
+                    [neck.x + w * 0.12, neck.y - h * 0.06],
+                    [neck.x + w * 0.12, neck.y + h * 0.06],
+                ],
+                white,
+            )?;
+            canvas.draw(&right, DrawParam::default());
+            let knot = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(neck.x - w * 0.02, neck.y - h * 0.03, w * 0.04, h * 0.06),
+                col(0x22, 0x22, 0x22),
+            )?;
+            canvas.draw(&knot, DrawParam::default());
+        }
+        Accessory::NeonChain => {
+            // gold dots draped around the lower shell
+            let unit_circle = unit_circle(ctx)?;
+            let gold = col(0xFF, 0xD7, 0x00);
+            let n = 9;
+            for i in 0..n {
+                let t = i as f32 / (n as f32 - 1.0);
+                let ang = std::f32::consts::PI * (0.15 + 0.70 * t);
+                let px = shell.x + ang.cos() * w * 0.26;
+                let py = shell.y + h * 0.02 + ang.sin() * h * 0.16;
+                canvas.draw(
+                    unit_circle,
+                    DrawParam::default()
+                        .dest(Vec2::new(px, py))
+                        .scale(Vec2::splat(w * 0.03))
+                        .color(gold),
+                );
+            }
+        }
+        Accessory::Shades => {
+            let dark = col(0x15, 0x15, 0x1A);
+            for s in [-1.0_f32, 1.0] {
+                let lens = Mesh::new_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    Rect::new(
+                        face.x + s * w * 0.13 - w * 0.09,
+                        face.y - h * 0.05,
+                        w * 0.18,
+                        h * 0.10,
+                    ),
+                    dark,
+                )?;
+                canvas.draw(&lens, DrawParam::default());
+            }
+            // bridge
+            let bridge = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(face.x - w * 0.05, face.y - h * 0.02, w * 0.10, h * 0.02),
+                dark,
+            )?;
+            canvas.draw(&bridge, DrawParam::default());
+        }
+        Accessory::LassoLoop => {
+            // tan coiled loop hung on a claw (crab's left, screen right)
+            let tan = col(0xC8, 0xA4, 0x6E);
+            let loop_c = Vec2::new(c.x + w * 0.30, c.y + h * 0.14);
+            let ring = Mesh::new_circle(
+                ctx,
+                DrawMode::stroke(w * 0.03),
+                [0.0, 0.0],
+                w * 0.11,
+                0.4,
+                tan,
+            )?;
+            canvas.draw(&ring, DrawParam::default().dest(loop_c));
+            let inner = Mesh::new_circle(
+                ctx,
+                DrawMode::stroke(w * 0.02),
+                [0.0, 0.0],
+                w * 0.06,
+                0.4,
+                tan,
+            )?;
+            canvas.draw(&inner, DrawParam::default().dest(loop_c));
+        }
+        Accessory::GoldTooth => {
+            let tooth = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(mouth.x - w * 0.02, mouth.y - h * 0.01, w * 0.04, h * 0.05),
+                col(0xFF, 0xD7, 0x00),
+            )?;
+            canvas.draw(&tooth, DrawParam::default());
+        }
+    }
+
+    Ok(())
+}
+
+/// Draw a thick line between two points using the cached unit line, scaled to the length
+/// and given thickness. Avoids a fresh Mesh::new_line per call.
+fn draw_thick_line(canvas: &mut Canvas, line: &Mesh, a: Vec2, b: Vec2, thick: f32, color: Color) {
+    let d = b - a;
+    let len = d.length().max(0.0001);
+    let ang = d.y.atan2(d.x);
+    canvas.draw(
+        line,
+        DrawParam::default()
+            .dest(a)
+            .rotation(ang)
+            .scale(Vec2::new(len, thick))
+            .color(color),
+    );
+}
+
+/// A filled 5-point star mesh of the given outer radius, centred on the origin.
+fn star_mesh(ctx: &mut Context, r: f32, color: Color) -> ggez::GameResult<Mesh> {
+    let mut pts = Vec::with_capacity(10);
+    for i in 0..10 {
+        let rad = if i % 2 == 0 { r } else { r * 0.42 };
+        let ang = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
+        pts.push([ang.cos() * rad, ang.sin() * rad]);
+    }
+    Mesh::new_polygon(ctx, DrawMode::fill(), &pts, color)
 }
 
 // `canvas` is threaded through but no longer drawn to directly: every part draw_crab() used to

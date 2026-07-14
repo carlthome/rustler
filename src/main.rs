@@ -6520,6 +6520,7 @@ impl MainState {
                 0.4 + 0.4 * (t * 3.0).sin().abs(),
                 t,
                 false,
+                skin,
             )?;
 
             // Persona tagline sits along the panel's top edge, left of the columns beside the
@@ -6808,6 +6809,7 @@ impl MainState {
             self.beat_intensity,
             self.time_elapsed,
             self.boost_timer > 0.0,
+            self.player_skin,
         )?;
 
         // Speed lines trailing behind player while dashing. Uses the cached unit-line mesh
