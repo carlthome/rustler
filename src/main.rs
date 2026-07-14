@@ -959,6 +959,12 @@ struct MainState {
     // Golden crabs snapped up this frame — (pos, its base catch points) so the big lump-sum bonus
     // is paid out after the catch loop (needs &mut self for particles/floating text/score).
     golden_catches_buf: Vec<(Vec2, usize)>,
+    // Positions where a Golden was caught directly behind a Magnet link this frame — the
+    // "shine conducts down the train" crossover. Deferred out of the &mut self.crabs catch loop
+    // so the cascade payout (bonus + whip-streak cascade + callout) can borrow &mut self after.
+    // Almost always empty (needs the player to have engineered a Magnet-then-Golden catch order),
+    // so pooling it keeps the hottest path allocation-free. See handle_crab_catching.
+    magnet_shine_catches_buf: Vec<Vec2>,
     // Reef DJ hype-Dancer catches this frame (see handle_crab_catching) — pooled like its sibling
     // catch-event buffers above instead of a fresh Vec::new() every frame; almost always empty
     // (needs a Reef DJ fight in progress plus a hot-beat catch), same reasoning as golden_catches_buf.
@@ -1373,6 +1379,7 @@ impl MainState {
             boss_catches_buf: Vec::new(),
             dance_catches_buf: Vec::new(),
             golden_catches_buf: Vec::new(),
+            magnet_shine_catches_buf: Vec::new(),
             hype_dancer_hits_buf: Vec::new(),
             pulse_slingshots_buf: Vec::new(),
             pulse_loaded_magnets_buf: Vec::new(),
@@ -2670,6 +2677,23 @@ impl MainState {
         // Golden crabs snapped up this frame — the big lump-sum bonus is paid out after the loop.
         let mut golden_catches = std::mem::take(&mut self.golden_catches_buf);
         golden_catches.clear();
+        // Goldens caught directly behind a Magnet link this frame — the "shine conducts down the
+        // train" cascade, paid out after the loop. See the adjacency check inside the loop below.
+        let mut magnet_shine_catches = std::mem::take(&mut self.magnet_shine_catches_buf);
+        magnet_shine_catches.clear();
+        // Type of the crab that currently sits at the *tail* of the train (highest chain_index),
+        // snapshotted before the catch loop so we can tell what a newly-caught crab links onto. As
+        // each catch lands the new crab becomes the tail, so we roll this forward per catch instead
+        // of re-scanning self.crabs mid-loop (which we can't, holding a &mut into it). None if the
+        // train is empty. This is what makes catch *order* a live decision: whether a Magnet is the
+        // link directly ahead of a just-caught Golden depends on the sequence the player caught in.
+        let tail_ci = self.chain_count.checked_sub(1);
+        let mut prev_tail_type: Option<CrabType> = tail_ci.and_then(|ci| {
+            self.crabs
+                .iter()
+                .find(|c| c.chain_index == Some(ci))
+                .map(|c| c.crab_type)
+        });
         // Reef DJ backup dancers caught this frame on a *called (hot) beat* — each one chips the
         // boss shell. Collected here and applied after the loop so we don't need a second &mut
         // borrow of self.crabs mid-loop. `reef_hot_now` is the same window the DJ's own shell uses.
@@ -2804,7 +2828,19 @@ impl MainState {
                 // (paid out after the loop). This is the payoff for breaking off the herd to chase it.
                 if crab.is_golden() {
                     golden_catches.push((pos, pts));
+                    // Crossover — the shine conducts down the train. If the link this Golden just
+                    // snapped onto (the previous tail) is a Magnet, the Magnet's field carries the
+                    // Golden's shine along the whole conga line, paying a length-scaled cascade.
+                    // Whether this fires depends purely on catch ORDER: park a Magnet at the tail,
+                    // then chase a Golden onto it. Deferred so the cascade payout can borrow &mut self.
+                    if prev_tail_type == Some(CrabType::Magnet) {
+                        magnet_shine_catches.push(pos);
+                    }
                 }
+                // Roll the tail-type snapshot forward: this freshly-caught crab is now the tail, so
+                // it's what the *next* catch this frame will link onto. Keeps the adjacency check O(1)
+                // per catch with no mid-loop rescan of self.crabs.
+                prev_tail_type = Some(crab.crab_type);
                 self.combo_count += 1;
                 self.combo_timer = 1.8;
                 let score_str = if self.beat_gamble_mult > 1.01 {
@@ -2889,11 +2925,17 @@ impl MainState {
         for &(gpos, base_pts) in &golden_catches {
             self.on_golden_caught(gpos, base_pts);
         }
+        // Magnet-shine cascade: a Golden caught directly behind a Magnet link conducts its shine
+        // down the whole train. Paid out here so it can borrow &mut self for score/particles/trails.
+        for &spos in &magnet_shine_catches {
+            self.on_magnet_shine_cascade(spos);
+        }
         // Hand the scratch buffers back for reuse next frame.
         self.startle_origins_buf = startle_origins;
         self.boss_catches_buf = boss_catches;
         self.dance_catches_buf = dance_catches;
         self.golden_catches_buf = golden_catches;
+        self.magnet_shine_catches_buf = magnet_shine_catches;
         self.hype_dancer_hits_buf = hype_dancer_hits;
         if any_caught {
             self.check_milestone(&mut rand::rng());
@@ -2924,6 +2966,67 @@ impl MainState {
         self.shake_timer = self.shake_timer.max(0.45);
         self.groove = (self.groove + 0.25).min(1.0);
         let _ = base_pts; // base points already banked in the catch loop; kept for future tuning.
+    }
+
+    /// Crossover payoff — the Magnet-link shine cascade. Fires when a Golden is caught directly
+    /// behind a Magnet link in the train (a catch *order* the player sets up on purpose: park a
+    /// Magnet at the tail, then chase a Golden onto it). The Magnet's field conducts the Golden's
+    /// shine down the entire conga line, paying a bonus that scales with how long the train is —
+    /// so the longer the line you've routed the shine through, the bigger the reward — and firing a
+    /// gold whip-streak that visibly ripples from the tail up to the head so the cascade reads on
+    /// screen. Reuses the existing catch-trail whip streak (no new draw path) per the "reuse
+    /// existing verbs, make it a legible watchable reaction" spirit of the roadmap item.
+    fn on_magnet_shine_cascade(&mut self, golden_pos: Vec2) {
+        // Bonus scales with the number of links the shine travels through — the whole point is that
+        // a longer train you've deliberately built pays off more. Floored so even a short line feels
+        // worth the setup, and scaled by the live combo multiplier like the other catch rewards.
+        let links = self.chain_count.max(1);
+        let bonus = (8 * links * self.combo_multiplier()).max(40);
+        self.score += bonus;
+
+        // Collect the caught-train positions ordered head->tail so we can chain gold whip-streaks
+        // link-to-link. O(n) + sort, but this only runs on the rare engineered Magnet+Golden catch,
+        // so it's off the hot path. Reuses the pooled deflect_body_buf's sibling pattern via a fresh
+        // small local — the cascade is rare enough that a one-off Vec here is fine.
+        let mut links_sorted: Vec<(usize, Vec2)> = self
+            .crabs
+            .iter()
+            .filter_map(|c| c.chain_index.map(|ci| (ci, c.pos)))
+            .collect();
+        links_sorted.sort_unstable_by_key(|&(ci, _)| ci);
+
+        // Whip-streaks hopping from each link to the next, staggered so the shine visibly travels
+        // from the tail (where the Golden joined) up toward the head. Later hops start "younger"
+        // (more negative age) so they light up after the ones nearer the tail — a rolling cascade.
+        const SHINE: [f32; 3] = [1.0, 0.9, 0.35];
+        let n = links_sorted.len();
+        for i in (1..n).rev() {
+            if self.catch_trails.len() >= 48 {
+                break;
+            }
+            let from = links_sorted[i].1;
+            let to = links_sorted[i - 1].1;
+            // Tail hop starts now; each hop toward the head is delayed a hair for the ripple.
+            let stagger = -0.04 * (n - i) as f32;
+            self.catch_trails.push((from, to, stagger.max(-0.6), SHINE));
+        }
+
+        // Punchy feedback so the cascade lands as a moment, not a silent score bump: a gold
+        // shockwave at the tail, a length-aware callout, fireworks, and a beat/camera kick.
+        self.spawn_catch_shockwave(golden_pos, SHINE);
+        self.particle_system
+            .spawn_milestone_fireworks(golden_pos, 12, &mut rand::rng());
+        self.floating_texts.spawn(
+            format!("SHINE CASCADE! +{}  ({} links)", bonus, links),
+            golden_pos - Vec2::new(90.0, 58.0),
+            40.0,
+            [1.0, 0.92, 0.4, 1.0],
+        );
+        self.zoom_punch = self.zoom_punch.max(0.09);
+        self.hitstop_timer = self.hitstop_timer.max(0.08);
+        self.screen_shake = self.screen_shake.max(10.0);
+        self.on_beat_flash = self.on_beat_flash.max(0.4);
+        self.groove = (self.groove + 0.2).min(1.0);
     }
 
     /// Big celebratory payoff when a worn-down boss is finally snagged. `is_tide` swaps the callout
