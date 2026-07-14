@@ -296,7 +296,15 @@ thread_local! {
     // separate and reused frame-to-frame (same zero-alloc reasoning as CHAIN_SORT_BUF) rather than
     // widening CHAIN_SORT_BUF itself, since the type/color are only needed transiently to compute
     // the bond and don't need to travel on to draw_conga_rope.
-    static CHAIN_TYPE_BUF: RefCell<Vec<(usize, Vec2, CrabType, [f32; 3])>> = RefCell::new(Vec::new());
+    static CHAIN_TYPE_BUF: RefCell<Vec<(usize, usize, CrabType, [f32; 3])>> = RefCell::new(Vec::new());
+
+    // Per-frame chain sort cache: the sorted order (crab index in self.crabs, bond_color) is
+    // stable as long as chain_count doesn't change — catches and releases are infrequent events,
+    // but draw_game() is called every frame. Rebuilding the full sort + bond-color scan only when
+    // chain_count changes and just reading positions from self.crabs by index every other frame
+    // cuts the O(n log n) sort + O(n) bond-scan to a single O(n) position-read pass on most frames.
+    // Keyed by chain_count; entry is (chain_count, Vec<(crabs_idx, bond_color)> sorted by chain_index).
+    static CHAIN_ORDER_CACHE: RefCell<Option<(usize, Vec<(usize, Option<[f32; 3]>)>)>> = RefCell::new(None);
 
     // Cache for the level-title overlay (the "Level Up!" card shown for ~1s at each level
     // transition). draw_level_title was building 4 GPU/glyph objects per frame for every
@@ -6888,24 +6896,43 @@ impl MainState {
             // First collect (index, pos, type, color) so we can, after sorting by index, tag each
             // link with a same-type bond color relative to the link ahead of it. The type is dropped
             // once the bond is computed — only (index, pos, bond_color) travels on to the rope draw.
-            CHAIN_TYPE_BUF.with(|tbuf| {
-                let mut typed = tbuf.borrow_mut();
-                typed.clear();
-                typed.extend(
-                    self.crabs
-                        .iter()
-                        .filter(|c| c.caught && c.chain_index.is_some())
-                        .map(|c| (c.chain_index.unwrap_or(0), c.pos, c.crab_type, c.crab_color())),
-                );
-                typed.sort_unstable_by_key(|&(idx, ..)| idx);
-                let mut prev_type: Option<CrabType> = None;
-                for &(idx, pos, ty, col) in typed.iter() {
-                    // A matched bond exists on the segment entering this link when it shares an
-                    // archetype with the link immediately ahead of it — the arrangement the player
-                    // built by catching same types back to back.
-                    let bond = if prev_type == Some(ty) { Some(col) } else { None };
-                    chain_links.push((idx, pos, bond));
-                    prev_type = Some(ty);
+            //
+            // Optimization: the sorted order and bond colors are stable as long as chain_count
+            // doesn't change — only catches/releases mutate the chain structure. On the common case
+            // (no catch/release this frame) we skip the O(n log n) sort and O(n) bond-color scan
+            // and instead do a single O(n) pass to read current crab positions by stored index.
+            CHAIN_ORDER_CACHE.with(|ocache| {
+                let mut order_cache = ocache.borrow_mut();
+                let chain_count = self.chain_count;
+                let needs_rebuild = order_cache.as_ref().map_or(true, |(cc, _)| *cc != chain_count);
+                if needs_rebuild {
+                    // (Re)build the sorted order and bond colors — only on catch/release events.
+                    CHAIN_TYPE_BUF.with(|tbuf| {
+                        let mut typed = tbuf.borrow_mut();
+                        typed.clear();
+                        typed.extend(
+                            self.crabs
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, c)| c.caught && c.chain_index.is_some())
+                                .map(|(i, c)| (c.chain_index.unwrap_or(0), i, c.crab_type, c.crab_color())),
+                        );
+                        typed.sort_unstable_by_key(|&(idx, ..)| idx);
+                        let mut prev_type: Option<CrabType> = None;
+                        let sorted: Vec<(usize, Option<[f32; 3]>)> = typed.iter().map(|&(_, ci, ty, col)| {
+                            let bond = if prev_type == Some(ty) { Some(col) } else { None };
+                            prev_type = Some(ty);
+                            (ci, bond)
+                        }).collect();
+                        *order_cache = Some((chain_count, sorted));
+                    });
+                }
+                // Fast path: read current positions from self.crabs using the cached order.
+                if let Some((_, ref order)) = *order_cache {
+                    for &(crabs_idx, bond) in order {
+                        let crab = &self.crabs[crabs_idx];
+                        chain_links.push((crab.chain_index.unwrap_or(0), crab.pos, bond));
+                    }
                 }
             });
             // Only the at-risk gain (live multiplier above the banked-safe floor) heats the rope,
