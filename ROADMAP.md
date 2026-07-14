@@ -22,26 +22,30 @@ mechanics**: downbeat spawn drops, on-beat PERFECT hits, a beat-stepping train, 
 Dancers answer, a full-meter **Downbeat Slam** (G), a **Groove Gamble** cash-out (B), and a
 player-driven **Drum Roll** (hold T) that charges over a bar of on-beat holds and releases a wide beam
 blast — and every beat now lands as an **audible synthesised kick drum** so the BPM is visceral, not
-just visual. Pacing ramps through named intensity stages with a **beat-tempo shift**. Biomes **play
-differently** (Rocky Shore chokepoints, Neon Kelp tail-snag, Tide Pool wade-drag). **Six archetypes**
+just visual. Pacing ramps through named intensity stages with a **beat-tempo shift**. **Seven archetypes**
 (base, Armored → stomp, Dancer → rhythm, Magnet → routing, Thief → chain pressure, Golden → chase
-decision) form a dense **emergent web** — the game's signature fun — where Dancer hops chip shells and
-trip Goldens, snared Goldens supercharge Magnets, and shine lures Thieves off your tail. **All three
-bosses now fight inside the archetype web**: King Crab fissures + a charge you bait into a parked
-Armored crab, Tide Boss flood + a **Golden-slingshot** (lure a Golden into a floor Magnet and fire it
-through the surge to crack the shell), Reef DJ call-and-response + hype Dancers to catch on its hot
-beats — and the player's **rhythm verbs reach the climax** too (a charged Drum Roll blast cracks a boss
-shell far faster than a held beam). A first slice of **meta-progression** is in (persistent career +
-perk shop), and an opt-in **How to Play** tutorial ships its first scenario (beat-timing) with a pure,
-headless-queryable pass predicate that doubles as an agent-run mechanic regression test. No new Slack
-signal this cycle; Carl's standing note is still *"Would be nice to see example videos here!"* — a task
-for the diary agent, but it confirms the rhythm/visual-spectacle bet is what he wants to *watch*, so
-keep favoring legible, watchable moments. **All four prior "Now" items shipped** (Tide Boss slingshot,
-Drum Roll boss-crack, kick drum, tutorial-slice). The inner loop is essentially complete on depth — we
-still want Carl's explicit "the core feels done" call before pivoting to outer-loop work, so the
-frontier stays depth-first: **grow the archetype web with a seventh archetype** that opens genuinely
-new crossover edges, and **deepen biome routing** so environments push the herd around, not just
-recolor it.
+decision, Hermit → shell the beam can't crack) form a dense **emergent web** — the game's signature fun —
+where Dancer hops chip shells and trip Goldens, snared Goldens supercharge Magnets, shine lures Thieves
+off your tail, and the Hermit only pops to a Stomp, a Dancer's hop, or a passing Magnet's rip (three
+existing verbs, one new target). Biomes now **push the herd, not just recolor it**: Rocky Shore's tide
+floods low rocks into beat-timed shortcuts, Neon Kelp fronds **funnel** fleeing crabs into a lane, plus
+the earlier chokepoints/tail-snag/wade-drag feel. **All three bosses fight inside the archetype web**:
+King Crab fissures + a charge you bait into a parked Armored crab, Tide Boss flood + a **Golden-slingshot**
+(lure a Golden into a floor Magnet and fire it through the surge to crack the shell), Reef DJ
+call-and-response + hype Dancers to catch on its hot beats — and the player's **rhythm verbs reach the
+climax** too (a charged Drum Roll blast cracks a boss shell far faster than a held beam). The opt-in
+**How to Play** tutorial now ships **three scenarios** (beat-timing, chain-and-deliver, shell-crack),
+each with a pure headless-queryable pass predicate that doubles as an agent-run mechanic regression test.
+A first slice of **meta-progression** and campaign scaffolding exists (persistent career + perk shop,
+world-map + player-skin skeletons) but stays parked in "Later" — building the skeleton doesn't authorize
+promoting it; the gate for pivoting to the outer loop is Carl's explicit "the core feels done" call, which
+hasn't come. No new Slack signal this cycle (the v0.1.7 diary post has no reactions or replies); Carl's
+standing note is still *"Would be nice to see example videos here!"* — a task for the diary agent, but it
+confirms the rhythm/visual-spectacle bet is what he wants to *watch*, so keep favoring legible, watchable
+moments. **All three prior "Now" items shipped** (Hermit archetype, two biome-routing mechanics, two more
+tutorial scenarios). The inner loop is essentially complete on depth, so the frontier stays depth-first:
+**add a crossover edge that makes catch order and train shape a live decision**, and **give the rhythm
+system a between-boss expression** so the beat drives moment-to-moment play, not just climaxes.
 
 ## Bugs (fix before anything else in Now)
 
@@ -54,27 +58,23 @@ item in "Now" below.
 
 ## Now
 
-- **A seventh archetype that opens new crossover edges. (Top Now item.)** The six-archetype web is the
-  game's signature fun, and the fastest way to deepen it is one more archetype whose *interactions* with
-  the existing six are the point — not a stat variant. Think in edges: e.g. a **Hermit** crab that hides
-  in a shell and periodically swaps hosts (Stomp cracks the shell, but a fleeing Dancer's hop can knock it
-  loose, and a Magnet can rip it out — three existing verbs, one new target), or a **Splitter** that
-  halves into two smaller crabs when caught so grabbing it mid-combo is a Groove-Gamble decision. Pick one
-  whose new edges reuse the existing verb systems (Stomp/hop/Magnet/Golden-lure) rather than adding a
-  parallel system. Legible and watchable: a new visible reaction the player can learn and exploit.
-- **Deepen biome routing — make the environment push the herd, not just recolor it.** Biomes already
-  *feel* different (Rocky Shore chokepoints, Neon Kelp tail-snag, Tide Pool wade-drag), but the terrain
-  mostly affects *the player*. Add a biome feature that reshapes *where the herd goes*, so routing becomes
-  a puzzle you solve with the environment: e.g. a **Tide Pool current** that drifts free crabs downstream
-  (herd them into it and let it deliver them toward your train), Neon Kelp **fronds that funnel** panicked
-  crabs into a lane, or Rocky Shore **tide that rises and falls** on a bar cycle, opening/closing a
-  shortcut on the beat. One biome, one new routing mechanic — ties terrain into the rhythm and the chase.
-- **Grow the tutorial past its first slice** *(first scenario shipped)*. The beat-timing session and its
-  pure headless-queryable pass predicate are in and already double as an agent regression test. Add the
-  next one or two scenarios the same way — one per remaining major mechanic (lasso, chain/delivery, tools,
-  bosses) — each a tiny scripted sandbox with one instruction card and one boolean pass condition, so the
-  suite of mechanic regression tests grows alongside the teaching. Keep every `passed()` a pure predicate
-  over game state (no rendering/input) so a `--tutorial-check` run stays trivial.
+- **A crossover edge that makes catch order and train shape a live decision. (Top Now item.)** The seven
+  archetypes interact, but the *sequence* you catch them in and *where* they sit in the train barely
+  matter yet. Add one mechanic that turns the train into a spatial puzzle the rhythm/archetype web feeds
+  into — e.g. a **Splitter** that halves into two on catch, so grabbing it mid-combo is a Groove-Gamble
+  bet; a **train position that matters** (an Armored link at the tail actually blocks a Thief's steal, a
+  Dancer link pulses a small on-beat catch aura), so you *arrange* your conga rather than just growing it;
+  or a **chain reaction** where catching one archetype next to another triggers a visible combo (snag a
+  Golden beside a Magnet-link and the shine arcs down the train). Reuse existing verbs; make the new edge
+  a legible, watchable reaction the player learns to set up on purpose.
+- **Give the rhythm system a between-boss expression — the beat should drive minute-to-minute play, not
+  just climaxes.** The strongest rhythm verbs (Downbeat Slam, Groove Gamble, Drum Roll, kick drum) shine
+  in bursts or at bosses; the *ordinary* stretch between them leans more on chasing than on the beat. Add
+  one rhythm mechanic that lives in the moment-to-moment herd, so a groove-savvy player plays the whole
+  run differently — e.g. an **on-beat dash** that only fires clean on the downbeat (reward timing your
+  movement, not just your catches), a **beat-phrase call-and-response** in the open field like the Reef
+  DJ's but self-triggered for a herd-wide lure, or **free crabs that briefly clump on the downbeat** so
+  the beat itself becomes a routing tool. Keep it legible and watchable — the beat visibly reshaping play.
 
 ## Later (outer loop — not yet)
 
@@ -90,7 +90,9 @@ item in "Now" below.
   to master for the players who want to go deep. The two modes complement rather than compete:
   campaign funnels players into arcade, arcade is the prestige path. Don't start this until the
   inner loop and meta-progression feel done — the arcade mode has to be worth mastering before
-  the campaign exists to funnel people toward it.
+  the campaign exists to funnel people toward it. *A skeleton has landed (world-map node list +
+  navigation, player-skin slots) — treat it as scaffolding parked here, NOT as license to build out
+  the campaign; it stays deferred until the "core feels done" call and meta-progression are settled.*
 
 ## Blocked (needs a human, not a code agent)
 
