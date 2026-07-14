@@ -921,6 +921,13 @@ struct MainState {
     // above — holds the positions of free Magnets a Dancer's on-beat hop thumped into a pull surge
     // this beat, for the after-loop feedback pop. Reuses dancer_startle_grid_buf like its siblings.
     dancer_kick_buf: Vec<Vec2>,
+    // Scratch buffers for the Dancer-link on-beat catch aura (in the beat handler): dancer_link_buf
+    // snapshots where the caught Dancer links sit this beat, dancer_aura_caught_buf collects the
+    // free crabs each pulse snagged plus whether each was a Golden (for its bonus payout). Same
+    // std::mem::take / clear / hand-back reuse as the sibling Dancer buffers — the beat handler runs
+    // every beat, so a fresh Vec each time would be a per-beat allocation for a usually-empty scan.
+    dancer_link_buf: Vec<Vec2>,
+    dancer_aura_caught_buf: Vec<(Vec2, bool)>,
     // Scratch buffers for the Whistle/Stomp/Lasso ability loops in update(), reused every frame
     // instead of a fresh Vec::new() each tick these abilities are active. Each ability is active
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
@@ -1332,6 +1339,8 @@ impl MainState {
             dancer_trip_buf: Vec::new(),
             dancer_chip_buf: Vec::new(),
             dancer_kick_buf: Vec::new(),
+            dancer_link_buf: Vec::new(),
+            dancer_aura_caught_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -8390,6 +8399,91 @@ impl EventHandler for MainState {
             }
 
             self.dancer_hop_scratch = dancer_hops; // hand the buffer back for reuse next beat
+
+            // Dancer-link on-beat catch aura — "train position matters." A Dancer you've caught
+            // keeps its rhythm even in the conga line: on every beat, each caught Dancer link
+            // pulses a small on-beat catch aura that snags any free, catchable crab pressed up
+            // against that spot in the train. Where the Dancer *sits* in the line — set purely by
+            // the order you caught it — decides what its pulse sweeps up: a Dancer near the head
+            // vacuums crabs by where you're actively herding, one further back cleans up whatever
+            // the trailing tail brushes past. So catch order and train shape become a live
+            // decision, the rhythm-native mirror of routing an Armored crab to the guarded tail.
+            // On-beat only + small radius = a positioning *reward*, not an autocatch; the downbeat
+            // reaches a hair wider so the "1" of the bar lands the biggest sweep.
+            const DANCER_AURA_RADIUS: f32 = 58.0;
+            let aura_radius = if downbeat { DANCER_AURA_RADIUS * 1.2 } else { DANCER_AURA_RADIUS };
+            let aura_r2 = aura_radius * aura_radius;
+            // Snapshot where the caught Dancer links sit this beat (usually a small handful), so
+            // the enlist loop below can borrow &mut self.crabs without an overlapping borrow.
+            let mut dancer_links = std::mem::take(&mut self.dancer_link_buf);
+            dancer_links.clear();
+            dancer_links.extend(
+                self.crabs
+                    .iter()
+                    .filter(|c| c.caught && c.is_dancer())
+                    .map(|c| c.pos),
+            );
+            if !dancer_links.is_empty() {
+                let mult = self.combo_multiplier();
+                let mut rng = rand::rng();
+                let mut aura_caught = std::mem::take(&mut self.dancer_aura_caught_buf);
+                aura_caught.clear();
+                for i in 0..self.crabs.len() {
+                    // Free, catchable, ordinary herd crabs only — never a boss, a shelled
+                    // Armored/Hermit (its shell isn't the aura's to crack), or an already-caught
+                    // link. A Golden is fair game: parking a Dancer link where a snared Golden
+                    // sits is a legit way to bank the prize on the beat.
+                    if self.crabs[i].caught || !self.crabs[i].is_catchable() || self.crabs[i].is_boss() {
+                        continue;
+                    }
+                    let pos = self.crabs[i].pos;
+                    if !dancer_links.iter().any(|&d| d.distance_squared(pos) <= aura_r2) {
+                        continue;
+                    }
+                    let crab_type = self.crabs[i].crab_type;
+                    let crab_color = self.crabs[i].crab_color();
+                    let is_golden = self.crabs[i].is_golden();
+                    self.particle_system
+                        .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+                    self.crabs[i].caught = true;
+                    self.crabs[i].chain_index = Some(self.chain_count);
+                    self.chain_count += 1;
+                    aura_caught.push((pos, is_golden));
+                }
+                let n = aura_caught.len();
+                if n > 0 {
+                    // Score the sweep like a small on-beat catch: each snag pays a base point at
+                    // the live combo multiplier, and the grab bumps the combo so a well-placed
+                    // Dancer link keeps a groove streak alive between your own catches.
+                    let bonus = n * mult;
+                    self.score += bonus;
+                    self.combo_count += n;
+                    self.combo_timer = 1.8;
+                    self.on_beat_flash = self.on_beat_flash.max(if downbeat { 0.45 } else { 0.35 });
+                    self.chain_join_ripple = true;
+                    for &(pos, is_golden) in aura_caught.iter() {
+                        // Hot Dancer-pink burst so the "your Dancer link did this" story reads at a
+                        // glance, matching every other Dancer-crossover cue's color.
+                        self.spawn_catch_shockwave(pos, [1.0, 0.45, 0.85]);
+                        if is_golden {
+                            // Fold in the full Golden payout — the aura banked the prize on the beat.
+                            self.on_golden_caught(pos, 0);
+                        }
+                    }
+                    // One shared "GROOVE PULL!" shout at the first snag so a multi-catch beat reads
+                    // as a single moment, not a stack of overlapping pops.
+                    let (label_pos, _) = aura_caught[0];
+                    self.floating_texts.spawn(
+                        if n > 1 { format!("GROOVE PULL!  x{}", n) } else { "GROOVE PULL!".to_string() },
+                        label_pos - Vec2::new(56.0, 30.0),
+                        26.0,
+                        [1.0, 0.55, 0.9, 1.0],
+                    );
+                    self.check_milestone(&mut rng);
+                }
+                self.dancer_aura_caught_buf = aura_caught;
+            }
+            self.dancer_link_buf = dancer_links; // hand the buffer back for reuse next beat
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
         // Bar downbeat accent decays over roughly one beat, so its influence on the train's stomp
