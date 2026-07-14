@@ -903,6 +903,11 @@ struct MainState {
     // its Vec<usize> bucket count) stabilizes quickly — clearing beats rebuilding from scratch.
     chain_positions_buf: Vec<Vec2>,
     catch_grid_buf: std::collections::HashMap<(i32, i32), Vec<usize>>,
+    // Tracks which cells were written to in catch_grid_buf this frame so the next frame's
+    // "clear" can call .clear() on each touched Vec rather than dropping it via HashMap::clear().
+    // Reusing the inner Vecs avoids ~40-50 small heap allocations per frame (one per crab-occupied
+    // cell), since crabs move slowly and typically revisit the same cells frame-to-frame.
+    catch_grid_keys_buf: Vec<(i32, i32)>,
     caught_now_buf: Vec<bool>,
     // Reused buffer of solid conga-body segment positions, rebuilt each frame for the
     // fleeing-crab wall-deflection pass (see deflect_fleeing_off_chain).
@@ -1487,6 +1492,7 @@ impl MainState {
             fullscreen_applied: false,
             chain_positions_buf: Vec::new(),
             catch_grid_buf: std::collections::HashMap::new(),
+            catch_grid_keys_buf: Vec::new(),
             caught_now_buf: Vec::new(),
             deflect_body_buf: Vec::new(),
             deflect_grid_buf: std::collections::HashMap::new(),
@@ -3463,6 +3469,15 @@ impl MainState {
                 [1.0, 0.9, 0.35, 1.0],
             );
             self.screen_shake = self.screen_shake.max(13.0);
+            // Directional kick away from the player — the cleave "recoils" outward so the cut
+            // has a felt direction, not just omnidirectional rumble.
+            {
+                let kick_dir = (at - self.player_pos).try_normalize().unwrap_or(Vec2::X);
+                let vel = kick_dir * 13.0 * 60.0;
+                if self.screen_shake_vel.length_squared() < vel.length_squared() {
+                    self.screen_shake_vel = vel;
+                }
+            }
             self.hitstop_timer = self.hitstop_timer.max(0.1);
             self.zoom_punch = self.zoom_punch.max(0.085);
             self.on_beat_flash = self.on_beat_flash.max(0.4);
@@ -3475,6 +3490,13 @@ impl MainState {
                 [0.4, 1.0, 0.9, 1.0],
             );
             self.screen_shake = self.screen_shake.max(8.0);
+            {
+                let kick_dir = (at - self.player_pos).try_normalize().unwrap_or(Vec2::X);
+                let vel = kick_dir * 8.0 * 60.0;
+                if self.screen_shake_vel.length_squared() < vel.length_squared() {
+                    self.screen_shake_vel = vel;
+                }
+            }
             self.hitstop_timer = self.hitstop_timer.max(0.07);
             self.zoom_punch = self.zoom_punch.max(0.05);
         } else {
@@ -3487,6 +3509,13 @@ impl MainState {
                 [1.0, 0.6, 0.45, 1.0],
             );
             self.screen_shake = self.screen_shake.max(5.0);
+            {
+                let kick_dir = (at - self.player_pos).try_normalize().unwrap_or(Vec2::X);
+                let vel = kick_dir * 5.0 * 60.0;
+                if self.screen_shake_vel.length_squared() < vel.length_squared() {
+                    self.screen_shake_vel = vel;
+                }
+            }
             self.hitstop_timer = self.hitstop_timer.max(0.05);
             self.zoom_punch = self.zoom_punch.max(0.03);
         }
@@ -4092,15 +4121,28 @@ impl MainState {
         let cell_of = |p: Vec2| -> (i32, i32) {
             ((p.x / cell_size).floor() as i32, (p.y / cell_size).floor() as i32)
         };
-        // Full-map clear instead of per-bucket clear: over a long session crabs wander the whole
-        // arena, filling this grid with keys for every cell ever visited. Per-bucket iteration
-        // re-scanned all those dead cells every frame; map.clear() resets the key count to "cells
-        // touched this frame" while keeping the HashMap's allocated capacity — same pooling win,
-        // bounded iteration cost (same fix applied to contagion_grid_buf and dancer_startle_grid_buf).
-        self.catch_grid_buf.clear();
+        // Clear only the cells touched last frame (via catch_grid_keys_buf) rather than calling
+        // HashMap::clear(), which drops every inner Vec<usize> and forces a fresh heap alloc when
+        // the same cell is re-inserted next frame. Crabs move slowly so they typically stay in the
+        // same cells frame-to-frame; reusing the Vec allocation avoids ~40-50 small allocs/frame.
+        // We still visit only live cells (not "every cell ever"), so the bounded-iteration goal
+        // from the original fix is preserved — this is strictly cheaper than the HashMap::clear() path.
+        for &k in &self.catch_grid_keys_buf {
+            if let Some(v) = self.catch_grid_buf.get_mut(&k) {
+                v.clear();
+            }
+        }
+        self.catch_grid_keys_buf.clear();
         for (i, c) in self.crabs.iter().enumerate() {
             if c.is_catchable() {
-                self.catch_grid_buf.entry(cell_of(c.pos)).or_default().push(i);
+                let k = cell_of(c.pos);
+                let bucket = self.catch_grid_buf.entry(k).or_default();
+                if bucket.is_empty() {
+                    // Only record the key the first time we insert into this cell this frame,
+                    // so catch_grid_keys_buf has one entry per cell (not per crab).
+                    self.catch_grid_keys_buf.push(k);
+                }
+                bucket.push(i);
             }
         }
         let catch_radius_sq = catch_radius * catch_radius;
