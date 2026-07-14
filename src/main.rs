@@ -1796,7 +1796,7 @@ impl MainState {
         let native_count = self.tide_pools.len().saturating_sub(self.boss_flood_pools);
         let tail_in_kelp = self.tide_pools[..native_count]
             .iter()
-            .any(|(c, r)| tail_pos.distance(*c) < *r);
+            .any(|(c, r)| tail_pos.distance_squared(*c) < *r * *r);
         if !tail_in_kelp {
             return;
         }
@@ -1878,11 +1878,12 @@ impl MainState {
             }
             if c.is_boss() {
                 // A charging King Crab plows through the tail; its bulk gives it a wider reach.
+                let boss_reach = SNAP_COLLIDE_DIST + c.scale * CRAB_SIZE * 0.5;
                 matches!(c.charge_state, BossCharge::Charging(_))
-                    && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST + c.scale * CRAB_SIZE * 0.5
+                    && c.pos.distance_squared(tail_pos) < boss_reach * boss_reach
             } else {
                 (c.fleeing || c.startle_timer > 0.0)
-                    && c.pos.distance(tail_pos) < SNAP_COLLIDE_DIST
+                    && c.pos.distance_squared(tail_pos) < SNAP_COLLIDE_DIST * SNAP_COLLIDE_DIST
             }
         });
         if !hit {
@@ -1989,6 +1990,8 @@ impl MainState {
         const MIN_TRAIN_TO_STEAL: usize = 4; // a little shorter than snap — the Thief is a dedicated threat
         const LATCH_DIST: f32 = CRAB_SIZE * 1.1; // how close a Thief must get to the tail to clamp on
         const UNLATCH_DIST: f32 = CRAB_SIZE * 2.4; // if the tail pulls this far away, the clamp breaks
+        const LATCH_DIST_SQ: f32 = LATCH_DIST * LATCH_DIST;
+        const UNLATCH_DIST_SQ: f32 = UNLATCH_DIST * UNLATCH_DIST;
         const PEEL_INTERVAL: f32 = 1.15; // seconds between links peeled while latched
 
         // Where's the current tail? (highest chain_index). If the train is too short, no Thief can
@@ -2105,7 +2108,7 @@ impl MainState {
                 }
                 continue;
             }
-            let d = c.pos.distance(tail_pos);
+            let d_sq = c.pos.distance_squared(tail_pos);
             if c.latch_timer > 0.0 {
                 // A nearby Magnet overpowers the clamp: the Thief lets go of the tail and is
                 // flung toward the Magnet, joining the loose herd instead of peeling your links.
@@ -2153,7 +2156,7 @@ impl MainState {
                     continue;
                 }
                 // Already clamped. Ride the tail so it visually hangs off the back of the train.
-                if d > UNLATCH_DIST {
+                if d_sq > UNLATCH_DIST_SQ {
                     c.latch_timer = 0.0; // the train outran it — it drops off
                     continue;
                 }
@@ -2169,7 +2172,7 @@ impl MainState {
                     }
                     c.latch_timer = PEEL_INTERVAL; // rearm for the next peel
                 }
-            } else if d < LATCH_DIST {
+            } else if d_sq < LATCH_DIST_SQ {
                 // Just reached the tail — clamp on. First peel comes after a full interval so the
                 // player gets a beat to react to the latch before losing a link.
                 c.latch_timer = PEEL_INTERVAL;
@@ -3443,7 +3446,7 @@ impl MainState {
         let in_fissure = self
             .boss_fissures
             .iter()
-            .any(|(c, r, age)| *age > 0.6 && tail_pos.distance(*c) < *r * reach);
+            .any(|(c, r, age)| *age > 0.6 && tail_pos.distance_squared(*c) < (*r * reach) * (*r * reach));
         if !in_fissure {
             return;
         }
@@ -4642,7 +4645,7 @@ impl MainState {
                     let center = crab.pos + Vec2::splat(crab.scale / 2.0);
                     if tide_current_pools
                         .iter()
-                        .any(|(c, r)| center.distance(*c) < *r)
+                        .any(|(c, r)| center.distance_squared(*c) < *r * *r)
                     {
                         // Positional drift only — the crab's facing is recomputed from its own
                         // velocity below (the flow streaks in the pool carry the direction cue), so we
@@ -4665,7 +4668,7 @@ impl MainState {
                     let center = crab.pos + Vec2::splat(crab.scale / 2.0);
                     if kelp_funnel_pools
                         .iter()
-                        .any(|(c, r)| center.distance(*c) < *r)
+                        .any(|(c, r)| center.distance_squared(*c) < *r * *r)
                     {
                         crab.pos += KELP_FUNNEL_DIR * KELP_FUNNEL_STRENGTH * dt;
                     }
