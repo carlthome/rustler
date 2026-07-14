@@ -2493,10 +2493,12 @@ impl PennedMarcherSystem {
         }
     }
 
-    /// Advance every marcher. Returns the arrival (pos, color) of any that reached the pen this
-    /// frame so the caller can pop a sparkle burst there via the particle system.
-    pub fn update(&mut self, dt: f32) -> Vec<(Vec2, [f32; 3])> {
-        let mut arrivals = Vec::new();
+    /// Advance every marcher. Appends the arrival (pos, color) of any that reached the pen this
+    /// frame into `arrivals` so the caller can pop a sparkle burst there via the particle system.
+    /// Takes a scratch buffer instead of returning a fresh Vec so no heap allocation fires on
+    /// frames when marchers are active — the caller clears it before the call, then iterates it.
+    pub fn update(&mut self, dt: f32, arrivals: &mut Vec<(Vec2, [f32; 3])>) {
+        arrivals.clear();
         for m in self.marchers.iter_mut() {
             if m.delay > 0.0 {
                 m.delay -= dt;
@@ -2510,7 +2512,6 @@ impl PennedMarcherSystem {
         }
         // Drop marchers that have arrived (they popped their sparkle already).
         self.marchers.retain(|m| !m.done);
-        arrivals
     }
 
     /// Current drawn position of a marcher: eased march from start toward the pen with a small

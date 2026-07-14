@@ -627,6 +627,9 @@ struct MainState {
     floating_texts: FloatingTextSystem,
     // Cosmetic parade of just-banked crabs filing into the delivery pen (see try_deliver_train).
     penned_marchers: PennedMarcherSystem,
+    // Scratch buffer for PennedMarcherSystem::update() arrivals — reused every frame while a
+    // parade is active instead of a fresh Vec allocation on each of those frames.
+    marcher_arrivals_buf: Vec<(Vec2, [f32; 3])>,
     combo_count: usize,
     combo_timer: f32,
     textures: GameTextures,                    // Textures for grass, sand, and player
@@ -1288,6 +1291,7 @@ impl MainState {
             stomp_rank: start_stomp_rank,
             floating_texts: FloatingTextSystem::new(),
             penned_marchers: PennedMarcherSystem::new(),
+            marcher_arrivals_buf: Vec::new(),
             combo_count: 0,
             combo_timer: 0.0,
             beat_count: 0,
@@ -9298,10 +9302,15 @@ impl EventHandler for MainState {
         }
         // Advance the pen parade: each marcher that reaches the pen this frame pops a small
         // sparkle burst in its own color, so the train files in one crab at a time.
-        for (pos, color) in self.penned_marchers.update(dt) {
+        // Reuse the persistent arrivals buffer to avoid a Vec allocation every frame while a
+        // parade is active (up to ~2s after each bank, capped at 40 marchers).
+        let mut arrivals = std::mem::take(&mut self.marcher_arrivals_buf);
+        self.penned_marchers.update(dt, &mut arrivals);
+        for &(pos, color) in arrivals.iter() {
             self.particle_system
                 .spawn_catch_effect(pos, color, CrabType::Normal, &mut rand::rng());
         }
+        self.marcher_arrivals_buf = arrivals;
         // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the
         // multiplier tracks recent cashing tempo. Each notch grants a fresh grace window.
         if self.deliver_streak > 0 {
