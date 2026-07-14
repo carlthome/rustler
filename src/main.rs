@@ -695,6 +695,14 @@ struct MainState {
     // Dash effect
     dash_just_fired: bool,
     dash_flash: f32,
+    // Groove Dash — an on-beat dash gathers nearby free crabs toward you as you punch through,
+    // turning a well-timed movement into a routing tool. `groove_dash_timer` counts down while the
+    // gather window is live; `groove_dash_center` is the player center captured at fire time so the
+    // pull ring reads from where the dash started. Off-beat dashes leave this at zero (full escape,
+    // no penalty); only on-beat dashes light it up, so the beat visibly reshapes the herd.
+    groove_dash_timer: f32,
+    groove_dash_center: Vec2,
+    groove_dash_dir: Vec2,
     // Camera shake
     screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     screen_shake_vel: Vec2,     // current shake offset velocity
@@ -961,6 +969,17 @@ struct MainState {
     // charged Magnet — itself rare, born of a snared Golden or a Dancer thump — plus an Armored
     // crab caught in its outer field), so a reused scratch Vec keeps it allocation-free.
     magnet_grind_buf: Vec<(Vec2, bool)>,
+    // Scratch buffers for tide_pulse_burst, reused across pulse calls instead of being freshly
+    // allocated each time a Tide Boss fires. The `pulse_scattered_buf` is the most impactful:
+    // it grows with herd size (one entry per free crab inside the blast radius) and the pulse
+    // fires repeatedly — every ~5s baseline, faster when the boss enrages — in exactly the moments
+    // when screen-shake + fireworks + particles are all firing together. The others are smaller
+    // (at most a handful of Magnets/Goldens/snapped links) but each a genuine Vec::new per pulse.
+    pulse_slingshots_buf: Vec<(Vec2, Vec2)>,
+    pulse_loaded_magnets_buf: Vec<Vec2>,
+    pulse_anchor_positions_buf: Vec<Vec2>,
+    pulse_scattered_buf: Vec<Vec2>,
+    pulse_snapped_positions_buf: Vec<Vec2>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1258,6 +1277,9 @@ impl MainState {
             slam_flash: 0.0,
             dash_just_fired: false,
             dash_flash: 0.0,
+            groove_dash_timer: 0.0,
+            groove_dash_center: Vec2::ZERO,
+            groove_dash_dir: Vec2::ZERO,
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
@@ -1352,6 +1374,11 @@ impl MainState {
             dance_catches_buf: Vec::new(),
             golden_catches_buf: Vec::new(),
             hype_dancer_hits_buf: Vec::new(),
+            pulse_slingshots_buf: Vec::new(),
+            pulse_loaded_magnets_buf: Vec::new(),
+            pulse_anchor_positions_buf: Vec::new(),
+            pulse_scattered_buf: Vec::new(),
+            pulse_snapped_positions_buf: Vec::new(),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -3170,12 +3197,15 @@ impl MainState {
         // wrangling a Golden into position rather than just backing the train out of the ring, and
         // it's a legible, watchable moment (gold streak → boss stagger) for the videos Carl wants.
         const SLINGSHOT_CHIP: f32 = 0.7; // ~a bar of beam per shot — a deliberate setup deserves a real dent
-        let mut slingshots: Vec<(Vec2, Vec2)> = Vec::new(); // (magnet_pos, golden_pos) that fired this pulse
+        // Reused scratch buffers instead of fresh Vec::new() per pulse — see field docs.
+        let mut slingshots = std::mem::take(&mut self.pulse_slingshots_buf);
+        slingshots.clear();
         {
             // A Magnet is "loaded" if it's charged (pinning shine) and a snared Golden sits inside its
             // reach — the same pairing the charged-magnet pass already recognizes elsewhere. Collect
             // loaded pairs the surge washes over, sparing them from the scatter below (they fire, not flee).
-            let mut loaded_magnets: Vec<Vec2> = Vec::new();
+            let mut loaded_magnets = std::mem::take(&mut self.pulse_loaded_magnets_buf);
+            loaded_magnets.clear();
             for m in &self.crabs {
                 if m.caught || m.is_boss() || !m.is_magnet() || m.magnet_charged <= 0.0 {
                     continue;
@@ -3269,11 +3299,13 @@ impl MainState {
                     self.screen_shake = self.screen_shake.max(14.0);
                 }
             }
+            self.pulse_loaded_magnets_buf = loaded_magnets;
         }
 
         // First pass: supercharge every free Magnet the surge washes over, and remember where each
         // anchoring field sits so the shove and the snap below can spare crabs inside it.
-        let mut anchor_positions: Vec<Vec2> = Vec::new();
+        let mut anchor_positions = std::mem::take(&mut self.pulse_anchor_positions_buf);
+        anchor_positions.clear();
         for crab in &mut self.crabs {
             if crab.caught || crab.is_boss() || !crab.is_magnet() {
                 continue;
@@ -3296,7 +3328,8 @@ impl MainState {
 
         // Shove every free crab in range outward and startle it into a flee — unless a Magnet's
         // charged field holds it in place.
-        let mut scattered: Vec<Vec2> = Vec::new();
+        let mut scattered = std::mem::take(&mut self.pulse_scattered_buf);
+        scattered.clear();
         for crab in &mut self.crabs {
             if crab.caught || crab.is_boss() {
                 continue;
@@ -3333,6 +3366,8 @@ impl MainState {
                 [0.95, 0.55, 0.2, 1.0],
             );
         }
+        // Release the borrow on anchor_positions so we can move it back at the end.
+        drop(anchored);
 
         // Knock the tail loose if any caught link sits inside the blast. Mirrors snap_chain_on_panic
         // but triggered by the pulse's reach rather than a physical tail collision. A Magnet anchoring
@@ -3345,7 +3380,8 @@ impl MainState {
         if tail_in_blast && self.chain_count >= 5 && self.chain_snap_cooldown <= 0.0 {
             let keep = self.chain_count.saturating_sub(TIDE_SNAP_LINKS).max(1);
             let snapped = self.chain_count - keep;
-            let mut snapped_positions: Vec<Vec2> = Vec::new();
+            let mut snapped_positions = std::mem::take(&mut self.pulse_snapped_positions_buf);
+            snapped_positions.clear();
             for crab in &mut self.crabs {
                 let Some(ci) = crab.chain_index else { continue };
                 if ci >= keep {
@@ -3373,6 +3409,7 @@ impl MainState {
                 32.0,
                 [0.5, 0.85, 1.0, 1.0],
             );
+            self.pulse_snapped_positions_buf = snapped_positions;
         }
 
         // Feedback for the scattered herd.
@@ -3381,6 +3418,10 @@ impl MainState {
                 self.fear_rings.push((*pos, 0.0));
             }
         }
+        // Hand the scratch buffers back to self so next pulse reuses their capacity.
+        self.pulse_slingshots_buf = slingshots;
+        self.pulse_anchor_positions_buf = anchor_positions;
+        self.pulse_scattered_buf = scattered;
         self.spawn_catch_shockwave(center, [0.3, 0.75, 1.0]);
         self.screen_shake = self.screen_shake.max(16.0);
         let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
@@ -5217,6 +5258,9 @@ impl MainState {
         self.call_pulse = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
+        self.groove_dash_timer = 0.0;
+        self.groove_dash_center = Vec2::ZERO;
+        self.groove_dash_dir = Vec2::ZERO;
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
@@ -5600,7 +5644,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -6074,6 +6118,17 @@ impl MainState {
         if self.beat_wave_active && self.beat_wave_radius > 0.0 {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             draw_beat_wave_ring(ctx, canvas, player_center, self.beat_wave_radius)?;
+        }
+
+        // Groove Dash gather ring — a ring that contracts toward the dash's landing point over the
+        // gather window, reading as the herd being hoovered into your slipstream. Drawn at the point
+        // ahead of the dash (origin + heading*reach) so the tell lines up with where crabs funnel.
+        if self.groove_dash_timer > 0.0 && self.groove_dash_dir.length() > 0.01 {
+            let reach = 170.0;
+            let t = (self.groove_dash_timer / 0.22).clamp(0.0, 1.0); // 1 → 0 over the window
+            let ring_r = 30.0 + reach * t; // contracts inward as the wake finishes
+            let target = self.groove_dash_center + self.groove_dash_dir * reach;
+            draw_beat_wave_ring(ctx, canvas, target, ring_r)?;
         }
 
         // Draw the whistle sonic pulse
@@ -8652,6 +8707,14 @@ impl EventHandler for MainState {
         if self.dash_flash > 0.95 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             self.particle_system.spawn_dash_burst(center, self.last_dir, &mut rand::rng());
+            // A GROOVE DASH (on-beat, gather-wake armed this same frame) throws an extra, brighter
+            // burst so a watcher can instantly tell the timed dash apart from the plain escape dash.
+            if self.groove_dash_timer > 0.0 {
+                let rng = &mut rand::rng();
+                self.particle_system.spawn_dash_burst(center, self.groove_dash_dir, rng);
+                self.particle_system
+                    .spawn_beat_pulse(&[center], 2.0, self.chain_count, rng);
+            }
         }
 
         self.handle_crab_catching(ctx);
@@ -8789,6 +8852,50 @@ impl EventHandler for MainState {
                             crab.vel = toward * speed;
                         }
                     }
+                }
+            }
+        }
+
+        // Groove Dash gather-wake: a dash fired ON the beat drags free crabs into your slipstream as
+        // you punch through, so timing your movement to the beat becomes a live routing tool between
+        // climaxes (not just a juicier escape). Only crabs in front of the dash heading get swept —
+        // it's a directional wake, not the radial whistle — so a groove-savvy player learns to line
+        // up a clump and dash *through* it to hoover it into the train's path. Off-beat dashes never
+        // arm this (see controls.rs), so the plain escape dash is untouched.
+        if self.groove_dash_timer > 0.0 {
+            self.groove_dash_timer = (self.groove_dash_timer - dt).max(0.0);
+            let heading = self.groove_dash_dir;
+            let reach = 170.0;
+            let pull = 340.0;
+            // Follow the LIVE player position, not the captured fire point: the boost punches at
+            // ~30x speed, so the player blows well past any fixed target within a frame or two.
+            // Pulling toward where the player actually is each frame keeps the herd funnelling into
+            // your slipstream instead of toward a spot you've already left. The forward-cone gate
+            // still uses the captured heading so the wake reads as "the crabs I dashed into".
+            let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            if heading.length() > 0.01 {
+                for crab in &mut self.crabs {
+                    if crab.caught {
+                        continue;
+                    }
+                    let to_crab = crab.pos - player_center;
+                    let dist = to_crab.length();
+                    if dist < 1.0 || dist > reach {
+                        continue;
+                    }
+                    // Forward cone: only sweep crabs roughly ahead of the dash (dot > ~0.2), so the
+                    // wake reads as "the herd I dashed into" rather than an omnidirectional yank.
+                    let forward = to_crab.normalize_or_zero().dot(heading);
+                    if forward < 0.2 {
+                        continue;
+                    }
+                    let toward = (player_center - crab.pos).normalize_or_zero();
+                    let proximity = 1.0 - (dist / reach).clamp(0.0, 1.0);
+                    crab.vel = toward * (pull * (0.5 + proximity * 0.5));
+                    crab.spooked_timer = crab.spooked_timer.max(0.5);
+                    // Soothe any panic the sweep catches, like the whistle does — a gather, not a scare.
+                    crab.fleeing = false;
+                    crab.startle_timer = 0.0;
                 }
             }
         }
