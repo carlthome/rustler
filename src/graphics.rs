@@ -332,6 +332,16 @@ thread_local! {
     static VIGNETTE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static VIGNETTE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffer for the orbiting sparkle dots in draw_golden_sparkle. Each Golden
+    // crab draws 5 unit-circle dots (or 5 tighter dots when snared) — all using the same
+    // UNIT_CIRCLE mesh. With multiple Goldens on screen draw_golden_sparkle was issuing 5 individual
+    // canvas.draw() calls per crab per frame. Instead push each sparkle's DrawParam here and flush
+    // the whole batch in one draw_instanced_mesh after all crabs' auras are drawn (alongside
+    // flush_crab_legs / flush_crab_bodies). Identical on-screen output; just one GPU submission
+    // for all sparkles regardless of how many Goldens are in play.
+    static GOLDEN_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static GOLDEN_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -397,6 +407,36 @@ pub fn flush_crab_bodies(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameRe
             }
         };
         CRAB_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Draw (and clear) all orbiting sparkle dots accumulated by draw_golden_sparkle() calls since the
+/// last flush, as a single instanced batch. Every dot uses the same UNIT_CIRCLE mesh scaled by its
+/// DrawParam, so any number of Goldens' sparkles collapse into one GPU submission. Call once per
+/// drawing pass alongside flush_crab_legs() / flush_crab_bodies(). The canvas must already be in
+/// ADD blend mode (the caller sets this for the whole per-crab aura pass).
+pub fn flush_golden_sparkles(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    GOLDEN_SPARKLE_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_circle = match UNIT_CIRCLE.get() {
+            Some(mesh) => mesh.clone(),
+            None => {
+                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                UNIT_CIRCLE.get_or_init(|| mesh).clone()
+            }
+        };
+        GOLDEN_SPARKLE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
@@ -1975,11 +2015,21 @@ pub fn draw_conga_rope(
     // more energetic wiggle, and the segment colors bleed toward white-hot amber so the reward at
     // stake reads directly on the conga train the player is staring at.
     gamble_heat: f32,
+    // 0..1 phase across the current musical bar (0 at the downbeat "1", wrapping back to 0 on the
+    // next downbeat). Drives a bright pulse of light that launches from the head on every downbeat
+    // and sweeps tail-ward down the whole rope over the bar, so the conga train visibly "feels the
+    // beat" as a travelling wave — a legible, watchable rhythm read on top of the rope's own wiggle.
+    bar_phase: f32,
 ) -> ggez::GameResult {
     if chain_links.is_empty() {
         return Ok(());
     }
     let heat = gamble_heat.clamp(0.0, 1.0);
+    // Where along the rope the downbeat pulse currently sits, in link-space (0 = head, total_links
+    // = tail). It sweeps the whole train once per bar. The head fraction of the bar is where the
+    // flash is brightest; we let it run slightly past the tail so it fully exits rather than
+    // lingering, then the next downbeat relaunches it.
+    let pulse_head_links = bar_phase * (chain_links.len() as f32 + 2.0);
 
     let unit_line = match UNIT_LINE.get() {
         Some(mesh) => mesh,
@@ -2092,6 +2142,21 @@ pub fn draw_conga_rope(
                             rr = rr + (1.0 - rr) * hot;
                             gg = gg + (0.72 - gg) * hot;
                             bb = bb + (0.28 - bb) * hot * 0.6;
+                        }
+                        // Downbeat pulse: a bright crest that launched from the head on the last
+                        // downbeat and is sweeping tail-ward. `along` is this micro-segment's
+                        // position down the rope in link units; when the travelling pulse head is
+                        // within a link or so of it, flash it toward white so a band of light rides
+                        // the whole train once per bar. Falls off smoothly on both sides so it reads
+                        // as a moving crest, not a hard edge.
+                        let along = link_idx as f32 + t;
+                        let d = (along - pulse_head_links).abs();
+                        let pulse = (1.0 - d / 1.1).max(0.0);
+                        if pulse > 0.0 {
+                            let p = pulse * pulse; // sharpen the crest
+                            rr = rr + (1.0 - rr) * p;
+                            gg = gg + (1.0 - gg) * p;
+                            bb = bb + (1.0 - bb) * p;
                         }
                         // Matched same-type bond: blend this micro-segment strongly toward the run's
                         // archetype color, pulsing, so the tether reads as "these links belong
@@ -3812,6 +3877,41 @@ pub fn draw_delivery_pen(
                 .scale(Vec2::splat(radius))
                 .color(Color::new(1.0, 0.9, 0.4, f * 0.4)),
         );
+
+        // Cha-ching coin spray — a fountain of gold coin flecks bursting up and out of the pen the
+        // instant a delivery banks, arcing under gravity and falling back like cash literally
+        // spilling out of the corral. A different visual vocabulary from the rings/rays above
+        // (discrete flecks vs. sweeping light), so it reads as "money paid out" rather than adding
+        // to the same glow. Fully deterministic from `flash` (no state, no RNG, no new args): each
+        // fleck follows a fixed launch angle/speed and the same 0→1 flight parameter the flare
+        // decays over, so it's a pure function of the flash timer — just a handful of extra tinted
+        // unit-circle draws, no per-frame allocation.
+        let coin_count = 16;
+        let flight = 1.0 - f; // 0 at the bank instant, 1 as the flare finishes — the arc's progress
+        for i in 0..coin_count {
+            // Fan the launch angles across an upward spread (straight up ± ~60°) so the spray
+            // fountains up and outward rather than sideways into the ground.
+            let t = i as f32 / (coin_count - 1) as f32;
+            let launch = -std::f32::consts::FRAC_PI_2 + (t - 0.5) * 2.1;
+            // Alternate flecks reach further so the fountain has depth instead of a single arc.
+            let reach = radius * (1.1 + 0.7 * ((i * 7 % 5) as f32 / 4.0));
+            let dist = reach * flight;
+            // Parabolic lift: rises then falls back as flight goes 0→1 (peak at the midpoint).
+            let lift = radius * 1.3 * (flight * (1.0 - flight)) * 4.0;
+            let pos = center
+                + Vec2::new(launch.cos() * dist, launch.sin() * dist)
+                + Vec2::new(0.0, -lift);
+            // Coins twinkle between bright gold and pale gold as they spin, and shrink/fade out.
+            let twinkle = 0.75 + 0.25 * (time * 22.0 + i as f32 * 1.7).sin();
+            let coin_r = (2.6 + f * 2.4) * (1.0 - flight * 0.4);
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(coin_r))
+                    .color(Color::new(1.0, 0.85 * twinkle, 0.3 * twinkle, f)),
+            );
+        }
     }
 
     canvas.set_blend_mode(orig_blend);
@@ -5148,25 +5248,29 @@ pub fn draw_golden_sparkle(
     // A ring of sparkle dots orbiting the crab, each twinkling on its own phase so the whole thing
     // shimmers like a coin catching the light. Snared, the orbit pulls in tighter and spins faster,
     // like filings dragged onto the lodestone.
-    let dot = unit_circle(ctx)?;
+    // Instead of issuing 5 individual canvas.draw() calls here (one per dot), push each dot's
+    // DrawParam into GOLDEN_SPARKLE_PARAMS and let flush_golden_sparkles() drain them all as one
+    // instanced batch after every crab's aura pass — identical output, one GPU submission total.
     const SPARKLES: usize = 5;
     let orbit = if snared { size * 0.55 + 4.0 } else { size * 0.75 + 6.0 };
     let spin = if snared { 3.4 } else { 1.6 };
-    for i in 0..SPARKLES {
-        let base = i as f32 / SPARKLES as f32 * std::f32::consts::TAU;
-        let ang = base + time * spin;
-        let twinkle = ((time * 6.0 + i as f32 * 1.7).sin() * 0.5 + 0.5).powf(2.0);
-        let dpos = pos + Vec2::new(ang.cos(), ang.sin()) * orbit;
-        let r = 1.5 + twinkle * 2.5;
+    GOLDEN_SPARKLE_PARAMS.with(|params_cell| {
+        let mut params = params_cell.borrow_mut();
         let (sg, sb) = if snared { (0.75, 0.35) } else { (0.95, 0.55) };
-        canvas.draw(
-            dot,
-            DrawParam::default()
-                .dest(dpos)
-                .scale(Vec2::splat(r))
-                .color(Color::new(1.0, sg, sb, 0.4 + twinkle * 0.6)),
-        );
-    }
+        for i in 0..SPARKLES {
+            let base = i as f32 / SPARKLES as f32 * std::f32::consts::TAU;
+            let ang = base + time * spin;
+            let twinkle = ((time * 6.0 + i as f32 * 1.7).sin() * 0.5 + 0.5).powf(2.0);
+            let dpos = pos + Vec2::new(ang.cos(), ang.sin()) * orbit;
+            let r = 1.5 + twinkle * 2.5;
+            params.push(
+                DrawParam::default()
+                    .dest(dpos)
+                    .scale(Vec2::splat(r))
+                    .color(Color::new(1.0, sg, sb, 0.4 + twinkle * 0.6)),
+            );
+        }
+    });
 
     Ok(())
 }
@@ -5206,6 +5310,65 @@ pub fn draw_splitter_aura(
                 .dest(dpos)
                 .scale(Vec2::splat(2.0 + pulse * 2.0))
                 .color(Color::new(0.5, 1.0, 0.9, 0.45 + pulse * 0.5)),
+        );
+    }
+
+    Ok(())
+}
+
+/// Cleave slash — the blade stroke drawn the instant a Splitter cuts the conga train. Runs from the
+/// last kept front link (`a`) to the split point (`b`), overshooting both ends so it reads as a
+/// swung stroke rather than a connecting line. `flash` is a 1→0 life: the stroke starts long and
+/// bright and retracts/fades as it decays. `gold` tints it gold on a Jackpot Cleave, teal on a plain
+/// cut, matching the shockwave color so the two feedbacks agree.
+pub fn draw_cleave_slash(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    a: Vec2,
+    b: Vec2,
+    flash: f32,
+    gold: bool,
+) -> ggez::GameResult {
+    let mid = (a + b) * 0.5;
+    let mut dir = b - a;
+    if dir.length() < 1.0 {
+        dir = Vec2::new(0.0, 1.0); // degenerate (1-link cut) — slash vertically through the point
+    }
+    let dir = dir.normalize();
+    // Overshoot: the stroke reaches beyond both endpoints early in its life, retracting as it fades
+    // so it snaps through the train. Half-length in pixels.
+    let base = (b - a).length() * 0.5 + 26.0;
+    let half = base * (0.55 + 0.45 * flash);
+    let p0 = mid - dir * half;
+    let p1 = mid + dir * half;
+
+    let (r, g, bl) = if gold { (1.0, 0.88, 0.3) } else { (0.35, 1.0, 0.9) };
+    let perp = Vec2::new(-dir.y, dir.x);
+
+    // Three stacked strokes: a wide dim glow, a mid teal/gold core, a thin white-hot centerline —
+    // so the slash has depth. Two-point lines are cheap geometry; fine to build per fire (rare).
+    let strokes: [(f32, [f32; 4]); 3] = [
+        (7.0, [r, g, bl, 0.30 * flash]),
+        (3.5, [r, g, bl, 0.70 * flash]),
+        (1.4, [1.0, 1.0, 1.0, 0.85 * flash]),
+    ];
+    for (w, col) in strokes {
+        let line = Mesh::new_line(ctx, &[p0, p1], w, Color::new(col[0], col[1], col[2], col[3]))?;
+        canvas.draw(&line, DrawParam::default());
+    }
+
+    // Spark dots kicked perpendicular off the cut line, pushing apart as the flash decays — the two
+    // halves visibly separating along the blade. Fade with the stroke.
+    let dot = unit_circle(ctx)?;
+    let push = (1.0 - flash) * 22.0 + 4.0;
+    for &s in &[-1.0_f32, 1.0] {
+        let dpos = mid + perp * s * push;
+        canvas.draw(
+            dot,
+            DrawParam::default()
+                .dest(dpos)
+                .scale(Vec2::splat(3.0 + 3.0 * flash))
+                .color(Color::new(r, g, bl, 0.6 * flash)),
         );
     }
 

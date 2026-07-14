@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -615,6 +615,16 @@ struct MainState {
     // Set in the beat handler, decayed each frame in update_crabs, folded into catch_radius(), and
     // drawn as a ring at the head that flares on the beat and fades between beats.
     beat_catch_bloom: f32,
+    // Cleave slash — a short-lived blade stroke drawn across the split point the instant a Splitter
+    // cleaves the train, so the "cut" reads as an actual stroke bisecting the conga line rather than
+    // just a shockwave. Endpoints are the last kept front link and the first banked back link (or the
+    // splitter itself); the timer counts 1→0 and drives the slash's length/brightness. `cleave_gold`
+    // gates the color so a Jackpot Cleave slashes gold, a plain cut slashes teal. Set in
+    // on_splitter_cleave, decayed each frame, drawn in the world pass.
+    cleave_flash: f32,
+    cleave_a: Vec2,
+    cleave_b: Vec2,
+    cleave_gold: bool,
     // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
     // bumps, so committing to a lane branches the run into a distinct playstyle (beam boss-hunter,
     // lasso chain-catcher, whistle crowd-control, stomp shell-breaker). Each rank scales the tool
@@ -722,6 +732,13 @@ struct MainState {
     groove_call_pulse: f32,      // 0..1 visual ring pulse, re-kicked on each downbeat while active, decays
     groove_call_center: Vec2,    // player center captured when the call rang out (visual ring origin)
     groove_call_surge: f32,      // 1→0 per-downbeat surge envelope — the herd lunges on the beat, drifts between
+    // Call-and-response ECHO: while a call is live, re-pressing V ON a beat "echoes" the phrase —
+    // extending the response by a bar and ramping the pull. It's a skill layer on the SAME verb, not
+    // a new button: a groove-savvy player keeps the herd streaming by answering the DJ every bar
+    // (nail the phrase → the whole field piles in harder and longer; miss the beat → nothing, and the
+    // call decays on its own). echo_count tracks the phrase length purely for the on-screen readout.
+    groove_call_echo: u32,       // echoes chained this call (0 = the opening call, no echoes yet)
+    groove_call_echo_flash: f32, // 1→0 flash kicked on a clean echo so the answered beat reads
     // Downbeat Slam (G) — the rhythm ultimate. It only fires when the Groove meter is full AND the
     // press lands on the beat: a huge shockwave erupts from the player that yanks every free crab in
     // a wide radius straight into the conga train at once, then drains the whole meter. This is the
@@ -1283,6 +1300,10 @@ impl MainState {
             music_layers,
             catch_radius_upgrade: 0.0,
             beat_catch_bloom: 0.0,
+            cleave_flash: 0.0,
+            cleave_a: Vec2::ZERO,
+            cleave_b: Vec2::ZERO,
+            cleave_gold: false,
             // Runs begin at the permanent starting ranks bought with banked crabs (the spend side
             // of meta-progression), not flat zero.
             beam_rank: start_beam_rank,
@@ -1333,6 +1354,8 @@ impl MainState {
             groove_call_pulse: 0.0,
             groove_call_center: Vec2::ZERO,
             groove_call_surge: 0.0,
+            groove_call_echo: 0,
+            groove_call_echo_flash: 0.0,
             slam_active: 0.0,
             slam_radius: 0.0,
             slam_center: Vec2::ZERO,
@@ -1952,27 +1975,28 @@ impl MainState {
             self.tail_run_len = 0;
             return;
         }
-        // Type of the current tail (highest chain_index). Walk down while neighbors match it.
+        // Build a chain_index → CrabType lookup in one O(n) pass so we don't scan self.crabs
+        // once per position from the tail toward the head (the old approach was O(run × chain)
+        // in the worst case when the whole train is one archetype).
+        // Indices are 0..chain_count and contiguous by invariant; the Vec is sized exactly.
+        let mut by_index: Vec<Option<CrabType>> = vec![None; self.chain_count];
+        for c in &self.crabs {
+            if let Some(ci) = c.chain_index {
+                if ci < by_index.len() {
+                    by_index[ci] = Some(c.crab_type);
+                }
+            }
+        }
         let tail_ci = self.chain_count - 1;
-        let tail_type = self
-            .crabs
-            .iter()
-            .find(|c| c.chain_index == Some(tail_ci))
-            .map(|c| c.crab_type);
-        let Some(tail_type) = tail_type else {
+        let Some(tail_type) = by_index[tail_ci] else {
             self.tail_run_len = 0;
             return;
         };
         let mut run = 1u32;
-        // Walk toward the head: index tail_ci-1, tail_ci-2, … while the link matches the tail type.
         let mut ci = tail_ci;
         while ci > 0 {
             ci -= 1;
-            let matches = self
-                .crabs
-                .iter()
-                .any(|c| c.chain_index == Some(ci) && c.crab_type == tail_type);
-            if matches {
+            if by_index[ci] == Some(tail_type) {
                 run += 1;
             } else {
                 break;
@@ -3179,16 +3203,15 @@ impl MainState {
         //  - and a live tail match-run that the cleave would otherwise silently wipe instead pays a
         //    RUN CASHED bonus — so cleaving mid-run is a real high-variance move, not pure downside.
         // Counted from the same banked-slice scan (chain_index >= keep) done just below.
-        let golden_in_slice = self
-            .crabs
-            .iter()
-            .filter(|c| c.caught && c.chain_index.map_or(false, |ci| ci >= keep) && c.is_golden())
-            .count();
-        let magnet_in_slice = self
-            .crabs
-            .iter()
-            .filter(|c| c.caught && c.chain_index.map_or(false, |ci| ci >= keep) && c.is_magnet())
-            .count();
+        // Count Goldens and Magnets in the banked slice in a single pass — avoids two redundant
+        // full scans over self.crabs for what's essentially the same predicate (caught + in slice).
+        let (golden_in_slice, magnet_in_slice) = self.crabs.iter().fold((0, 0), |(g, m), c| {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= keep) {
+                (g + c.is_golden() as usize, m + c.is_magnet() as usize)
+            } else {
+                (g, m)
+            }
+        });
         // The tail match-run lives at the very back of the train, so the cleave always cashes it in
         // full — capture its length before recompute wipes it. Only counts as a "cashed run" at 3+.
         let cashed_run = if self.tail_run_len >= 3 { self.tail_run_len } else { 0 };
@@ -3236,6 +3259,23 @@ impl MainState {
         // When the cut lands a crossover (a Golden/Magnet in the slice or a live match-run cashed),
         // the moment escalates — gold shockwave, extra fireworks, a bigger kick, and a JACKPOT
         // CLEAVE callout naming what paid — so "oh, THAT happened" reads at a glance.
+        // Cleave slash: a blade stroke from the last kept front link to the split point, drawn for a
+        // few frames so the cut visibly bisects the train. The front endpoint is the link that's now
+        // the new tail (chain_index == keep-1); if there's no front half left, slash from `at` itself.
+        let front_tail = if keep > 0 {
+            self.crabs
+                .iter()
+                .find(|c| c.caught && c.chain_index == Some(keep - 1))
+                .map(|c| c.pos)
+                .unwrap_or(at)
+        } else {
+            at
+        };
+        self.cleave_a = front_tail;
+        self.cleave_b = at;
+        self.cleave_flash = 1.0;
+        self.cleave_gold = jackpot;
+
         let mut rng = rand::rng();
         let (shock_col, extra_bursts) = if jackpot {
             ([1.0, 0.85, 0.25], banked.max(1) + 6)
@@ -4694,11 +4734,31 @@ impl MainState {
                 // speed so fast crabs stampede farther, matching their base pace.
                 if !crab_in_light && crab.surge_timer > 0.0 {
                     let heading = crab.vel.normalize_or_zero();
-                    let dir = if heading == Vec2::ZERO {
+                    let mut dir = if heading == Vec2::ZERO {
                         Vec2::new(crab.facing_angle.cos(), crab.facing_angle.sin())
                     } else {
                         heading
                     };
+                    // On-beat clump: a *calm free crab near the player* doesn't just step along its own
+                    // heading on the "1" — it leans that beat-step toward you, so the loose herd visibly
+                    // gathers around the train on the downbeat and the beat itself reads as an ambient
+                    // routing tool. Deliberately WEAK and short-range: it only bends the surge direction
+                    // (a gentle lean, not a pull toward you every frame), and it falls off past ~320px so
+                    // it's herd texture near the train, not a field-wide stream. That keeps Groove Call (V)
+                    // the real on-demand gather — V is a strong, timed, field-wide surge you press for;
+                    // this is just the calm herd breathing toward you on the beat, strongest right next to
+                    // you and fading to a plain own-heading step for crabs across the map.
+                    const CLUMP_RADIUS: f32 = 320.0;
+                    if distance < CLUMP_RADIUS {
+                        let to_player = (self.player_pos - crab.pos).normalize_or_zero();
+                        if to_player != Vec2::ZERO {
+                            // Lean fraction: up to ~0.45 right next to the player, easing to 0 at the
+                            // radius edge — a bend, never a full redirect, so the crab still mostly keeps
+                            // its own heading and the read stays "the herd drifts your way", not "warps in".
+                            let lean = 0.45 * (1.0 - distance / CLUMP_RADIUS);
+                            dir = (dir * (1.0 - lean) + to_player * lean).normalize_or_zero();
+                        }
+                    }
                     // Ease-out envelope: burst hardest at surge_timer≈1, fading to 0. The shove is a
                     // multiple of the crab's own base speed (crab.speed holds the real magnitude; vel
                     // is a unit heading), so at the peak the crab briefly moves ~3x its normal pace and
@@ -5717,6 +5777,8 @@ impl MainState {
         self.groove_call_strength = 0.0;
         self.groove_call_pulse = 0.0;
         self.groove_call_surge = 0.0;
+        self.groove_call_echo = 0;
+        self.groove_call_echo_flash = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.groove_dash_timer = 0.0;
@@ -6106,7 +6168,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V — tap V again ON each beat to ECHO the call, extending and amplifying the herd flood\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -6497,13 +6559,18 @@ impl MainState {
             // Only the at-risk gain (live multiplier above the banked-safe floor) heats the rope,
             // so cashing out with B visibly cools it — the risk you're carrying reads on the train.
             let gamble_heat = ((self.beat_gamble_mult - self.beat_gamble_locked) / 2.0).clamp(0.0, 1.0);
-            draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity, gamble_heat)
+            // Phase across the current bar (0 at the downbeat, →1 across four beats): drives the
+            // pulse of light that sweeps down the rope once per bar so the train "feels the beat".
+            let within_beat = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
+            let bar_phase = ((self.beat_count % 4) as f32 + within_beat) / 4.0;
+            draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity, gamble_heat, bar_phase)
         })?;
 
         // On-beat catch-bloom ring around the head: shows the scoop window breathing with the bar
         // (widest on the downbeat) so timing a plain grab to the beat becomes a legible, watchable
-        // read. Only meaningful once there's a train to catch onto, so gate on any caught crab.
-        if self.crabs.iter().any(|c| c.caught) {
+        // read. Only meaningful once there's a train to catch onto, so gate on chain_count (the
+        // cached caught-crab count) instead of scanning the whole herd every draw frame.
+        if self.chain_count > 0 {
             let head = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             let catch_radius = self.catch_radius();
             draw_catch_bloom_ring(
@@ -6655,12 +6722,37 @@ impl MainState {
         // Draw the Groove Call broadcast — cyan rings sweeping outward across the field while the
         // field-wide herd lure is answering (re-kicked each downbeat), so the arena-scale summons reads.
         if self.groove_call_pulse > 0.0 {
-            draw_groove_call_ring(ctx, canvas, self.groove_call_center, self.groove_call_pulse, 720.0)?;
+            // Each chained echo reaches the ring further across the field, so a longer call-and-response
+            // phrase reads as the whole arena answering — the watchable payoff for staying in the pocket.
+            let reach = 720.0 + 120.0 * self.groove_call_echo as f32;
+            draw_groove_call_ring(ctx, canvas, self.groove_call_center, self.groove_call_pulse, reach)?;
+            // A brief bright secondary ring snaps out the instant an echo lands, so the answered beat pops.
+            if self.groove_call_echo_flash > 0.0 {
+                draw_groove_call_ring(
+                    ctx,
+                    canvas,
+                    self.groove_call_center,
+                    self.groove_call_echo_flash,
+                    reach * 0.55,
+                )?;
+            }
         }
 
         // Draw the Downbeat Slam shockwave — the big gold rhythm-ultimate blast.
         if self.slam_active > 0.0 && self.slam_radius > 0.0 {
             draw_slam_ring(ctx, canvas, self.slam_center, self.slam_radius, SLAM_RADIUS)?;
+        }
+
+        // Cleave slash — the blade stroke bisecting the train the instant a Splitter cuts it.
+        if self.cleave_flash > 0.0 {
+            draw_cleave_slash(
+                ctx,
+                canvas,
+                self.cleave_a,
+                self.cleave_b,
+                self.cleave_flash,
+                self.cleave_gold,
+            )?;
         }
 
         // Drum Roll telegraph: while holding T and building a charge, pulse tightening rings at the
@@ -7694,6 +7786,10 @@ impl MainState {
                 }
             }
         }
+        // Flush all Golden-sparkle dots that draw_golden_sparkle() deferred into GOLDEN_SPARKLE_PARAMS
+        // during the per-crab aura pass above. Still in ADD blend mode here (restored right after),
+        // so the sparkle dots land in the same blend state they always did.
+        crate::graphics::flush_golden_sparkles(ctx, canvas)?;
         canvas.set_blend_mode(original_blend);
         // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
@@ -8128,11 +8224,49 @@ impl MainState {
     /// (see the pull pass in update_crabs). It's rhythm-quality-gated — a clean on-beat call pulls
     /// harder and lasts longer; an off-beat one barely answers — so timing the call is the skill.
     fn issue_groove_call(&mut self) {
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        // Call-and-response ECHO layer: if a call is already streaming the herd in, a fresh V press
+        // isn't a new call — it's an *answer* to the DJ. Land it on the beat and the phrase grows:
+        // the response extends by a bar and the pull ramps, so keeping the herd flooding in becomes a
+        // per-bar rhythm read rather than a one-shot. Miss the beat and the echo just doesn't take
+        // (a soft denial) — the live call keeps decaying on its own. This deepens the SAME verb.
+        if self.groove_call_bars > 0.0 {
+            if self.on_beat_now() {
+                self.groove_call_echo += 1;
+                // Each clean echo tops the response back up (never past a short cap) and ramps the
+                // pull, so a phrase of good answers piles the whole field in harder and longer.
+                self.groove_call_bars = (self.groove_call_bars + 1.0).min(3.0);
+                self.groove_call_strength = (self.groove_call_strength + 0.35).min(2.0);
+                self.groove_call_surge = 1.0;
+                self.groove_call_pulse = 1.0;
+                self.groove_call_center = center;
+                self.groove_call_echo_flash = 1.0;
+                self.groove = (self.groove + 0.06).min(1.0);
+                self.on_beat_flash = (self.on_beat_flash + 0.25).min(0.7);
+                self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
+                self.floating_texts.spawn(
+                    format!("ECHO x{}! herd floods in", self.groove_call_echo + 1),
+                    center - Vec2::new(110.0, 84.0),
+                    26.0,
+                    [0.5, 1.0, 0.9, 1.0],
+                );
+            } else {
+                // Off-beat answer: the echo doesn't take. Soft denial, no penalty to the live call.
+                self.shop_denied = self.shop_denied.max(0.3);
+                self.floating_texts.spawn(
+                    "echo… (off beat)".to_string(),
+                    center - Vec2::new(60.0, 70.0),
+                    20.0,
+                    [0.6, 0.75, 0.85, 0.85],
+                );
+            }
+            return;
+        }
         if self.groove_call_cooldown > 0.0 {
             return;
         }
-        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         self.groove_call_center = center;
+        self.groove_call_echo = 0;
         // Cooldown spans a few bars so it can't be spammed over the top of its own response.
         self.groove_call_cooldown = 4.0;
         self.groove_call_pulse = 1.0;
@@ -8540,6 +8674,11 @@ impl EventHandler for MainState {
             // accent structure. This block only runs during live gameplay (the update guard returns
             // early on menu/upgrade/game-over screens), so the kick never thumps through menus.
             self.beat_synth.play_kick(ctx, downbeat);
+            // Snare: fades in on the backbeat (beats 2 & 4) while a boss is alive, raising the
+            // stakes audibly as the fight escalates. Fades back out once the boss is caught.
+            let boss_present = self.crabs.iter().any(|c| c.is_boss() && !c.caught);
+            self.beat_synth.update_snare_volume(boss_present);
+            self.beat_synth.play_snare(ctx, self.beat_count);
             // On-beat catch bloom: every beat the train's catch window blooms wide, then settles back
             // before the next hit (decayed in update_crabs). The downbeat blooms hardest so the "1"
             // is the widest scoop of the bar — a groove-savvy player learns to cross a drifting crab
@@ -8595,6 +8734,10 @@ impl EventHandler for MainState {
                     // A small groove tick each bar the call keeps working, so leaning on the beat to
                     // route the herd is itself rewarded like the other rhythm verbs.
                     self.groove = (self.groove + 0.04).min(1.0);
+                    // Call fully spent this bar — reset the echo phrase so the next call starts fresh.
+                    if self.groove_call_bars <= 0.0 {
+                        self.groove_call_echo = 0;
+                    }
                 }
             }
             // The "1" of the bar lands harder than the three beats between it. Kick the accent so
@@ -8655,26 +8798,15 @@ impl EventHandler for MainState {
                     self.on_beat_flash = self.on_beat_flash.max(0.4);
                 }
             }
-            // Beat camera shake — strength grows with chain length. Also collects caught-crab
-            // positions for the beat-pulse sparkle rings just below: both used to run their own
-            // separate `.filter(|c| c.caught)` pass over self.crabs (two counts + a fresh
-            // Vec::collect() every single beat), so fold them into one pass that reuses the
-            // persistent chain_positions_buf (already used later this frame by catch_by_chain,
-            // and not read in between) instead of allocating a new Vec.
+            // Collect caught-crab positions for the beat-pulse sparkle rings just below: both
+            // used to run their own separate `.filter(|c| c.caught)` pass over self.crabs (two
+            // counts + a fresh Vec::collect() every single beat), so fold them into one pass
+            // that reuses the persistent chain_positions_buf (already used later this frame by
+            // catch_by_chain, and not read in between) instead of allocating a new Vec.
             self.chain_positions_buf.clear();
             self.chain_positions_buf
                 .extend(self.crabs.iter().filter(|c| c.caught).map(|c| c.pos));
             let chain_len = self.chain_positions_buf.len();
-            if chain_len > 0 {
-                // The downbeat footfall lands heavier than the between-beats — a bigger, capped
-                // shake so the bar's "1" feels like the whole train stomping down together.
-                let downbeat_scale = if downbeat { 1.5 } else { 1.0 };
-                let shake_mag = (2.0 + chain_len as f32 * 0.8).min(14.0) * downbeat_scale;
-                self.screen_shake = self.screen_shake.max(shake_mag);
-                // Random kick direction
-                let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
-                self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * shake_mag * 60.0;
-            }
             // Beat-pulse sparkle rings from all caught crabs — brighter on the bar downbeat so
             // the "1" of the bar pops harder than the beats between it.
             let pulse_strength = if downbeat { 1.5 } else { 1.0 };
@@ -9262,6 +9394,9 @@ impl EventHandler for MainState {
         if self.groove_call_pulse > 0.0 {
             self.groove_call_pulse = (self.groove_call_pulse - dt * 1.2).max(0.0);
         }
+        if self.groove_call_echo_flash > 0.0 {
+            self.groove_call_echo_flash = (self.groove_call_echo_flash - dt * 2.2).max(0.0);
+        }
         // Downbeat Slam ring erupts outward, then fades. Purely visual — the catch already happened.
         if self.slam_active > 0.0 {
             self.slam_active = (self.slam_active - dt).max(0.0);
@@ -9479,6 +9614,9 @@ impl EventHandler for MainState {
         // rhythmic pulse tied to the bar rather than a permanent radius buff. Tuned to fade over most
         // of a beat at typical tempo so there's a clear on-beat/off-beat difference.
         self.beat_catch_bloom = (self.beat_catch_bloom - 90.0 * dt).max(0.0);
+
+        // Cleave slash fades fast — it's a single stroke, not a lingering aura. ~0.35s life.
+        self.cleave_flash = (self.cleave_flash - 2.9 * dt).max(0.0);
 
         // Groove Dash gather-wake: a dash fired ON the beat drags free crabs into your slipstream as
         // you punch through, so timing your movement to the beat becomes a live routing tool between
