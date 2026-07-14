@@ -6877,6 +6877,19 @@ impl MainState {
         } else {
             0.0
         };
+        // Live "what would this train bank right now" preview shown floating over the pen. Mirrors
+        // the base delivery payout in try_deliver_train — the super-linear triangular sum times the
+        // current combo + Groove-Gamble multipliers — but deliberately EXCLUDES the on-beat PERFECT
+        // and delivery-streak bonuses, since those are only earned at the moment you actually bank on
+        // beat. So it reads as the honest floor ("at least this much"), and timing the bank well pays
+        // even more, keeping the on-beat delivery worth engaging rather than spoiling it.
+        let pen_worth = if self.chain_count > 0 {
+            let n = self.chain_count;
+            let base = (n * (n + 1) / 2) * 3;
+            Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
+        } else {
+            None
+        };
         draw_delivery_pen(
             ctx,
             canvas,
@@ -6886,6 +6899,7 @@ impl MainState {
             self.beat_intensity,
             self.chain_count > 0,
             haul,
+            pen_worth,
             self.deliver_flash,
         )?;
 

@@ -4165,6 +4165,11 @@ pub fn draw_delivery_pen(
     // pen), further boosted as the loaded train closes in on the pen. Drives the "this is about to
     // be a jackpot" telegraph so the payoff builds *before* the bank, not only after it.
     haul: f32,
+    // Live "what would this train bank right now" preview (base payout at the current combo/groove
+    // multipliers, before the on-beat/streak bonuses you only lock in at bank time). `None` when
+    // there's no train loaded. Drawn as a floating gold tag above the pen so "keep building vs. bank
+    // now" becomes a concrete, watchable number that ticks up as the train grows — not a guess.
+    worth: Option<usize>,
     flash: f32,
 ) -> ggez::GameResult {
     let haul = haul.clamp(0.0, 1.0);
@@ -4397,6 +4402,52 @@ pub fn draw_delivery_pen(
     }
 
     canvas.set_blend_mode(orig_blend);
+
+    // Live train-worth tag — the "bank now vs. push your luck" decision made legible. Floats a gold
+    // "≈ N pts" readout above the pen while a train is loaded, so the player can see what the current
+    // conga line is worth without banking to find out. It heats toward hot gold and bobs a little
+    // more urgently as the haul grows (same anticipation curve as the pen itself), so a fat train
+    // visibly advertises a fat payout. The Text is cached and only re-shaped when the value changes.
+    if let Some(worth) = worth {
+        thread_local! {
+            static PEN_WORTH_CACHE: std::cell::RefCell<Option<(usize, Text)>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        PEN_WORTH_CACHE.with(|cache| -> ggez::GameResult {
+            let mut c = cache.borrow_mut();
+            let needs = c.as_ref().map_or(true, |(v, _)| *v != worth);
+            if needs {
+                let mut t = Text::new(format!("≈ {} pts", worth));
+                t.set_scale(20.0);
+                *c = Some((worth, t));
+            }
+            let (_, text) = c.as_ref().unwrap();
+            let w = text.measure(ctx)?.x;
+            // Bob above the pen, a touch livelier the hotter the haul. Sit clear of the fence ring.
+            let bob = (time * (3.5 + haul * 4.0)).sin() * (2.0 + haul * 3.0);
+            let base = center - Vec2::new(w * 0.5, radius + 34.0 - bob);
+            // Go-green when small, heating to hot jackpot gold as the haul fattens — same palette
+            // read as the pen ring, so the number and the corral agree on "this is money".
+            let tr = 0.75 + haul * 0.25;
+            let tg = 1.0 - haul * 0.28;
+            let tb = 0.45 - haul * 0.3;
+            // Soft dark backing so the tag stays legible over bright field/particles.
+            canvas.draw(
+                &text.clone(),
+                DrawParam::default()
+                    .dest(base + Vec2::splat(1.5))
+                    .color(Color::new(0.0, 0.0, 0.0, 0.55)),
+            );
+            canvas.draw(
+                text,
+                DrawParam::default()
+                    .dest(base)
+                    .color(Color::new(tr, tg, tb.max(0.0), 0.95)),
+            );
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 
