@@ -3208,12 +3208,12 @@ impl MainState {
     /// midpoint and instantly BANKS the back half for points (a partial cash-out), leaving the front
     /// half as a shorter, re-indexed train that keeps rolling. It reuses the delivery payout curve
     /// (super-linear triangular sum) so cashing a slice at speed genuinely pays, and the peel-scatter
-    /// juice so the cleave reads on screen. The "bet" is a timing gamble: the cleave only banks if the
-    /// Splitter is caught ON the beat — whiff it and the cut botches, scattering the back half free for
-    /// nothing (see split_train_scatter). So you sacrifice the length and match-run shape you'd built
-    /// for a slice of score IF you nail the beat, or you dodge the Splitter to protect a hot line. Because
-    /// the Splitter itself is the freshly-caught tail, it always lands in the back half (banked on a hit,
-    /// lost on a whiff — you never get to keep the cleaver).
+    /// juice so the cleave reads on screen. The "bet" is a timing gamble: catch the Splitter ON the beat
+    /// for a clean cut (full bank + Jackpot on the slice composition), or OFF the beat for a sloppy cut
+    /// (half bank, no jackpot). So you sacrifice the length and match-run shape you'd built for a slice of
+    /// score — timed to the beat it's the big cash, off-beat it's a mediocre partial, so dodging a
+    /// Splitter to keep building a run you'd only half-cash is a live call. Because the Splitter itself is
+    /// the freshly-caught tail, it always lands in the banked back half (you never keep the cleaver).
     ///
     /// The Splitter also plugs into the archetype crossover web (its whole point — see the roadmap's
     /// "emergent web"): the *composition* of the cleaved back half pays a Jackpot Cleave — Goldens and
@@ -3230,24 +3230,26 @@ impl MainState {
         let keep = self.chain_count / 2;
         let banked = self.chain_count - keep; // links leaving the field into the bank
 
-        // THE BET — an on-beat gate turns the cleave from pure upside into a genuine risk. Catch the
-        // Splitter ON the beat and the back half cashes (the bank + Jackpot payout below). WHIFF the
-        // timing and the cut goes wrong: the back half doesn't bank, it SCATTERS — those links bolt
-        // free (and any tail match-run is lost) for nothing. So grabbing a Splitter mid-run is a real
-        // gamble: nail the beat to cash the slice, or blow it and give the whole back half away. That's
-        // the "risk the train's shape for a bigger payoff" the arrangement game was missing — dodging a
-        // Splitter to protect a hot tail is now a live decision, not something you'd never want to do.
-        if !self.on_beat_now() {
-            self.split_train_scatter(at, keep, banked);
-            return;
-        }
+        // THE BET — an on-beat gate turns the cleave from pure upside into a genuine timing gamble.
+        // Catch the Splitter ON the beat and the cut lands clean: full bank + the Jackpot payout below.
+        // Catch it OFF the beat and the cut is sloppy — the back half still banks, but at HALF value and
+        // with NO jackpot (Goldens/Magnets/match-run in the slice pay nothing extra). So grabbing a
+        // Splitter mid-run is a real decision: time it to the beat to cash the slice for its full
+        // Jackpot worth, or dodge it to keep building a run you'd only half-cash off the beat. We grade
+        // it (half payout) rather than wiping the back half outright, because Splitters are usually
+        // reeled in with pull tools (whistle/beam) where the player commits to the catch but not the
+        // exact frame — a total loss on a ~68%-of-the-bar off-beat window would read as a punish, not a
+        // bet. A soft miss keeps it a live risk/reward read without the feel-bad wipe of half your train.
+        let clean = self.on_beat_now();
 
         // Super-linear payout on the banked slice, matching the delivery curve (crab #n adds n) and
         // riding the same combo + Groove-Gamble multipliers as a normal bank, so cashing a slice
         // mid-hot-streak pays off proportionally — the reward for setting the cleave up on the beat.
         let n = banked;
         let base = (n * (n + 1) / 2) * 3;
-        let mut bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize;
+        // Off-beat cuts cash at half — the timing miss that keeps the cleave a real bet.
+        let clean_mult = if clean { 1.0 } else { 0.5 };
+        let mut bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult * clean_mult).round() as usize;
 
         // Jackpot Cleave — the Splitter's archetype crossover. Which crabs sit in the cleaved back
         // half now *matters*, so the bet is over the train's *composition*, not just its length:
@@ -3281,7 +3283,10 @@ impl MainState {
             0
         };
         let run_bonus = (cashed_run as usize) * (cashed_run as usize) * 5 * combo;
-        let crossover_bonus = golden_bonus + magnet_bonus + run_bonus;
+        // Off-beat, the sloppy cut forfeits the whole Jackpot — no Golden/Magnet/run crossover pays.
+        // A clean on-beat cut is the only way to cash the composition bonus, so the beat is what turns
+        // a good tail into a jackpot rather than just a half-price partial bank.
+        let crossover_bonus = if clean { golden_bonus + magnet_bonus + run_bonus } else { 0 };
         bank += crossover_bonus;
         let jackpot = crossover_bonus > 0;
         self.score += bank;
@@ -3359,7 +3364,7 @@ impl MainState {
             self.zoom_punch = self.zoom_punch.max(0.085);
             self.on_beat_flash = self.on_beat_flash.max(0.4);
             self.groove = (self.groove + 0.15).min(1.0);
-        } else {
+        } else if clean {
             self.floating_texts.spawn(
                 format!("SPLIT BANKED +{}", bank),
                 at - Vec2::new(70.0, 40.0),
@@ -3369,62 +3374,21 @@ impl MainState {
             self.screen_shake = self.screen_shake.max(8.0);
             self.hitstop_timer = self.hitstop_timer.max(0.07);
             self.zoom_punch = self.zoom_punch.max(0.05);
-        }
-    }
-
-    /// The losing side of the cleave bet — a Splitter caught OFF the beat botches the cut. Instead of
-    /// banking, the back half (chain_index >= keep) is set loose: those links detach and BOLT away as
-    /// spooked free crabs (reusing the startle-scatter verb), paying nothing, and any tail match-run
-    /// they carried is wiped. The front half stays. This is the downside that makes catching a Splitter
-    /// a real bet rather than free money — protect a hot tail by dodging it, or commit to the beat.
-    fn split_train_scatter(&mut self, at: Vec2, keep: usize, banked: usize) {
-        // Detach the back half back into free, fleeing crabs — a botched cut sprays them off the tail.
-        for crab in &mut self.crabs {
-            if !(crab.caught && crab.chain_index.map_or(false, |ci| ci >= keep)) {
-                continue;
-            }
-            crab.caught = false;
-            crab.chain_index = None;
-            crab.in_flashlight = false;
-            crab.fleeing = true;
-            crab.startle_timer = 0.45;
-            // Bolt outward from the botched split point at flee speed.
-            let outward = (crab.pos - at).normalize_or_zero();
-            let outward = if outward == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { outward };
-            crab.vel = outward * crab.crab_type.speed_range().end * 1.6;
-            crab.speed = 1.0; // vel now encodes full speed, matching the flee-branch convention
-        }
-        self.chain_count = keep;
-        self.recompute_tail_run(); // the whole back half (incl. any match run) is gone
-
-        // Feedback: a cold red-teal cut, a startle ring, and a legible MISS callout so the whiffed bet
-        // reads on screen just as loudly as a paying one — losing the back half should sting visibly.
-        let front_tail = if keep > 0 {
-            self.crabs
-                .iter()
-                .find(|c| c.caught && c.chain_index == Some(keep - 1))
-                .map(|c| c.pos)
-                .unwrap_or(at)
         } else {
-            at
-        };
-        self.cleave_a = front_tail;
-        self.cleave_b = at;
-        self.cleave_flash = 1.0;
-        self.cleave_gold = false;
-        if self.fear_rings.len() < 32 {
-            self.fear_rings.push((at, 0.0));
+            // Off-beat: the sloppy cut reads as a miss — a dimmer, redder callout naming the lost value
+            // (half bank, no jackpot) so the player learns to time the Splitter to the beat next time.
+            self.floating_texts.spawn(
+                format!("SLOPPY CUT +{}", bank),
+                at - Vec2::new(70.0, 40.0),
+                40.0,
+                [1.0, 0.6, 0.45, 1.0],
+            );
+            self.screen_shake = self.screen_shake.max(5.0);
+            self.hitstop_timer = self.hitstop_timer.max(0.05);
+            self.zoom_punch = self.zoom_punch.max(0.03);
         }
-        self.spawn_catch_shockwave(at, [0.85, 0.25, 0.30]);
-        self.floating_texts.spawn(
-            format!("CLEAVE MISSED! -{} LOST", banked),
-            at - Vec2::new(90.0, 40.0),
-            42.0,
-            [1.0, 0.45, 0.4, 1.0],
-        );
-        self.screen_shake = self.screen_shake.max(9.0);
-        self.hitstop_timer = self.hitstop_timer.max(0.06);
     }
+
 
     /// Crossover payoff — the Magnet-link shine cascade. Fires when a Golden is caught directly
     /// behind a Magnet link in the train (a catch *order* the player sets up on purpose: park a
