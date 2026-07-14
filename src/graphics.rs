@@ -4417,7 +4417,7 @@ pub fn draw_delivery_pen(
             let mut c = cache.borrow_mut();
             let needs = c.as_ref().map_or(true, |(v, _)| *v != worth);
             if needs {
-                let mut t = Text::new(format!("≈ {} pts", worth));
+                let mut t = Text::new(format!("~ {} pts", worth));
                 t.set_scale(20.0);
                 *c = Some((worth, t));
             }
@@ -4433,7 +4433,7 @@ pub fn draw_delivery_pen(
             let tb = 0.45 - haul * 0.3;
             // Soft dark backing so the tag stays legible over bright field/particles.
             canvas.draw(
-                &text.clone(),
+                text,
                 DrawParam::default()
                     .dest(base + Vec2::splat(1.5))
                     .color(Color::new(0.0, 0.0, 0.0, 0.55)),
