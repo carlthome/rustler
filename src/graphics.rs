@@ -1341,6 +1341,29 @@ thread_local! {
 // is essentially free — one batched draw of this many scaled unit-circles.
 const AMBIENT_MOTE_COUNT: usize = 46;
 
+// Per-mote constants derived from the index alone — rx, ry, drift, size. These are computed via
+// sin/floor hashing and never change between frames; recomputing them 46 × 60 = ~2 760 times/sec
+// via transcendentals is pure waste. Cache them in a OnceLock so the math runs exactly once at
+// first draw and is free on every subsequent frame.
+static AMBIENT_MOTE_CONSTS: OnceLock<[(f32, f32, f32, f32); AMBIENT_MOTE_COUNT]> = OnceLock::new();
+
+fn ambient_mote_consts() -> &'static [(f32, f32, f32, f32); AMBIENT_MOTE_COUNT] {
+    AMBIENT_MOTE_CONSTS.get_or_init(|| {
+        let mut arr = [(0.0f32, 0.0f32, 0.0f32, 0.0f32); AMBIENT_MOTE_COUNT];
+        for (i, entry) in arr.iter_mut().enumerate() {
+            let fi = i as f32;
+            let seed_a = (fi * 12.9898).sin() * 43758.547;
+            let seed_b = (fi * 78.233).sin() * 12543.219;
+            let rx = seed_a - seed_a.floor(); // 0..1
+            let ry = seed_b - seed_b.floor(); // 0..1
+            let drift = 9.0 + rx * 14.0;     // px/s, per-mote speed
+            let size = 1.4 + ry * 2.2;
+            *entry = (rx, ry, drift, size);
+        }
+        arr
+    })
+}
+
 /// Draw a field of slow-drifting ambient motes over the ground — sea spray / drifting spores
 /// that give the empty space between the action a sense of depth and living atmosphere, tinted
 /// to the current biome's accent color so each zone still reads distinctly. Purely cosmetic and
@@ -1370,18 +1393,15 @@ pub fn draw_ambient_motes(
     // A gentle upward-and-sideways bob on the beat so the whole field lifts with the pulse.
     let beat_lift = beat.clamp(0.0, 1.0) * 3.0;
 
+    let mote_consts = ambient_mote_consts();
     AMBIENT_MOTE_INSTANCES.with(|cell| -> ggez::GameResult {
         let mut slot = cell.borrow_mut();
         let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        instances.set((0..AMBIENT_MOTE_COUNT).map(|i| {
-            // Deterministic, spread-out per-mote constants from the index — no RNG, no state.
+        instances.set(mote_consts.iter().enumerate().map(|(i, &(rx, ry, drift, size))| {
+            // Per-mote constants (rx, ry, drift, size) are precomputed once at startup (see
+            // ambient_mote_consts()); only the time-varying position and twinkle are computed here.
             let fi = i as f32;
-            let seed_a = (fi * 12.9898).sin() * 43758.547;
-            let seed_b = (fi * 78.233).sin() * 12543.219;
-            let rx = seed_a - seed_a.floor(); // 0..1
-            let ry = seed_b - seed_b.floor(); // 0..1
             // Each mote drifts diagonally and wraps around the screen so the field never empties.
-            let drift = 9.0 + rx * 14.0; // px/s, per-mote speed
             let base_x = rx * width;
             let base_y = ry * height;
             let x = (base_x + time * drift) % width;
@@ -1390,7 +1410,6 @@ pub fn draw_ambient_motes(
             let y = (base_y + time * (drift * 0.35) + sway) % height - beat_lift;
             // Twinkle: a slow per-mote brightness pulse so the field shimmers subtly.
             let twinkle = 0.45 + 0.4 * (time * (0.8 + rx) + fi * 1.7).sin();
-            let size = 1.4 + ry * 2.2;
             let alpha = (0.10 + 0.14 * twinkle) + beat.clamp(0.0, 1.0) * 0.06;
             DrawParam::default()
                 .dest(Vec2::new(x - width / 2.0, y - height / 2.0))
