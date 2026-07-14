@@ -3147,6 +3147,12 @@ impl MainState {
     /// run shape you'd built for an instant slice of score — grab it mid-run to cash out, or dodge it
     /// to protect your line. Because the Splitter itself is the freshly-caught tail, it always lands
     /// in the banked back half (you don't get to keep the cleaver).
+    ///
+    /// The Splitter also plugs into the archetype crossover web (its whole point — see the roadmap's
+    /// "emergent web"): the *composition* of the cleaved back half pays a Jackpot Cleave — Goldens and
+    /// Magnets in the slice, and a live tail match-run the cut cashes, each add a bonus and escalate the
+    /// juice. So the bet is over what the tail is *made of*, not just how long it is: a mid-match-run
+    /// cleave with a Golden parked in back is the big score; a bare cut is the safe partial cash-out.
     fn split_train_bank(&mut self, at: Vec2) {
         // Nothing to cleave a meaningful chunk out of — a 1-2 link train just banks whatever's there.
         if self.chain_count == 0 {
@@ -3162,7 +3168,44 @@ impl MainState {
         // mid-hot-streak pays off proportionally — the reward for setting the cleave up on the beat.
         let n = banked;
         let base = (n * (n + 1) / 2) * 3;
-        let bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize;
+        let mut bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize;
+
+        // Jackpot Cleave — the Splitter's archetype crossover. Which crabs sit in the cleaved back
+        // half now *matters*, so the bet is over the train's *composition*, not just its length:
+        //  - Goldens cashed in the slice pay a gold jackpot (you cleave the chase-reward straight
+        //    into the bank instead of babysitting it to the pen),
+        //  - Magnets in the slice conduct the cash like the shine cascade (a per-slice conduction
+        //    bonus that scales with how much of the train the Magnet field cashes with it),
+        //  - and a live tail match-run that the cleave would otherwise silently wipe instead pays a
+        //    RUN CASHED bonus — so cleaving mid-run is a real high-variance move, not pure downside.
+        // Counted from the same banked-slice scan (chain_index >= keep) done just below.
+        let golden_in_slice = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |ci| ci >= keep) && c.is_golden())
+            .count();
+        let magnet_in_slice = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |ci| ci >= keep) && c.is_magnet())
+            .count();
+        // The tail match-run lives at the very back of the train, so the cleave always cashes it in
+        // full — capture its length before recompute wipes it. Only counts as a "cashed run" at 3+.
+        let cashed_run = if self.tail_run_len >= 3 { self.tail_run_len } else { 0 };
+
+        let combo = self.combo_multiplier();
+        let golden_bonus = golden_in_slice * 120 * combo;
+        // Conduction scales with the whole banked slice, echoing the Magnet+Golden shine cascade:
+        // a Magnet in the cut conducts the cash down every link it leaves with.
+        let magnet_bonus = if magnet_in_slice > 0 {
+            magnet_in_slice * banked.max(1) * 6 * combo
+        } else {
+            0
+        };
+        let run_bonus = (cashed_run as usize) * (cashed_run as usize) * 5 * combo;
+        let crossover_bonus = golden_bonus + magnet_bonus + run_bonus;
+        bank += crossover_bonus;
+        let jackpot = crossover_bonus > 0;
         self.score += bank;
 
         // Collect the banked crabs (chain_index >= keep) so they can parade into the pen like a
@@ -3190,18 +3233,48 @@ impl MainState {
 
         // Feedback: a bright teal cleave-shockwave + fireworks at the split point and a legible
         // SPLIT BANKED callout, so the bet paying off reads on screen. A camera jolt sells the cleave.
+        // When the cut lands a crossover (a Golden/Magnet in the slice or a live match-run cashed),
+        // the moment escalates — gold shockwave, extra fireworks, a bigger kick, and a JACKPOT
+        // CLEAVE callout naming what paid — so "oh, THAT happened" reads at a glance.
         let mut rng = rand::rng();
-        self.particle_system.spawn_milestone_fireworks(at, banked.max(1), &mut rng);
-        self.spawn_catch_shockwave(at, [0.2, 0.95, 0.85]);
-        self.floating_texts.spawn(
-            format!("SPLIT BANKED +{}", bank),
-            at - Vec2::new(70.0, 40.0),
-            44.0,
-            [0.4, 1.0, 0.9, 1.0],
-        );
-        self.screen_shake = self.screen_shake.max(8.0);
-        self.hitstop_timer = self.hitstop_timer.max(0.07);
-        self.zoom_punch = self.zoom_punch.max(0.05);
+        let (shock_col, extra_bursts) = if jackpot {
+            ([1.0, 0.85, 0.25], banked.max(1) + 6)
+        } else {
+            ([0.2, 0.95, 0.85], banked.max(1))
+        };
+        self.particle_system.spawn_milestone_fireworks(at, extra_bursts, &mut rng);
+        self.spawn_catch_shockwave(at, shock_col);
+        if jackpot {
+            // Name the payoff so the crossover reads, biggest contributor first.
+            let tag = if cashed_run > 0 {
+                format!("JACKPOT CLEAVE! RUN x{} +{}", cashed_run, bank)
+            } else if golden_in_slice > 0 {
+                format!("JACKPOT CLEAVE! GOLD +{}", bank)
+            } else {
+                format!("JACKPOT CLEAVE! MAGNET +{}", bank)
+            };
+            self.floating_texts.spawn(
+                tag,
+                at - Vec2::new(110.0, 42.0),
+                46.0,
+                [1.0, 0.9, 0.35, 1.0],
+            );
+            self.screen_shake = self.screen_shake.max(13.0);
+            self.hitstop_timer = self.hitstop_timer.max(0.1);
+            self.zoom_punch = self.zoom_punch.max(0.085);
+            self.on_beat_flash = self.on_beat_flash.max(0.4);
+            self.groove = (self.groove + 0.15).min(1.0);
+        } else {
+            self.floating_texts.spawn(
+                format!("SPLIT BANKED +{}", bank),
+                at - Vec2::new(70.0, 40.0),
+                44.0,
+                [0.4, 1.0, 0.9, 1.0],
+            );
+            self.screen_shake = self.screen_shake.max(8.0);
+            self.hitstop_timer = self.hitstop_timer.max(0.07);
+            self.zoom_punch = self.zoom_punch.max(0.05);
+        }
     }
 
     /// Crossover payoff — the Magnet-link shine cascade. Fires when a Golden is caught directly
