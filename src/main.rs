@@ -887,6 +887,11 @@ struct MainState {
     // catch reads as the crab being *yanked* in rather than just blinking onto the tail. Each entry
     // is (from, to, age 0..1, rgb); brighter/thicker when the catch landed on the beat.
     catch_trails: Vec<(Vec2, Vec2, f32, [f32; 3])>,
+    // Groove-Call answer streaks — comet trails from free crabs toward the player, spawned on each
+    // beat while a call is live so the whole herd visibly *streams in on the beat*. Kept in its own
+    // capped Vec (drawn with draw_catch_trails) so it never starves real catch-snap trails. Same
+    // (from, to, age, color) tuple as catch_trails; ages out on its own decay pass.
+    call_streaks: Vec<(Vec2, Vec2, f32, [f32; 3])>,
     fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     // Tide Boss shockwave pulses — (center, current radius) of each expanding front. Grows to
     // TIDE_PULSE_RADIUS then fades out. Bounded by the one-boss-at-a-time cap plus a hard len guard.
@@ -1475,6 +1480,7 @@ impl MainState {
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             catch_trails: Vec::new(),
+            call_streaks: Vec::new(),
             fear_rings: Vec::new(),
             tide_pulses: Vec::new(),
             zoom_punch: 0.0,
@@ -5961,6 +5967,7 @@ impl MainState {
         self.groove_call_surge = 0.0;
         self.groove_call_echo = 0;
         self.groove_call_echo_flash = 0.0;
+        self.call_streaks.clear();
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.groove_dash_timer = 0.0;
@@ -7097,6 +7104,13 @@ impl MainState {
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
             draw_call_ring(ctx, canvas, self.call_pulse_center, self.call_pulse, 420.0)?;
+        }
+
+        // Groove-Call answer streaks — comet trails from the answering herd toward the player, thrown
+        // on each beat, so the field-wide lunge reads in a single frame. Drawn before the ring so the
+        // ring's broadcast wash sits on top. Reuses the catch-trail draw (additive comet streaks).
+        if !self.call_streaks.is_empty() {
+            draw_catch_trails(ctx, canvas, &self.call_streaks)?;
         }
 
         // Draw the Groove Call broadcast — cyan rings sweeping outward across the field while the
@@ -9129,6 +9143,41 @@ impl EventHandler for MainState {
             if self.groove_call_bars > 0.0 {
                 self.groove_call_surge = if downbeat { 1.0 } else { 0.7 };
                 self.groove_call_pulse = if downbeat { 1.0 } else { 0.7 };
+                // Answer streaks: on each beat of a live call, fling comet trails from free crabs
+                // toward the player so the herd-flood reads as an on-the-beat lunge, not just drift.
+                // The downbeat throws the big group streak (whole field), the between-beats a lighter
+                // one — the "1" is visibly the largest gather. Cyan-tinted to match the call ring.
+                let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                let cap = if downbeat { 40 } else { 22 };
+                // Nearer, more-susceptible crabs streak more strongly; scale count by call quality.
+                let want = ((cap as f32) * self.groove_call_strength.min(1.5)).round() as usize;
+                let start = if downbeat { -0.45 } else { -0.2 }; // downbeat streak reads a touch longer
+                let mut spawned = 0usize;
+                for crab in self.crabs.iter() {
+                    if spawned >= want || self.call_streaks.len() >= 56 {
+                        break;
+                    }
+                    if crab.caught
+                        || crab.is_boss()
+                        || crab.crab_type.whistle_pull() <= 0.0
+                        || crab.is_latched()
+                    {
+                        continue;
+                    }
+                    let d = center - crab.pos;
+                    let dist = d.length();
+                    if dist < 40.0 || dist > 780.0 {
+                        continue; // skip crabs on top of the player or too far to read as answering
+                    }
+                    // A short streak from the crab pointing at the player — a fixed lead so the tail
+                    // shows the answering direction without teleporting the crab.
+                    let head = crab.pos + d.normalize_or_zero() * dist.min(120.0);
+                    // Cyan call tint, brightened by how eagerly this archetype answers.
+                    let eager = crab.crab_type.whistle_pull().min(1.0);
+                    let color = [0.35 + 0.25 * eager, 0.9, 1.0];
+                    self.call_streaks.push((crab.pos, head, start, color));
+                    spawned += 1;
+                }
                 if downbeat {
                     self.groove_call_bars -= 1.0;
                     // A small groove tick each bar the call keeps working, so leaning on the beat to
@@ -9967,6 +10016,15 @@ impl EventHandler for MainState {
         let trail_speed = 3.4; // age 0..1 in ~0.29 seconds
         self.catch_trails.retain_mut(|(_, _, age, _)| {
             *age += dt * trail_speed;
+            *age < 1.0
+        });
+
+        // Groove-Call answer streaks fade a touch slower than a catch snap so the whole herd's
+        // on-beat lunge lingers long enough to read across a big field, but still clears before the
+        // next beat throws a fresh set.
+        let call_streak_speed = 2.2; // age 0..1 in ~0.45s
+        self.call_streaks.retain_mut(|(_, _, age, _)| {
+            *age += dt * call_streak_speed;
             *age < 1.0
         });
 
