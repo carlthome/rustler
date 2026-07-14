@@ -525,6 +525,8 @@ struct MainState {
     // Loaded from career.txt on startup; changed from the title screen customisation menu.
     // Purely visual — never affects gameplay.
     player_skin: PlayerSkin,
+    // Which cosmetic column the title-screen skin picker currently focuses: 0=Hat, 1=FacialHair, 2=Accessory.
+    skin_slot: usize,
     // Campaign world map — `Some` once the player has entered campaign mode from the title.
     // Persists across runs so node completion carries over. `show_world_map` gates whether the
     // map screen is currently visible; `in_campaign` is true during an active campaign run.
@@ -1097,6 +1099,31 @@ impl MainState {
         // than as silence on the first beat.
         let beat_synth = sounds::BeatSynth::new(ctx)?;
 
+        // Detect the actual BPM of action.ogg so the beat grid stays in sync with the music.
+        let detected_beat_interval: f32 = {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            let result = ggez::filesystem::open(ctx, "/action.ogg")
+                .and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| ggez::GameError::CustomError(e.to_string())))
+                .map(|_| bytes);
+            match result {
+                Ok(bytes) => match sounds::detect_bpm_from_ogg(&bytes) {
+                    Some(interval) => {
+                        println!("Detected BPM: {:.1} (interval {:.4}s)", 60.0 / interval, interval);
+                        interval
+                    }
+                    None => {
+                        println!("BPM detection failed, using default {}BPM", (60.0 / BEAT_INTERVAL) as u32);
+                        BEAT_INTERVAL
+                    }
+                },
+                Err(e) => {
+                    println!("Could not read action.ogg for BPM detection: {e}");
+                    BEAT_INTERVAL
+                }
+            }
+        };
+
         // Load both grass and sand textures.
         let textures = GameTextures {
             grass: Image::from_path(ctx, "/grass.png")?,
@@ -1160,7 +1187,7 @@ impl MainState {
         ) = fs::read_to_string("career.txt")
             .ok()
             .and_then(|s| {
-                let mut it = s.split_whitespace();
+                let mut it = s.split_whitespace().take(8);
                 let best = it.next()?.parse::<usize>().ok()?;
                 let total = it.next()?.parse::<usize>().ok()?;
                 let runs = it.next()?.parse::<usize>().ok()?;
@@ -1174,6 +1201,16 @@ impl MainState {
                 Some((best, total, runs, spent, beam, lasso, whistle, stomp))
             })
             .unwrap_or((0, 0, 0, 0, 0, 0, 0, 0));
+
+        // Load the saved cosmetic loadout — stored as its own `skin ...` line in career.txt.
+        let player_skin = fs::read_to_string("career.txt")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.trim_start().starts_with("skin "))
+                    .map(|l| PlayerSkin::from_save_line(l.trim()))
+            })
+            .unwrap_or_else(PlayerSkin::default_skin);
 
         let crabs: Vec<EnemyCrab> = [].to_vec();
 
@@ -1243,7 +1280,8 @@ impl MainState {
             beat_synth,
             flashlight,
             show_instructions: true,
-            player_skin: PlayerSkin::default_skin(),
+            player_skin,
+            skin_slot: 0,
             world_map: None,
             show_world_map: false,
             in_campaign: false,
@@ -1284,8 +1322,8 @@ impl MainState {
             subtitle,
             position_history,
             chain_count: 0,
-            beat_timer: BEAT_INTERVAL,
-            beat_interval: BEAT_INTERVAL,
+            beat_timer: detected_beat_interval,
+            beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
             music_intensity: 0.0,
             on_beat_flash: 0.0,
@@ -5649,7 +5687,7 @@ impl MainState {
         let _ = fs::write(
             "career.txt",
             format!(
-                "{} {} {} {} {} {} {} {}",
+                "{} {} {} {} {} {} {} {}\n{}",
                 self.career_best_score,
                 self.career_total_score,
                 self.career_runs,
@@ -5658,6 +5696,7 @@ impl MainState {
                 self.start_lasso_rank,
                 self.start_whistle_rank,
                 self.start_stomp_rank,
+                self.player_skin.to_save_line(),
             ),
         );
     }

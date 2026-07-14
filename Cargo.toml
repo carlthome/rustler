@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 crevice = "0.13.0"
 ggez = "0.9.3"
+lewton = "0.10"
 rand = "0.9.1"
 
 [[bin]]

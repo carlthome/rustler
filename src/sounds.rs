@@ -13,6 +13,117 @@
 use ggez::audio::{Source, SoundData};
 use ggez::{Context, GameResult};
 
+/// Detect the dominant BPM from a raw OGG file and return the beat interval in seconds.
+///
+/// Algorithm:
+/// 1. Decode up to 30 s of OGG/Vorbis to f32 PCM with lewton.
+/// 2. Mix to mono, then compute a 100 Hz onset-strength signal: sliding window RMS energy
+///    (window ~20 ms, hop ~10 ms), positive-only first derivative (half-wave rectified).
+/// 3. Autocorrelate the onset envelope across lag ranges corresponding to 60–180 BPM.
+/// 4. Return `Some(60.0 / bpm)` for the dominant peak, or `None` if detection is uncertain.
+pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
+    use lewton::inside_ogg::OggStreamReader;
+    use std::io::Cursor;
+
+    let cursor = Cursor::new(ogg_bytes);
+    let mut reader = OggStreamReader::new(cursor).ok()?;
+    let sample_rate = reader.ident_hdr.audio_sample_rate as f32;
+    let channels = reader.ident_hdr.audio_channels as usize;
+
+    // Decode up to 30 seconds of audio into interleaved i16 samples.
+    let max_samples = (sample_rate as usize) * 30 * channels;
+    let mut interleaved: Vec<f32> = Vec::with_capacity(max_samples);
+    while interleaved.len() < max_samples {
+        match reader.read_dec_packet_itl() {
+            Ok(Some(pkt)) => {
+                for s in pkt {
+                    interleaved.push(s as f32 / 32768.0);
+                    if interleaved.len() >= max_samples {
+                        break;
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    if interleaved.is_empty() {
+        return None;
+    }
+
+    // Mix to mono.
+    let n_frames = interleaved.len() / channels;
+    let mut mono: Vec<f32> = Vec::with_capacity(n_frames);
+    for i in 0..n_frames {
+        let mut sum = 0.0_f32;
+        for c in 0..channels {
+            sum += interleaved[i * channels + c];
+        }
+        mono.push(sum / channels as f32);
+    }
+
+    // Build onset-strength signal at ~100 Hz.
+    // Window = 20 ms, hop = 10 ms.
+    let hop = (sample_rate * 0.010).round() as usize;
+    let win = (sample_rate * 0.020).round() as usize;
+    let onset_rate = sample_rate / hop as f32; // ~100 Hz
+
+    let n_frames_total = mono.len();
+    let n_onset = (n_frames_total.saturating_sub(win)) / hop;
+    if n_onset < 4 {
+        return None;
+    }
+
+    let mut energy: Vec<f32> = Vec::with_capacity(n_onset);
+    for k in 0..n_onset {
+        let start = k * hop;
+        let end = (start + win).min(mono.len());
+        let rms: f32 = mono[start..end].iter().map(|x| x * x).sum::<f32>() / (end - start) as f32;
+        energy.push(rms.sqrt());
+    }
+
+    // Half-wave rectified first derivative = onset strength.
+    let mut onset: Vec<f32> = vec![0.0; energy.len()];
+    for i in 1..energy.len() {
+        let d = energy[i] - energy[i - 1];
+        onset[i] = if d > 0.0 { d } else { 0.0 };
+    }
+
+    // Autocorrelation over lags corresponding to 60–180 BPM.
+    let lag_min = (onset_rate * 60.0 / 180.0).round() as usize; // 180 BPM
+    let lag_max = (onset_rate * 60.0 / 60.0).round() as usize;  // 60 BPM
+    if lag_max >= onset.len() {
+        return None;
+    }
+
+    let n_ac = onset.len();
+    let mut best_lag = lag_min;
+    let mut best_val = f32::NEG_INFINITY;
+    for lag in lag_min..=lag_max.min(n_ac - 1) {
+        let mut ac = 0.0_f32;
+        let n_sum = n_ac - lag;
+        for i in 0..n_sum {
+            ac += onset[i] * onset[i + lag];
+        }
+        ac /= n_sum as f32;
+        if ac > best_val {
+            best_val = ac;
+            best_lag = lag;
+        }
+    }
+
+    if best_val <= 0.0 {
+        return None;
+    }
+
+    let bpm = 60.0 * onset_rate / best_lag as f32;
+    // Sanity check: clamp to plausible range.
+    if bpm < 55.0 || bpm > 190.0 {
+        return None;
+    }
+    Some(60.0 / bpm)
+}
+
 const SAMPLE_RATE: u32 = 44_100;
 
 /// Synthesise a single kick-drum hit as a mono 16-bit WAV byte buffer.
