@@ -4765,8 +4765,13 @@ impl MainState {
                         && distance < DOWNBEAT_PULL_RADIUS
                     {
                         let toward = (downbeat_pull_center - crab.pos).normalize_or_zero();
-                        let nudge = crab.crab_type.speed_range().start * 0.6 * downbeat_pull;
-                        crab.vel = crab.vel.lerp(toward * nudge, 0.08 * downbeat_pull);
+                        // Pull toward the crab's *top* speed so the clump is visible on the "1" — a
+                        // real routing tug, not a decorative ring. The flee/light passes still win
+                        // when they apply (this is the wander `else` branch only), and the gates
+                        // above (free, un-startled, un-charmed, un-snared) are what keep it from
+                        // becoming an autocatcher, not the magnitude — so it can be assertive.
+                        let nudge = crab.crab_type.speed_range().end * 1.1 * downbeat_pull;
+                        crab.vel = crab.vel.lerp(toward * nudge, 0.35 * downbeat_pull);
                     }
                 }
 
