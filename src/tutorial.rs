@@ -9,9 +9,9 @@
 //! `passed()` a plain function of counters (no rendering, no input polling) is what makes that
 //! future harness trivial to wire, so resist entangling it with draw/input state.
 //!
-//! This slice ships three scenarios (beat-timing, chain-and-deliver, shell-cracking). More live
-//! here as their own `TutorialKind` variants; each stays a tiny sandbox with one card and one
-//! counter.
+//! This slice ships four scenarios (beat-timing, chain-and-deliver, shell-cracking, lasso-grab).
+//! More live here as their own `TutorialKind` variants; each stays a tiny sandbox with one card
+//! and one counter.
 
 /// Which mechanic a tutorial session teaches. One variant per major mechanic. Each is a tiny
 /// scripted sandbox with one instruction card and one pure boolean pass predicate.
@@ -25,6 +25,9 @@ pub enum TutorialKind {
     /// Ground-pound the Stomp (R) to crack Armored shells the beam can't wear down: teaches the
     /// right tool for a hard target — pick the verb the herd needs, not just the beam.
     ShellCrack,
+    /// Throw the lasso (left click) to snatch crabs at range: teaches that you don't have to walk
+    /// onto a crab to catch it — fling the rope out and reel one in from across the field.
+    LassoGrab,
 }
 
 /// A live, scripted tutorial session. It runs the *normal* update/draw path (the beat clock and
@@ -43,6 +46,10 @@ pub struct Tutorial {
     /// shell-crack branch in the Stomp loop in `update`, guarded by the tutorial being active — so
     /// it counts real Stomp cracks, not beam wear-down.
     pub shells_cracked: u32,
+    /// Crabs snatched by a thrown lasso so far this session (LassoGrab only). Bumped at the
+    /// lasso-catch branch in `update`, guarded by the tutorial being active — so it counts real
+    /// rope grabs, not walk-into-them beam catches.
+    pub lasso_catches: u32,
     /// How many of the session's tracked action (on-beat catches, or deliveries) clear it.
     pub target: u32,
     /// Eases 0->1 once the pass condition trips, so the draw layer can play a "PASSED!" beat
@@ -61,12 +68,14 @@ impl Tutorial {
             TutorialKind::BeatTiming => 3,
             TutorialKind::ChainDeliver => 2,
             TutorialKind::ShellCrack => 3,
+            TutorialKind::LassoGrab => 3,
         };
         Tutorial {
             kind,
             on_beat_catches: 0,
             deliveries: 0,
             shells_cracked: 0,
+            lasso_catches: 0,
             target,
             pass_glow: 0.0,
             completed: false,
@@ -80,6 +89,7 @@ impl Tutorial {
             TutorialKind::BeatTiming => "How to Play — Catching on the Beat",
             TutorialKind::ChainDeliver => "How to Play — Building & Banking a Train",
             TutorialKind::ShellCrack => "How to Play — Cracking Armored Shells",
+            TutorialKind::LassoGrab => "How to Play — Throwing the Lasso",
         }
     }
 
@@ -98,6 +108,10 @@ impl Tutorial {
                 "These Armored crabs shrug off your beam. Get close and press R to STOMP — the\n\
                  shockwave cracks their shells wide open. Crack 3 shells to finish."
             }
+            TutorialKind::LassoGrab => {
+                "These crabs are too far to walk to. Left-click near one to fling your lasso and\n\
+                 snatch it from across the field. Rope in 3 crabs to finish."
+            }
         }
     }
 
@@ -109,6 +123,7 @@ impl Tutorial {
             TutorialKind::BeatTiming => self.on_beat_catches >= self.target,
             TutorialKind::ChainDeliver => self.deliveries >= self.target,
             TutorialKind::ShellCrack => self.shells_cracked >= self.target,
+            TutorialKind::LassoGrab => self.lasso_catches >= self.target,
         }
     }
 
@@ -128,6 +143,11 @@ impl Tutorial {
             TutorialKind::ShellCrack => format!(
                 "Shells cracked: {} / {}",
                 self.shells_cracked.min(self.target),
+                self.target
+            ),
+            TutorialKind::LassoGrab => format!(
+                "Lasso grabs: {} / {}",
+                self.lasso_catches.min(self.target),
                 self.target
             ),
         }
@@ -230,6 +250,41 @@ mod tests {
     fn shell_crack_progress_line_format() {
         let mut t = Tutorial::new(TutorialKind::ShellCrack);
         t.shells_cracked = 2;
+        let line = t.progress_line();
+        assert!(line.contains('2'), "progress line should show current count");
+        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+    }
+
+    #[test]
+    fn lasso_grab_not_passed_before_target() {
+        let mut t = Tutorial::new(TutorialKind::LassoGrab);
+        assert!(!t.passed());
+        t.lasso_catches = t.target - 1;
+        assert!(!t.passed());
+    }
+
+    #[test]
+    fn lasso_grab_passes_at_target() {
+        let mut t = Tutorial::new(TutorialKind::LassoGrab);
+        t.lasso_catches = t.target;
+        assert!(t.passed());
+    }
+
+    #[test]
+    fn lasso_grab_ignores_other_counters() {
+        // A lasso session must not be cleared by walking into crabs or banking — only rope grabs
+        // count, so the learner actually practices the throw instead of leaning on the beam.
+        let mut t = Tutorial::new(TutorialKind::LassoGrab);
+        t.on_beat_catches = 99;
+        t.deliveries = 99;
+        t.shells_cracked = 99;
+        assert!(!t.passed());
+    }
+
+    #[test]
+    fn lasso_grab_progress_line_format() {
+        let mut t = Tutorial::new(TutorialKind::LassoGrab);
+        t.lasso_catches = 2;
         let line = t.progress_line();
         assert!(line.contains('2'), "progress line should show current count");
         assert!(line.contains(&t.target.to_string()), "progress line should show target");

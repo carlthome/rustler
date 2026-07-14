@@ -160,7 +160,13 @@ pub fn spawn_tutorial_crabs(
 ) -> Vec<EnemyCrab> {
     let (width, height) = area;
     let center = Vec2::new(width * 0.5, height * 0.5);
-    let radius = width.min(height) * 0.28;
+    // The LassoGrab lesson wants crabs out of walking reach so the learner has to fling the rope
+    // rather than stroll onto them — push them out to a wide ring. Every other scenario keeps the
+    // calm mid-ring where crabs are a short, unhurried stroll away.
+    let radius = match kind {
+        TutorialKind::LassoGrab => width.min(height) * 0.42,
+        _ => width.min(height) * 0.28,
+    };
     // The ShellCrack lesson needs a hard target the beam can't clear, so it spawns Armored crabs
     // (shell HP from initial_shell) that the learner must Stomp open. Every other scenario uses a
     // calm ring of shell-less Normals easy to intercept on the beat or chain into a train.

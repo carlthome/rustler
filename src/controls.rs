@@ -210,7 +210,7 @@ pub fn handle_key_down_event(
             }
             // "How to Play": drop into an opt-in, scripted tutorial sandbox instead of a real run.
             // Each key launches a different mechanic lesson: H = beat timing, J = chain & deliver,
-            // K = cracking Armored shells with the Stomp.
+            // K = cracking Armored shells with the Stomp, L = throwing the lasso.
             if key == KeyCode::H {
                 state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
                 return true;
@@ -221,6 +221,10 @@ pub fn handle_key_down_event(
             }
             if key == KeyCode::K {
                 state.enter_tutorial(crate::tutorial::TutorialKind::ShellCrack);
+                return true;
+            }
+            if key == KeyCode::L {
+                state.enter_tutorial(crate::tutorial::TutorialKind::LassoGrab);
                 return true;
             }
             // Perk shop: spend banked crabs on permanent starting tool ranks before a run.

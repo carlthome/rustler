@@ -314,6 +314,34 @@ thread_local! {
         Text, f32,         // hint text + width
         [(Text, f32, Text, f32, Text, f32, Text, f32, Text, f32); 4], // per card: icon, name, rank, desc, key (each + width)
     )>> = RefCell::new(None);
+
+    // draw_tutorial_overlay was building a fresh Mesh::new_rounded_rectangle (GPU buffer upload)
+    // plus 4-6 fresh Text objects (glyph-shaping passes) on every single frame a tutorial session
+    // is active — the same unbounded per-frame-Text antipattern fixed for every other overlay/HUD
+    // element. The card backdrop mesh only depends on (width, height); the static texts (title,
+    // instruction, hint, "PASSED!") never change while the session is open; only the progress
+    // counter text changes, and only a handful of times (once per catch/delivery). Cache them
+    // all: mesh keyed by (width, height) bit-patterns (same as MENU_PANEL_CACHE), static texts
+    // cached once per tutorial kind (keyed by the title &'static str so switching kinds
+    // automatically invalidates), progress text keyed by the counter value.
+    // Layout: (title_key, width_bits, height_bits, card_mesh,
+    //          title_text, title_w, title_h,
+    //          instr_text, instr_w,
+    //          hint_text, hint_w,
+    //          passed_text, passed_w, passed_h,
+    //          progress_key, prog_text, prog_w)
+    #[allow(clippy::type_complexity)]
+    static TUTORIAL_OVERLAY_CACHE: RefCell<Option<(
+        &'static str,        // tutorial kind key (title string — changes only when kind changes)
+        u32, u32,            // (width, height) bit-patterns for the card mesh
+        Mesh,                // rounded-rect card backdrop
+        Text, f32, f32,      // title text + (w, h)
+        Text, f32,           // instruction text + w
+        Text, f32,           // hint text + w
+        Text, f32, f32,      // "PASSED!" text + (w, h)
+        u32,                 // progress counter key (counter value)
+        Text, f32,           // progress line text + w
+    )>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -5625,7 +5653,7 @@ impl MainState {
         let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — Beat Timing    J  — Chain & Deliver    K  — Crack Shells    C  — Campaign");
+                let mut prompt = Text::new("Press  H  — Beat Timing    J  — Chain & Deliver    K  — Crack Shells    L  — Lasso    C  — Campaign");
                 prompt.set_scale(22.0);
                 let w = prompt.measure(ctx)?.x;
                 *cache = Some((prompt, w));
@@ -6837,8 +6865,11 @@ impl MainState {
 
     /// Draw the tutorial session's instruction card (title + what-to-do + live progress) pinned to
     /// the top of the screen, plus a big centered "PASSED!" flourish once the session is cleared.
-    /// Text is rebuilt each frame here (cheap: three short strings, only ever on-screen during an
-    /// opt-in tutorial, never during a scored run) so the progress line can update live.
+    /// Previously rebuilt a Mesh::new_rounded_rectangle (GPU buffer) + 4-6 Text objects (glyph-
+    /// shaping) every single frame the tutorial was active. Now uses TUTORIAL_OVERLAY_CACHE:
+    /// — the card mesh is keyed by (width, height) bit-patterns (same as MENU_PANEL_CACHE)
+    /// — the static texts (title, instruction, "Esc" hint, "PASSED!") are cached once per kind
+    /// — the progress counter text rebuilds only when the counter actually advances (once per catch)
     fn draw_tutorial_overlay(
         &self,
         ctx: &mut Context,
@@ -6851,83 +6882,132 @@ impl MainState {
             None => return Ok(()),
         };
 
-        // Translucent card backdrop across the top so the instruction text reads over any terrain.
-        let card = Mesh::new_rounded_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(width * 0.5 - 360.0, 24.0, 720.0, 132.0),
-            14.0,
-            Color::from_rgba(8, 14, 26, 200),
-        )?;
-        canvas.draw(&card, DrawParam::default());
+        // The counter that drives the progress line. Different fields track progress per kind.
+        let progress_key = match t.kind {
+            crate::tutorial::TutorialKind::BeatTiming  => t.on_beat_catches,
+            crate::tutorial::TutorialKind::ChainDeliver => t.deliveries,
+            crate::tutorial::TutorialKind::ShellCrack  => t.shells_cracked,
+        };
+        let title_key = t.title(); // &'static str — also serves as the kind discriminant
+        let wbits = width.to_bits();
+        let hbits = height.to_bits();
 
-        let mut title = Text::new(t.title());
-        title.set_scale(30.0);
-        let tdims: Vec2 = title.measure(ctx)?.into();
-        canvas.draw(
-            &title,
-            DrawParam::default()
-                .dest(Vec2::new(width * 0.5 - tdims.x / 2.0, 38.0))
-                .color(Color::from_rgb(255, 226, 120)),
-        );
+        TUTORIAL_OVERLAY_CACHE.with(|cell| -> ggez::GameResult {
+            let mut cache = cell.borrow_mut();
 
-        let mut instr = Text::new(t.instruction());
-        instr.set_scale(20.0);
-        let idims: Vec2 = instr.measure(ctx)?.into();
-        canvas.draw(
-            &instr,
-            DrawParam::default()
-                .dest(Vec2::new(width * 0.5 - idims.x / 2.0, 76.0))
-                .color(Color::from_rgb(220, 232, 245)),
-        );
+            // Invalidate if kind changed, screen resized, or progress counter advanced.
+            let stale = match &*cache {
+                None => true,
+                Some((tk, wb, hb, _, _, _, _, _, _, _, _, _, _, _, pk, _, _)) => {
+                    *tk != title_key || *wb != wbits || *hb != hbits || *pk != progress_key
+                }
+            };
 
-        let mut prog = Text::new(t.progress_line());
-        prog.set_scale(24.0);
-        let pdims: Vec2 = prog.measure(ctx)?.into();
-        canvas.draw(
-            &prog,
-            DrawParam::default()
-                .dest(Vec2::new(width * 0.5 - pdims.x / 2.0, 124.0))
-                .color(Color::from_rgb(120, 255, 150)),
-        );
+            if stale {
+                let card = Mesh::new_rounded_rectangle(
+                    ctx,
+                    ggez::graphics::DrawMode::fill(),
+                    Rect::new(width * 0.5 - 360.0, 24.0, 720.0, 132.0),
+                    14.0,
+                    Color::from_rgba(8, 14, 26, 200),
+                )?;
 
-        // Bottom hint so a player who wants out knows how — this is opt-in teaching, no gating.
-        let mut hint = Text::new("Esc — back to menu");
-        hint.set_scale(18.0);
-        let hdims: Vec2 = hint.measure(ctx)?.into();
-        canvas.draw(
-            &hint,
-            DrawParam::default()
-                .dest(Vec2::new(width * 0.5 - hdims.x / 2.0, height - 40.0))
-                .color(Color::from_rgba(200, 210, 225, 180)),
-        );
+                let mut title_text = Text::new(t.title());
+                title_text.set_scale(30.0);
+                let tdims: Vec2 = title_text.measure(ctx)?.into();
 
-        // Cleared: a big pulsing "PASSED!" centered while the exit hold runs out.
-        if t.completed {
-            let scale = 1.0 + t.pass_glow * 0.15;
-            let mut passed = Text::new("PASSED!");
-            passed.set_scale(80.0);
-            let dims: Vec2 = passed.measure(ctx)?.into();
-            let dest = Vec2::new(
-                width / 2.0 - dims.x * scale / 2.0,
-                height * 0.42 - dims.y * scale / 2.0,
-            );
+                let mut instr_text = Text::new(t.instruction());
+                instr_text.set_scale(20.0);
+                let idims: Vec2 = instr_text.measure(ctx)?.into();
+
+                let mut hint_text = Text::new("Esc — back to menu");
+                hint_text.set_scale(18.0);
+                let hw = hint_text.measure(ctx).map(|m| m.x).unwrap_or(0.0);
+
+                let mut passed_text = Text::new("PASSED!");
+                passed_text.set_scale(80.0);
+                let pdims: Vec2 = passed_text.measure(ctx)?.into();
+
+                let prog_str = t.progress_line();
+                let mut prog_text = Text::new(prog_str);
+                prog_text.set_scale(24.0);
+                let prog_w = prog_text.measure(ctx).map(|m| m.x).unwrap_or(0.0);
+
+                *cache = Some((
+                    title_key, wbits, hbits, card,
+                    title_text, tdims.x, tdims.y,
+                    instr_text, idims.x,
+                    hint_text, hw,
+                    passed_text, pdims.x, pdims.y,
+                    progress_key, prog_text, prog_w,
+                ));
+            }
+
+            let (_, _, _, card,
+                 title_text, tw, _,
+                 instr_text, iw,
+                 hint_text, hw,
+                 passed_text, pasw, pash,
+                 _, prog_text, prog_w) = cache.as_ref().unwrap();
+
+            // Translucent card backdrop across the top so the instruction text reads over any terrain.
+            canvas.draw(card, DrawParam::default());
+
             canvas.draw(
-                &passed,
+                title_text,
                 DrawParam::default()
-                    .dest(dest + Vec2::splat(3.0))
-                    .scale(Vec2::splat(scale))
-                    .color(Color::from_rgba(4, 20, 8, 180)),
+                    .dest(Vec2::new(width * 0.5 - tw / 2.0, 38.0))
+                    .color(Color::from_rgb(255, 226, 120)),
             );
+
             canvas.draw(
-                &passed,
+                instr_text,
                 DrawParam::default()
-                    .dest(dest)
-                    .scale(Vec2::splat(scale))
-                    .color(Color::from_rgb(110, 255, 140)),
+                    .dest(Vec2::new(width * 0.5 - iw / 2.0, 76.0))
+                    .color(Color::from_rgb(220, 232, 245)),
             );
-        }
-        Ok(())
+
+            canvas.draw(
+                prog_text,
+                DrawParam::default()
+                    .dest(Vec2::new(width * 0.5 - prog_w / 2.0, 124.0))
+                    .color(Color::from_rgb(120, 255, 150)),
+            );
+
+            // Bottom hint so a player who wants out knows how — this is opt-in teaching, no gating.
+            canvas.draw(
+                hint_text,
+                DrawParam::default()
+                    .dest(Vec2::new(width * 0.5 - hw / 2.0, height - 40.0))
+                    .color(Color::from_rgba(200, 210, 225, 180)),
+            );
+
+            // Cleared: a big pulsing "PASSED!" centered while the exit hold runs out.
+            // `pass_glow` and `scale` are per-frame so they stay outside the cache.
+            if t.completed {
+                let scale = 1.0 + t.pass_glow * 0.15;
+                let dest = Vec2::new(
+                    width / 2.0 - pasw * scale / 2.0,
+                    height * 0.42 - pash * scale / 2.0,
+                );
+                canvas.draw(
+                    passed_text,
+                    DrawParam::default()
+                        .dest(dest + Vec2::splat(3.0))
+                        .scale(Vec2::splat(scale))
+                        .color(Color::from_rgba(4, 20, 8, 180)),
+                );
+                canvas.draw(
+                    passed_text,
+                    DrawParam::default()
+                        .dest(dest)
+                        .scale(Vec2::splat(scale))
+                        .color(Color::from_rgb(110, 255, 140)),
+                );
+            }
+
+            Ok(())
+        })
     }
 
     fn draw_crabs_with_shake(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
@@ -7713,6 +7793,10 @@ impl EventHandler for MainState {
                 // every crab has an open (or missing) shell there's nothing hard left to Stomp, so
                 // drop in a fresh Armored ring to keep practising.
                 TutorialKind::ShellCrack => self.crabs.iter().all(|c| c.boss_health <= 0.0),
+                // LassoGrab crabs get roped into the train (marked caught) but aren't hauled to a
+                // pen, so nothing removes them — same as BeatTiming, "all caught" means the wide
+                // ring is cleared and it's time to fling out a fresh one to keep practising.
+                TutorialKind::LassoGrab => self.crabs.iter().all(|c| c.caught),
             };
             if !completed && needs_restock {
                 self.crabs =
@@ -8771,6 +8855,15 @@ impl EventHandler for MainState {
                         self.spawn_catch_shockwave(pos, crab_color);
                         let was_answering = self.crabs[i].answering_call > 0.0;
                         self.crabs[i].caught = true;
+                        // Tutorial pass tracking: count real lasso grabs for the lasso learn-session.
+                        // Bumped only here (the rope-catch branch), guarded by the tutorial being
+                        // active and its kind, so a headless run of the same scenario reaches the same
+                        // `passed()` predicate without any rendering or beam catches sneaking in.
+                        if let Some(t) = self.tutorial.as_mut() {
+                            if t.kind == TutorialKind::LassoGrab {
+                                t.lasso_catches += 1;
+                            }
+                        }
                         if self.crabs[i].is_boss() {
                             self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
                         }
