@@ -263,10 +263,27 @@ pub fn handle_key_down_event(
                     state.boost_cooldown = 0.08;
                     state.dash_just_fired = true;
                     state.dash_flash = 1.0;
-                    // On-beat dash: reward the timing with groove + juice (no radius to scale).
                     let center = state.player_pos
                         + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    state.reward_on_beat_tool(center, "DASH");
+                    // On-beat dash → GROOVE DASH: the timed dash isn't just juicier, it *does* more.
+                    // A well-timed dash punches a little farther (longer boost window) and drags a
+                    // gather-wake behind it that sweeps nearby free crabs into your path, so the beat
+                    // becomes a live routing tool in the ordinary stretch between climaxes. Off-beat
+                    // dashes are untouched — still the full-speed escape you fire to shed a charge.
+                    let bonus = state.reward_on_beat_tool(center, "GROOVE DASH");
+                    if bonus > 1.0 {
+                        state.boost_timer = 0.26; // punch a touch farther on the beat
+                        state.groove_dash_timer = 0.22;
+                        state.groove_dash_center = center;
+                        // Gather-wake follows the dash heading: current momentum if you're moving,
+                        // else the last-faced direction so a standing on-beat dash still sweeps.
+                        let d = if state.player_vel.length() > 5.0 {
+                            state.player_vel.normalize_or_zero()
+                        } else {
+                            state.last_dir.normalize_or_zero()
+                        };
+                        state.groove_dash_dir = d;
+                    }
                 }
             }
             if key == KeyCode::Q {
