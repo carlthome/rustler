@@ -55,6 +55,7 @@ fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> Enemy
         // frame. Non-Hermits never read this field. A short-ish irregular window keeps the shelled
         // Hermit visibly restless without teleporting so fast it's impossible to line up a crack.
         host_swap_timer: rng.random_range(1.6..3.2),
+        surge_timer: 0.0,
     }
 }
 

@@ -4591,6 +4591,32 @@ impl MainState {
                 let age_boost = 1.0 + (crab.spawn_time / 10.0).min(1.5);
                 crab.pos += crab.vel * crab.speed * speed_multiplier * age_boost * dt;
 
+                // On-beat herd stampede: spend the surge armed by the downbeat (see the beat handler).
+                // While surge_timer counts down, the crab DARTS an extra shove along its own heading
+                // — a decaying burst that's strongest right on the "1" and eases to nothing before the
+                // next bar, so the loose herd visibly lurches forward on the downbeat and glides
+                // between beats. This makes the herd's *landing spot* a rhythm read: predict the surge,
+                // slide into where the crabs will be on the bar. Not applied to a lit crab (it's already
+                // steering to the player) so the beam read isn't disturbed. Decayed at ~4/sec so the
+                // dart is spent within a beat at typical tempos; the shove scales with the crab's own
+                // speed so fast crabs stampede farther, matching their base pace.
+                if !crab_in_light && crab.surge_timer > 0.0 {
+                    let heading = crab.vel.normalize_or_zero();
+                    let dir = if heading == Vec2::ZERO {
+                        Vec2::new(crab.facing_angle.cos(), crab.facing_angle.sin())
+                    } else {
+                        heading
+                    };
+                    // Ease-out envelope: burst hardest at surge_timer≈1, fading to 0. The shove is a
+                    // multiple of the crab's own base speed (crab.speed holds the real magnitude; vel
+                    // is a unit heading), so at the peak the crab briefly moves ~3x its normal pace and
+                    // eases back — the herd reads as *stepping* on the "1", fast crabs stepping farther,
+                    // rather than a flat teleport. ~2.5x peak, decaying over the beat.
+                    let envelope = crab.surge_timer * crab.surge_timer;
+                    crab.pos += dir * crab.speed * 2.5 * envelope * dt;
+                    crab.surge_timer = (crab.surge_timer - dt * 4.0).max(0.0);
+                }
+
                 // Tide Pool current: a free crab standing in one of the Water biome's native pools is
                 // carried along a fixed drift heading — the pools ferry the loose herd downstream. A
                 // gentle positional nudge (like the Magnet herd-pull), so it composes with flee/attract
@@ -5875,6 +5901,7 @@ impl MainState {
                 slingshot_spent: 0.0,
                 stun_timer: 0.0,
                 host_swap_timer: 0.0,
+                surge_timer: 0.0,
             };
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
             draw_crab(
@@ -8614,6 +8641,37 @@ impl EventHandler for MainState {
                 // (hopping toward the player, charmed) don't scare anyone — only fleeing ones do.
                 if crab.answering_call <= 0.0 && dist < 240.0 {
                     dancer_hops.push(crab.pos);
+                }
+            }
+
+            // On-beat herd stampede: on the DOWNBEAT (the bar's "1") the whole loose herd lurches
+            // forward along its own heading, then coasts through the three off-beats — so *where a
+            // free crab will be* becomes a rhythm read. A groove-savvy player reads the surge and
+            // slides into the herd's landing spot on the bar rather than chasing crabs flatly; the
+            // beat reshapes routing across the whole field, not just around the player. Only the
+            // downbeat surges (the off-beats stay a quiet coast) so the "1" reads as the herd's step,
+            // matching the heavier downbeat kick drum and bar accent. We only ARM the surge here
+            // (kick surge_timer); update_crabs spends it as an extra positional shove that decays
+            // over the beat, so the motion eases out instead of teleporting. Excludes anything that
+            // already has its own on-beat motion or a reason to hold still: Dancers (their own hop
+            // above), bosses, spooked/startled/charmed/answering crabs, snared/lured crabs under a
+            // Magnet, and Hermits (their own host-swap hop) — the surge is the *calm* herd's beat-step.
+            if downbeat {
+                for crab in self.crabs.iter_mut() {
+                    if crab.caught
+                        || crab.is_dancer()
+                        || crab.is_boss()
+                        || crab.spooked_timer > 0.0
+                        || crab.startle_timer > 0.0
+                        || crab.charm_timer > 0.0
+                        || crab.answering_call > 0.0
+                        || crab.magnet_snared > 0.0
+                        || crab.thief_lured > 0.0
+                        || crab.is_hermit()
+                    {
+                        continue;
+                    }
+                    crab.surge_timer = 1.0;
                 }
             }
 
