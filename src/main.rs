@@ -342,6 +342,24 @@ thread_local! {
         u32,                 // progress counter key (counter value)
         Text, f32,           // progress line text + w
     )>> = RefCell::new(None);
+
+    // The game-over screen (draw_game_over_screen) was rebuilding a fresh Mesh::new_rectangle
+    // (GPU buffer upload) + a fresh Text::new(format!(...)) (glyph-shaping pass) + optionally a
+    // second Text::new for the "NEW CAREER BEST!" banner every single frame the game-over screen
+    // is displayed — which can be many seconds if the player reads their score. All the inputs that
+    // drive the text (score, time, best_time, career_*) are frozen the moment `game_over` is set
+    // (update() returns early; record_run() is a one-shot). Cache both objects keyed on those
+    // frozen values so the GPU work is paid once (the frame game_over is first shown) not every
+    // subsequent frame — same pattern as UPGRADE_SCREEN_CACHE and CAREER_LABEL_CACHE.
+    // Key: (score, time_elapsed bits, best_time bits, career_best, career_total, career_runs,
+    //       run_is_new_best). Value: (bg_mesh, main_text, Option<(banner_text, banner_w)>).
+    #[allow(clippy::type_complexity)]
+    static GAME_OVER_CACHE: RefCell<Option<(
+        (usize, u32, u32, usize, usize, usize, bool), // key
+        Mesh,                                          // background box
+        Text,                                          // main stats block
+        Option<(Text, f32)>,                           // "NEW CAREER BEST!" banner (text + width); None if not a new best
+    )>> = RefCell::new(None);
 }
 
 /// Pick a fresh delivery-pen location: somewhere on the field, kept away from the edges and a
@@ -7139,42 +7157,70 @@ impl MainState {
     }
 
     fn draw_game_over_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
-        let box_width = 600.0;
-        let box_height = 260.0;
-        let box_x = 340.0;
-        let box_y = 360.0;
-        let bg_box = Mesh::new_rectangle(
-            ctx,
-            ggez::graphics::DrawMode::fill(),
-            Rect::new(box_x, box_y, box_width, box_height),
-            Color::from_rgba(40, 0, 80, 180),
-        )?;
-        canvas.draw(&bg_box, DrawParam::default());
-        let text = Text::new(format!(
-            "Game Over!\nThis run: {} crabs banked\nTime: {:.2}s   Best time: {:.2}s\n\nCareer best: {}\nCareer total: {} over {} runs\n\nPress Space or Enter to try again.  Esc to quit.",
-            self.score, self.time_elapsed, self.best_time,
-            self.career_best_score, self.career_total_score, self.career_runs,
-        ));
-        canvas.draw(
-            &text,
-            DrawParam::default()
-                .dest(Vec2::new(370.0, 380.0))
-                .color(Color::WHITE),
+        const BOX_WIDTH: f32 = 600.0;
+        const BOX_HEIGHT: f32 = 260.0;
+        const BOX_X: f32 = 340.0;
+        const BOX_Y: f32 = 360.0;
+
+        // All inputs that drive the text are frozen once game_over is set (update() returns
+        // early, record_run() fires once) — so build the Mesh and Text objects once and reuse
+        // them every subsequent frame rather than paying a GPU buffer upload + glyph-shaping
+        // pass ~60 times/second for however long the player sits on the results screen.
+        let cache_key = (
+            self.score,
+            self.time_elapsed.to_bits(),
+            self.best_time.to_bits(),
+            self.career_best_score,
+            self.career_total_score,
+            self.career_runs,
+            self.run_is_new_best,
         );
-        // Celebrate a fresh career best with a pulsing banner so beating your record lands.
-        if self.run_is_new_best && self.score > 0 {
-            let pulse = 0.55 + 0.45 * (self.menu_time * 5.0).sin().abs();
-            let mut banner = Text::new("★ NEW CAREER BEST! ★");
-            banner.set_scale(34.0);
-            let bw = banner.measure(ctx)?.x;
+        GAME_OVER_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            let stale = cache.as_ref().map_or(true, |(k, _, _, _)| *k != cache_key);
+            if stale {
+                let bg_box = Mesh::new_rectangle(
+                    ctx,
+                    ggez::graphics::DrawMode::fill(),
+                    Rect::new(BOX_X, BOX_Y, BOX_WIDTH, BOX_HEIGHT),
+                    Color::from_rgba(40, 0, 80, 180),
+                )?;
+                let text = Text::new(format!(
+                    "Game Over!\nThis run: {} crabs banked\nTime: {:.2}s   Best time: {:.2}s\n\nCareer best: {}\nCareer total: {} over {} runs\n\nPress Space or Enter to try again.  Esc to quit.",
+                    self.score, self.time_elapsed, self.best_time,
+                    self.career_best_score, self.career_total_score, self.career_runs,
+                ));
+                let banner = if self.run_is_new_best && self.score > 0 {
+                    let mut b = Text::new("★ NEW CAREER BEST! ★");
+                    b.set_scale(34.0);
+                    let bw = b.measure(ctx)?.x;
+                    Some((b, bw))
+                } else {
+                    None
+                };
+                *cache = Some((cache_key, bg_box, text, banner));
+            }
+            let (_, bg_box, text, banner) = cache.as_ref().unwrap();
+            canvas.draw(bg_box, DrawParam::default());
             canvas.draw(
-                &banner,
+                text,
                 DrawParam::default()
-                    .dest(Vec2::new(box_x + (box_width - bw) / 2.0, box_y - 44.0))
-                    .color(Color::new(1.0, 0.85, 0.2, pulse)),
+                    .dest(Vec2::new(370.0, 380.0))
+                    .color(Color::WHITE),
             );
-        }
-        Ok(())
+            // Celebrate a fresh career best with a pulsing banner so beating your record lands.
+            // The Text and its width are cached; only the per-frame alpha pulse is computed fresh.
+            if let Some((banner_text, bw)) = banner {
+                let pulse = 0.55 + 0.45 * (self.menu_time * 5.0).sin().abs();
+                canvas.draw(
+                    banner_text,
+                    DrawParam::default()
+                        .dest(Vec2::new(BOX_X + (BOX_WIDTH - bw) / 2.0, BOX_Y - 44.0))
+                        .color(Color::new(1.0, 0.85, 0.2, pulse)),
+                );
+            }
+            Ok(())
+        })
     }
 
     /// Screen-space rectangles for the four upgrade cards, in card order (index 0 = card "1").
