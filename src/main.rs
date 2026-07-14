@@ -6884,9 +6884,10 @@ impl MainState {
 
         // The counter that drives the progress line. Different fields track progress per kind.
         let progress_key = match t.kind {
-            crate::tutorial::TutorialKind::BeatTiming  => t.on_beat_catches,
+            crate::tutorial::TutorialKind::BeatTiming   => t.on_beat_catches,
             crate::tutorial::TutorialKind::ChainDeliver => t.deliveries,
-            crate::tutorial::TutorialKind::ShellCrack  => t.shells_cracked,
+            crate::tutorial::TutorialKind::ShellCrack   => t.shells_cracked,
+            crate::tutorial::TutorialKind::LassoGrab    => t.lasso_catches,
         };
         let title_key = t.title(); // &'static str — also serves as the kind discriminant
         let wbits = width.to_bits();
