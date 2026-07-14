@@ -1932,10 +1932,13 @@ pub fn draw_conga_rope(
     ctx: &mut Context,
     canvas: &mut Canvas,
     player_pos: Vec2,
-    // (chain_index, pos) pairs, already sorted by chain_index by the caller. Only the position
-    // is used here — the index just rides along because the caller sorts by it before this is
-    // called (see CHAIN_SORT_BUF in main.rs), so a plain &[Vec2] would force a second copy.
-    chain_links: &[(usize, Vec2)],
+    // (chain_index, pos, bond_color) tuples, already sorted by chain_index by the caller. The
+    // index just rides along because the caller sorts by it before this is called (see
+    // CHAIN_SORT_BUF in main.rs). bond_color is Some(type_color) when this link is the same
+    // archetype as the link ahead of it — the segment *entering* such a link is tinted and glowed
+    // in that color so a run of matching neighbors reads as a persistent colored tether (the
+    // visible face of the same-type match-run arrangement mechanic). None = ordinary rainbow rope.
+    chain_links: &[(usize, Vec2, Option<[f32; 3]>)],
     time: f32,
     beat_intensity: f32,
     // 0..1 "on fire" factor driven by the live Groove Gamble multiplier: at 0 the rope is its
@@ -1995,7 +1998,7 @@ pub fn draw_conga_rope(
         let mut waypoints = wbuf.borrow_mut();
         waypoints.clear();
         waypoints.push(player_center);
-        for &(_, pos) in chain_links {
+        for &(_, pos, _) in chain_links {
             waypoints.push(pos);
         }
 
@@ -2017,6 +2020,15 @@ pub fn draw_conga_rope(
 
                 // Hue for this link (rainbow along the chain)
                 let hue = (link_idx as f32 / total_links.max(1.0) + time * 0.12) % 1.0;
+
+                // Same-type match bond: the segment entering link `link_idx` (the window's `end`)
+                // corresponds to chain_links[link_idx] (waypoints[0] is the player, so link i lives
+                // at waypoints[i+1] = window end of segment i). If that link carries a bond color, the
+                // whole segment is pulled toward it and pulsed so the matched pair reads as a glowing
+                // colored tether — a longer same-type run makes a longer continuous glow.
+                let bond = chain_links.get(link_idx).and_then(|&(_, _, b)| b);
+                // Gentle pulse so the bond looks alive rather than a flat recolor.
+                let bond_pulse = 0.7 + 0.3 * (time * 4.0 + link_idx as f32 * 0.7).sin();
 
                 // Subdivide into `segs` micro-segments (scaled down for long trains, see above)
                 let mut prev_point = start;
@@ -2051,6 +2063,15 @@ pub fn draw_conga_rope(
                             rr = rr + (1.0 - rr) * hot;
                             gg = gg + (0.72 - gg) * hot;
                             bb = bb + (0.28 - bb) * hot * 0.6;
+                        }
+                        // Matched same-type bond: blend this micro-segment strongly toward the run's
+                        // archetype color, pulsing, so the tether reads as "these links belong
+                        // together". Applied on top of heat so a hot matched run still glows amber-lit.
+                        if let Some(bc) = bond {
+                            let mix = 0.72 * bond_pulse;
+                            rr = rr + (bc[0] - rr) * mix;
+                            gg = gg + (bc[1] - gg) * mix;
+                            bb = bb + (bc[2] - bb) * mix;
                         }
 
                         let seg_delta = point - prev_point;

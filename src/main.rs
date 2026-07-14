@@ -283,7 +283,20 @@ thread_local! {
     // out again. Reusing this buffer (and carrying (chain_index, pos) tuples so the sort key
     // travels with the position, sidestepping the borrow) drops that to zero allocations per
     // frame once the chain's high-water mark is reached.
-    static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2)>> = RefCell::new(Vec::new());
+    // Each entry is (chain_index, pos, bond_color): bond_color is Some(type_color) when this link
+    // is the same archetype as the link directly ahead of it (its predecessor by chain_index) —
+    // i.e. the two form a matched same-type bond. draw_conga_rope tints/glows the rope segment
+    // entering such a link in that color so a run of matching neighbors reads as a persistent
+    // colored tether, the visible face of the match-run arrangement mechanic. None for the head
+    // link and for any link whose predecessor is a different type.
+    static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2, Option<[f32; 3]>)>> = RefCell::new(Vec::new());
+
+    // Scratch for building CHAIN_SORT_BUF's bond colors: (chain_index, pos, type, color), sorted by
+    // index so each link can be compared to the one ahead of it to decide its same-type bond. Kept
+    // separate and reused frame-to-frame (same zero-alloc reasoning as CHAIN_SORT_BUF) rather than
+    // widening CHAIN_SORT_BUF itself, since the type/color are only needed transiently to compute
+    // the bond and don't need to travel on to draw_conga_rope.
+    static CHAIN_TYPE_BUF: RefCell<Vec<(usize, Vec2, CrabType, [f32; 3])>> = RefCell::new(Vec::new());
 
     // Cache for the level-title overlay (the "Level Up!" card shown for ~1s at each level
     // transition). draw_level_title was building 4 GPU/glyph objects per frame for every
@@ -716,6 +729,7 @@ struct MainState {
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
+    tail_run_len: u32,             // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next boss arrives
     next_boss_kind: usize,               // cycles 0=King Crab, 1=Tide Boss, 2=Reef DJ so runs rotate through all three climax beats
@@ -965,6 +979,13 @@ struct MainState {
     // Almost always empty (needs the player to have engineered a Magnet-then-Golden catch order),
     // so pooling it keeps the hottest path allocation-free. See handle_crab_catching.
     magnet_shine_catches_buf: Vec<Vec2>,
+    // Same-type "match run" catch events this frame: (pos, run_len, type_color). Fires when a
+    // freshly-caught crab is the same archetype as the link it snapped onto, extending a run of
+    // matching neighbors at the tail. Deferred out of the &mut self.crabs catch loop so the
+    // escalating-bonus payout + callout can borrow &mut self after. Pooled like its sibling
+    // catch-event buffers — usually empty, since it needs the player to deliberately catch two of
+    // the same archetype back to back. See handle_crab_catching.
+    match_run_catches_buf: Vec<(Vec2, u32, [f32; 3])>,
     // Reef DJ hype-Dancer catches this frame (see handle_crab_catching) — pooled like its sibling
     // catch-event buffers above instead of a fresh Vec::new() every frame; almost always empty
     // (needs a Reef DJ fight in progress plus a hot-beat catch), same reasoning as golden_catches_buf.
@@ -1294,6 +1315,7 @@ impl MainState {
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
+            tail_run_len: 0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
             next_boss_kind: 0,
@@ -1380,6 +1402,7 @@ impl MainState {
             dance_catches_buf: Vec::new(),
             golden_catches_buf: Vec::new(),
             magnet_shine_catches_buf: Vec::new(),
+            match_run_catches_buf: Vec::new(),
             hype_dancer_hits_buf: Vec::new(),
             pulse_slingshots_buf: Vec::new(),
             pulse_loaded_magnets_buf: Vec::new(),
@@ -1770,6 +1793,7 @@ impl MainState {
             }
         }
         self.chain_count = keep;
+        self.recompute_tail_run(); // the tail changed — rebuild the same-type run
         self.chain_snap_cooldown = SNAG_COOLDOWN;
 
         // Feedback: green weed-tinted pops on the stripped crabs and a SNAGGED! callout at the tail.
@@ -1855,6 +1879,7 @@ impl MainState {
         }
         // Indices 0..keep stay contiguous, so the shortened train and future catches line up cleanly.
         self.chain_count = keep;
+        self.recompute_tail_run(); // the tail changed — rebuild the same-type run
         self.chain_snap_cooldown = SNAP_COOLDOWN;
 
         // Feedback: cold alarm rings + "!" pops on the scattering crabs, a SNAP! callout, and a jolt.
@@ -1879,6 +1904,45 @@ impl MainState {
         self.screen_shake = self.screen_shake.max(9.0);
         let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
+    }
+
+    /// Rebuild `tail_run_len` — the length of the unbroken run of same-type links at the tail — by
+    /// walking backward from the current tail. Called after any peel/snap shrinks the train, since
+    /// removing tail links can change what the tail is (and thus the run). A no-op-cheap O(n) scan
+    /// that only runs on the rare frames a link is actually lost, not every frame. An empty train
+    /// has a run of 0.
+    fn recompute_tail_run(&mut self) {
+        if self.chain_count == 0 {
+            self.tail_run_len = 0;
+            return;
+        }
+        // Type of the current tail (highest chain_index). Walk down while neighbors match it.
+        let tail_ci = self.chain_count - 1;
+        let tail_type = self
+            .crabs
+            .iter()
+            .find(|c| c.chain_index == Some(tail_ci))
+            .map(|c| c.crab_type);
+        let Some(tail_type) = tail_type else {
+            self.tail_run_len = 0;
+            return;
+        };
+        let mut run = 1u32;
+        // Walk toward the head: index tail_ci-1, tail_ci-2, … while the link matches the tail type.
+        let mut ci = tail_ci;
+        while ci > 0 {
+            ci -= 1;
+            let matches = self
+                .crabs
+                .iter()
+                .any(|c| c.chain_index == Some(ci) && c.crab_type == tail_type);
+            if matches {
+                run += 1;
+            } else {
+                break;
+            }
+        }
+        self.tail_run_len = run;
     }
 
     /// Thief archetype: a skittish parasite that pressures the *train you've already built* rather
@@ -2192,6 +2256,7 @@ impl MainState {
             }
         }
         self.chain_count = keep;
+        self.recompute_tail_run(); // the tail changed — rebuild the same-type run
         self.chain_snap_cooldown = 0.9; // shorter than a panic snap: the Thief keeps nibbling
 
         // Feedback: a sly green pop and a STOLEN! callout at the tail so the theft reads clearly.
@@ -2598,6 +2663,7 @@ impl MainState {
         // The delivered crabs leave the field for good — they've been penned.
         self.crabs.retain(|c| !c.caught);
         self.chain_count = 0;
+        self.tail_run_len = 0; // whole train banked — the match run at the tail is gone
         self.next_milestone = 5;
 
         // Big celebratory feedback so banking feels like a real payoff, not just a number ticking.
@@ -2681,6 +2747,10 @@ impl MainState {
         // train" cascade, paid out after the loop. See the adjacency check inside the loop below.
         let mut magnet_shine_catches = std::mem::take(&mut self.magnet_shine_catches_buf);
         magnet_shine_catches.clear();
+        // Same-type "match run" events this frame — a catch that extends a run of matching-archetype
+        // links at the tail. Paid out (escalating bonus + callout) after the loop.
+        let mut match_run_catches = std::mem::take(&mut self.match_run_catches_buf);
+        match_run_catches.clear();
         // Type of the crab that currently sits at the *tail* of the train (highest chain_index),
         // snapshotted before the catch loop so we can tell what a newly-caught crab links onto. As
         // each catch lands the new crab becomes the tail, so we roll this forward per catch instead
@@ -2837,6 +2907,27 @@ impl MainState {
                         magnet_shine_catches.push(pos);
                     }
                 }
+                // Same-type match run — the arrangement mechanic. If this crab is the same archetype
+                // as the link it just snapped onto (the previous tail), it extends a run of matching
+                // neighbors and each additional link pays an escalating bonus; a mismatched catch
+                // resets the run to a single link. Whether a run builds depends purely on catch ORDER,
+                // so the player catches to *build a pattern* of same-type links, not just length.
+                // Deferred payout (bonus + callout borrows &mut self) collected into match_run_catches.
+                if prev_tail_type == Some(crab.crab_type) {
+                    self.tail_run_len += 1;
+                } else {
+                    self.tail_run_len = 1;
+                }
+                if self.tail_run_len >= 2 {
+                    // The run length itself is the escalation: link 2 pays a little, deeper runs pay
+                    // more, capped so a very long single-type train can't runaway-score. Scaled by the
+                    // same combo/gamble multipliers as the base catch so it rides a hot streak too.
+                    let run = self.tail_run_len.min(8);
+                    let match_bonus =
+                        ((run as usize) * mult) as f32 * self.beat_gamble_mult;
+                    self.score += match_bonus.round() as usize;
+                    match_run_catches.push((crab.pos, self.tail_run_len, crab.crab_color()));
+                }
                 // Roll the tail-type snapshot forward: this freshly-caught crab is now the tail, so
                 // it's what the *next* catch this frame will link onto. Keeps the adjacency check O(1)
                 // per catch with no mid-loop rescan of self.crabs.
@@ -2930,12 +3021,36 @@ impl MainState {
         for &spos in &magnet_shine_catches {
             self.on_magnet_shine_cascade(spos);
         }
+        // Same-type match runs: a legible, escalating callout in the matched archetype's own color
+        // so the player sees the arrangement paying off — "MATCH x3!" grows and brightens with the
+        // run, and a matching-hued ring/shockwave marks the newly-linked tail so the bond reads on
+        // screen, not just in the score. This is the watchable feedback for catching to build a
+        // pattern; the colored rope bond (see draw_conga_rope) is the persistent version of it.
+        for &(pos, run, col) in &match_run_catches {
+            let size = (26.0 + run as f32 * 4.0).min(52.0);
+            self.floating_texts.spawn(
+                format!("MATCH x{}!", run),
+                pos - Vec2::new(0.0, 44.0),
+                size,
+                [col[0], col[1], col[2], 1.0],
+            );
+            self.spawn_catch_shockwave(pos, col);
+            // A deep run lands harder — a little shake + on-beat flash so a long same-type streak
+            // feels like a real escalation, matching how combos/streaks escalate their juice.
+            if run >= 4 {
+                // Cap the shake against the same ceiling the score uses so a very long single-type
+                // run can't escalate screen shake without bound (visual spam) every catch.
+                self.screen_shake = self.screen_shake.max(3.0 + run.min(8) as f32);
+                self.on_beat_flash = self.on_beat_flash.max(0.3);
+            }
+        }
         // Hand the scratch buffers back for reuse next frame.
         self.startle_origins_buf = startle_origins;
         self.boss_catches_buf = boss_catches;
         self.dance_catches_buf = dance_catches;
         self.golden_catches_buf = golden_catches;
         self.magnet_shine_catches_buf = magnet_shine_catches;
+        self.match_run_catches_buf = match_run_catches;
         self.hype_dancer_hits_buf = hype_dancer_hits;
         if any_caught {
             self.check_milestone(&mut rand::rng());
@@ -3243,6 +3358,7 @@ impl MainState {
             }
         }
         self.chain_count = keep;
+        self.recompute_tail_run(); // the tail changed — rebuild the same-type run
         self.chain_snap_cooldown = SNAP_COOLDOWN;
 
         for pos in &snapped_positions {
@@ -3500,6 +3616,7 @@ impl MainState {
                 }
             }
             self.chain_count = keep;
+            self.recompute_tail_run(); // the tail changed — rebuild the same-type run
             self.chain_snap_cooldown = 1.6;
             for pos in &snapped_positions {
                 if self.fear_rings.len() < 32 {
@@ -5301,6 +5418,7 @@ impl MainState {
             self.position_history.push_back(center);
         }
         self.chain_count = 0;
+        self.tail_run_len = 0;
         self.beat_timer = BEAT_INTERVAL;
         self.beat_intensity = 0.0;
         self.music_intensity = 0.0;
@@ -6112,13 +6230,29 @@ impl MainState {
         CHAIN_SORT_BUF.with(|buf| -> GameResult {
             let mut chain_links = buf.borrow_mut();
             chain_links.clear();
-            chain_links.extend(
-                self.crabs
-                    .iter()
-                    .filter(|c| c.caught && c.chain_index.is_some())
-                    .map(|c| (c.chain_index.unwrap_or(0), c.pos)),
-            );
-            chain_links.sort_by_key(|&(idx, _)| idx);
+            // First collect (index, pos, type, color) so we can, after sorting by index, tag each
+            // link with a same-type bond color relative to the link ahead of it. The type is dropped
+            // once the bond is computed — only (index, pos, bond_color) travels on to the rope draw.
+            CHAIN_TYPE_BUF.with(|tbuf| {
+                let mut typed = tbuf.borrow_mut();
+                typed.clear();
+                typed.extend(
+                    self.crabs
+                        .iter()
+                        .filter(|c| c.caught && c.chain_index.is_some())
+                        .map(|c| (c.chain_index.unwrap_or(0), c.pos, c.crab_type, c.crab_color())),
+                );
+                typed.sort_by_key(|&(idx, ..)| idx);
+                let mut prev_type: Option<CrabType> = None;
+                for &(idx, pos, ty, col) in typed.iter() {
+                    // A matched bond exists on the segment entering this link when it shares an
+                    // archetype with the link immediately ahead of it — the arrangement the player
+                    // built by catching same types back to back.
+                    let bond = if prev_type == Some(ty) { Some(col) } else { None };
+                    chain_links.push((idx, pos, bond));
+                    prev_type = Some(ty);
+                }
+            });
             // Only the at-risk gain (live multiplier above the banked-safe floor) heats the rope,
             // so cashing out with B visibly cools it — the risk you're carrying reads on the train.
             let gamble_heat = ((self.beat_gamble_mult - self.beat_gamble_locked) / 2.0).clamp(0.0, 1.0);
