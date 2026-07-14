@@ -2919,6 +2919,20 @@ impl MainState {
                 .find(|c| c.chain_index == Some(ci))
                 .map(|c| c.crab_type)
         });
+        // Golden Figurehead — the head-position mirror of the Armored tail-guard. A Golden crab
+        // riding at the *head* of the train (chain_index 0, directly behind the player) acts as a
+        // gilded figurehead: while it leads, every same-type match run pays a bigger bonus. This
+        // gives the *front* of the train real positional value — until now only the tail paid
+        // (match runs build there, an Armored back-guard tanks steals). The decision it creates:
+        // a caught Golden is worth a lot cashed on delivery, but parking it at the head instead
+        // (safe from tail-snaps up front) turns it into a run-economy engine you can't bank until
+        // the whole train delivers — hold the prize as a multiplier, or peel it and cash out now.
+        // Snapshotted once before the loop (chain_index 0 doesn't change mid-catch — new links go
+        // on the tail), so it's a single O(n) scan, not a per-catch rescan.
+        let head_is_golden = self
+            .crabs
+            .iter()
+            .any(|c| c.chain_index == Some(0) && c.is_golden());
         // Reef DJ backup dancers caught this frame on a *called (hot) beat* — each one chips the
         // boss shell. Collected here and applied after the loop so we don't need a second &mut
         // borrow of self.crabs mid-loop. `reef_hot_now` is the same window the DJ's own shell uses.
@@ -3085,10 +3099,29 @@ impl MainState {
                     // more, capped so a very long single-type train can't runaway-score. Scaled by the
                     // same combo/gamble multipliers as the base catch so it rides a hot streak too.
                     let run = self.tail_run_len.min(8);
+                    // A Golden figurehead at the head amplifies the whole match economy: +50% on
+                    // every run bonus while it leads. Legible reward for choosing to park the prize
+                    // up front instead of cashing it — the front of the train finally pays.
+                    let figurehead_mult = if head_is_golden { 1.5 } else { 1.0 };
                     let match_bonus =
-                        ((run as usize) * mult) as f32 * self.beat_gamble_mult;
+                        ((run as usize) * mult) as f32 * self.beat_gamble_mult * figurehead_mult;
                     self.score += match_bonus.round() as usize;
                     match_run_catches.push((crab.pos, self.tail_run_len, crab.crab_color()));
+                    if head_is_golden {
+                        // Gild the run callout so the figurehead's assist reads on screen, not just
+                        // in the score — a small golden shine on the newly-linked tail.
+                        self.floating_texts.spawn(
+                            "FIGUREHEAD!".to_string(),
+                            crab.pos - Vec2::new(52.0, 46.0),
+                            24.0,
+                            [1.0, 0.86, 0.28, 1.0],
+                        );
+                        // Inlined shockwave push (a &mut self method call would conflict with the
+                        // active &mut borrow of self.crabs in this loop; the field is disjoint).
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.85, 0.3]));
+                        }
+                    }
                 }
                 // Roll the tail-type snapshot forward: this freshly-caught crab is now the tail, so
                 // it's what the *next* catch this frame will link onto. Keeps the adjacency check O(1)
