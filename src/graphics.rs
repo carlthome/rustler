@@ -201,6 +201,23 @@ thread_local! {
     static CHAIN_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
     static CHAIN_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
 
+    // Reusable draw-param buffers for draw_catch_shockwaves and draw_fear_rings, mirroring the
+    // chain-ring grouping approach: shockwaves/fear-rings emitted in the same frame (burst-spawned
+    // by a Downbeat Slam, beat wave, or chain reaction) share the same age and thus the same
+    // (radius, thickness) bucket, so grouping them by key collapses the burst into a handful of
+    // instanced draws instead of one canvas.draw() per shockwave per pass.  In normal play (staggered
+    // individual catches) each group holds one element, so the per-frame overhead is a clear() +
+    // small groups.iter() instead of the raw canvas.draw() loop — comparable cost, zero regression.
+    static SHOCKWAVE_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static SHOCKWAVE_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+    // Reusable InstanceArray for the white-hot flash fills in draw_catch_shockwaves (the filled
+    // unit-circle burst in the first 0.22 of a shockwave's life). All flashing shockwaves share
+    // the same unit-circle mesh and only differ in scale/alpha, so a single InstanceArray handles
+    // them all in one GPU submission.
+    static FLASH_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    static FEAR_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static FEAR_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+
     // Reusable instance buffers for draw_crab_radar's two passes (arrow + glow outline). A big
     // wild herd can put a couple dozen uncaught crabs near the screen edges at once, each
     // previously costing 2 individual canvas.draw() calls (arrow + glow) every frame it lingered
@@ -2978,50 +2995,92 @@ pub fn draw_catch_shockwaves(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    for &(pos, age, color) in shockwaves {
-        // Ease-out expansion: fast at first, then decelerating — reads as an impact snap.
-        let ease = 1.0 - (1.0 - age).powi(2);
-        let radius = 6.0 + ease * 120.0;
-        let fade = (1.0 - age).clamp(0.0, 1.0);
-
-        // Initial white-hot filled flash that grows and fades in the first fraction.
-        if age < 0.22 {
+    // Flash pass: filled circle for the white-hot impact burst (only shockwaves in their first
+    // fraction, age < 0.22). Uses the unit circle scaled per-instance so no new mesh per frame.
+    FLASH_INSTANCES.with(|flash_cell| -> ggez::GameResult {
+        let mut flash_slot = flash_cell.borrow_mut();
+        let flash = flash_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        flash.set(shockwaves.iter().filter_map(|&(pos, age, _)| {
+            if age >= 0.22 { return None; }
             let flash_t = age / 0.22;
             let flash_alpha = (1.0 - flash_t) * 0.9;
             let flash_r = 10.0 + flash_t * 26.0;
-            canvas.draw(
-                unit_circle,
-                DrawParam::default()
-                    .dest(pos)
-                    .scale(Vec2::splat(flash_r))
-                    .color(Color::new(1.0, 1.0, 1.0, flash_alpha)),
-            );
-        }
-
-        // Leading edge: white-hot early, blending toward the crab color as it expands.
-        let edge_r = (color[0] * age + (1.0 - age)).min(1.0);
-        let edge_g = (color[1] * age + (1.0 - age)).min(1.0);
-        let edge_b = (color[2] * age + (1.0 - age)).min(1.0);
-        let thickness = (5.0 * fade).max(1.0);
-        let ring = cached_stroke_circle(ctx, radius, thickness)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
+            Some(DrawParam::default()
                 .dest(pos)
-                .color(Color::new(edge_r, edge_g, edge_b, fade * 0.95)),
-        );
+                .scale(Vec2::splat(flash_r))
+                .color(Color::new(1.0, 1.0, 1.0, flash_alpha)))
+        }));
+        if !flash.instances().is_empty() {
+            canvas.draw_instanced_mesh(unit_circle.clone(), flash, DrawParam::default());
+        }
+        Ok(())
+    })?;
 
-        // Soft trailing glow just inside the leading edge for extra body.
-        if age < 0.8 {
-            let glow = cached_stroke_circle(ctx, (radius - 6.0).max(1.0), thickness * 2.2)?;
-            canvas.draw(
-                &glow,
+    // Leading-edge and inner-glow ring passes: group by (radius, thickness) bucket so burst-spawned
+    // shockwaves (Downbeat Slam, beat wave, chain reaction) sharing the same age share a mesh and
+    // collapse into a handful of instanced draws instead of one canvas.draw() per shockwave per pass.
+    // Mirrors the chain-ring grouping approach exactly (same panic-guard on empty InstanceArray).
+    SHOCKWAVE_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        // Keep the key set bounded to crabs touched this frame rather than all ages ever seen.
+        for v in groups.values_mut() { v.clear(); }
+
+        // Ensure all meshes are cached and collect DrawParams grouped by (radius, thickness) key.
+        // Two sub-groups per shockwave: leading edge (key) and inner glow (glow_key, age < 0.8).
+        // We store (DrawParam, pass) pairs and split below.  Simpler: two separate group maps —
+        // but that doubles the HashMap lookups.  Instead encode pass as a sign bit on the key x:
+        // positive key = leading edge, negative key = inner glow.  Same HashMap, two namespaces.
+        for &(pos, age, color) in shockwaves {
+            let ease = 1.0 - (1.0 - age).powi(2);
+            let radius = 6.0 + ease * 120.0;
+            let fade = (1.0 - age).clamp(0.0, 1.0);
+            let thickness = (5.0 * fade).max(1.0);
+
+            // Leading edge
+            let edge_r = (color[0] * age + (1.0 - age)).min(1.0);
+            let edge_g = (color[1] * age + (1.0 - age)).min(1.0);
+            let edge_b = (color[2] * age + (1.0 - age)).min(1.0);
+            let key = stroke_circle_key(radius, thickness);
+            cached_stroke_circle(ctx, radius, thickness)?;
+            groups.entry(key).or_default().push(
                 DrawParam::default()
                     .dest(pos)
-                    .color(Color::new(color[0], color[1], color[2], fade * 0.28)),
+                    .color(Color::new(edge_r, edge_g, edge_b, fade * 0.95)),
             );
+
+            // Inner glow (only while young enough to show)
+            if age < 0.8 {
+                let glow_r = (radius - 6.0).max(1.0);
+                let glow_t = thickness * 2.2;
+                let glow_key = stroke_circle_key(glow_r, glow_t);
+                cached_stroke_circle(ctx, glow_r, glow_t)?;
+                // Encode glow pass as (-(x+1), y) so it shares the map without colliding with
+                // the leading-edge key.  The glow radius is always smaller so x is always
+                // non-negative; negating and subtracting 1 guarantees a distinct key range.
+                let signed_glow_key = (-(glow_key.0 + 1), glow_key.1);
+                groups.entry(signed_glow_key).or_default().push(
+                    DrawParam::default()
+                        .dest(pos)
+                        .color(Color::new(color[0], color[1], color[2], fade * 0.28)),
+                );
+            }
         }
-    }
+
+        SHOCKWAVE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() { continue; }
+                // Recover the real stroke-circle key: glow keys were stored negated/offset.
+                let real_key = if key.0 < 0 { (-(key.0 + 1), key.1) } else { *key };
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&real_key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
     Ok(())
@@ -3156,33 +3215,57 @@ pub fn draw_fear_rings(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    for &(pos, age) in rings {
-        // Ease-out expansion, wider reach than the catch shockwave (matches the startle radius).
-        let ease = 1.0 - (1.0 - age).powi(2);
-        let radius = 8.0 + ease * 135.0;
-        let fade = (1.0 - age).clamp(0.0, 1.0);
+    // Group rings by (radius, thickness) bucket, same approach as draw_catch_shockwaves and
+    // draw_chain_rings: burst-spawned fear rings (stampede chain reaction, beat contagion) share
+    // the same age and thus the same key each frame, so they collapse into one instanced draw.
+    FEAR_RING_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        for v in groups.values_mut() { v.clear(); }
 
-        // Bright leading edge, cyan-white.
-        let thickness = (4.0 * fade).max(1.0);
-        let ring = cached_stroke_circle(ctx, radius, thickness)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(0.55, 0.9, 1.0, fade * 0.85)),
-        );
+        for &(pos, age) in rings {
+            let ease = 1.0 - (1.0 - age).powi(2);
+            let radius = 8.0 + ease * 135.0;
+            let fade = (1.0 - age).clamp(0.0, 1.0);
+            let thickness = (4.0 * fade).max(1.0);
 
-        // Faint inner echo for a double-pulse "alarm" feel.
-        if age < 0.75 {
-            let echo = cached_stroke_circle(ctx, (radius - 14.0).max(1.0), thickness * 1.6)?;
-            canvas.draw(
-                &echo,
+            // Leading edge (cyan-white)
+            let key = stroke_circle_key(radius, thickness);
+            cached_stroke_circle(ctx, radius, thickness)?;
+            groups.entry(key).or_default().push(
                 DrawParam::default()
                     .dest(pos)
-                    .color(Color::new(0.35, 0.7, 1.0, fade * 0.3)),
+                    .color(Color::new(0.55, 0.9, 1.0, fade * 0.85)),
             );
+
+            // Inner echo (age < 0.75), encoded with negated key to share the map without collision
+            if age < 0.75 {
+                let echo_r = (radius - 14.0).max(1.0);
+                let echo_t = thickness * 1.6;
+                let echo_key = stroke_circle_key(echo_r, echo_t);
+                cached_stroke_circle(ctx, echo_r, echo_t)?;
+                let signed_echo_key = (-(echo_key.0 + 1), echo_key.1);
+                groups.entry(signed_echo_key).or_default().push(
+                    DrawParam::default()
+                        .dest(pos)
+                        .color(Color::new(0.35, 0.7, 1.0, fade * 0.3)),
+                );
+            }
         }
-    }
+
+        FEAR_RING_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() { continue; }
+                let real_key = if key.0 < 0 { (-(key.0 + 1), key.1) } else { *key };
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&real_key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })
+    })?;
 
     canvas.set_blend_mode(original_blend);
     Ok(())
