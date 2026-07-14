@@ -41,11 +41,12 @@ parked in "Later" — the skeleton existing doesn't authorize promoting it; the 
 
 **Signal.** No new Slack reactions/replies this cycle; Carl's one standing note is *"Would be nice to see
 example videos here!"* (a diary-agent task) — it confirms the rhythm/visual-spectacle bet is what he wants
-to *watch*, so keep favoring legible, watchable moments. **Both prior "Now" items shipped** on the
-catch-time/adjacency side (shine cascade, Dancer aura) and the moment-to-moment side (Groove Dash). The
-frontier stays depth-first: the *reactions* between adjacent links now fire, but the train is still just a
-line you grow — **make its shape and catch order a live spatial decision**, and keep deepening how the beat
-reshapes ordinary play.
+to *watch*, so keep favoring legible, watchable moments. **The top "Now" item shipped**: same-type match
+runs (`tail_run_len`) make catch *order* a live decision (catch A-A-A-A to escalate a tail bonus, A-B-A-B
+never builds), and the *position* half is partly there too — an Armored link parked at the tail actually
+tanks a Thief's steal, so back-of-train placement is already a real tradeoff. The frontier stays
+depth-first: arrangement now rewards order and one defensive position, but there's still no moment where
+you *bet* the train's shape. Push that plus one more field-level rhythm read.
 
 ## Bugs (fix before anything else in Now)
 
@@ -58,15 +59,14 @@ item in "Now" below.
 
 ## Now
 
-- **Make the train's shape and catch order a live spatial decision. (Top Now item.)** Adjacent-link
-  *reactions* now fire (shine cascade, Dancer aura) — done. But the train is still a line you only ever
-  *grow*: **where** a link sits and **what order** you caught things in barely matter. Add one mechanic
-  that turns arranging the conga into a puzzle the archetype web feeds into — e.g. an **Armored link at
-  the tail that actually tanks a Thief's steal** (so you deliberately park armor at the back instead of
-  banking it), a **Splitter** archetype that halves your train into two on catch (grabbing it mid-combo
-  becomes a Groove-Gamble-style bet), or a **link-adjacency bonus** where same-type neighbors stack a
-  small escalating effect (so you catch to *build a pattern*, not just a length). Reuse existing verbs;
-  keep it a legible, watchable arrangement the player learns to set up on purpose.
+- **Make arranging the train a *bet*, not just a build. (Top Now item.)** Catch *order* now pays
+  (same-type match runs) and one defensive *position* pays (Armored parked at the tail tanks a Thief
+  steal) — so far arrangement only ever rewards you. Add the missing high-variance move: a mechanic where
+  the player deliberately *risks* the train's shape for a bigger payoff. The cleanest greenfield fit is a
+  **Splitter archetype** that halves your conga into two on catch — grabbing it mid-match-run becomes a
+  Groove-Gamble-style bet (do you snag it and cash out both halves at speed, or dodge it to keep your run
+  intact?). Reuse the existing peel/bank/match-run verbs; keep it a legible, watchable decision the player
+  learns to set up — or avoid — on purpose.
 - **Deepen how the beat reshapes ordinary play — one more moment-to-moment rhythm read.** Groove Dash
   put the beat into movement; build on that so a groove-savvy player routes the *whole* run to the bar,
   not just their catches. Add one field-level rhythm tool distinct from the Dash — e.g. a self-triggered
