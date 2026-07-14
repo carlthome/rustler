@@ -3365,6 +3365,62 @@ pub fn draw_whistle_ring(
     Ok(())
 }
 
+/// Draw the on-beat catch-bloom ring at the player's head: a soft teal halo that snaps wide on the
+/// beat (widest on the downbeat) and fades to nothing between beats, so the player can SEE the scoop
+/// window breathe with the bar. The bloom itself widens catch reach around the whole train (see
+/// catch_radius in main.rs); this ring is the head-anchored indicator of it. `radius` is the live
+/// catch radius (base + upgrade + bloom); `bloom` is how much of that is the transient beat bloom
+/// (0 = resting) and drives brightness so the ring only shows while the window is actually widened.
+/// Additive teal to match the rhythm-verb palette (Call/whistle) while staying distinct from the
+/// warm herd tones.
+pub fn draw_catch_bloom_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    bloom: f32,
+    beat_intensity: f32,
+) -> ggez::GameResult {
+    // The ring breathes with the bar: it flares on the beat and fades to nothing between beats, so
+    // it reads as the scoop window opening and closing — not a permanent catch-radius indicator.
+    let flare = (bloom / 30.0).clamp(0.0, 1.0); // 30.0 is the downbeat peak set in the beat handler
+    let base_alpha = 0.65 * flare;
+    if base_alpha <= 0.02 {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // The beat's brightness pulse rides on top so the "1" of the bar reads as the strongest scoop.
+    let beat = 1.0 + 0.4 * beat_intensity.clamp(0.0, 1.0);
+    let thickness = 1.5 + 2.5 * flare;
+    let ring = cached_stroke_circle(ctx, radius, thickness)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(0.20, 0.90, 0.80, (base_alpha * beat).clamp(0.0, 1.0))),
+    );
+
+    // A brighter leading dashed hint just inside the edge while the window is wide open, so the
+    // moment of "the mouth is open now" pops even at a glance.
+    if flare > 0.1 {
+        let inner = cached_stroke_circle(ctx, (radius - 4.0).max(1.0), 1.2)?;
+        canvas.draw(
+            &inner,
+            DrawParam::default().dest(center).color(Color::new(
+                0.55,
+                1.0,
+                0.92,
+                (0.35 * flare * beat).clamp(0.0, 1.0),
+            )),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the rhythm "Call" pulse — concentric magenta rings that COLLAPSE inward toward the player,
 /// reading as a summon (pull-in), opposite of the whistle's outward horn-blast. `pulse` is 1..0
 /// (fresh→gone); `reach` is how far out the outermost ring starts. Additive so it glows on the beat.

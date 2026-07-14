@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -607,12 +607,13 @@ struct MainState {
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
     // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
-    // beat the head's catch radius blooms wider (widest on the downbeat) and settles back before the
+    // beat the train's catch radius blooms wider (widest on the downbeat) and settles back before the
     // next hit, so a crab drifting just out of reach gets scooped if you cross it ON the beat but
-    // slips past between beats. Timing plain grabs to the bar becomes live herd management, distinct
-    // from the Dash (movement), Call (Dancer lure), and whistle (radial pulse). Set in the beat
-    // handler, decayed each frame in update_crabs, added to catch_radius in catch_by_chain, and
-    // drawn as a pulsing ring around the head so the widened window is legible on screen.
+    // slips past between beats. The widening applies around every conga link (see catch_radius()), so
+    // the whole train hoovers harder on the beat. Timing plain grabs to the bar becomes live herd
+    // management, distinct from the Dash (movement), Call (Dancer lure), and whistle (radial pulse).
+    // Set in the beat handler, decayed each frame in update_crabs, folded into catch_radius(), and
+    // drawn as a ring at the head that flares on the beat and fades between beats.
     beat_catch_bloom: f32,
     // Upgrade lanes — level-ups deepen ONE of the four tools instead of handing out flat stat
     // bumps, so committing to a lane branches the run into a distinct playstyle (beam boss-hunter,
@@ -3762,8 +3763,19 @@ impl MainState {
         self.on_beat_flash = self.on_beat_flash.max(0.35);
     }
 
+    /// Live catch reach applied around every conga link this frame: base + the lasso/upgrade bump +
+    /// the transient on-beat bloom (widest on the downbeat, decayed between beats). Kept in one place
+    /// so the gameplay value and the drawn ring can't drift apart.
+    fn catch_radius(&self) -> f32 {
+        45.0 + self.catch_radius_upgrade + self.beat_catch_bloom
+    }
+
     fn catch_by_chain(&mut self, ctx: &mut Context) {
-        let catch_radius = 45.0 + self.catch_radius_upgrade;
+        // On-beat catch bloom: the train's catch window widens on the beat (widest on the downbeat)
+        // and settles back before the next hit, so crossing a drifting crab ON the beat scoops it
+        // while an off-beat pass just misses. Set in the beat handler, decayed in update_crabs, drawn
+        // as a pulsing ring at the head — this is the line that turns the beat into herd management.
+        let catch_radius = self.catch_radius();
 
         self.chain_positions_buf.clear();
         self.chain_positions_buf
@@ -6408,6 +6420,22 @@ impl MainState {
             draw_conga_rope(ctx, canvas, self.player_pos, &chain_links, self.time_elapsed, self.beat_intensity, gamble_heat)
         })?;
 
+        // On-beat catch-bloom ring around the head: shows the scoop window breathing with the bar
+        // (widest on the downbeat) so timing a plain grab to the beat becomes a legible, watchable
+        // read. Only meaningful once there's a train to catch onto, so gate on any caught crab.
+        if self.crabs.iter().any(|c| c.caught) {
+            let head = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let catch_radius = self.catch_radius();
+            draw_catch_bloom_ring(
+                ctx,
+                canvas,
+                head,
+                catch_radius,
+                self.beat_catch_bloom,
+                self.beat_intensity,
+            )?;
+        }
+
         // Draw player character.
         draw_rustler(
             ctx,
@@ -8432,7 +8460,7 @@ impl EventHandler for MainState {
             // accent structure. This block only runs during live gameplay (the update guard returns
             // early on menu/upgrade/game-over screens), so the kick never thumps through menus.
             self.beat_synth.play_kick(ctx, downbeat);
-            // On-beat catch bloom: every beat the head's catch window blooms wide, then settles back
+            // On-beat catch bloom: every beat the train's catch window blooms wide, then settles back
             // before the next hit (decayed in update_crabs). The downbeat blooms hardest so the "1"
             // is the widest scoop of the bar — a groove-savvy player learns to cross a drifting crab
             // exactly on the beat to hoover it in, while an off-beat pass just misses. This reshapes
