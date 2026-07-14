@@ -5839,6 +5839,26 @@ pub fn draw_cleave_slash(
     let (r, g, bl) = if gold { (1.0, 0.88, 0.3) } else { (0.35, 1.0, 0.9) };
     let perp = Vec2::new(-dir.y, dir.x);
 
+    // Tapered blade body — a filled quad that's fat at the leading tip (p1) and tapers to nothing at
+    // the trailing tip (p0), so the slash reads as a swung blade with a heavy edge rather than a flat
+    // line. Bowed slightly along `perp` so the swing has an arc. Built once per fire (rare event).
+    let tip_w = 9.0 * flash + 2.0;
+    let bow = perp * (6.0 * flash);
+    let blade = [
+        p0,
+        mid + bow + perp * tip_w * 0.5,
+        p1,
+        mid + bow - perp * tip_w * 0.5,
+    ];
+    if let Ok(body) = Mesh::new_polygon(
+        ctx,
+        DrawMode::fill(),
+        &blade,
+        Color::new(r, g, bl, 0.28 * flash),
+    ) {
+        canvas.draw(&body, DrawParam::default());
+    }
+
     // Three stacked strokes: a wide dim glow, a mid teal/gold core, a thin white-hot centerline —
     // so the slash has depth. Two-point lines are cheap geometry; fine to build per fire (rare).
     let strokes: [(f32, [f32; 4]); 3] = [
@@ -5851,19 +5871,46 @@ pub fn draw_cleave_slash(
         canvas.draw(&line, DrawParam::default());
     }
 
-    // Spark dots kicked perpendicular off the cut line, pushing apart as the flash decays — the two
-    // halves visibly separating along the blade. Fade with the stroke.
     let dot = unit_circle(ctx)?;
-    let push = (1.0 - flash) * 22.0 + 4.0;
+
+    // Parting shockline — a short bright bar drawn ACROSS the cut (perpendicular to the blade) at the
+    // split point, splitting into two halves that push apart along the blade as the flash decays. This
+    // is the "the train comes apart HERE" beat: the eye lands on the seam, not just the swing.
+    let seam_push = (1.0 - flash) * 30.0 + 2.0;
+    let seam_half = 20.0 * flash + 5.0;
     for &s in &[-1.0_f32, 1.0] {
-        let dpos = mid + perp * s * push;
+        let c = mid + dir * s * seam_push;
+        let e0 = c - perp * seam_half;
+        let e1 = c + perp * seam_half;
+        if let Ok(bar) = Mesh::new_line(ctx, &[e0, e1], 2.5, Color::new(1.0, 1.0, 1.0, 0.7 * flash)) {
+            canvas.draw(&bar, DrawParam::default());
+        }
+        // A glow dot riding each parting half.
         canvas.draw(
             dot,
             DrawParam::default()
-                .dest(dpos)
-                .scale(Vec2::splat(3.0 + 3.0 * flash))
-                .color(Color::new(r, g, bl, 0.6 * flash)),
+                .dest(c)
+                .scale(Vec2::splat(4.0 + 4.0 * flash))
+                .color(Color::new(r, g, bl, 0.55 * flash)),
         );
+    }
+
+    // Spark dots flung along the blade, staggered down its length and kicked out perpendicular as the
+    // flash decays — the two halves visibly separating along the cut. Fade with the stroke.
+    let push = (1.0 - flash) * 22.0 + 4.0;
+    for i in 0..5 {
+        let t = (i as f32 / 4.0) - 0.5; // -0.5..0.5 along the blade
+        let along = mid + dir * (t * half * 1.6);
+        for &s in &[-1.0_f32, 1.0] {
+            let dpos = along + perp * s * push;
+            canvas.draw(
+                dot,
+                DrawParam::default()
+                    .dest(dpos)
+                    .scale(Vec2::splat(2.0 + 3.0 * flash))
+                    .color(Color::new(r, g, bl, 0.55 * flash)),
+            );
+        }
     }
 
     Ok(())
