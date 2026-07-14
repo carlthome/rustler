@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -2780,6 +2780,12 @@ impl MainState {
         // links at the tail. Paid out (escalating bonus + callout) after the loop.
         let mut match_run_catches = std::mem::take(&mut self.match_run_catches_buf);
         match_run_catches.clear();
+        // Splitter crabs snapped up this frame — each one cleaves the train at the midpoint and banks
+        // the back half. Deferred to after the loop (the cleave/bank borrows &mut self and mutates
+        // chain_index across all crabs, which we can't do mid-loop holding a &mut into self.crabs).
+        // At most one split per frame matters (they stack chaotically otherwise), so we just record
+        // whether a Splitter landed and where.
+        let mut splitter_catch: Option<Vec2> = None;
         // Type of the crab that currently sits at the *tail* of the train (highest chain_index),
         // snapshotted before the catch loop so we can tell what a newly-caught crab links onto. As
         // each catch lands the new crab becomes the tail, so we roll this forward per catch instead
@@ -2925,6 +2931,13 @@ impl MainState {
                 self.score += pts;
                 // Golden crab: on top of the normal catch award, queue a big lump-sum treasure bonus
                 // (paid out after the loop). This is the payoff for breaking off the herd to chase it.
+                // Splitter: record the catch so the after-loop cleave can bank the back half. The
+                // Splitter has just become the tail (highest chain_index) this catch; the split
+                // block below decides where to cleave. Only the last Splitter caught this frame
+                // wins — one cleave per frame keeps the moment legible.
+                if crab.is_splitter() {
+                    splitter_catch = Some(pos);
+                }
                 if crab.is_golden() {
                     golden_catches.push((pos, pts));
                     // Crossover — the shine conducts down the train. If the link this Golden just
@@ -3050,6 +3063,12 @@ impl MainState {
         for &spos in &magnet_shine_catches {
             self.on_magnet_shine_cascade(spos);
         }
+        // Splitter cleave: catching a Splitter halves the train at the midpoint and instantly banks
+        // the back half for points — the arrangement *bet*. Done here (after the catch loop) so it
+        // can borrow &mut self to rewrite chain_index across the whole train and pay out.
+        if let Some(spos) = splitter_catch {
+            self.split_train_bank(spos);
+        }
         // Same-type match runs: a legible, escalating callout in the matched archetype's own color
         // so the player sees the arrangement paying off — "MATCH x3!" grows and brightens with the
         // run, and a matching-hued ring/shockwave marks the newly-linked tail so the bond reads on
@@ -3110,6 +3129,71 @@ impl MainState {
         self.shake_timer = self.shake_timer.max(0.45);
         self.groove = (self.groove + 0.25).min(1.0);
         let _ = base_pts; // base points already banked in the catch loop; kept for future tuning.
+    }
+
+    /// Splitter cleave — the arrangement *bet*. Catching a Splitter cleaves the conga train at its
+    /// midpoint and instantly BANKS the back half for points (a partial cash-out), leaving the front
+    /// half as a shorter, re-indexed train that keeps rolling. It reuses the delivery payout curve
+    /// (super-linear triangular sum) so cashing a slice at speed genuinely pays, and the peel-scatter
+    /// juice so the cleave reads on screen. The "bet" is that you sacrifice the length and the match-
+    /// run shape you'd built for an instant slice of score — grab it mid-run to cash out, or dodge it
+    /// to protect your line. Because the Splitter itself is the freshly-caught tail, it always lands
+    /// in the banked back half (you don't get to keep the cleaver).
+    fn split_train_bank(&mut self, at: Vec2) {
+        // Nothing to cleave a meaningful chunk out of — a 1-2 link train just banks whatever's there.
+        if self.chain_count == 0 {
+            return;
+        }
+        // Cleave point: everything at chain_index >= keep banks. Split at the midpoint, but always
+        // bank at least the Splitter link itself (the tail) so the catch always does *something*.
+        let keep = self.chain_count / 2;
+        let banked = self.chain_count - keep; // links leaving the field into the bank
+
+        // Super-linear payout on the banked slice, matching the delivery curve (crab #n adds n) and
+        // riding the same combo + Groove-Gamble multipliers as a normal bank, so cashing a slice
+        // mid-hot-streak pays off proportionally — the reward for setting the cleave up on the beat.
+        let n = banked;
+        let base = (n * (n + 1) / 2) * 3;
+        let bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize;
+        self.score += bank;
+
+        // Collect the banked crabs (chain_index >= keep) so they can parade into the pen like a
+        // normal delivery, then leave the field. self.crabs isn't index-ordered, so sort the banked
+        // slice head-first for a clean parade. Cheap — only runs on the rare Splitter catch.
+        let mut ordered: Vec<(usize, Vec2, [f32; 3], f32)> = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |ci| ci >= keep))
+            .map(|c| (c.chain_index.unwrap_or(usize::MAX), c.pos, c.crab_color(), c.scale))
+            .collect();
+        ordered.sort_unstable_by_key(|&(ci, ..)| ci);
+        let marching: Vec<(Vec2, [f32; 3], f32)> =
+            ordered.into_iter().map(|(_ci, p, col, s)| (p, col, s)).collect();
+        // March the banked slice into the delivery pen, same as a real bank, so the cleave visibly
+        // cashes out toward the pen rather than blinking away at the split point.
+        self.penned_marchers.spawn_train(self.pen_pos, &marching);
+
+        // Remove the banked crabs from the field entirely — they've been cashed. The front half
+        // (chain_index < keep) stays attached and keeps its indices contiguous (0..keep), so the
+        // shortened train and all future catches line up cleanly.
+        self.crabs.retain(|c| !(c.caught && c.chain_index.map_or(false, |ci| ci >= keep)));
+        self.chain_count = keep;
+        self.recompute_tail_run(); // the tail changed (the whole back half, incl. any match run, is gone)
+
+        // Feedback: a bright teal cleave-shockwave + fireworks at the split point and a legible
+        // SPLIT BANKED callout, so the bet paying off reads on screen. A camera jolt sells the cleave.
+        let mut rng = rand::rng();
+        self.particle_system.spawn_milestone_fireworks(at, banked.max(1), &mut rng);
+        self.spawn_catch_shockwave(at, [0.2, 0.95, 0.85]);
+        self.floating_texts.spawn(
+            format!("SPLIT BANKED +{}", bank),
+            at - Vec2::new(70.0, 40.0),
+            44.0,
+            [0.4, 1.0, 0.9, 1.0],
+        );
+        self.screen_shake = self.screen_shake.max(8.0);
+        self.hitstop_timer = self.hitstop_timer.max(0.07);
+        self.zoom_punch = self.zoom_punch.max(0.05);
     }
 
     /// Crossover payoff — the Magnet-link shine cascade. Fires when a Golden is caught directly
@@ -7467,6 +7551,11 @@ impl MainState {
                     // catches the eye across the whole field and reads as "chase this one!".
                     let size = crab.scale * CRAB_SIZE;
                     draw_golden_sparkle(ctx, canvas, pos, size, self.time_elapsed, crab.is_magnet_snared())?;
+                } else if crab.is_splitter() {
+                    // Splitter cleave aura — a teal ring with two halves pulsing apart, so the
+                    // player reads "this one splits my train" and can decide to set it up or dodge.
+                    let size = crab.scale * CRAB_SIZE;
+                    draw_splitter_aura(ctx, canvas, pos, size, self.time_elapsed)?;
                 }
             }
         }

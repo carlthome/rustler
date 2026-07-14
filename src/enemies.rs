@@ -22,6 +22,8 @@ pub enum CrabType {
     Thief,   // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
     Hermit,  // "Hermit Crab": hunkers inside a borrowed shell that the beam CAN'T wear down — only the ecosystem cracks it (a Stomp pops it, a Dancer's on-beat hop chips it, and a roaming Magnet's field RIPS it clean out). While shelled it periodically darts to a new host spot; once cracked it pops out defenceless and bolts, opening a brief catch window. Three existing verbs, one new target — the archetype web's newest edge.
     Golden,  // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
+    Splitter, // "Splitter Crab" — catching it cleaves your conga train at the midpoint: the back half instantly BANKS for points (a partial cash-out) while the front half stays. It's an arrangement *bet* — snag it mid-match-run to cash a slice of the train at speed, or dodge it to keep your run and shape intact. Reuses the delivery payout + peel-scatter verbs.
+
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
     RhythmBoss, // rare oversized "Reef DJ" — its shell only drops on the beat, so the beam only wears it down when you hold it *on-beat*
@@ -50,6 +52,12 @@ impl CrabType {
         if rng.random_range(0..33) == 0 {
             return Golden;
         }
+        // Splitter crabs are rare too (~6%, rolled just after Golden): each one cleaves your train
+        // for a partial cash-out, so a couple per run makes train shape a live bet without turning
+        // every catch into a coin flip on your conga line.
+        if rng.random_range(0..17) == 0 {
+            return Splitter;
+        }
         match rng.random_range(0..14) {
             0 | 1 => Normal,
             2 | 3 => Fast,
@@ -74,6 +82,7 @@ impl CrabType {
             CrabType::Thief => 55.0..95.0,   // quick and darty — it makes a beeline for your tail
             CrabType::Hermit => 70.0..120.0, // the *popped* Hermit bolts fast once cracked; while shelled it barely drifts and darts in scripted hops (see the host-swap block in main.rs)
             CrabType::Golden => 85.0..135.0, // skittish and fast — the shiny prize bolts, so you have to commit to the chase
+            CrabType::Splitter => 48.0..88.0, // darts at a lively clip — quick enough that snagging it is a deliberate move you set up, not an accident
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
             CrabType::RhythmBoss => 20.0..38.0, // grooves around at a steady mid-pace, bobbing to the beat
@@ -109,6 +118,7 @@ impl CrabType {
             CrabType::Thief => 1.3,  // light and skittish — a whistle yanks it off your tail nicely
             CrabType::Hermit => 0.35, // the borrowed shell is heavy and it clamps to the ground — a whistle barely budges a shelled Hermit (crack it first, then it's catchable)
             CrabType::Golden => 1.6, // flighty featherweight — a whistle is the surest way to reel the shiny prize in before it bolts
+            CrabType::Splitter => 1.1, // light and jittery — the whistle reels it in cleanly when you decide to commit to the cleave
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
             CrabType::RhythmBoss => 0.0, // the Reef DJ is unshakeable
@@ -127,6 +137,7 @@ impl CrabType {
             CrabType::Thief => 0.26..=0.38,   // small and wiry — easy to lose against the herd until it's on your tail
             CrabType::Hermit => 0.40..=0.56,  // stocky like the Armored — the borrowed shell reads as a chunky lump the herd could bunch near
             CrabType::Golden => 0.34..=0.48,  // a hair bigger than a normal crab so the shine reads at a glance
+            CrabType::Splitter => 0.34..=0.46, // mid-size, but its split-halves aura is what reads at a glance, not its bulk
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
             CrabType::RhythmBoss => 1.7..=2.1, // just as towering as the other bosses
@@ -187,6 +198,7 @@ impl EnemyCrab {
             CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t],    // sly poison-green — reads as "trouble" against the herd
             CrabType::Hermit => [0.72, 0.44, 0.24],             // warm coppery-brown borrowed shell — reads as an earthy shelled lump, distinct from Armored's cold steel
             CrabType::Golden => [1.0, 0.86, 0.28],              // bright treasure-gold — the shiny prize pops against the whole herd
+            CrabType::Splitter => [0.20, 0.90, 0.80],           // bright split-cyan/teal — reads as "cleaver", distinct from every warm herd tone
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
             CrabType::RhythmBoss => [0.72, 0.30, 0.95], // pulsing disco violet
@@ -282,6 +294,14 @@ impl EnemyCrab {
     /// risk/reward chase: commit to snagging the prize before it flees, or stay on the herd.
     pub fn is_golden(&self) -> bool {
         matches!(self.crab_type, CrabType::Golden)
+    }
+
+    /// A "Splitter" crab: catching it cleaves the conga train at the midpoint and instantly banks
+    /// the back half for a partial cash-out (see the split block in handle_crab_catching). It turns
+    /// the train's shape into a live bet — grab it mid-match-run to cash a slice at speed, or dodge
+    /// it to keep your run and length intact.
+    pub fn is_splitter(&self) -> bool {
+        matches!(self.crab_type, CrabType::Splitter)
     }
 
     /// A Golden crab currently snared by a roaming Magnet's field: its skittish bolt has been

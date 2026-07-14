@@ -307,6 +307,14 @@ thread_local! {
     static POOL_ADD_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static POOL_ADD_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffer for draw_groove_vignette's edge-band quads. The vignette draws
+    // up to 5 bands × 4 edges = 20 individual canvas.draw(unit_square, ...) calls every frame
+    // the groove meter is active (which is most of late-game play). All 20 use the same
+    // unit_square mesh with different dest/scale/color DrawParams — ideal for InstanceArray
+    // batching: collect all 20 params, fill one InstanceArray, one draw_instanced_mesh.
+    static VIGNETTE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static VIGNETTE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -661,53 +669,56 @@ pub fn draw_groove_vignette(
     let peak = (0.10 + t * 0.32) * pulse;
 
     // Stack a few bands per edge, fading toward the interior, to fake a smooth gradient falloff.
+    // All bands use the same unit_square mesh — batch into one InstanceArray (up to 20 draws
+    // collapsed to one GPU submission) instead of issuing 20 individual canvas.draw() calls.
     const BANDS: usize = 5;
-    let sq = unit_square(ctx)?;
-    for i in 0..BANDS {
-        // Band 0 sits at the very edge (widest/brightest); inner bands are thinner slivers that
-        // taper the glow off toward the play area.
-        let f = i as f32 / BANDS as f32;
-        let band = reach * (1.0 - f);
-        if band < 0.5 {
-            continue;
-        }
-        // Alpha falls off quadratically inward so the edge reads as a soft bloom, not a hard bar.
-        let a = (peak * (1.0 - f) * (1.0 - f)).clamp(0.0, 0.85);
-        let col = Color::new(r, g, b, a);
-        // Top edge
-        canvas.draw(
-            sq,
-            DrawParam::default()
+    let sq = unit_square(ctx)?.clone();
+    VIGNETTE_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        params.clear();
+        for i in 0..BANDS {
+            // Band 0 sits at the very edge (widest/brightest); inner bands are thinner slivers
+            // that taper the glow off toward the play area.
+            let f = i as f32 / BANDS as f32;
+            let band = reach * (1.0 - f);
+            if band < 0.5 {
+                continue;
+            }
+            // Alpha falls off quadratically inward so the edge reads as a soft bloom, not a hard bar.
+            let a = (peak * (1.0 - f) * (1.0 - f)).clamp(0.0, 0.85);
+            let col = Color::new(r, g, b, a);
+            // Top edge
+            params.push(DrawParam::default()
                 .dest(Vec2::new(0.0, 0.0))
                 .scale(Vec2::new(width, band))
-                .color(col),
-        );
-        // Bottom edge
-        canvas.draw(
-            sq,
-            DrawParam::default()
+                .color(col));
+            // Bottom edge
+            params.push(DrawParam::default()
                 .dest(Vec2::new(0.0, height - band))
                 .scale(Vec2::new(width, band))
-                .color(col),
-        );
-        // Left edge
-        canvas.draw(
-            sq,
-            DrawParam::default()
+                .color(col));
+            // Left edge
+            params.push(DrawParam::default()
                 .dest(Vec2::new(0.0, 0.0))
                 .scale(Vec2::new(band, height))
-                .color(col),
-        );
-        // Right edge
-        canvas.draw(
-            sq,
-            DrawParam::default()
+                .color(col));
+            // Right edge
+            params.push(DrawParam::default()
                 .dest(Vec2::new(width - band, 0.0))
                 .scale(Vec2::new(band, height))
-                .color(col),
-        );
-    }
-    Ok(())
+                .color(col));
+        }
+        if !params.is_empty() {
+            VIGNETTE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_slot = inst_cell.borrow_mut();
+                let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                instances.set(params.iter().copied());
+                canvas.draw_instanced_mesh(sq, instances, DrawParam::default());
+                Ok(())
+            })?;
+        }
+        Ok(())
+    })
 }
 
 /// Fetch a cached stroke-rectangle mesh for the given size/thickness (built once per rounded
@@ -848,6 +859,7 @@ impl ParticleSystem {
             CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true),  // Wiry poison-green burst — catching it feels like relief
             CrabType::Hermit => (42, 70.0..200.0, 3.0..8.0, true),  // Chunky coppery shell-shard burst — the borrowed shell scatters as it pops out
             CrabType::Golden => (55, 100.0..320.0, 2.5..7.0, true), // Lavish gold coin-burst — the treasure catch pops
+            CrabType::Splitter => (48, 130.0..340.0, 2.5..6.0, true), // Fast bright teal cleave-burst that flings apart — reads as the train splitting open
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
             CrabType::RhythmBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge violet disco burst
@@ -5013,6 +5025,47 @@ pub fn draw_golden_sparkle(
                 .dest(dpos)
                 .scale(Vec2::splat(r))
                 .color(Color::new(1.0, sg, sb, 0.4 + twinkle * 0.6)),
+        );
+    }
+
+    Ok(())
+}
+
+/// Splitter crab aura — a bright teal ring that pulses open into two halves, telegraphing that
+/// catching this one cleaves your train in two. Two short arcs sweep apart on opposite sides of a
+/// vertical "cleave line" so the split reads at a glance, distinct from every other archetype aura.
+/// Additively blended; the caller (the per-crab aura pass) already has the canvas in ADD mode, so
+/// this doesn't toggle blend mode itself. Reuses cached meshes so no fresh GPU buffers are uploaded.
+pub fn draw_splitter_aura(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    size: f32,
+    time: f32,
+) -> ggez::GameResult {
+    // Breathing halo so the cleaver reads even while it's holding still — teal, the archetype tint.
+    let pulse = (time * 3.5).sin() * 0.5 + 0.5;
+    let halo = cached_stroke_circle(ctx, size * 0.75 + 3.0 + pulse * 4.0, 2.5)?;
+    canvas.draw(
+        &halo,
+        DrawParam::default()
+            .dest(pos)
+            .color(Color::new(0.2, 0.95, 0.85, 0.30 + pulse * 0.28)),
+    );
+
+    // The "cleave" tell: two small dots split apart from center along the horizontal, snapping back
+    // on each pulse cycle — the visual shorthand for "I halve your train". The spread pulses so the
+    // two halves visibly separate and rejoin, drawing the eye.
+    let dot = unit_circle(ctx)?;
+    let spread = (size * 0.35 + 4.0) * (0.4 + 0.6 * pulse);
+    for &dir in &[-1.0_f32, 1.0] {
+        let dpos = pos + Vec2::new(dir * spread, 0.0);
+        canvas.draw(
+            dot,
+            DrawParam::default()
+                .dest(dpos)
+                .scale(Vec2::splat(2.0 + pulse * 2.0))
+                .color(Color::new(0.5, 1.0, 0.9, 0.45 + pulse * 0.5)),
         );
     }
 
