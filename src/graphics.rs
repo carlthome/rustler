@@ -5860,15 +5860,25 @@ pub fn draw_cleave_slash(
     }
 
     // Three stacked strokes: a wide dim glow, a mid teal/gold core, a thin white-hot centerline —
-    // so the slash has depth. Two-point lines are cheap geometry; fine to build per fire (rare).
+    // so the slash has depth. Use the cached UNIT_LINE mesh (scaled/rotated via DrawParam) instead
+    // of Mesh::new_line so these don't allocate a fresh GPU buffer every frame the flash is live.
+    let line = unit_line(ctx)?;
+    let angle = dir.y.atan2(dir.x);
+    let seg_len = (p1 - p0).length();
     let strokes: [(f32, [f32; 4]); 3] = [
         (7.0, [r, g, bl, 0.30 * flash]),
         (3.5, [r, g, bl, 0.70 * flash]),
         (1.4, [1.0, 1.0, 1.0, 0.85 * flash]),
     ];
     for (w, col) in strokes {
-        let line = Mesh::new_line(ctx, &[p0, p1], w, Color::new(col[0], col[1], col[2], col[3]))?;
-        canvas.draw(&line, DrawParam::default());
+        canvas.draw(
+            line,
+            DrawParam::default()
+                .dest(p0)
+                .rotation(angle)
+                .scale(Vec2::new(seg_len, w))
+                .color(Color::new(col[0], col[1], col[2], col[3])),
+        );
     }
 
     let dot = unit_circle(ctx)?;
@@ -5876,15 +5886,23 @@ pub fn draw_cleave_slash(
     // Parting shockline — a short bright bar drawn ACROSS the cut (perpendicular to the blade) at the
     // split point, splitting into two halves that push apart along the blade as the flash decays. This
     // is the "the train comes apart HERE" beat: the eye lands on the seam, not just the swing.
+    // Use UNIT_LINE scaled via DrawParam (perpendicular rotation = angle + PI/2) instead of
+    // Mesh::new_line to avoid fresh GPU buffer allocations every frame the flash is active.
     let seam_push = (1.0 - flash) * 30.0 + 2.0;
     let seam_half = 20.0 * flash + 5.0;
+    let seam_angle = angle + std::f32::consts::FRAC_PI_2;
+    let seam_len = seam_half * 2.0;
     for &s in &[-1.0_f32, 1.0] {
         let c = mid + dir * s * seam_push;
-        let e0 = c - perp * seam_half;
-        let e1 = c + perp * seam_half;
-        if let Ok(bar) = Mesh::new_line(ctx, &[e0, e1], 2.5, Color::new(1.0, 1.0, 1.0, 0.7 * flash)) {
-            canvas.draw(&bar, DrawParam::default());
-        }
+        let e0 = c - perp * seam_half; // left end of the perpendicular bar
+        canvas.draw(
+            line,
+            DrawParam::default()
+                .dest(e0)
+                .rotation(seam_angle)
+                .scale(Vec2::new(seam_len, 2.5))
+                .color(Color::new(1.0, 1.0, 1.0, 0.7 * flash)),
+        );
         // A glow dot riding each parting half.
         canvas.draw(
             dot,
