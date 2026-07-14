@@ -203,64 +203,63 @@ pub fn handle_key_down_event(
                 state.show_instructions = false;
                 return true;
             }
-            // "C" opens the campaign world map.
-            if key == KeyCode::C {
-                state.enter_world_map();
-                return true;
+            // Escape from the Loadout page goes back to Home.
+            if key == KeyCode::Escape {
+                if state.menu_page == 1 {
+                    state.menu_page = 0;
+                    return true;
+                }
             }
-            // "How to Play": drop into an opt-in, scripted tutorial sandbox instead of a real run.
-            // Each key launches a different mechanic lesson: H = beat timing, J = chain & deliver,
-            // K = cracking Armored shells with the Stomp, L = throwing the lasso.
-            if key == KeyCode::H {
-                state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
-                return true;
-            }
-            if key == KeyCode::J {
-                state.enter_tutorial(crate::tutorial::TutorialKind::ChainDeliver);
-                return true;
-            }
-            if key == KeyCode::K {
-                state.enter_tutorial(crate::tutorial::TutorialKind::ShellCrack);
-                return true;
-            }
-            if key == KeyCode::L {
-                state.enter_tutorial(crate::tutorial::TutorialKind::LassoGrab);
-                return true;
-            }
-            // Skin picker: Tab moves the focus between the Hat / Facial Hair / Accessory
-            // columns; Left/Right cycle the option within the focused column. Any change is
-            // persisted to career.txt immediately and the live crab preview updates at once.
+            // Tab: on Home page, open the Loadout page. On Loadout, cycle the skin slot.
             if key == KeyCode::Tab {
-                state.skin_slot = (state.skin_slot + 1) % 3;
+                if state.menu_page == 0 {
+                    state.menu_page = 1;
+                } else {
+                    state.skin_slot = (state.skin_slot + 1) % 3;
+                }
                 return true;
             }
-            if key == KeyCode::Left {
-                state.cycle_skin_option(-1);
-                return true;
+            // Home-page-only keys: tutorials and campaign.
+            if state.menu_page == 0 {
+                // "C" opens the campaign world map.
+                if key == KeyCode::C {
+                    state.enter_world_map();
+                    return true;
+                }
+                if key == KeyCode::H {
+                    state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
+                    return true;
+                }
+                if key == KeyCode::J {
+                    state.enter_tutorial(crate::tutorial::TutorialKind::ChainDeliver);
+                    return true;
+                }
+                if key == KeyCode::K {
+                    state.enter_tutorial(crate::tutorial::TutorialKind::ShellCrack);
+                    return true;
+                }
+                if key == KeyCode::L {
+                    state.enter_tutorial(crate::tutorial::TutorialKind::LassoGrab);
+                    return true;
+                }
             }
-            if key == KeyCode::Right {
-                state.cycle_skin_option(1);
-                return true;
-            }
-            // Perk shop: spend banked crabs on permanent starting tool ranks before a run.
-            match key {
-                KeyCode::Key1 => {
-                    state.buy_start_perk(1);
+            // Loadout-page-only keys: skin picker and perk shop.
+            if state.menu_page == 1 {
+                if key == KeyCode::Left {
+                    state.cycle_skin_option(-1);
                     return true;
                 }
-                KeyCode::Key2 => {
-                    state.buy_start_perk(2);
+                if key == KeyCode::Right {
+                    state.cycle_skin_option(1);
                     return true;
                 }
-                KeyCode::Key3 => {
-                    state.buy_start_perk(3);
-                    return true;
+                match key {
+                    KeyCode::Key1 => { state.buy_start_perk(1); return true; }
+                    KeyCode::Key2 => { state.buy_start_perk(2); return true; }
+                    KeyCode::Key3 => { state.buy_start_perk(3); return true; }
+                    KeyCode::Key4 => { state.buy_start_perk(4); return true; }
+                    _ => {}
                 }
-                KeyCode::Key4 => {
-                    state.buy_start_perk(4);
-                    return true;
-                }
-                _ => {}
             }
         } else if state.game_over {
             if key == KeyCode::Space || key == KeyCode::Return {

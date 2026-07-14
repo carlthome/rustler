@@ -527,6 +527,8 @@ struct MainState {
     player_skin: PlayerSkin,
     // Which cosmetic column the title-screen skin picker currently focuses: 0=Hat, 1=FacialHair, 2=Accessory.
     skin_slot: usize,
+    // Which menu page is active on the title screen: 0=Home, 1=Loadout.
+    menu_page: usize,
     // Campaign world map — `Some` once the player has entered campaign mode from the title.
     // Persists across runs so node completion carries over. `show_world_map` gates whether the
     // map screen is currently visible; `in_campaign` is true during an active campaign run.
@@ -1282,6 +1284,7 @@ impl MainState {
             show_instructions: true,
             player_skin,
             skin_slot: 0,
+            menu_page: 0,
             world_map: None,
             show_world_map: false,
             in_campaign: false,
@@ -6236,6 +6239,51 @@ impl MainState {
             );
         });
 
+        // --- Tab bar: Home / Loadout page switcher ------------------------------------------
+        // Sits just below the subtitle so it's always visible regardless of which page is up.
+        // Tab navigates forward (Home→Loadout); Escape goes back (Loadout→Home).
+        {
+            let tab_y = title_top + main_title_height + 42.0;
+            let tab_labels = ["  HOME  ", "  LOADOUT  "];
+            let mut tab_x = width / 2.0 - 120.0;
+            for (i, label) in tab_labels.iter().enumerate() {
+                let active = self.menu_page == i;
+                let color = if active {
+                    Color::from_rgb(80, 220, 200)
+                } else {
+                    Color::from_rgba(180, 180, 200, 100)
+                };
+                let mut t_text = Text::new(*label);
+                t_text.set_scale(20.0);
+                let tw = t_text.measure(ctx)?.x;
+                let bg_rect = Rect::new(tab_x - 4.0, tab_y - 4.0, tw + 8.0, 28.0);
+                let bg_color = if active {
+                    Color::from_rgba(30, 80, 80, 160)
+                } else {
+                    Color::from_rgba(10, 14, 30, 80)
+                };
+                let bg = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), bg_rect, 6.0, bg_color)?;
+                canvas.draw(&bg, DrawParam::default());
+                canvas.draw(&t_text, DrawParam::default().dest(Vec2::new(tab_x, tab_y)).color(color));
+                tab_x += tw + 20.0;
+            }
+            // Navigation hint below the tabs.
+            let hint = if self.menu_page == 0 {
+                "Tab — open Loadout"
+            } else {
+                "Esc — back to Home    Tab — next slot    \u{25C4}/\u{25BA} — change"
+            };
+            let mut hint_text = Text::new(hint);
+            hint_text.set_scale(16.0);
+            let hw = hint_text.measure(ctx)?.x;
+            canvas.draw(
+                &hint_text,
+                DrawParam::default()
+                    .dest(Vec2::new((width - hw) / 2.0, tab_y + 32.0))
+                    .color(Color::from_rgba(180, 180, 200, 120)),
+            );
+        }
+
         // --- Instructions on a translucent rounded panel for readability -------------------
         let (text_width, text_height) = MENU_INSTRUCTIONS_CACHE.with(|c| -> GameResult<(f32, f32)> {
             let mut cache = c.borrow_mut();
@@ -6252,6 +6300,8 @@ impl MainState {
         let text_x = (width - text_width) / 2.0;
         let text_y = height * 0.44;
         let pad = 26.0;
+
+        if self.menu_page == 0 {
         let panel_key = (width.to_bits(), height.to_bits());
         let cached_panel = MENU_PANEL_CACHE.with(|c| {
             c.borrow().as_ref().and_then(|(w, h, mesh)| {
@@ -6455,31 +6505,16 @@ impl MainState {
             });
         }
 
-        // --- Skin picker: craft your crab persona before the run ---------------------------
-        // Three columns (Hat / Facial Hair / Accessory), each showing the slot label, the
-        // currently-selected option flanked by ◄ ► arrows, and a one-line flavour blurb. The
-        // focused column (Tab cycles it) is drawn brighter; Left/Right cycle its option. A live
-        // crab preview sits to the left so the whole loadout reads at a glance. Selection is
-        // applied and saved immediately, so what you see is exactly what you'll play.
+        } // end menu_page == 0 (Home)
+
+        // --- Loadout page: skin picker + perk shop -----------------------------------------
+        if self.menu_page == 1 {
         {
             let skin = self.player_skin;
-            // Anchor the picker below whatever content is actually on screen (the controls panel,
-            // plus the prompt/tutorial/career/perk-shop rows that only appear once there's a
-            // career), rather than at a fixed fraction — that content block grows for returning
-            // players and would otherwise collide with the picker. `content_bottom` mirrors the
-            // lowest element drawn above: the perk-shop list row when a career exists, else the
-            // tutorial-hints row. Clamped so it always clears the marching-crab parade at the
-            // very bottom (height - 66).
-            let base = text_y + text_height + pad * 2.0;
-            let content_bottom = if self.career_runs > 0 {
-                base + 92.0 + 28.0 + 24.0 // shop header + list row + line height
-            } else {
-                base + 58.0 + 24.0 // tutorial hints row + line height
-            };
-            // The picker panel is ~150px tall (label→name→flavour→hint). If it won't fit above
-            // the parade, pull it up to sit right on top of the parade instead of overlapping it.
+            // On the Loadout page there's no controls panel, so anchor the picker with more
+            // vertical room — well below the tab bar, centered in the available space.
             let parade_top = height - 66.0 - 40.0;
-            let picker_y = (content_bottom + 40.0).min(parade_top - 116.0).max(content_bottom + 12.0);
+            let picker_y = (height * 0.38).min(parade_top - 200.0);
             let col_gap = (width * 0.20).min(300.0);
             let cols_center = width * 0.62;
             let col_x = [
@@ -6586,17 +6621,9 @@ impl MainState {
                 );
             }
 
-            // Hint line so players know the controls.
-            let mut hint = Text::new("Tab — switch slot     \u{25C4}/\u{25BA} — change");
-            hint.set_scale(15.0);
-            let hw = hint.measure(ctx)?.x;
-            canvas.draw(
-                &hint,
-                DrawParam::default()
-                    .dest(Vec2::new(cols_center - hw / 2.0, picker_y + 90.0))
-                    .color(Color::from_rgb(150, 175, 200)),
-            );
         }
+        } // end menu_page == 1 (Loadout)
+
         Ok(())
     }
 
