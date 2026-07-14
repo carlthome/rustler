@@ -162,6 +162,15 @@ thread_local! {
     static TRAIL_CORE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static TRAIL_SPARK_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Scratch buffer for pre-computed trail geometry in draw_catch_trails. The three instanced
+    // passes (glow, core, spark) each used to call trail_geometry() independently — that's a
+    // Vec2 subtraction, a length() (sqrt), an atan2(), and a few float muls per trail per pass,
+    // so three times total. Since the geometry is identical across all three passes we compute it
+    // once into this buffer and let the passes index it. At ≤56 active trails (the cap) this is
+    // at most 56 avoidable sqrt+atan2 pairs per draw_catch_trails call, called twice per frame
+    // (catch_trails + call_streaks) — ~224 saved sqrt/atan2 calls per frame during Groove Call.
+    static TRAIL_GEOM_BUF: RefCell<Vec<Option<(Vec2, f32, f32, f32)>>> = RefCell::new(Vec::new());
+
     // Reusable instance buffers for draw_penned_marchers' three passes (shadow, body, rim
     // highlight) — same batching technique as the particle/leg/body/trail instances above. A big
     // bank can queue up to 40 marchers at once, each previously issuing 3 individual canvas.draw()
@@ -3615,9 +3624,22 @@ pub fn draw_catch_trails(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
+    // Pre-compute geometry once per trail — tail pos, seg_len, angle, fade — so each of the
+    // three instanced passes below can index it rather than recomputing the sqrt + atan2
+    // independently. Avoids ~2 redundant sqrt+atan2 per trail per draw_catch_trails call (up to
+    // 56 trails × 2 saved pairs × 2 calls/frame = 224 avoided sqrt/atan2 during peak Groove Call).
+    TRAIL_GEOM_BUF.with(|geom_cell| {
+        let mut geom = geom_cell.borrow_mut();
+        geom.clear();
+        geom.extend(trails.iter().map(|&(from, to, age, _)| trail_geometry(from, to, age)));
+    });
+
     TRAIL_GLOW_INSTANCES.with(|glow_cell| -> ggez::GameResult {
         TRAIL_CORE_INSTANCES.with(|core_cell| -> ggez::GameResult {
             TRAIL_SPARK_INSTANCES.with(|spark_cell| -> ggez::GameResult {
+                TRAIL_GEOM_BUF.with(|geom_cell| -> ggez::GameResult {
+                let geom = geom_cell.borrow();
+
                 let mut glow_slot = glow_cell.borrow_mut();
                 let mut core_slot = core_cell.borrow_mut();
                 let mut spark_slot = spark_cell.borrow_mut();
@@ -3625,8 +3647,8 @@ pub fn draw_catch_trails(
                 let core = core_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 let sparks = spark_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
 
-                glow.set(trails.iter().filter_map(|&(from, to, age, color)| {
-                    let (tail, seg_len, angle, fade) = trail_geometry(from, to, age)?;
+                glow.set(trails.iter().zip(geom.iter()).filter_map(|(&(_, _, _, color), g)| {
+                    let (tail, seg_len, angle, fade) = (*g)?;
                     let thickness = (2.0 + fade * 5.0).max(1.0);
                     Some(
                         DrawParam::default()
@@ -3636,8 +3658,8 @@ pub fn draw_catch_trails(
                             .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
                     )
                 }));
-                core.set(trails.iter().filter_map(|&(from, to, age, color)| {
-                    let (tail, seg_len, angle, fade) = trail_geometry(from, to, age)?;
+                core.set(trails.iter().zip(geom.iter()).filter_map(|(&(_, _, _, color), g)| {
+                    let (tail, seg_len, angle, fade) = (*g)?;
                     let thickness = (2.0 + fade * 5.0).max(1.0);
                     // Bright core line, blending from the crab color toward white-hot.
                     let cr = (color[0] * 0.5 + 0.5).min(1.0);
@@ -3651,8 +3673,8 @@ pub fn draw_catch_trails(
                             .color(Color::new(cr, cg, cb, fade * 0.85)),
                     )
                 }));
-                sparks.set(trails.iter().filter_map(|&(from, to, age, _)| {
-                    let (tail, _, _, fade) = trail_geometry(from, to, age)?;
+                sparks.set(geom.iter().filter_map(|g| {
+                    let (tail, _, _, fade) = (*g)?;
                     // White-hot spark riding the retracting tail — the crab being reeled in.
                     let spark_r = (2.5 + fade * 5.0).max(1.0);
                     Some(
@@ -3677,6 +3699,7 @@ pub fn draw_catch_trails(
                     canvas.draw_instanced_mesh(spark.clone(), sparks, DrawParam::default());
                 }
                 Ok(())
+                })
             })
         })
     })?;
