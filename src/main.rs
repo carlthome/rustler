@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -3300,6 +3300,48 @@ impl MainState {
     /// Magnets in the slice, and a live tail match-run the cut cashes, each add a bonus and escalate the
     /// juice. So the bet is over what the tail is *made of*, not just how long it is: a mid-match-run
     /// cleave with a Golden parked in back is the big score; a bare cut is the safe partial cash-out.
+    /// The links that would be cleaved: `(keep, banked)` where every chain_index >= keep banks and
+    /// the front `keep` links stay attached. Split at the midpoint. Single source of truth for the
+    /// cut point, shared by the cleave itself and the pre-catch stakes preview so they can never drift.
+    fn cleave_split_point(&self) -> (usize, usize) {
+        let keep = self.chain_count / 2;
+        (keep, self.chain_count - keep)
+    }
+
+    /// What a CLEAN (on-beat) cleave would bank *right now*, base slice payout plus the full Jackpot
+    /// crossover (Goldens/Magnets/cashed match-run in the back half). This is the exact number the
+    /// clean branch of `split_train_bank` pays — extracted so the floating stakes preview shows the
+    /// real bet, not a re-derived guess that silently diverges the next time the formula is edited.
+    /// Returns `(worth, jackpot)`: `jackpot` is whether any composition crossover would fire.
+    fn cleave_clean_worth(&self) -> (usize, bool) {
+        if self.chain_count == 0 {
+            return (0, false);
+        }
+        let (keep, banked) = self.cleave_split_point();
+        let base = (banked * (banked + 1) / 2) * 3;
+        let combo = self.combo_multiplier();
+        let mut worth = (base as f32 * combo as f32 * self.beat_gamble_mult).round() as usize;
+
+        let (golden_in_slice, magnet_in_slice) = self.crabs.iter().fold((0, 0), |(g, m), c| {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= keep) {
+                (g + c.is_golden() as usize, m + c.is_magnet() as usize)
+            } else {
+                (g, m)
+            }
+        });
+        let cashed_run = if self.tail_run_len >= 3 { self.tail_run_len } else { 0 };
+        let golden_bonus = golden_in_slice * 120 * combo;
+        let magnet_bonus = if magnet_in_slice > 0 {
+            magnet_in_slice * banked.max(1) * 6 * combo
+        } else {
+            0
+        };
+        let run_bonus = (cashed_run as usize) * (cashed_run as usize) * 5 * combo;
+        let crossover = golden_bonus + magnet_bonus + run_bonus;
+        worth += crossover;
+        (worth, crossover > 0)
+    }
+
     fn split_train_bank(&mut self, at: Vec2) {
         // Nothing to cleave a meaningful chunk out of — a 1-2 link train just banks whatever's there.
         if self.chain_count == 0 {
@@ -3307,8 +3349,7 @@ impl MainState {
         }
         // Cleave point: everything at chain_index >= keep banks. Split at the midpoint, but always
         // bank at least the Splitter link itself (the tail) so the catch always does *something*.
-        let keep = self.chain_count / 2;
-        let banked = self.chain_count - keep; // links leaving the field into the bank
+        let (keep, banked) = self.cleave_split_point();
 
         // THE BET — an on-beat gate turns the cleave from pure upside into a genuine timing gamble.
         // Catch the Splitter ON the beat and the cut lands clean: full bank + the Jackpot payout below.
@@ -3322,26 +3363,10 @@ impl MainState {
         // bet. A soft miss keeps it a live risk/reward read without the feel-bad wipe of half your train.
         let clean = self.on_beat_now();
 
-        // Super-linear payout on the banked slice, matching the delivery curve (crab #n adds n) and
-        // riding the same combo + Groove-Gamble multipliers as a normal bank, so cashing a slice
-        // mid-hot-streak pays off proportionally — the reward for setting the cleave up on the beat.
-        let n = banked;
-        let base = (n * (n + 1) / 2) * 3;
-        // Off-beat cuts cash at half — the timing miss that keeps the cleave a real bet.
-        let clean_mult = if clean { 1.0 } else { 0.5 };
-        let mut bank = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult * clean_mult).round() as usize;
-
-        // Jackpot Cleave — the Splitter's archetype crossover. Which crabs sit in the cleaved back
-        // half now *matters*, so the bet is over the train's *composition*, not just its length:
-        //  - Goldens cashed in the slice pay a gold jackpot (you cleave the chase-reward straight
-        //    into the bank instead of babysitting it to the pen),
-        //  - Magnets in the slice conduct the cash like the shine cascade (a per-slice conduction
-        //    bonus that scales with how much of the train the Magnet field cashes with it),
-        //  - and a live tail match-run that the cleave would otherwise silently wipe instead pays a
-        //    RUN CASHED bonus — so cleaving mid-run is a real high-variance move, not pure downside.
-        // Counted from the same banked-slice scan (chain_index >= keep) done just below.
-        // Count Goldens and Magnets in the banked slice in a single pass — avoids two redundant
-        // full scans over self.crabs for what's essentially the same predicate (caught + in slice).
+        // Component scan for the JACKPOT tag naming and juice below — WHICH crabs sit in the cleaved
+        // back half (Goldens/Magnets, and a live tail match-run). Single pass over the banked slice.
+        // The clean-cut TOTAL itself comes from cleave_clean_worth() so the preview tag and the actual
+        // payout share exactly one formula and can't drift; here we only need the breakdown for naming.
         let (golden_in_slice, magnet_in_slice) = self.crabs.iter().fold((0, 0), |(g, m), c| {
             if c.caught && c.chain_index.map_or(false, |ci| ci >= keep) {
                 (g + c.is_golden() as usize, m + c.is_magnet() as usize)
@@ -3352,23 +3377,21 @@ impl MainState {
         // The tail match-run lives at the very back of the train, so the cleave always cashes it in
         // full — capture its length before recompute wipes it. Only counts as a "cashed run" at 3+.
         let cashed_run = if self.tail_run_len >= 3 { self.tail_run_len } else { 0 };
+        let _ = magnet_in_slice; // consumed inside cleave_clean_worth; kept here only for parity of the scan
 
-        let combo = self.combo_multiplier();
-        let golden_bonus = golden_in_slice * 120 * combo;
-        // Conduction scales with the whole banked slice, echoing the Magnet+Golden shine cascade:
-        // a Magnet in the cut conducts the cash down every link it leaves with.
-        let magnet_bonus = if magnet_in_slice > 0 {
-            magnet_in_slice * banked.max(1) * 6 * combo
+        // THE PAYOUT. On the beat the cut is clean: bank the full cleave_clean_worth() (base slice +
+        // Jackpot crossover), the exact figure the pre-catch stakes tag previewed. Off the beat it's a
+        // sloppy half-cut: half the base slice, no crossover — so timing is what turns a good tail into
+        // a jackpot. Single source of truth for the clean total; off-beat is derived from the same base.
+        let (bank, jackpot) = if clean {
+            let (worth, jackpot) = self.cleave_clean_worth();
+            (worth, jackpot)
         } else {
-            0
+            let base = (banked * (banked + 1) / 2) * 3;
+            let half = (base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult * 0.5)
+                .round() as usize;
+            (half, false)
         };
-        let run_bonus = (cashed_run as usize) * (cashed_run as usize) * 5 * combo;
-        // Off-beat, the sloppy cut forfeits the whole Jackpot — no Golden/Magnet/run crossover pays.
-        // A clean on-beat cut is the only way to cash the composition bonus, so the beat is what turns
-        // a good tail into a jackpot rather than just a half-price partial bank.
-        let crossover_bonus = if clean { golden_bonus + magnet_bonus + run_bonus } else { 0 };
-        bank += crossover_bonus;
-        let jackpot = crossover_bonus > 0;
         self.score += bank;
 
         // Collect the banked crabs (chain_index >= keep) so they can parade into the pen like a
@@ -6935,6 +6958,54 @@ impl MainState {
             pen_worth,
             self.deliver_flash,
         )?;
+
+        // Cleave stakes tag — the Splitter bet made legible BEFORE the catch. While a free Splitter is
+        // loose and the player has a train worth cleaving, float a live "CLEAVE ~N" figure at the split
+        // point (the midpoint where the cut lands) showing what a clean on-beat cut would bank, heating
+        // gold in the beat window like the splitter aura. Reuses cleave_clean_worth so the previewed
+        // number can't drift from the actual payout. Only shows when there's both a free Splitter and a
+        // train (≥2 links) to meaningfully halve, so it's naturally transient and never HUD clutter.
+        if self.chain_count >= 2
+            && self.crabs.iter().any(|c| !c.caught && c.is_splitter())
+        {
+            let (keep, _) = self.cleave_split_point();
+            // Split point in the world: the midpoint between the last kept front link (keep-1) and the
+            // first banked link (keep), read from current chain positions. Falls back to either link
+            // alone if only one is found.
+            let front = self
+                .crabs
+                .iter()
+                .find(|c| c.caught && c.chain_index == Some(keep.saturating_sub(1)))
+                .map(|c| c.pos);
+            let back = self
+                .crabs
+                .iter()
+                .find(|c| c.caught && c.chain_index == Some(keep))
+                .map(|c| c.pos);
+            if let Some(split_pt) = match (front, back) {
+                (Some(f), Some(b)) => Some((f + b) * 0.5),
+                (Some(f), None) => Some(f),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            } {
+                let (worth, jackpot) = self.cleave_clean_worth();
+                if worth > 0 {
+                    // Same beat-proximity curve the splitter aura uses, so the tag and the aura go hot
+                    // together in the clean-cut window.
+                    let to_beat = self.beat_timer.min(self.beat_interval - self.beat_timer);
+                    let beat_prox = (1.0 - to_beat / (BEAT_WINDOW * 1.5)).clamp(0.0, 1.0);
+                    draw_cleave_stakes(
+                        ctx,
+                        canvas,
+                        split_pt,
+                        worth,
+                        jackpot,
+                        beat_prox,
+                        self.time_elapsed,
+                    )?;
+                }
+            }
+        }
 
         // Just-banked crabs marching into the pen — drawn over the pen ground so the parade files
         // in on top of the corral. Empty and free when no bank just happened.

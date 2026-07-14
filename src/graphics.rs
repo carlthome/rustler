@@ -5829,6 +5829,75 @@ pub fn draw_splitter_aura(
     Ok(())
 }
 
+/// Cleave stakes tag — the pre-catch readout of the Splitter bet. While a free Splitter is on the
+/// field and the player has a train worth cleaving, this floats a live "CLEAVE ~N" number at the
+/// train's split point (the midpoint where the cut would land), so the player can read what a clean
+/// on-beat cut would bank *before* committing — the same "make the bet legible before, not just
+/// after" idea as the splitter aura's beat flare, but as an actual score figure over the train.
+///
+/// `worth` is the clean-cut value (from `cleave_clean_worth`, so it can't drift from the real
+/// payout). `jackpot` marks that a Golden/Magnet/cashed-run crossover would fire — the tag reads
+/// "JACKPOT" then. `beat_prox` (0..1, peaking on the beat) heats the tag teal→gold in the clean-cut
+/// window so "grab NOW" reads on the number itself, matching the aura. The Text is cached and only
+/// re-shaped when the value or jackpot state changes, so no per-frame allocation on the draw path.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_cleave_stakes(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    at: Vec2,
+    worth: usize,
+    jackpot: bool,
+    beat_prox: f32,
+    time: f32,
+) -> ggez::GameResult {
+    thread_local! {
+        static CLEAVE_STAKES_CACHE: std::cell::RefCell<Option<(usize, bool, Text)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    CLEAVE_STAKES_CACHE.with(|cache| -> ggez::GameResult {
+        let mut c = cache.borrow_mut();
+        let needs = c
+            .as_ref()
+            .map_or(true, |(v, j, _)| *v != worth || *j != jackpot);
+        if needs {
+            let label = if jackpot {
+                format!("JACKPOT CLEAVE ~ {}", worth)
+            } else {
+                format!("CLEAVE ~ {}", worth)
+            };
+            let mut t = Text::new(label);
+            t.set_scale(18.0);
+            *c = Some((worth, jackpot, t));
+        }
+        let (_, _, text) = c.as_ref().unwrap();
+        let w = text.measure(ctx)?.x;
+        // Bob above the split point, a touch livelier in the beat window so the tag "leans in" as the
+        // clean-cut window opens — the anticipation cue on the number itself.
+        let bob = (time * (4.0 + beat_prox * 5.0)).sin() * (2.0 + beat_prox * 3.0);
+        let base = at - Vec2::new(w * 0.5, 30.0 - bob);
+        // Teal at rest, heating to gold as the beat lands (matching the splitter aura flare), and a
+        // touch hotter still when a jackpot crossover is on the line.
+        let hot = beat_prox.max(if jackpot { 0.25 } else { 0.0 });
+        let tr = 0.35 + 0.65 * hot;
+        let tg = 0.95;
+        let tb = 0.85 - 0.6 * hot;
+        // Dark backing keeps it legible over bright field/particles.
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base + Vec2::splat(1.5))
+                .color(Color::new(0.0, 0.0, 0.0, 0.55)),
+        );
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base)
+                .color(Color::new(tr, tg, tb.max(0.0), 0.95)),
+        );
+        Ok(())
+    })
+}
+
 /// Cleave slash — the blade stroke drawn the instant a Splitter cuts the conga train. Runs from the
 /// last kept front link (`a`) to the split point (`b`), overshooting both ends so it reads as a
 /// swung stroke rather than a connecting line. `flash` is a 1→0 life: the stroke starts long and
