@@ -5701,6 +5701,40 @@ impl MainState {
         );
     }
 
+    /// Title-screen skin picker: step the option in the currently focused cosmetic column
+    /// (`skin_slot`: 0=Hat, 1=FacialHair, 2=Accessory) by `dir` (+1/-1), wrapping around its
+    /// `::ALL` list. The change is applied to `player_skin` immediately (so the live preview
+    /// and flavour text update at once) and persisted to career.txt right away.
+    fn cycle_skin_option(&mut self, dir: i32) {
+        let step = |len: usize, cur: usize| -> usize {
+            ((cur as i32 + dir).rem_euclid(len as i32)) as usize
+        };
+        match self.skin_slot {
+            0 => {
+                let all = crate::skins::Hat::ALL;
+                let cur = all.iter().position(|h| *h == self.player_skin.hat).unwrap_or(0);
+                self.player_skin.hat = all[step(all.len(), cur)];
+            }
+            1 => {
+                let all = crate::skins::FacialHair::ALL;
+                let cur = all
+                    .iter()
+                    .position(|h| *h == self.player_skin.facial_hair)
+                    .unwrap_or(0);
+                self.player_skin.facial_hair = all[step(all.len(), cur)];
+            }
+            _ => {
+                let all = crate::skins::Accessory::ALL;
+                let cur = all
+                    .iter()
+                    .position(|a| *a == self.player_skin.accessory)
+                    .unwrap_or(0);
+                self.player_skin.accessory = all[step(all.len(), cur)];
+            }
+        }
+        self.save_career();
+    }
+
     /// Title-screen purchase: buy the next permanent starting rank of one tool (1=beam, 2=lasso,
     /// 3=whistle, 4=stomp) with banked crabs. Refused (with a red flash) if the tool is maxed or
     /// there aren't enough banked crabs. On success the spend is committed to disk immediately so
@@ -6419,6 +6453,148 @@ impl MainState {
                         .color(list_color),
                 );
             });
+        }
+
+        // --- Skin picker: craft your crab persona before the run ---------------------------
+        // Three columns (Hat / Facial Hair / Accessory), each showing the slot label, the
+        // currently-selected option flanked by ◄ ► arrows, and a one-line flavour blurb. The
+        // focused column (Tab cycles it) is drawn brighter; Left/Right cycle its option. A live
+        // crab preview sits to the left so the whole loadout reads at a glance. Selection is
+        // applied and saved immediately, so what you see is exactly what you'll play.
+        {
+            let skin = self.player_skin;
+            // Anchor the picker below whatever content is actually on screen (the controls panel,
+            // plus the prompt/tutorial/career/perk-shop rows that only appear once there's a
+            // career), rather than at a fixed fraction — that content block grows for returning
+            // players and would otherwise collide with the picker. `content_bottom` mirrors the
+            // lowest element drawn above: the perk-shop list row when a career exists, else the
+            // tutorial-hints row. Clamped so it always clears the marching-crab parade at the
+            // very bottom (height - 66).
+            let base = text_y + text_height + pad * 2.0;
+            let content_bottom = if self.career_runs > 0 {
+                base + 92.0 + 28.0 + 24.0 // shop header + list row + line height
+            } else {
+                base + 58.0 + 24.0 // tutorial hints row + line height
+            };
+            // The picker panel is ~150px tall (label→name→flavour→hint). If it won't fit above
+            // the parade, pull it up to sit right on top of the parade instead of overlapping it.
+            let parade_top = height - 66.0 - 40.0;
+            let picker_y = (content_bottom + 40.0).min(parade_top - 116.0).max(content_bottom + 12.0);
+            let col_gap = (width * 0.20).min(300.0);
+            let cols_center = width * 0.62;
+            let col_x = [
+                cols_center - col_gap,
+                cols_center,
+                cols_center + col_gap,
+            ];
+            let labels = ["HAT", "FACIAL HAIR", "ACCESSORY"];
+            let names = [skin.hat.name(), skin.facial_hair.name(), skin.accessory.name()];
+            let flavours = [skin.hat.flavour(), skin.facial_hair.flavour(), skin.accessory.flavour()];
+
+            // A soft rounded backdrop so the picker reads as its own panel over the beach.
+            let panel_w = col_gap * 2.0 + 300.0;
+            let panel_rect = Rect::new(
+                cols_center - panel_w / 2.0,
+                picker_y - 6.0,
+                panel_w,
+                122.0,
+            );
+            let picker_panel = Mesh::new_rounded_rectangle(
+                ctx,
+                DrawMode::fill(),
+                panel_rect,
+                14.0,
+                Color::from_rgba(10, 14, 30, 150),
+            )?;
+            canvas.draw(&picker_panel, DrawParam::default());
+
+            // Live crab preview to the left of the columns, using the same in-game renderer.
+            let preview_center = Vec2::new(panel_rect.x + 70.0, picker_y + 46.0);
+            let bob = (t * 3.0).sin() * 3.0;
+            draw_rustler(
+                ctx,
+                canvas,
+                preview_center - Vec2::new(15.0, 15.0) + Vec2::new(0.0, bob),
+                &self.textures.player,
+                Vec2::ZERO,
+                0.4 + 0.4 * (t * 3.0).sin().abs(),
+                t,
+                false,
+            )?;
+
+            // Persona tagline sits along the panel's top edge, left of the columns beside the
+            // preview crab, so it never overlaps the centred perk-shop rows above the panel.
+            let mut tagline = Text::new(skin.tagline());
+            tagline.set_scale(15.0);
+            canvas.draw(
+                &tagline,
+                DrawParam::default()
+                    .dest(Vec2::new(panel_rect.x + 108.0, picker_y + 4.0))
+                    .color(Color::from_rgb(255, 220, 140)),
+            );
+
+            for i in 0..3 {
+                let focused = self.skin_slot == i;
+                let label_color = if focused {
+                    Color::from_rgb(120, 255, 220)
+                } else {
+                    Color::from_rgb(150, 150, 175)
+                };
+                let name_color = if focused {
+                    Color::new(1.0, 1.0, 0.6, 0.85 + 0.15 * (t * 4.0).sin().abs())
+                } else {
+                    Color::from_rgb(220, 220, 235)
+                };
+
+                let mut label = Text::new(labels[i]);
+                label.set_scale(17.0);
+                let lw = label.measure(ctx)?.x;
+                canvas.draw(
+                    &label,
+                    DrawParam::default()
+                        .dest(Vec2::new(col_x[i] - lw / 2.0, picker_y + 2.0))
+                        .color(label_color),
+                );
+
+                // The option name flanked by ◄ ► so it reads as cyclable.
+                let name_str = if focused {
+                    format!("\u{25C4} {} \u{25BA}", names[i])
+                } else {
+                    names[i].to_string()
+                };
+                let mut name = Text::new(name_str);
+                name.set_scale(22.0);
+                let nw = name.measure(ctx)?.x;
+                canvas.draw(
+                    &name,
+                    DrawParam::default()
+                        .dest(Vec2::new(col_x[i] - nw / 2.0, picker_y + 26.0))
+                        .color(name_color),
+                );
+
+                // Flavour blurb, dimmer when the column isn't focused.
+                let mut fl = Text::new(flavours[i]);
+                fl.set_scale(13.0);
+                let fw = fl.measure(ctx)?.x;
+                let fl_alpha = if focused { 0.95 } else { 0.5 };
+                canvas.draw(
+                    &fl,
+                    DrawParam::default()
+                        .dest(Vec2::new(col_x[i] - fw / 2.0, picker_y + 56.0))
+                        .color(Color::new(0.85, 0.85, 0.95, fl_alpha)),
+                );
+            }
+
+            // Hint line so players know the controls.
+            let mut hint = Text::new("Tab — switch slot     \u{25C4}/\u{25BA} — change");
+            hint.set_scale(15.0);
+            let hw = hint.measure(ctx)?.x;
+            canvas.draw(
+                &hint,
+                DrawParam::default()
+                    .dest(Vec2::new(cols_center - hw / 2.0, picker_y + 90.0))
+                    .color(Color::from_rgb(150, 175, 200)),
+            );
         }
         Ok(())
     }

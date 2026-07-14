@@ -227,6 +227,21 @@ pub fn handle_key_down_event(
                 state.enter_tutorial(crate::tutorial::TutorialKind::LassoGrab);
                 return true;
             }
+            // Skin picker: Tab moves the focus between the Hat / Facial Hair / Accessory
+            // columns; Left/Right cycle the option within the focused column. Any change is
+            // persisted to career.txt immediately and the live crab preview updates at once.
+            if key == KeyCode::Tab {
+                state.skin_slot = (state.skin_slot + 1) % 3;
+                return true;
+            }
+            if key == KeyCode::Left {
+                state.cycle_skin_option(-1);
+                return true;
+            }
+            if key == KeyCode::Right {
+                state.cycle_skin_option(1);
+                return true;
+            }
             // Perk shop: spend banked crabs on permanent starting tool ranks before a run.
             match key {
                 KeyCode::Key1 => {
