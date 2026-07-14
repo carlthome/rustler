@@ -3308,6 +3308,46 @@ pub fn draw_call_ring(
     Ok(())
 }
 
+/// Draw the Groove Call broadcast — cyan rings sweeping OUTWARD across the whole field, the visual
+/// counterpart to the Dancer Call's inward-collapsing "come here". Where that one beckons a few
+/// nearby Dancers, this reads as a field-wide summons rippling out to the entire herd, re-kicked on
+/// each downbeat while the call's response is live. `pulse` (0..1) is the fade; `reach` is how far
+/// the outermost ring sweeps (large — the call is arena-scale).
+pub fn draw_groove_call_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    pulse: f32,
+    reach: f32,
+) -> ggez::GameResult {
+    if pulse <= 0.0 {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Three rings marching OUTWARD as the pulse decays — a broadcast rippling across the field.
+    for (i, phase) in [0.0_f32, 0.33, 0.66].iter().enumerate() {
+        let p = (pulse - phase).rem_euclid(1.0);
+        let r = reach * (1.0 - p); // expands outward as p → 0
+        if r > 8.0 {
+            let alpha = (pulse * (1.0 - p) * 0.55).clamp(0.0, 1.0);
+            let thickness = 2.5 + 3.5 * p;
+            let ring = cached_stroke_circle(ctx, r, thickness)?;
+            let g = 0.75 + 0.15 * i as f32 / 3.0;
+            canvas.draw(
+                &ring,
+                DrawParam::default()
+                    .dest(center)
+                    .color(Color::new(0.35, g, 1.0, alpha)),
+            );
+        }
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the Stomp ground-pound shockwave — a fast, dusty ring that slams outward from the player.
 /// Earthier and heavier than the whistle's bright horn-blast so the two abilities read differently.
 pub fn draw_stomp_ring(

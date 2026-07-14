@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_catch_trails, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
@@ -703,6 +703,21 @@ struct MainState {
     call_cooldown: f32,                          // >0 while on cooldown; Call unusable until it hits 0
     call_pulse: f32,                             // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
     call_pulse_center: Vec2,                     // player center captured when the Call rang out
+    // Groove Call (V) — a player-initiated, FIELD-WIDE beat-phrase lure. Distinct from every other
+    // pull verb: the whistle is a local, instant radial yank; the Dancer Call (F) charms only nearby
+    // Dancers; Groove Dash pulls with a movement input. This one is the Reef DJ's call-and-response
+    // handed to the player — you CALL this bar, and the response UNFOLDS over the next couple bars:
+    // EVERY free crab on the whole field visibly streams toward you, surging hardest right on each
+    // downbeat and easing between beats, so the beat itself becomes a herd-routing tool across the
+    // arena, not just around the player. Rhythm-quality-gated — an on-beat call pulls harder and
+    // for more bars than a sloppy off-beat one, which barely answers. The unfolding stream over the
+    // bar is the watchable moment no shipped verb produces.
+    groove_call_cooldown: f32,   // >0 while on cooldown; Groove Call unusable until it hits 0
+    groove_call_bars: f32,       // bars of "response" left — counts DOWN each downbeat while the herd streams in
+    groove_call_strength: f32,   // pull scale set at call time — bigger on a clean on-beat call
+    groove_call_pulse: f32,      // 0..1 visual ring pulse, re-kicked on each downbeat while active, decays
+    groove_call_center: Vec2,    // player center captured when the call rang out (visual ring origin)
+    groove_call_surge: f32,      // 1→0 per-downbeat surge envelope — the herd lunges on the beat, drifts between
     // Downbeat Slam (G) — the rhythm ultimate. It only fires when the Groove meter is full AND the
     // press lands on the beat: a huge shockwave erupts from the player that yanks every free crab in
     // a wide radius straight into the conga train at once, then drains the whole meter. This is the
@@ -1307,6 +1322,12 @@ impl MainState {
             call_cooldown: 0.0,
             call_pulse: 0.0,
             call_pulse_center: Vec2::ZERO,
+            groove_call_cooldown: 0.0,
+            groove_call_bars: 0.0,
+            groove_call_strength: 0.0,
+            groove_call_pulse: 0.0,
+            groove_call_center: Vec2::ZERO,
+            groove_call_surge: 0.0,
             slam_active: 0.0,
             slam_radius: 0.0,
             slam_center: Vec2::ZERO,
@@ -5489,6 +5510,11 @@ impl MainState {
         self.stomp_beat_bonus = 1.0;
         self.call_cooldown = 0.0;
         self.call_pulse = 0.0;
+        self.groove_call_cooldown = 0.0;
+        self.groove_call_bars = 0.0;
+        self.groove_call_strength = 0.0;
+        self.groove_call_pulse = 0.0;
+        self.groove_call_surge = 0.0;
         self.dash_just_fired = false;
         self.dash_flash = 0.0;
         self.groove_dash_timer = 0.0;
@@ -5877,7 +5903,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -6254,7 +6280,7 @@ impl MainState {
                         .filter(|c| c.caught && c.chain_index.is_some())
                         .map(|c| (c.chain_index.unwrap_or(0), c.pos, c.crab_type, c.crab_color())),
                 );
-                typed.sort_by_key(|&(idx, ..)| idx);
+                typed.sort_unstable_by_key(|&(idx, ..)| idx);
                 let mut prev_type: Option<CrabType> = None;
                 for &(idx, pos, ty, col) in typed.iter() {
                     // A matched bond exists on the segment entering this link when it shares an
@@ -6405,6 +6431,12 @@ impl MainState {
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
             draw_call_ring(ctx, canvas, self.call_pulse_center, self.call_pulse, 420.0)?;
+        }
+
+        // Draw the Groove Call broadcast — cyan rings sweeping outward across the field while the
+        // field-wide herd lure is answering (re-kicked each downbeat), so the arena-scale summons reads.
+        if self.groove_call_pulse > 0.0 {
+            draw_groove_call_ring(ctx, canvas, self.groove_call_center, self.groove_call_pulse, 720.0)?;
         }
 
         // Draw the Downbeat Slam shockwave — the big gold rhythm-ultimate blast.
@@ -7865,6 +7897,51 @@ impl MainState {
             );
         }
     }
+    /// Groove Call (V) — arm a FIELD-WIDE, bar-unfolding herd lure. Unlike the whistle (a local,
+    /// instant radial yank) or the Dancer Call (F, nearby Dancers only), this reaches the WHOLE field
+    /// and its response plays out over the next couple of bars: `groove_call_bars` counts down one per
+    /// downbeat, and while it's live every free crab streams toward the player, surging on each beat
+    /// (see the pull pass in update_crabs). It's rhythm-quality-gated — a clean on-beat call pulls
+    /// harder and lasts longer; an off-beat one barely answers — so timing the call is the skill.
+    fn issue_groove_call(&mut self) {
+        if self.groove_call_cooldown > 0.0 {
+            return;
+        }
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        self.groove_call_center = center;
+        // Cooldown spans a few bars so it can't be spammed over the top of its own response.
+        self.groove_call_cooldown = 4.0;
+        self.groove_call_pulse = 1.0;
+        // Kick the surge immediately so the herd lunges on THIS call, then re-kicked each downbeat.
+        self.groove_call_surge = 1.0;
+        if self.on_beat_now() {
+            // Clean call: the whole field answers, hard, for two full bars. Feed the groove meter
+            // and throw the on-beat juice so a well-timed call reads as a PERFECT like the other verbs.
+            self.groove_call_bars = 2.0;
+            self.groove_call_strength = 1.0;
+            self.groove = (self.groove + 0.12).min(1.0);
+            self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
+            self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
+            self.floating_texts.spawn(
+                "GROOVE CALL! herd answers".to_string(),
+                center - Vec2::new(96.0, 84.0),
+                28.0,
+                [0.4, 0.9, 1.0, 1.0],
+            );
+        } else {
+            // Off beat: it still calls, but weakly and briefly — the herd barely leans in. The miss
+            // reads (a red denial flash) so the player learns to hit the bar for the real lure.
+            self.groove_call_bars = 1.0;
+            self.groove_call_strength = 0.4;
+            self.shop_denied = self.shop_denied.max(0.4);
+            self.floating_texts.spawn(
+                "call… (off beat)".to_string(),
+                center - Vec2::new(60.0, 70.0),
+                22.0,
+                [0.6, 0.75, 0.85, 0.9],
+            );
+        }
+    }
     /// Downbeat Slam (G) — the Groove-meter ultimate. Only fires when the meter is FULL and the press
     /// lands on the beat: an enormous shockwave erupts from the player and yanks every free crab in a
     /// wide radius straight into the conga train at once (a mass catch), pays out a score bonus, and
@@ -8279,6 +8356,21 @@ impl EventHandler for MainState {
                         *slot = rng.random_bool(0.4);
                     }
                     self.reef_phrase = phrase;
+                }
+            }
+            // Groove Call response: while a call is live, the herd LUNGES toward the player on each
+            // beat and drifts between — kick the surge envelope here so the field-wide pull (applied
+            // in update_crabs) pulses to the bar. Bars of response are spent one per downbeat, so a
+            // clean 2-bar call unfolds over eight beats before the herd relaxes. The downbeat surge
+            // lands hardest so the "1" is the big group lunge — the watchable, on-the-beat gather.
+            if self.groove_call_bars > 0.0 {
+                self.groove_call_surge = if downbeat { 1.0 } else { 0.7 };
+                self.groove_call_pulse = if downbeat { 1.0 } else { 0.7 };
+                if downbeat {
+                    self.groove_call_bars -= 1.0;
+                    // A small groove tick each bar the call keeps working, so leaning on the beat to
+                    // route the herd is itself rewarded like the other rhythm verbs.
+                    self.groove = (self.groove + 0.04).min(1.0);
                 }
             }
             // The "1" of the bar lands harder than the three beats between it. Kick the accent so
@@ -8904,6 +8996,17 @@ impl EventHandler for MainState {
         if self.call_pulse > 0.0 {
             self.call_pulse = (self.call_pulse - dt * 1.6).max(0.0);
         }
+        // Groove Call: cooldown ticks down; the surge/pulse envelopes decay between beats (re-kicked
+        // in the beat handler) so the field-wide lure pumps to the bar rather than pulling flatly.
+        if self.groove_call_cooldown > 0.0 {
+            self.groove_call_cooldown = (self.groove_call_cooldown - dt).max(0.0);
+        }
+        if self.groove_call_surge > 0.0 {
+            self.groove_call_surge = (self.groove_call_surge - dt * 1.4).max(0.0);
+        }
+        if self.groove_call_pulse > 0.0 {
+            self.groove_call_pulse = (self.groove_call_pulse - dt * 1.2).max(0.0);
+        }
         // Downbeat Slam ring erupts outward, then fades. Purely visual — the catch already happened.
         if self.slam_active > 0.0 {
             self.slam_active = (self.slam_active - dt).max(0.0);
@@ -9243,6 +9346,47 @@ impl EventHandler for MainState {
                 }
             }
             self.whistle_soothed_buf = soothed; // hand the buffer back for reuse next frame
+        }
+
+        // Groove Call: a FIELD-WIDE, beat-pumping herd lure. While a call is live (bars remaining),
+        // every free crab across the WHOLE arena drifts toward the player — no radius gate, unlike the
+        // whistle — with the pull surging on the beat and easing between (groove_call_surge, kicked in
+        // the beat handler). This is the watchable payoff: the entire herd visibly streams in, lunging
+        // together on each downbeat, so the beat itself becomes an arena-wide routing tool. A clean
+        // on-beat call (groove_call_strength 1.0, 2 bars) pulls the herd hard and long; an off-beat one
+        // (0.4, 1 bar) barely leans them in. Cheap: one extra pass over the crabs only while active.
+        if self.groove_call_bars > 0.0 {
+            let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            // Base drift speed, scaled by call quality and the on-beat surge. Between beats the surge
+            // decays toward ~0 so the herd coasts; on the beat it snaps back to full for the lunge.
+            let base = 46.0 * self.groove_call_strength;
+            let surge = 0.35 + 0.65 * self.groove_call_surge; // never fully stops, but pumps on-beat
+            for crab in self.crabs.iter_mut() {
+                if crab.caught {
+                    continue;
+                }
+                // Bosses shrug it off entirely, matching the whistle's carve-out — a rhythm lure can't
+                // drag a lumbering boss around. Latched Thieves and answering Dancers keep their own
+                // scripted motion so the call layers over ordinary crabs without fighting other verbs.
+                if crab.is_boss()
+                    || crab.crab_type.whistle_pull() <= 0.0
+                    || crab.is_latched()
+                    || crab.answering_call > 0.0
+                {
+                    continue;
+                }
+                let toward = (center - crab.pos).normalize_or_zero();
+                // Per-archetype susceptibility reuses whistle_pull so the call reads consistently with
+                // the whistle (skittish crabs answer eagerly, heavy ones lean in only a little).
+                let pull = crab.crab_type.whistle_pull();
+                let speed = base * surge * pull;
+                // Blend toward the call heading rather than overwriting velocity outright, so the herd
+                // streams as a smooth current instead of teleporting — the legible "answering" flow.
+                crab.vel = crab.vel.lerp(toward * speed, 0.12);
+                // Hold their nerve so the flee/wobble logic doesn't fight the lure the same frame.
+                crab.spooked_timer = crab.spooked_timer.max(0.5);
+                crab.fleeing = false;
+            }
         }
 
         // Stomp: a close-range ground-pound shockwave. It CRACKS Armored crab shells instantly (its
