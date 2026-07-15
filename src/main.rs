@@ -82,6 +82,11 @@ fn panic_snap_links(n: usize) -> usize {
 }
 const CHAIN_LINK_FRAMES: usize = 12;
 const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
+// Upgrade cadence. Formerly every 10 banked points (and buggy: score jumps by combo-multiplier
+// steps, so score % 10 skipped thresholds erratically). Now a rising threshold: the first upgrade
+// lands at UPGRADE_FIRST_AT, each subsequent one costs UPGRADE_STEP more. Rarer, earned, legible.
+const UPGRADE_FIRST_AT: usize = 25;
+const UPGRADE_STEP: usize = 15;
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 // Drum Roll (hold T): a full bar of clean on-beat holds (4 hits) maxes the charge for the biggest
 // fired blast; beyond that it caps so you can't hold forever for infinite reach.
@@ -628,6 +633,7 @@ struct MainState {
     pattern_timer: f32,                        // Timer for current pattern duration
     debug_mode: bool,                          // Debug mode flag
     pending_upgrade: bool,                     // Whether upgrade screen should be shown
+    next_upgrade_score: usize,                 // Score threshold that triggers the next upgrade (rises each unlock)
     best_time: f32,                            // Fastest time to catch all crabs
     // --- Meta-progression: a single persistent thread that survives across runs, so ending a
     // run (win or loss) still banks progress into a career you carry forward. Persisted to
@@ -1424,6 +1430,7 @@ impl MainState {
             pattern_timer: 0.0,
             debug_mode: true,
             pending_upgrade: false,
+            next_upgrade_score: UPGRADE_FIRST_AT,
             best_time,
             career_best_score,
             career_total_score,
@@ -3127,6 +3134,18 @@ impl MainState {
         self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rng);
     }
 
+    /// If the banked score has crossed the next upgrade threshold, queue an upgrade and advance
+    /// the threshold by a rising step so later upgrades are rarer and earned. Uses `>=` because
+    /// score can overshoot the threshold in one banked jump (combo-multiplier steps). Call this
+    /// after any score increase; it's the single knob for upgrade cadence.
+    fn check_upgrade_unlock(&mut self, ctx: &mut Context) {
+        if self.score >= self.next_upgrade_score {
+            self.next_upgrade_score += UPGRADE_STEP;
+            let _ = self.sounds.upgrade.play_detached(ctx);
+            self.pending_upgrade = true;
+        }
+    }
+
     fn handle_crab_catching(&mut self, ctx: &mut Context) {
         let mult = self.combo_multiplier();
         let mut any_caught = false;
@@ -3461,12 +3480,12 @@ impl MainState {
                 // Snap the camera in a hair on every catch, harder on the beat, for extra impact.
                 self.zoom_punch = self.zoom_punch.max(if on_beat { 0.055 } else { 0.035 });
                 play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
-                if self.score > 0 && self.score % 10 == 0 {
-                    let _ = self.sounds.upgrade.play_detached(ctx);
-                    self.pending_upgrade = true;
-                }
             }
         }
+        // Deferred out of the `&mut self.crabs` loop above: check_upgrade_unlock borrows all of
+        // self, which conflicts with the live crab iterator. Score only rises inside the loop, so
+        // running the threshold check once afterward is equivalent.
+        self.check_upgrade_unlock(ctx);
         for &origin in &startle_origins {
             self.emit_catch_startle(origin);
         }
@@ -4501,10 +4520,7 @@ impl MainState {
             self.zoom_punch = self.zoom_punch.max(0.03);
             self.time_since_catch = 0.0;
             play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
-            if self.score > 0 && self.score % 10 == 0 {
-                let _ = self.sounds.upgrade.play_detached(ctx);
-                self.pending_upgrade = true;
-            }
+            self.check_upgrade_unlock(ctx);
         }
     }
 
@@ -6438,6 +6454,7 @@ impl MainState {
         self.tide_pulses.clear();
         self.player_pos = player_pos;
         self.score = 0;
+        self.next_upgrade_score = UPGRADE_FIRST_AT;
         self.spawn_timer = 0.0;
         self.time_elapsed = 0.0;
         self.game_over = false;
@@ -11212,10 +11229,7 @@ impl EventHandler for MainState {
                         self.hitstop_timer = self.hitstop_timer.max(0.06);
                         self.time_since_catch = 0.0;
                         play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
-                        if self.score > 0 && self.score % 10 == 0 {
-                            let _ = self.sounds.upgrade.play_detached(ctx);
-                            self.pending_upgrade = true;
-                        }
+                        self.check_upgrade_unlock(ctx);
                     }
                     for &origin in lasso_startle_origins.iter() {
                         self.emit_catch_startle(origin);
