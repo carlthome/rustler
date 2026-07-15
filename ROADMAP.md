@@ -66,11 +66,30 @@ the inner loop AND sharpens Carl's tension (holding long becomes a puzzle to set
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- None currently known. (The start-of-run `InstanceArray capacity > 0` crash and the
-  windowed-instead-of-fullscreen bug are both fixed.) If you hit a panic or a wrong-looking
-  frame while testing, log it here before shipping anything new.
+- **Upgrade screen fires at wrong time / bugged behavior reported by Carl during playtesting —
+  investigate and fix before shipping anything new.** Carl hit a wrong-feeling upgrade screen in a
+  fresh playtest this cycle (fires at an odd moment and/or misbehaves). Reproduce and fix it before
+  the upgrade redesign below or any other Now item — a broken upgrade flow blocks the redesign that
+  depends on it.
+- (The start-of-run `InstanceArray capacity > 0` crash and the windowed-instead-of-fullscreen bug
+  are both fixed.) If you hit a panic or a wrong-looking frame while testing, log it here before
+  shipping anything new.
 
 ## Now
+
+- **NOTE — MECHANICS FREEZE (called by Carl this cycle).** Carl: "We might have sufficient game mechanics
+  content for now, and should work on strengthening what we have to make the player feel agency and control."
+  Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
+  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. The two live
+  Now items below (biome terrain hazard, perfect-on-beat payoff) survive the freeze: they *deepen and polish
+  existing* mechanics rather than adding new ones, which is exactly the work Carl is asking for. Deepen and
+  polish what exists; make the player feel in control of it.
+
+- **Redesign the upgrade screen from "more of everything" to a meaningful choice.** Offer 3 random upgrades per
+  screen (pick 1), where each upgrade meaningfully reshapes how the next few minutes play rather than just
+  increments a rank. Tradeoffs and specialization over pure power addition. See INSPIRATION.md Vampire Survivors
+  and precision platformer notes. This is the NEXT item after the upgrade bug (see Bugs) is fixed — it reshapes
+  the *existing* upgrade system (consistent with the mechanics freeze), it does not add a new one.
 
 - **~~Make the middle of the train matter — mid-train arrangement depth.~~ SHIPPED** — adjacency pairs pay
   a banked bonus with a glowing rope segment + ARRANGED xN callout (d68f252), and the SANDWICH bonus rewards
@@ -81,6 +100,9 @@ item in "Now" below.
   threshold (first upgrade at 25 banked points, +15 each after, reset on new run; 39daa76), so upgrades land
   noticeably rarer and never skip. A later bolder fix — a non-blocking pick that doesn't freeze the run — stays
   unbuilt; the frequency cut may be enough on its own. Revisit only if Carl still reads upgrades as a flow-break.
+  **REOPENED (this cycle):** the frequency cut was NOT enough — Carl still hit a wrong-feeling upgrade screen in
+  playtest (see Bugs), and separately flagged the upgrade *content* as shallow ("more more more"). Both are now
+  live: the bug is logged in Bugs, and the content problem is the redesign item at the top of Now below.
 - **~~Rarer, bigger level boundaries — first pass.~~ SHIPPED** — levels are lengthened so boundaries land rarer
   (22caa05), each biome now carries a dominant crab archetype (Water→Magnet, Rock→Armored, Kelp→Thief) plus a
   threat banner on the title card, and the redirect is eased to ~33% so zones stay buildable (f83c755). The
