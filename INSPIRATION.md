@@ -71,6 +71,7 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 **Mechanic directions:**
 
 - **Delirium meter:** As score, combo, train length, or groove rises, the world becomes more hyper-saturated and warped. This should feel earned, not random.
+
 - **Peripheral threat language:** Borrow the idea of rear/peripheral awareness without copying the camera tech: edge glows, mirrored silhouettes, red warning ghosts, or "echo crabs" on screen borders that hint where danger is coming from.
 - **Visual fusion as reward/risk:** Perfect rhythm play could briefly make all caught crabs, ropes, beat pulses, and score pickups harmonize into one blazing conga waveform. Missing the beat could make that same fusion noisy and harder to parse.
 - **Score-attack escalation:** The faster and cleaner the player catches crabs, the more hostile and spectacular the presentation becomes. High score should look slightly impossible to survive.
@@ -121,11 +122,28 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
+## Environmental Ambience (day/night cycles, weather)
+
+**What Carl said:** "I'd like some day/night cycle and weather changes just for the ambience as well."
+
+**What we're taking:** A living beach that breathes — time of day (dawn, noon, dusk, night) shifts the sky, lighting, and overall mood, but mechanics stay the same. Weather (rain, mist, clear skies, storm) adds atmospheric texture without affecting gameplay. The beach feels less like a static arena and more like a place you're visiting at different times, matching the Control-inspired sense of arrival. This is pure visual storytelling — no new rules, just a world that feels inhabited and alive.
+
+**Mechanic directions:**
+
+- **Day/night cycle:** Gradual color grading shift (warm morning → bright noon → golden hour → starlit night), no gameplay impact. 5-10 minute cycle per run so players see the arc over a normal session.
+
+- **Weather layers:** Occasional rain (particle effect, splash sfx), fog (softens distant terrain), clear skies (everything crisp), rare storms (heavy rain + thunder rumble, adds drama). Driven by a simple RNG at level boundaries, so each biome can feel fresh.
+- **Mood without rules:** The beach at night feels different than noon, but the crabs move the same, the beat lands the same — just *atmosphere*. The ambience rewards players who stay long enough to see the shift.
+
+**What we're *not* taking:** Mechanical weather (rain slows you, fog hides enemies, etc.). This is pure aesthetic layering on top of the existing game, the way HYPER DEMON layers delirium visuals on top of the core mechanic. The beach is a character, not a difficulty modifier.
+
+---
+
 ## Design principles distilled from the above
 
-1. **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.
-2. **Legible risk.** The long-train gamble should be visible (AT RISK tag, rope heat, escalating snap teeth) — players shouldn't lose crabs without understanding why it was their fault.
-3. **Depth before breadth.** One mechanic done with a real skill ceiling beats three mechanics done shallowly.
-4. **Thresholds, not interruptions.** Level transitions, upgrade moments, boss arrivals — each should feel earned and brief, not like a pause menu.
-5. **Secrets that reward curiosity.** At least one mechanic (the desktop level) should be undocumented and discoverable. The best moment in the game might be one most players never find.
-6. **Controlled delirium.** Visual excess is good when it makes mastery feel dangerous and ecstatic; it is bad when it obscures the rhythm contract.
+- **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.
+- **Legible risk.** The long-train gamble should be visible (AT RISK tag, rope heat, escalating snap teeth) — players shouldn't lose crabs without understanding why it was their fault.
+- **Depth before breadth.** One mechanic done with a real skill ceiling beats three mechanics done shallowly.
+- **Thresholds, not interruptions.** Level transitions, upgrade moments, boss arrivals — each should feel earned and brief, not like a pause menu.
+- **Secrets that reward curiosity.** At least one mechanic (the desktop level) should be undocumented and discoverable. The best moment in the game might be one most players never find.
+- **Controlled delirium.** Visual excess is good when it makes mastery feel dangerous and ecstatic; it is bad when it obscures the rhythm contract.
