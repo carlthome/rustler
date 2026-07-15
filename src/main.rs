@@ -1071,7 +1071,7 @@ struct MainState {
     // two above — (crab_pos, cracked_clean) so the after-loop feedback can tell a chip apart from a
     // full shatter. Also reuses dancer_startle_grid_buf, so a herd of Dancers by an Armored crab
     // doesn't turn this into a per-crab-per-hop scan.
-    dancer_chip_buf: Vec<(Vec2, bool)>,
+    dancer_chip_buf: Vec<(Vec2, bool, bool)>, // (pos, cracked-fully, was-hermit)
     // Scratch buffer for the Dancer-jolts-Magnet crossover below, same reuse pattern as the ones
     // above — holds the positions of free Magnets a Dancer's on-beat hop thumped into a pull surge
     // this beat, for the after-loop feedback pop. Reuses dancer_startle_grid_buf like its siblings.
@@ -1089,6 +1089,12 @@ struct MainState {
     // per-frame allocation for the whole duration of every whistle/stomp/lasso.
     whistle_soothed_buf: Vec<Vec2>,
     stomp_cracked_buf: Vec<Vec2>,
+    // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
+    // ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Collected inside the &mut crabs
+    // loops (where `crab.is_hermit()` is known) and drained in the after-loop into the signature
+    // Hermit-pop moment — a coppery shell-shard scatter distinct from a plain Armored crack, so the
+    // archetype-web play that produced it reads as the watchable emergent win it's designed to be.
+    hermit_popped_buf: Vec<Vec2>,
     lasso_catch_buf: Vec<usize>,
     lasso_startle_buf: Vec<Vec2>,
     // On-beat Thief-shake catches collected during the whistle/stomp loops (see
@@ -1128,7 +1134,7 @@ struct MainState {
     // chip/crack feedback fires after the per-crab borrow ends. Almost always empty (needs a
     // charged Magnet — itself rare, born of a snared Golden or a Dancer thump — plus an Armored
     // crab caught in its outer field), so a reused scratch Vec keeps it allocation-free.
-    magnet_grind_buf: Vec<(Vec2, bool)>,
+    magnet_grind_buf: Vec<(Vec2, bool, bool)>, // (pos, cracked-fully, was-hermit)
     // Scratch buffers for tide_pulse_burst, reused across pulse calls instead of being freshly
     // allocated each time a Tide Boss fires. The `pulse_scattered_buf` is the most impactful:
     // it grows with herd size (one entry per free crab inside the blast radius) and the pulse
@@ -1585,6 +1591,7 @@ impl MainState {
             dancer_aura_caught_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
+            hermit_popped_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
             lasso_startle_buf: Vec::new(),
             whistle_thief_snatch_buf: Vec::new(),
@@ -1622,6 +1629,31 @@ impl MainState {
         // Cap live shockwaves so a big beat-wave sweep can't unbound the vec.
         if self.catch_shockwaves.len() < 48 {
             self.catch_shockwaves.push((pos, 0.0, crab_color));
+        }
+    }
+
+    /// The signature Hermit-crack moment: fired the frame a shelled Hermit is popped open by any of
+    /// its three intended ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Unlike a plain
+    /// Armored "SHELL CRACKED!" — which the beam can also wear down — cracking a Hermit is a pure
+    /// archetype-web payoff (the beam can't touch it), so it earns its own watchable beat: the
+    /// borrowed shell scatters as a coppery shard-burst, a warm copper shockwave, a "HERMIT POPPED!"
+    /// callout, and a startle ring telegraphing the brief catch window as the defenceless crab bolts.
+    fn spawn_hermit_pop(&mut self, pos: Vec2) {
+        let mut rng = rand::rng();
+        // The coppery shell-shard burst (same profile the catch uses) — the borrowed shell flying apart.
+        self.particle_system
+            .spawn_catch_effect(pos, [0.72, 0.44, 0.24], CrabType::Hermit, &mut rng);
+        // Warm copper shockwave — reads distinct from the cold blue Armored crack at a glance.
+        self.spawn_catch_shockwave(pos, [0.85, 0.55, 0.28]);
+        self.floating_texts.spawn(
+            "HERMIT POPPED!".to_string(),
+            pos - Vec2::new(66.0, 36.0),
+            26.0,
+            [0.95, 0.68, 0.38, 1.0], // coppery-orange so the "the ecosystem cracked it" story reads
+        );
+        // Startle ring telegraphs the short catch window: the popped Hermit is defenceless and bolts.
+        if self.fear_rings.len() < 32 {
+            self.fear_rings.push((pos, 0.0));
         }
     }
 
@@ -5284,7 +5316,7 @@ impl MainState {
                                 let broke = crab.boss_health <= 0.0;
                                 let step = crab.crab_type.initial_shell().max(0.001) / 2.0;
                                 if broke || (before / step).floor() != (crab.boss_health / step).floor() {
-                                    magnet_grind.push((crab.pos, broke));
+                                    magnet_grind.push((crab.pos, broke, crab.is_hermit()));
                                 }
                                 if broke {
                                     crab.join_pulse = 1.0; // pop out of the shell with a squash-and-flee
@@ -5353,7 +5385,7 @@ impl MainState {
                             // grind reads as steady progress without spamming a pop every frame.
                             let step = crab.crab_type.initial_shell().max(0.001) / 3.0;
                             if broke || (before / step).floor() != (crab.boss_health / step).floor() {
-                                magnet_grind.push((crab.pos, broke));
+                                magnet_grind.push((crab.pos, broke, false)); // Armored, never a Hermit
                             }
                         }
                     }
@@ -5851,7 +5883,13 @@ impl MainState {
         // Note when a charged Magnet's vacuum grinds an Armored shell — same CHIPPED!/SHELL CRACKED!
         // cues as the Dancer-chip and Stomp crack so the shell-progress language stays consistent,
         // but tinted the Magnet's lodestone orange so the "the charged pull did this" story reads.
-        for (pos, broke) in magnet_grind.drain(..) {
+        for (pos, broke, was_hermit) in magnet_grind.drain(..) {
+            // A charged Magnet ripping a Hermit clean out fires the signature copper Hermit-pop — a
+            // pure archetype-web crack (the beam can't do it), so it earns its own watchable beat.
+            if broke && was_hermit {
+                self.spawn_hermit_pop(pos);
+                continue;
+            }
             let (label, burst) = if broke {
                 ("SHELL CRACKED!", [0.7, 0.8, 0.95]) // fully open — matches the Stomp/Dancer crack cue
             } else {
@@ -9935,7 +9973,7 @@ impl EventHandler for MainState {
                             crab.join_pulse = 1.0;
                             crab.fleeing = false;
                             crab.spooked_timer = crab.spooked_timer.max(0.3);
-                            chipped.push((crab.pos, crab.boss_health <= 0.0));
+                            chipped.push((crab.pos, crab.boss_health <= 0.0, crab.is_hermit()));
                         }
                     } else if crab.is_magnet() {
                         if crab.in_flashlight || crab.magnet_charged > 0.0 {
@@ -10035,7 +10073,14 @@ impl EventHandler for MainState {
                     );
                     self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
                 }
-                for &(pos, broke) in chipped.iter() {
+                for &(pos, broke, was_hermit) in chipped.iter() {
+                    // A Dancer hop that pops a Hermit clean open earns the signature copper Hermit-pop
+                    // instead of the generic blue crack — it's a pure archetype-web crack (the beam
+                    // can't do it), so the emergent play reads as the win it is.
+                    if broke && was_hermit {
+                        self.spawn_hermit_pop(pos);
+                        continue;
+                    }
                     let (label, burst) = if broke {
                         ("SHELL CRACKED!", [0.7, 0.8, 0.95]) // fully open — matches the Stomp crack cue
                     } else {
@@ -10741,6 +10786,8 @@ impl EventHandler for MainState {
             let center = self.stomp_center;
             let mut cracked = std::mem::take(&mut self.stomp_cracked_buf);
             cracked.clear();
+            let mut hermit_popped = std::mem::take(&mut self.hermit_popped_buf);
+            hermit_popped.clear();
             // Reused scratch buffer (almost always empty) instead of a fresh Vec::new() every
             // frame the stomp is active — same pattern as the whistle loop above.
             let mut thief_snatched = std::mem::take(&mut self.stomp_thief_snatch_buf);
@@ -10757,8 +10804,13 @@ impl EventHandler for MainState {
                 // crab, or a shelled Hermit (whose shell the beam can't touch, so the Stomp is one of
                 // its three intended cracks). A cracked Hermit pops out defenceless and bolts.
                 if (crab.is_armored() || crab.is_shelled_hermit()) && crab.boss_health > 0.0 {
+                    let was_hermit = crab.is_hermit();
                     crab.boss_health = 0.0;
-                    cracked.push(crab.pos);
+                    if was_hermit {
+                        hermit_popped.push(crab.pos);
+                    } else {
+                        cracked.push(crab.pos);
+                    }
                 }
                 // A Stomp near the tail is the second, close-range Thief counter — and it plays the
                 // same rhythm-native way the whistle does: on-beat rips a latched Thief clean off and
@@ -10787,7 +10839,9 @@ impl EventHandler for MainState {
             // — and it can't be satisfied by beam wear-down, since that never enters this Stomp loop.
             if let Some(t) = self.tutorial.as_mut() {
                 if t.kind == TutorialKind::ShellCrack {
-                    t.shells_cracked = t.shells_cracked.saturating_add(cracked.len() as u32);
+                    t.shells_cracked = t
+                        .shells_cracked
+                        .saturating_add((cracked.len() + hermit_popped.len()) as u32);
                 }
             }
             for &pos in cracked.iter() {
@@ -10799,7 +10853,11 @@ impl EventHandler for MainState {
                 );
                 self.spawn_catch_shockwave(pos, [0.7, 0.8, 0.95]);
             }
+            for pos in hermit_popped.drain(..) {
+                self.spawn_hermit_pop(pos);
+            }
             self.stomp_cracked_buf = cracked; // hand the buffer back for reuse next frame
+            self.hermit_popped_buf = hermit_popped; // hand the buffer back for reuse next frame
         }
 
         // Lasso Throw: advance lasso along path, catch crabs near tip
