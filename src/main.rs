@@ -10,6 +10,13 @@ mod world_map;
 
 use std::{cell::RefCell, collections::HashMap, collections::VecDeque, env, fs, path};
 
+// Scratch buffer for count_chain_bonds — reused across calls to avoid a per-call heap alloc
+// every frame. The Vec is grown-but-not-shrunk, so it reaches steady state after the first
+// run at max chain length and never allocates again during normal gameplay.
+thread_local! {
+    static BOND_INDEX_BUF: RefCell<Vec<Option<CrabType>>> = RefCell::new(Vec::new());
+}
+
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
 use ggez::conf::{FullscreenType, WindowMode};
@@ -2861,21 +2868,28 @@ impl MainState {
         if keep < 2 {
             return 0;
         }
-        let mut by_index: Vec<Option<CrabType>> = vec![None; keep];
-        for c in self.crabs.iter().filter(|c| c.caught) {
-            if let Some(ci) = c.chain_index {
-                if ci < keep {
-                    by_index[ci] = Some(c.crab_type);
+        BOND_INDEX_BUF.with(|buf| {
+            let mut by_index = buf.borrow_mut();
+            // Grow-only: resize to `keep` slots, or clear+resize if the buffer is already large
+            // enough (cheaper than realloc for small trains after a long one). Either way no
+            // shrink — we keep the capacity for future calls.
+            by_index.clear();
+            by_index.resize(keep, None);
+            for c in self.crabs.iter().filter(|c| c.caught) {
+                if let Some(ci) = c.chain_index {
+                    if ci < keep {
+                        by_index[ci] = Some(c.crab_type);
+                    }
                 }
             }
-        }
-        let mut bonds = 0;
-        for i in 1..keep {
-            if by_index[i].is_some() && by_index[i] == by_index[i - 1] {
-                bonds += 1;
+            let mut bonds = 0;
+            for i in 1..keep {
+                if by_index[i].is_some() && by_index[i] == by_index[i - 1] {
+                    bonds += 1;
+                }
             }
-        }
-        bonds
+            bonds
+        })
     }
 
     fn try_deliver_train(&mut self, ctx: &mut Context) {
