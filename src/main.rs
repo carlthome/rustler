@@ -6174,7 +6174,14 @@ impl MainState {
         if self.current_pattern >= level.patterns.len() {
             self.current_level += 1;
             self.current_pattern = 0;
-            self.level_title = level.title.clone();
+            // Name the level we just *entered* (biome + emphasis threat on the card also read from
+            // current_level), not the one we left — otherwise the title says one zone while the
+            // biome subtitle and threat banner name the next, an internally-mismatched card.
+            self.level_title = self
+                .levels
+                .get(self.current_level)
+                .map(|l| l.title.clone())
+                .unwrap_or_else(|| level.title.clone());
             self.level_title_timer = 1.0;
             // Fresh biome, fresh pen location — keep routing the train there a live decision.
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
@@ -8516,7 +8523,7 @@ impl MainState {
             // over the ~1s title window, cheap enough not to earn a slot in the cache tuple above.
             let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
             if let Some(label) = crate::levels::emphasis_label(emphasis) {
-                let mut threat = Text::new(format!("⚠ {label}"));
+                let mut threat = Text::new(format!("!! {label} !!"));
                 threat.set_scale(30.0);
                 let tw = threat.measure(ctx)?.x;
                 canvas.draw(

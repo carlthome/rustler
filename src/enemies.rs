@@ -78,8 +78,10 @@ impl CrabType {
     /// with Thieves gnawing your tail, a Rocky shore studded with Armored shells, a Tide zone
     /// swarmed by routing Magnets. The Golden/Splitter roll-first rarities are preserved (those
     /// stay a delightful global surprise, never a biome's bread and butter) — only the plain herd
-    /// share is what emphasis biases. ~45% redirect: strong enough that the zone's flavor is
-    /// unmistakable without drowning out the rest of the web that makes each catch varied.
+    /// share is what emphasis biases. ~33% redirect: strong enough that the zone's flavor is
+    /// unmistakable (a third of the herd is the dominant type, several times its normal share)
+    /// without drowning out the rest of the web — and without making the Kelp→Thief / Rock→Armored
+    /// zones so single-note they're impossible to build a train in.
     pub fn random_emphasized(emphasis: Option<CrabType>, rng: &mut impl rand::Rng) -> Self {
         let base = Self::random(rng);
         let Some(emph) = emphasis else {
@@ -90,7 +92,7 @@ impl CrabType {
         if matches!(base, CrabType::Golden | CrabType::Splitter) || base == emph {
             return base;
         }
-        if rng.random_range(0..100) < 45 {
+        if rng.random_range(0..100) < 33 {
             emph
         } else {
             base
