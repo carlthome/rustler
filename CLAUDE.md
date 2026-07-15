@@ -50,7 +50,7 @@ features, so those run on Sonnet or Opus:
    after the game dev loop so they don't both push mid-run):
    Spawn a background performance subagent (Agent tool, model: sonnet, run_in_background: true)
    with the "Cron 5 — Optimizer prompt" below. Its job is to keep FPS high and
-   frame time low on modest laptops as feature agents pile on new visual effects async. One
+   frame time low on modest laptops as feature agents pile on new functionality. One
    optimization per run.
 
 6. Game Director — every 2 hours (offset from the others):
