@@ -239,6 +239,19 @@ thread_local! {
     static RADAR_ARROW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static RADAR_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Magnet aura batching: collect per-ring (mesh_key, DrawParam) pairs from draw_magnet_aura()
+    // calls during the per-crab aura pass, then flush them all as instanced batches grouped by
+    // mesh key in flush_magnet_auras(). In the Water biome (which now bias-spawns Magnets at
+    // ~33%) it's common to have 4-6 Magnets on screen at once; each drew 4 individual ADD-blend
+    // canvas.draw() calls for its sweep rings + core, totalling 16-24 GPU submissions per frame
+    // just for Magnet auras. Rings at the same sweep-phase quantized bucket share the same mesh
+    // key, so rings from several Magnets on screen at once typically collapse to 1-3 batched
+    // submissions instead of N×4. Same draw order (all ADD-blended aura pass), same pixels.
+    static MAGNET_AURA_RING_PARAMS: RefCell<Vec<((i32, i32), DrawParam)>> = RefCell::new(Vec::new());
+    // Per-key instance arrays and group-param vecs, same pattern as FEAR_RING_INSTANCES/CHAIN_RING_INSTANCES.
+    static MAGNET_AURA_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static MAGNET_AURA_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+
     // Reusable instance buffers for draw_combo_meter's two arc passes (main arc + soft glow).
     // The combo meter draws up to 32 arc segments per pass, each previously costing its own
     // canvas.draw() call — up to 64 GPU submissions a frame while any x2/x3/x5 combo is live,
@@ -509,6 +522,50 @@ pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             instances.set(params.iter().copied());
             canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
             Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all Magnet aura ring DrawParams deferred by draw_magnet_aura() calls this frame,
+/// grouped by stroke-circle mesh key and drawn as instanced batches. Call this once after all
+/// per-crab aura draws (alongside flush_golden_sparkles / flush_hermit_coil_dots) while still
+/// in ADD blend mode. With N Magnets on screen, the 3 sweep-ring phases each share the same
+/// radius across all N Magnets (same time → same phase → same quantized bucket), collapsing
+/// N×3 individual draw calls down to 3 batched submissions for the sweep rings plus one
+/// per distinct core-ring radius (which varies by crab size, so typically still N calls there,
+/// but the sweep rings are the majority).
+pub fn flush_magnet_auras(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    MAGNET_AURA_RING_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        MAGNET_AURA_GROUPS.with(|groups_cell| -> ggez::GameResult {
+            let mut groups = groups_cell.borrow_mut();
+            for v in groups.values_mut() {
+                v.clear();
+            }
+            for &(key, param) in params.iter() {
+                groups.entry(key).or_default().push(param);
+            }
+            MAGNET_AURA_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut instances = inst_cell.borrow_mut();
+                for (key, group_params) in groups.iter() {
+                    if group_params.is_empty() {
+                        continue;
+                    }
+                    let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                    let Some(mesh) = mesh else { continue };
+                    let inst = instances
+                        .entry(*key)
+                        .or_insert_with(|| InstanceArray::new(ctx, None));
+                    inst.set(group_params.iter().copied());
+                    canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                }
+                Ok(())
+            })
         })?;
         params.clear();
         Ok(())
@@ -5897,34 +5954,38 @@ pub fn draw_magnet_aura(
     // rebuilds. Round to 8px buckets here instead: visually indistinguishable at these radii
     // (the sweep is a fluid animation, not a precise size) but reduces key count to ~27 per ring
     // per sweep, keeping the cache far below the cap even with several Magnets in play.
-    for k in 0..3 {
-        let phase = ((time * sweep_speed + k as f32 / 3.0) % 1.0) as f32; // 0..1, 0 = far, 1 = at crab
-        let radius = ring_radius - (ring_radius - inner) * phase;
-        let alpha = (phase * alpha_scale).clamp(0.0, alpha_scale);
-        // Snap to 8px bucket before the cache lookup so the sweep only ever uses ~27 distinct
-        // mesh keys across its full range instead of ~108. The 8px step is imperceptible on a
-        // smoothly animating ring that sweeps 215px over ~1.5 seconds.
-        let radius_q = ((radius / 8.0).round() * 8.0).max(0.5);
-        let ring = cached_stroke_circle(ctx, radius_q, 2.0)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(r, g, b, alpha)),
-        );
-    }
+    // Defer all sweep rings and the core into MAGNET_AURA_RING_PARAMS so flush_magnet_auras()
+    // can batch all Magnets' rings together by mesh key. In the Water biome (now Magnet-heavy)
+    // this collapses N×3 individual ADD-blend draw calls for the sweep rings into at most 3
+    // batched draw_instanced_mesh calls, regardless of how many Magnets are on screen.
+    MAGNET_AURA_RING_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        for k in 0..3u32 {
+            let phase = ((time * sweep_speed + k as f32 / 3.0) % 1.0) as f32;
+            let radius = ring_radius - (ring_radius - inner) * phase;
+            let alpha = (phase * alpha_scale).clamp(0.0, alpha_scale);
+            // Snap to 8px bucket — same quantization already in place; ensures rings from
+            // different Magnets at the same sweep phase share the same mesh key and can be
+            // instanced together.
+            let radius_q = ((radius / 8.0).round() * 8.0).max(0.5);
+            // Ensure the mesh exists in the cache (cached_stroke_circle builds it if absent).
+            cached_stroke_circle(ctx, radius_q, 2.0)?;
+            let key = stroke_circle_key(radius_q, 2.0);
+            params.push((key, DrawParam::default().dest(pos).color(Color::new(r, g, b, alpha))));
+        }
 
-    // A tight, always-bright core ring so the crab itself reads as "the magnet" at a glance.
-    let core_pulse = (time * 4.0).sin() * 0.5 + 0.5;
-    let core = cached_stroke_circle(ctx, inner + 4.0 + core_pulse * 4.0, 2.5)?;
-    let core_g = if charged || lured { 0.8 } else { 0.55 } + core_pulse * 0.2;
-    let core_b = if charged { 0.4 } else if lured { 0.35 } else { 0.3 };
-    canvas.draw(
-        &core,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(1.0, core_g, core_b, 0.55)),
-    );
+        // Core ring — deferred into the same batch. Core radii vary per crab size so they
+        // won't collapse across multiple Magnets as aggressively as the sweep rings, but they're
+        // still one fewer canvas.draw() call per Magnet on the hot path.
+        let core_pulse = (time * 4.0).sin() * 0.5 + 0.5;
+        let core_r = inner + 4.0 + core_pulse * 4.0;
+        cached_stroke_circle(ctx, core_r, 2.5)?;
+        let core_key = stroke_circle_key(core_r, 2.5);
+        let core_g = if charged || lured { 0.8 } else { 0.55 } + core_pulse * 0.2;
+        let core_b_val = if charged { 0.4 } else if lured { 0.35 } else { 0.3 };
+        params.push((core_key, DrawParam::default().dest(pos).color(Color::new(1.0, core_g, core_b_val, 0.55))));
+        Ok(())
+    })?;
 
     Ok(())
 }
