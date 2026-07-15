@@ -7264,11 +7264,17 @@ impl MainState {
                         );
                         typed.sort_unstable_by_key(|&(idx, ..)| idx);
                         let mut prev_type: Option<CrabType> = None;
-                        let sorted: Vec<(usize, Option<[f32; 3]>)> = typed.iter().map(|&(_, ci, ty, col)| {
+                        // Reuse the Vec already stored in order_cache (if any) to avoid a heap
+                        // allocation on every catch/release event. Taking the stored Vec out,
+                        // clearing it, and pushing into it preserves its capacity across rebuilds
+                        // instead of dropping it and collecting a fresh one each time.
+                        let mut sorted = order_cache.take().map(|(_, v)| v).unwrap_or_default();
+                        sorted.clear();
+                        sorted.extend(typed.iter().map(|&(_, ci, ty, col)| {
                             let bond = if prev_type == Some(ty) { Some(col) } else { None };
                             prev_type = Some(ty);
                             (ci, bond)
-                        }).collect();
+                        }));
                         *order_cache = Some((chain_count, sorted));
                     });
                 }
