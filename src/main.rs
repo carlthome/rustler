@@ -86,7 +86,7 @@ const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 // steps, so score % 10 skipped thresholds erratically). Now a rising threshold: the first upgrade
 // lands at UPGRADE_FIRST_AT, each subsequent one costs UPGRADE_STEP more. Rarer, earned, legible.
 const UPGRADE_FIRST_AT: usize = 25;
-const UPGRADE_STEP: usize = 15;
+const UPGRADE_STEP: usize = 100;
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
 // Drum Roll (hold T): a full bar of clean on-beat holds (4 hits) maxes the charge for the biggest
 // fired blast; beyond that it caps so you can't hold forever for infinite reach.
