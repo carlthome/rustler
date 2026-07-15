@@ -39,24 +39,17 @@ The opt-in **How to Play** tutorial ships four scenarios, each a pure headless p
 regression test. A first slice of **meta-progression** + campaign scaffolding exists but stays parked in
 "Later" — the gate is Carl's explicit "the core feels done" call, which hasn't come.
 
-**Signal.** No new Slack reactions/replies this cycle — the recent Dev Diary posts are unreacted, so direction
-holds from Carl's last substantive playtest: (1) upgrade screen fires too often and reads as a flow-breaking
-*pause* — frequency cut **SHIPPED** (rising threshold 39daa76), and the wrong-timing/back-to-back **bugs are
-now fixed** (c01b922 loops the threshold past the current score; 3b17573 fires the check at the pen); (2) level
-title cards look cool (Control aesthetic) but levels don't vary or feel impactful — boundaries-rarer-and-bigger
-**first pass SHIPPED** (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755;
-terrain-hazard half still open); (3) he wants a procedural horde / world-record leaderboard endless mode
-(Diablo-style) with a beat-mastery skill ceiling — parked in "Later", sharpened. **The risk/reward axis is
-genuinely balanced** and served on all three fronts: a live **AT RISK** readout mirrors the pen-worth tag with
-what a snap costs *right now*, snap teeth **escalate by length** (3→4→5→6 tail links torn, b7b7448), and the
-bank payoff is **superlinear** — `pen_worth = (n·(n+1)/2)·3`, a triangular sum, so a long train's priciest tail
-links pay disproportionately. The **BIG/LONG/GRAND HAUL** cashout (36e880d) makes that reward face legible.
-Treat this axis as closed unless Carl says it still feels flat.
-
-**Next frontier: the middle of the train is positionally inert.** Only the **head** (Golden figurehead, Dancer
-Drum-Major) and **tail** (Armored tail-guard) slots carry weight; every crab between them is just a number for
-pen_worth. A longer train should mean more *arrangement* decisions, not just more banking value — this deepens
-the inner loop AND sharpens Carl's tension (holding long becomes a puzzle to set up, not only a risk to carry).
+**Signal.** No new Slack reactions/replies this cycle — Slack was unreadable this run and the recent Dev Diary
+posts are unreacted, so direction holds from Carl's last substantive playtest: (1) upgrade screen fired too often
+and back-to-back and read as a flow-breaking *pause* — **fully resolved**: frequency cut (39daa76), timing bugs
+fixed (c01b922/3b17573), and the redesign into a meaningful 3-pick choice with tradeoffs **SHIPPED** (b43045c);
+(2) level title cards look cool (Control aesthetic) but levels don't vary or feel impactful — boundaries-rarer-
+and-bigger **first pass SHIPPED** (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755;
+**terrain-hazard half still open** — top live Now item); (3) he wants a procedural horde / world-record
+leaderboard endless mode (Diablo-style) with a beat-mastery skill ceiling — parked in "Later", sharpened; a first
+slice of that skill ceiling landed as the **super-linear PERFECT streak** payoff (043a480). **The risk/reward
+axis is closed** — live AT RISK readout, snap teeth escalating by length, and a superlinear triangular bank payoff
+(`pen_worth = (n·(n+1)/2)·3`) with a BIG/LONG/GRAND HAUL cashout. Treat as closed unless Carl says it feels flat.
 
 ## Bugs (fix before anything else in Now)
 
@@ -73,35 +66,28 @@ item in "Now" below.
 - **NOTE — MECHANICS FREEZE (called by Carl this cycle).** Carl: "We might have sufficient game mechanics
   content for now, and should work on strengthening what we have to make the player feel agency and control."
   Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
-  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. All three
-  live Now items below (upgrade redesign, biome terrain hazard, perfect-on-beat payoff) survive the freeze:
-  each *deepens and polishes existing* mechanics rather than adding new ones — the upgrade redesign reshapes the
-  upgrade system that already exists, it doesn't add one — which is exactly the work Carl is asking for. Deepen
-  and polish what exists; make the player feel in control of it.
+  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. Every live
+  Now item below (biome terrain hazard, train-middle arrangement) survives the freeze: each *deepens and polishes
+  existing* mechanics rather than adding new ones — the arrangement item reshapes the conga train that already
+  exists, it doesn't add a new system — which is exactly the work Carl is asking for. Deepen and polish what
+  exists; make the player feel in control of it. *(Two Now items shipped this cycle and were checked off: the
+  upgrade-screen redesign into a 3-pick meaningful choice — b43045c — and the super-linear PERFECT streak payoff
+  as a first legible skill ceiling — 043a480.)*
 
-- **[TOP PRIORITY — UNBLOCKED] Redesign the upgrade screen from "more of everything" to a meaningful choice.**
-  Both upgrade bugs are now fixed (see Bugs), so this — the thing they were blocking — is the next thing to
-  build. Offer 3 random upgrades per screen (pick 1), where each upgrade meaningfully reshapes how the next few
-  minutes play rather than just incrementing a rank. Tradeoffs and specialization over pure power addition (a
-  pick can cost you something as well as give — e.g. faster beam but a shorter catch window, a heavier train
-  that banks bigger but snaps meaner). This directly answers Carl's Vampire Survivors note — the upgrade moment
-  should feel like a lucky, powerful *choice*, not a pause. It reshapes the *existing* upgrade system, so it's
-  consistent with the mechanics freeze; it does not add a new one. See INSPIRATION.md (Vampire Survivors +
-  precision-platformer depth notes).
-
-- **Pair each biome with its own terrain hazard — finish the gear-change. (Next step of the level rethink.)**
+- **[TOP PRIORITY] Pair each biome with its own terrain hazard — finish the gear-change. (Next step of the level rethink.)**
   Boundaries now shift *who you catch* (archetype emphasis) but the ground is still mostly a tint. Per
   INSPIRATION's Control note, a boundary should read as arriving somewhere mechanically: give each biome a
   distinct terrain mechanic that changes routing (some already exist — Rocky Shore tide-shortcuts, Neon Kelp
   funnel lanes — so extend/assign the pattern per biome) so archetype shift + terrain hazard land *together*.
   Depth, not breadth: reuse the existing hazard systems rather than inventing parallel ones. Still NOT the
   endless/procedural/leaderboard rework — that stays gated in "Later" until Carl calls the inner loop done.
-- **Make perfect on-beat play pay off dramatically, not marginally — a legible skill ceiling inside the inner
-  loop.** Per INSPIRATION's precision-platformer note: a player who nails every beat should score *much* further
-  than one who ignores rhythm, and the gap should be visible. The scaffolding exists (PERFECT catches, groove
-  meter, on-beat multipliers, streak tiers) — deepen one of these so flawless on-beat play compounds noticeably
-  (e.g. a sustained-perfect streak that ramps scoring/reach and shows how far ahead it puts you). This is depth
-  inside the existing loop, NOT the gated arcade/leaderboard mode — build the mastery, not the scoreboard.
+- **Give the middle of the train arrangement weight — the inner loop's next frontier.** Right now only the
+  **head** (Golden figurehead, Dancer Drum-Major) and **tail** (Armored tail-guard) slots carry meaning; every
+  crab between them is just a number for pen_worth. Make a longer train mean more *arrangement* decisions, not
+  just more banking value — reuse the existing adjacency/sandwich/figurehead systems so that where a crab sits in
+  the line matters (mid-train combos, run-length synergies, positional archetype interactions). This deepens the
+  existing chain mechanic (freeze-safe — no new archetype or verb) AND sharpens Carl's hold-vs-bank tension:
+  holding long becomes a puzzle to *set up*, not only a risk to carry.
 
 ## Later (outer loop — not yet)
 
