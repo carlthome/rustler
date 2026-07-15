@@ -3187,7 +3187,17 @@ impl MainState {
     /// after any score increase; it's the single knob for upgrade cadence.
     fn check_upgrade_unlock(&mut self, ctx: &mut Context) {
         if self.score >= self.next_upgrade_score {
-            self.next_upgrade_score += UPGRADE_STEP;
+            // Queue exactly ONE upgrade, then advance the threshold past the *current* score so a
+            // single banked jump can never trigger back-to-back screens. Score rises by the combo
+            // multiplier per catch (often several points at once) and a fast cluster catch can
+            // overshoot the threshold by a lot; the old fixed `+= UPGRADE_STEP` left the new
+            // threshold still below the score, so the very next catch popped another upgrade screen
+            // immediately — the "fires at a wrong moment / pick one and another pops" bug Carl hit.
+            // Looping the step until it clears the current score keeps upgrades one-at-a-time and
+            // spaced by real earned progress.
+            while self.score >= self.next_upgrade_score {
+                self.next_upgrade_score += UPGRADE_STEP;
+            }
             let _ = self.sounds.upgrade.play_detached(ctx);
             self.pending_upgrade = true;
         }
