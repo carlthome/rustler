@@ -6432,6 +6432,7 @@ impl MainState {
                 0.0,
                 bob.max(0.0),
                 0.0,
+                t,
             )?;
         }
         // Flush the batched leg/body draws for the march crabs above (see flush_crab_legs and
@@ -8440,7 +8441,7 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0, crab.facing_angle)?;
+                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0, crab.facing_angle, self.time_elapsed)?;
                 // Attraction halo for crabs currently being pulled by the flashlight beam
                 if crab.in_flashlight {
                     let size = crab.scale * CRAB_SIZE;
@@ -8539,7 +8540,7 @@ impl MainState {
                 };
                 let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
                 let lift = bob.min(0.0).abs(); // lift = how much the crab is up (bob is negative = up)
-                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift, crab.facing_angle)?;
+                draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift, crab.facing_angle, self.time_elapsed)?;
             }
         }
         // Every draw_crab() call above deferred its 6 leg draws and 12 body-part (shadow, shell,

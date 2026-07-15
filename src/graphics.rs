@@ -1969,7 +1969,7 @@ fn star_mesh(ctx: &mut Context, r: f32, color: Color) -> ggez::GameResult<Mesh> 
 // batches by flush_crab_legs()/flush_crab_bodies() (called once per drawing pass by the caller).
 // Kept in the signature so call sites don't need to change and so a future direct-draw effect
 // (e.g. a one-off overlay) has it on hand without threading it through again.
-pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32) -> ggez::GameResult {
+pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32, time: f32) -> ggez::GameResult {
     // Crabs previously rebuilt ~13 fresh GPU meshes every frame (shadow, body, 6 legs,
     // 2 claws, 4 eye parts) via Mesh::new_circle/new_line/new_ellipse. With a long conga
     // train this was easily 100+ mesh allocations per frame. Instead reuse the same cached
@@ -2140,11 +2140,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // `rotation` to `angle` before computing everything in world space directly.
     let leg_len = size * 0.7;
     let leg_color = Color::from_rgb(200, 50, 50);
-    // Hoisted out of the loop: `time_since_start()` reads the system clock (Instant::now())
-    // every call, and the value is identical across all 6 legs — with a long conga train this
-    // was 6 redundant clock reads per crab per frame (1000s/frame at high crab counts) for a
-    // value that never changes within the loop.
-    let time = ctx.time.time_since_start().as_secs_f32();
+    // `time` is passed in by the caller (self.time_elapsed) rather than reading the system clock
+    // here. Previously draw_crab called ctx.time.time_since_start() (an Instant::now() syscall)
+    // once per crab for the leg wiggle — on a 50-crab train that's 50 syscalls/frame for a value
+    // that's effectively identical across all crabs in the same frame. Now callers supply it once.
     // Single thread-local borrow for all 6 legs, same reasoning as CRAB_BODY_PARAMS above.
     CRAB_LEG_PARAMS.with(|params| {
         let mut params = params.borrow_mut();
