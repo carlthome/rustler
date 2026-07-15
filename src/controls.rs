@@ -26,7 +26,7 @@ pub fn handle_player_movement(
     }
 
     // Increase player speed and speed boost based on score.
-    let base_speed = speed * (1.0 + state.score as f32 * 0.1);
+    let base_speed = speed * (1.0 + state.score as f32 * 0.1) * state.speed_mult;
     let speed_boost_multiplier = 30.0 + state.score as f32 * 0.2;
     let mut move_speed = base_speed;
 
