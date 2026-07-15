@@ -297,6 +297,12 @@ thread_local! {
     // those values actually changes, not on every one of the ~60 frames between catches.
     static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
 
+    // Cache for the "RHYTHM BONUS  +N" mastery readout under the score line — the running total of
+    // extra points playing on the beat has banked over a flat-1x run. Same rebuild-on-change idiom
+    // as HUD_TEXT_CACHE: keyed on the tally so the Text (glyph shaping) is only rebuilt when the
+    // number actually changes, not on the ~60 frames per second the readout is on screen.
+    static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
+
     // Debug-build-only perf overlay ("avg X.XXms (YY fps), worst Z.ZZms") in the top-right
     // corner, so frame-time regressions are visible during actual play instead of only in a
     // terminal that may not be in view. Same rebuild-on-change pattern as HUD_TEXT_CACHE above:
@@ -752,6 +758,13 @@ struct MainState {
     on_beat_flash: f32,
     groove: f32,         // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
     beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
+    // Cumulative rhythm-attributable score: the running total of EXTRA points playing in the pocket
+    // has earned over a hypothetical flat-1x run. On every award (catch and bank) we add the delta
+    // between what actually paid out and what the same event would have paid at neutral rhythm
+    // multipliers. It's the "how far ahead the beat put you" readout the roadmap asks for — mastery
+    // made legible — and it is display-only: it accumulates score already awarded, never adds any.
+    rhythm_bonus_score: usize,
+    rhythm_bonus_flash: f32, // brief pulse when the tally jumps (a fat on-beat bank)
     // Groove Gamble — the rhythm risk/reward layer. Consecutive on-beat catches compound a live
     // GLOBAL score multiplier (beat_streak drives beat_gamble_mult); a single off-beat catch breaks
     // the run and resets it to 1x. It's a tension the player is actively managing: keep nailing the
@@ -1548,6 +1561,8 @@ impl MainState {
             groove_full_flash: 0.0,
             groove: 0.0,
             beat_streak: 0,
+            rhythm_bonus_score: 0,
+            rhythm_bonus_flash: 0.0,
             music_layers,
             catch_radius_upgrade: 0.0,
             beat_catch_bloom: 0.0,
@@ -3081,6 +3096,16 @@ impl MainState {
         // the pen instead of grabbing sloppily on the way in.
         let bank = (base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
         self.score += bank;
+        // Attribute the rhythm-driven extra of this bank: the delivery streak is a pace reward that
+        // survives without the beat, so the baseline keeps it — but the PERFECT (on-beat) delivery
+        // bonus and the Groove Gamble multiplier are pure rhythm, so strip only those for the flat
+        // reference. The difference is the mastery the beat bought at the pen, added to the tally.
+        let flat_bank = (base as f32 * streak_mult).round() as usize;
+        let jump = bank.saturating_sub(flat_bank);
+        if jump > 0 {
+            self.rhythm_bonus_score += jump;
+            self.rhythm_bonus_flash = 1.0;
+        }
 
         // Tutorial pass tracking: count real train deliveries for the chain-and-deliver learn-
         // session. This is the one write behind that tutorial's pure pass predicate
@@ -3510,6 +3535,11 @@ impl MainState {
                 // catch worth dramatically more — the payoff for riding the beat unbroken.
                 let pts = (((1 + bonus) * mult) as f32 * self.beat_gamble_mult).round() as usize;
                 self.score += pts;
+                // Attribute the rhythm-driven extra: what this catch would have paid at neutral
+                // rhythm (no streak bonus, no gamble multiplier) vs. what it actually paid. The gap
+                // is the mastery the beat bought, tallied for the "how far ahead" readout.
+                let flat = (1 * mult) as usize; // bonus=0, gamble=1x
+                self.rhythm_bonus_score += pts.saturating_sub(flat);
                 // Golden crab: on top of the normal catch award, queue a big lump-sum treasure bonus
                 // (paid out after the loop). This is the payoff for breaking off the herd to chase it.
                 // Splitter: record the catch so the after-loop cleave can bank the back half. The
@@ -6505,6 +6535,8 @@ impl MainState {
         self.slam_radius = 0.0;
         self.slam_flash = 0.0;
         self.beat_streak = 0;
+        self.rhythm_bonus_score = 0;
+        self.rhythm_bonus_flash = 0.0;
         self.beat_gamble_mult = 1.0;
         self.beat_gamble_flash = 0.0;
         self.streak_lost_flash = 0.0;
@@ -8046,6 +8078,40 @@ impl MainState {
                     .color(Color::from_rgb(255, 255, 00)),
             );
         });
+
+        // Rhythm mastery readout, just under the score: the cumulative EXTRA points playing on the
+        // beat has earned over a flat-1x run — "how far ahead the beat put you", the legible payoff
+        // for flawless on-beat play. Display-only; it never adds score, only reveals what the
+        // rhythm multipliers already banked. Hidden until it's nonzero so it doesn't clutter the
+        // opening of a run before any groove has landed. Pulses gold on a fat on-beat bank.
+        if self.rhythm_bonus_score > 0 {
+            RHYTHM_BONUS_CACHE.with(|c| {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = match &*cache {
+                    Some((n, _)) => *n != self.rhythm_bonus_score,
+                    None => true,
+                };
+                if needs_rebuild {
+                    let txt = format!("RHYTHM BONUS  +{}", self.rhythm_bonus_score);
+                    *cache = Some((self.rhythm_bonus_score, Text::new(txt)));
+                }
+                let pop = self.rhythm_bonus_flash;
+                // Steady teal, flashing toward bright gold on a bank jump.
+                let col = Color::new(
+                    0.3 + pop * 0.7,
+                    0.9,
+                    0.7 - pop * 0.5,
+                    1.0,
+                );
+                canvas.draw(
+                    &cache.as_ref().unwrap().1,
+                    DrawParam::default()
+                        .dest(Vec2::new(10.0, 30.0))
+                        .scale(Vec2::splat(1.0 + pop * 0.12))
+                        .color(col),
+                );
+            });
+        }
 
         // Debug-only perf overlay, top-right: avg/worst frame time + fps over the last ~2s
         // window (see the accumulation block in update()). Lets a feature/optimizer agent (or
@@ -10797,6 +10863,9 @@ impl EventHandler for MainState {
         // Groove Gamble feedback pulses decay each frame.
         if self.beat_gamble_flash > 0.0 {
             self.beat_gamble_flash = (self.beat_gamble_flash - dt * 3.5).max(0.0);
+        }
+        if self.rhythm_bonus_flash > 0.0 {
+            self.rhythm_bonus_flash = (self.rhythm_bonus_flash - dt * 2.0).max(0.0);
         }
         if self.streak_lost_flash > 0.0 {
             self.streak_lost_flash = (self.streak_lost_flash - dt * 2.2).max(0.0);
