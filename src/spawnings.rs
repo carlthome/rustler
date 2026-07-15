@@ -14,8 +14,14 @@ pub enum SpawnPattern {
     Spiral,   // crabs laid out in a spiral
 }
 
-fn make_crab(pos: Vec2, vel: Vec2, spawn_time: f32, rng: &mut impl Rng) -> EnemyCrab {
-    let crab_type = CrabType::random(rng);
+fn make_crab(
+    pos: Vec2,
+    vel: Vec2,
+    spawn_time: f32,
+    emphasis: Option<CrabType>,
+    rng: &mut impl Rng,
+) -> EnemyCrab {
+    let crab_type = CrabType::random_emphasized(emphasis, rng);
     let speed = rng.random_range(crab_type.speed_range());
     let scale = rng.random_range(crab_type.scale_range());
     EnemyCrab {
@@ -71,7 +77,7 @@ pub fn spawn_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> Enem
     let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
     // Amble roughly toward the middle of the arena.
     let vel = (center - pos).normalize_or_zero();
-    let mut boss = make_crab(pos, vel, 0.0, rng);
+    let mut boss = make_crab(pos, vel, 0.0, None, rng);
     boss.crab_type = CrabType::Boss;
     boss.speed = rng.random_range(CrabType::Boss.speed_range());
     boss.scale = rng.random_range(CrabType::Boss.scale_range());
@@ -93,7 +99,7 @@ pub fn spawn_tide_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) ->
     let center = Vec2::new(width * 0.5, height * 0.5);
     let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
     let vel = (center - pos).normalize_or_zero();
-    let mut boss = make_crab(pos, vel, 0.0, rng);
+    let mut boss = make_crab(pos, vel, 0.0, None, rng);
     boss.crab_type = CrabType::TideBoss;
     boss.speed = rng.random_range(CrabType::TideBoss.speed_range());
     boss.scale = rng.random_range(CrabType::TideBoss.scale_range());
@@ -115,7 +121,7 @@ pub fn spawn_rhythm_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) 
     let center = Vec2::new(width * 0.5, height * 0.5);
     let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
     let vel = (center - pos).normalize_or_zero();
-    let mut boss = make_crab(pos, vel, 0.0, rng);
+    let mut boss = make_crab(pos, vel, 0.0, None, rng);
     boss.crab_type = CrabType::RhythmBoss;
     boss.speed = rng.random_range(CrabType::RhythmBoss.speed_range());
     boss.scale = rng.random_range(CrabType::RhythmBoss.scale_range());
@@ -140,7 +146,7 @@ pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -
         Vec2::new(width - 20.0, height - 20.0),
     );
     let vel = Vec2::new(angle.cos(), angle.sin());
-    let mut crab = make_crab(pos, vel, 0.0, rng);
+    let mut crab = make_crab(pos, vel, 0.0, None, rng);
     crab.crab_type = CrabType::Dancer;
     crab.speed = rng.random_range(CrabType::Dancer.speed_range());
     crab.scale = rng.random_range(CrabType::Dancer.scale_range());
@@ -181,7 +187,7 @@ pub fn spawn_tutorial_crabs(
             let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
             // Drift slowly so they read as alive but stay easy to intercept on the beat.
             let vel = Vec2::new(angle.cos(), angle.sin()) * 0.2;
-            let mut crab = make_crab(pos, vel, 0.0, rng);
+            let mut crab = make_crab(pos, vel, 0.0, None, rng);
             crab.crab_type = crab_type;
             crab.speed = 30.0;
             crab.scale = 1.0;
@@ -199,6 +205,7 @@ pub fn spawn_enemies(
     count: usize,
     area: (f32, f32),
     centroid: (f32, f32),
+    emphasis: Option<CrabType>,
     rng: &mut impl Rng,
 ) -> Vec<EnemyCrab> {
     let (width, height) = area;
@@ -213,7 +220,7 @@ pub fn spawn_enemies(
                     );
                 let angle = rng.random_range(0.0..std::f32::consts::TAU);
                 let vel = Vec2::new(angle.cos(), angle.sin());
-                make_crab(pos, vel, 0.0, rng)
+                make_crab(pos, vel, 0.0, emphasis, rng)
             })
             .collect(),
         SpawnPattern::SineWave => {
@@ -226,7 +233,7 @@ pub fn spawn_enemies(
                     let pos = Vec2::new(x, y);
                     let angle = std::f32::consts::FRAC_PI_2;
                     let vel = Vec2::new(angle.cos(), angle.sin());
-                    make_crab(pos, vel, 0.0, rng)
+                    make_crab(pos, vel, 0.0, emphasis, rng)
                 })
                 .collect()
         }
@@ -238,7 +245,7 @@ pub fn spawn_enemies(
                     let angle = i as f32 * std::f32::consts::TAU / count as f32;
                     let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
                     let vel = Vec2::new(angle.cos(), angle.sin());
-                    make_crab(pos, vel, 0.0, rng)
+                    make_crab(pos, vel, 0.0, emphasis, rng)
                 })
                 .collect()
         }
@@ -250,7 +257,7 @@ pub fn spawn_enemies(
                     let dist = rng.random_range(0.0..(width.min(height) * 0.1));
                     let pos = cluster_center + Vec2::new(angle.cos(), angle.sin()) * dist;
                     let vel = Vec2::new(angle.cos(), angle.sin());
-                    make_crab(pos, vel, 0.0, rng)
+                    make_crab(pos, vel, 0.0, emphasis, rng)
                 })
                 .collect()
         }
@@ -263,7 +270,7 @@ pub fn spawn_enemies(
                     let vel = Vec2::new(angle.cos(), angle.sin());
                     let pos = centroid_vec
                         + Vec2::new(rng.random_range(-50.0..50.0), rng.random_range(-50.0..50.0));
-                    make_crab(pos, vel, i as f32 * delay, rng)
+                    make_crab(pos, vel, i as f32 * delay, emphasis, rng)
                 })
                 .collect()
         }
@@ -279,7 +286,7 @@ pub fn spawn_enemies(
                     let pos = centroid_vec + Vec2::new(col * spacing_x, row * spacing_y);
                     let angle = rng.random_range(0.0..std::f32::consts::TAU);
                     let vel = Vec2::new(angle.cos(), angle.sin());
-                    make_crab(pos, vel, 0.0, rng)
+                    make_crab(pos, vel, 0.0, emphasis, rng)
                 })
                 .collect()
         }
@@ -290,7 +297,7 @@ pub fn spawn_enemies(
                 let radius = t * width.min(height) * 0.38;
                 let pos = centroid_vec + Vec2::new(angle.cos() * radius, angle.sin() * radius);
                 let vel = Vec2::new(-angle.sin(), angle.cos()); // tangent direction
-                make_crab(pos, vel, 0.0, rng)
+                make_crab(pos, vel, 0.0, emphasis, rng)
             })
             .collect(),
     }

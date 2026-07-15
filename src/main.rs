@@ -6153,7 +6153,14 @@ impl MainState {
         };
         let base_duration = p.duration * stage_dur;
         let duration = if frenzy { base_duration * 0.85 } else { base_duration };
-        let crabs = spawn_enemies(p.pattern.clone(), count, area, p.centroid, &mut rng);
+        let crabs = spawn_enemies(
+            p.pattern.clone(),
+            count,
+            area,
+            p.centroid,
+            level.emphasis,
+            &mut rng,
+        );
         self.crabs.extend(crabs);
         self.pattern_timer = duration;
         self.frenzy_wave = false;
@@ -8503,6 +8510,22 @@ impl MainState {
                     .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
                     .color(Color::from_rgb(pr, pg, pb)),
             );
+            // The zone's dominant threat, announced right under the biome name so crossing a
+            // boundary *reads* as a gear-change (a Magnet swarm, a wall of Armored shells, a Thief
+            // infestation), not just a tint swap. Drawn fresh each frame — it's a single small Text
+            // over the ~1s title window, cheap enough not to earn a slot in the cache tuple above.
+            let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
+            if let Some(label) = crate::levels::emphasis_label(emphasis) {
+                let mut threat = Text::new(format!("⚠ {label}"));
+                threat.set_scale(30.0);
+                let tw = threat.measure(ctx)?.x;
+                canvas.draw(
+                    &threat,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - tw) / 2.0, rect_y + rect_h + 60.0))
+                        .color(Color::from_rgb(255, 170, 60)),
+                );
+            }
             Ok(())
         })
     }

@@ -1,3 +1,4 @@
+use crate::enemies::CrabType;
 use crate::spawnings::SpawnPattern;
 
 pub struct LevelPattern {
@@ -41,7 +42,28 @@ pub struct Level {
     pub description: String,
     pub difficulty: usize,
     pub biome: Biome,
+    /// The herd archetype this zone leans on — its "second half" of the gear-change. Terrain
+    /// (above) changes how the ground routes; `emphasis` changes *what you're catching* so
+    /// crossing a boundary visibly shifts play, not just the tint. A fraction of the herd roll is
+    /// redirected to this type (see `CrabType::random_emphasized`). Paired thematically to the
+    /// terrain: Water→Magnet (routing), Rock→Armored (shells to crack), Kelp→Thief (tail
+    /// pressure). `None` on the beginner zone, which stays a clean, unflavored intro.
+    pub emphasis: Option<CrabType>,
     pub patterns: Vec<LevelPattern>,
+}
+
+/// The player-facing name of a level's emphasized archetype, for the Control-style title banner.
+/// Surfacing it on the card is what makes the boundary *read* as a gear-change instead of an
+/// invisible probability bump — the zone announces its dominant threat as you cross into it.
+pub fn emphasis_label(emphasis: Option<CrabType>) -> Option<&'static str> {
+    match emphasis {
+        Some(CrabType::Magnet) => Some("MAGNET SWARM"),
+        Some(CrabType::Armored) => Some("ARMORED SHELLS"),
+        Some(CrabType::Thief) => Some("THIEF INFESTATION"),
+        Some(CrabType::Dancer) => Some("DANCER RAVE"),
+        Some(CrabType::Hermit) => Some("HERMIT WARREN"),
+        _ => None,
+    }
 }
 
 pub fn get_levels() -> Vec<Level> {
@@ -56,17 +78,18 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (120, 255, 120),
                 terrain: TerrainKind::Open,
             },
+            emphasis: None,
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::SingleRandom,
                     count: 3,
-                    duration: 10.0,
+                    duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SingleRandom,
                     count: 2,
-                    duration: 8.0,
+                    duration: 11.2,
                     centroid: (0.2, 0.8),
                 },
             ],
@@ -81,35 +104,38 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (90, 200, 255),
                 terrain: TerrainKind::Water,
             },
+            // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
+            // zone becomes a routing puzzle where you catch a Magnet to net the blob it gathered.
+            emphasis: Some(CrabType::Magnet),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::UniformRandom,
                     count: 5,
-                    duration: 8.0,
+                    duration: 11.2,
                     centroid: (0.7, 0.3),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
                     count: 7,
-                    duration: 10.0,
+                    duration: 14.0,
                     centroid: (0.3, 0.7),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Circle,
                     count: 8,
-                    duration: 12.0,
+                    duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
                     count: 10,
-                    duration: 10.0,
+                    duration: 14.0,
                     centroid: (0.8, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
                     count: 6,
-                    duration: 6.0,
+                    duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
             ],
@@ -124,35 +150,38 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (205, 222, 235),
                 terrain: TerrainKind::Rock,
             },
+            // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
+            // reach for the Stomp constantly — a zone of shells to crack while dodging the rocks.
+            emphasis: Some(CrabType::Armored),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
                     count: 12,
-                    duration: 10.0,
+                    duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
                     count: 10,
-                    duration: 12.0,
+                    duration: 16.8,
                     centroid: (0.8, 0.2),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Circle,
                     count: 14,
-                    duration: 14.0,
+                    duration: 19.6,
                     centroid: (0.2, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
                     count: 8,
-                    duration: 8.0,
+                    duration: 11.2,
                     centroid: (0.8, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
                     count: 6,
-                    duration: 6.0,
+                    duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
             ],
@@ -167,29 +196,32 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 90, 220),
                 terrain: TerrainKind::Kelp,
             },
+            // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
+            // zone is one long fight to defend the train you've built. Tail pressure squared.
+            emphasis: Some(CrabType::Thief),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
                     count: 9,
-                    duration: 12.0,
+                    duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Spiral,
                     count: 12,
-                    duration: 14.0,
+                    duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
                     count: 16,
-                    duration: 14.0,
+                    duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Spiral,
                     count: 20,
-                    duration: 16.0,
+                    duration: 22.4,
                     centroid: (0.5, 0.5),
                 },
             ],

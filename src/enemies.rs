@@ -70,6 +70,33 @@ impl CrabType {
             _ => Thief,
         }
     }
+
+    /// A biome-emphasized herd roll. Most crabs still roll the normal tuned distribution above —
+    /// the rarity comments there are load-bearing and stay intact. But with `emphasis` set (each
+    /// level names one dominant herd archetype, see levels.rs), a fraction of the roll is
+    /// *redirected* to that archetype so the zone visibly plays around it: a Kelp forest crawling
+    /// with Thieves gnawing your tail, a Rocky shore studded with Armored shells, a Tide zone
+    /// swarmed by routing Magnets. The Golden/Splitter roll-first rarities are preserved (those
+    /// stay a delightful global surprise, never a biome's bread and butter) — only the plain herd
+    /// share is what emphasis biases. ~45% redirect: strong enough that the zone's flavor is
+    /// unmistakable without drowning out the rest of the web that makes each catch varied.
+    pub fn random_emphasized(emphasis: Option<CrabType>, rng: &mut impl rand::Rng) -> Self {
+        let base = Self::random(rng);
+        let Some(emph) = emphasis else {
+            return base;
+        };
+        // Never override the rare roll-first standouts, and never re-roll a crab that already
+        // landed on the emphasized type — leave the tuned distribution's own hits intact.
+        if matches!(base, CrabType::Golden | CrabType::Splitter) || base == emph {
+            return base;
+        }
+        if rng.random_range(0..100) < 45 {
+            emph
+        } else {
+            base
+        }
+    }
+
     pub fn speed_range(&self) -> std::ops::Range<f32> {
         match self {
             CrabType::Normal => 30.0..70.0,
