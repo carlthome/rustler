@@ -4428,6 +4428,65 @@ pub fn draw_delivery_pen(
     Ok(())
 }
 
+/// Draw the live "at-risk" readout floating over the train's tail — the mirror of the gold pen-worth
+/// tag, but for the *downside* of not banking. Where the pen tag says "this is what you'd bank", this
+/// says "this is what a snap would cost you right now": a panic snap strips the last few (highest-value)
+/// tail links, and because delivery value is triangular, those are exactly the ones worth the most. So
+/// a long unbanked train reads as a loaded gun — the number climbs as you refuse to bank, in warning
+/// red on the train itself (not gold over the pen), so the two tags contrast instead of blurring into
+/// one. `at_risk` is the marginal pts a snap would remove (caller computes it with the same multipliers
+/// as pen-worth, so the two agree). `tail` is where to anchor it. `danger01` is 0..1 = how close the
+/// train length is to the deep-risk end, driving color/pulse urgency. Only call when a snap can actually
+/// fire (train past the snap threshold) — below that there's genuinely no risk to show.
+pub fn draw_train_at_risk(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    tail: Vec2,
+    time: f32,
+    at_risk: usize,
+    danger01: f32,
+) -> ggez::GameResult {
+    thread_local! {
+        static RISK_CACHE: std::cell::RefCell<Option<(usize, Text, f32)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    RISK_CACHE.with(|cache| -> ggez::GameResult {
+        let mut c = cache.borrow_mut();
+        let needs = c.as_ref().map_or(true, |(v, _, _)| *v != at_risk);
+        if needs {
+            let mut t = Text::new(format!("AT RISK  -{} pts", at_risk));
+            t.set_scale(17.0);
+            let w = t.measure(ctx)?.x;
+            *c = Some((at_risk, t, w));
+        }
+        let (_, text, w) = c.as_ref().unwrap();
+        let w = *w;
+        // A tense flicker that quickens with danger — the tag jitters harder the longer you hold.
+        let pulse = 0.5 + 0.5 * (time * (6.0 + danger01 * 8.0)).sin();
+        let jitter = pulse * danger01 * 1.5;
+        // Sit just above the tail so it reads as attached to the train, not the pen.
+        let base = tail - Vec2::new(w * 0.5, 30.0) + Vec2::new(jitter, 0.0);
+        // Amber warning heating to angry red as the danger climbs — unmistakably NOT the gold reward tag.
+        let rr = 1.0;
+        let rg = 0.55 - danger01 * 0.45;
+        let rb = 0.15;
+        let alpha = 0.7 + 0.3 * pulse;
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base + Vec2::splat(1.5))
+                .color(Color::new(0.0, 0.0, 0.0, 0.6)),
+        );
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base)
+                .color(Color::new(rr, rg.max(0.0), rb, alpha)),
+        );
+        Ok(())
+    })
+}
+
 /// Draw the delivery-streak heat badge anchored under the pen — the persistent, watchable face of
 /// the streak multiplier that until now only ever flashed for a frame at bank time and then decayed
 /// silently. Banking crabs in quick succession stacks a payout multiplier (up to 2.75x); if too long
