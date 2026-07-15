@@ -5591,16 +5591,21 @@ impl MainState {
             }
         }
 
-        // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict)
-        for &(pos, vel, life, [cr, cg, cb]) in attraction_particles.iter() {
-            self.particle_system.push(crate::graphics::Particle {
-                pos,
-                vel,
-                life,
-                max_life: life,
-                size: rand::rng().random_range(1.5_f32..3.5_f32),
-                color: [(cr * 0.6 + 0.4).min(1.0), (cg * 0.6 + 0.4).min(1.0), (cb * 0.6 + 0.4).min(1.0)],
-            });
+        // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict).
+        // One rng per batch rather than one per particle — rand::rng() re-seeds on every call
+        // and the flashlight can accumulate many attracted crabs at once.
+        if !attraction_particles.is_empty() {
+            let mut rng = rand::rng();
+            for &(pos, vel, life, [cr, cg, cb]) in attraction_particles.iter() {
+                self.particle_system.push(crate::graphics::Particle {
+                    pos,
+                    vel,
+                    life,
+                    max_life: life,
+                    size: rng.random_range(1.5_f32..3.5_f32),
+                    color: [(cr * 0.6 + 0.4).min(1.0), (cg * 0.6 + 0.4).min(1.0), (cb * 0.6 + 0.4).min(1.0)],
+                });
+            }
         }
 
         // Celebrate any King Crab worn down to catchable this frame
