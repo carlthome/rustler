@@ -40,10 +40,11 @@ regression test. A first slice of **meta-progression** + campaign scaffolding ex
 "Later" — the gate is Carl's explicit "the core feels done" call, which hasn't come.
 
 **Signal.** Carl gave substantive playtest feedback this cycle (see "Now" + "Level system rethink"): (1) the
-upgrade screen fires too often and reads as a flow-breaking *pause* rather than the abundance/power-fantasy it
-is in Vampire Survivors — cut its frequency; (2) the level title cards look cool (Control-style aesthetic) but
-levels don't vary or feel impactful and happen too often — make boundaries rarer and bigger, and weave
-levels/campaign/tutorial together more holistically; (3) he wants a procedural horde / world-record leaderboard
+upgrade screen fires too often and reads as a flow-breaking *pause* — cut its frequency (**SHIPPED**, rising
+threshold 39daa76); (2) the level title cards look cool (Control-style aesthetic) but
+levels don't vary or feel impactful and happen too often — make boundaries rarer and bigger (**first pass
+SHIPPED**: longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755; terrain-hazard half
+still open), and weave levels/campaign/tutorial together more holistically; (3) he wants a procedural horde / world-record leaderboard
 endless mode (Diablo-style) with a beat-mastery skill ceiling (precision-platformer "play it perfectly and go
 further") for longevity — this is the arcade mode already parked in "Later", now sharpened. **Both prior top
 "Now" items (mid-train arrangement depth, reposition verb) shipped, and the risk/reward axis is genuinely
@@ -76,22 +77,27 @@ item in "Now" below.
   a crab flanked by two matched figureheads (78623b5). Mid-train is no longer inert.
 - **~~Reposition-your-train verb.~~ SHIPPED** — X cycles the whole train one slot on the beat (13be12e), a
   rhythm-gated setup move that preserves match-run bonds. The train is now a live instrument to tune.
-- **Fix upgrade-screen frequency — stop the interruption breaking flow. (Top Now item, from Carl.)** Carl's
-  note: in Vampire Survivors the upgrade interrupt feels *good* because it reads as abundance/power-fantasy
-  (many chests at once = you're winning); here it just reads as a *pause that breaks the run's flow*. Today an
-  upgrade fires every 10 banked points (`score % 10 == 0`, three catch sites in main.rs), which is far too
-  often. First, low-risk lever: **raise the interval so upgrades land noticeably rarer** (and consider a rising
-  cost curve so later ones are earned, not automatic). Keep it a single legible knob. Leaving room for a later,
-  bolder fix — a non-blocking pick (choose an upgrade without freezing the run) — but don't build that yet; the
-  frequency cut is the safe first win and may be enough on its own.
-- **Rarer, bigger level boundaries — make each new zone actually *change* the game. (First step of the level
-  rethink; see "Also on our mind".)** Carl: the level title cards (Control-style floor banners) look cool but
-  the levels "don't really vary or feel that impactful," and they happen too often. In `levels.rs`, make each
-  level **longer** (fewer boundary crossings per run) and each boundary a **sharper shift** — pair every biome
-  with a clearly different terrain mechanic *and* a distinct enemy-archetype emphasis, so crossing into a new
-  zone visibly changes how you play, not just the ground tint. One buildable step: fewer, meatier levels whose
-  boundaries read as a real gear-change. Do NOT build endless/procedural/leaderboard scaffolding here — that's
-  staged separately below; this is just making the existing hand-authored levels rarer and more impactful.
+- **~~Fix upgrade-screen frequency.~~ SHIPPED** — the buggy `score % 10` trigger is replaced with a rising
+  threshold (first upgrade at 25 banked points, +15 each after, reset on new run; 39daa76), so upgrades land
+  noticeably rarer and never skip. A later bolder fix — a non-blocking pick that doesn't freeze the run — stays
+  unbuilt; the frequency cut may be enough on its own. Revisit only if Carl still reads upgrades as a flow-break.
+- **~~Rarer, bigger level boundaries — first pass.~~ SHIPPED** — levels are lengthened so boundaries land rarer
+  (22caa05), each biome now carries a dominant crab archetype (Water→Magnet, Rock→Armored, Kelp→Thief) plus a
+  threat banner on the title card, and the redirect is eased to ~33% so zones stay buildable (f83c755). The
+  *who-you-catch* half of the gear-change landed; the terrain-hazard half is the next item.
+- **Pair each biome with its own terrain hazard — finish the gear-change. (Next step of the level rethink.)**
+  Boundaries now shift *who you catch* (archetype emphasis) but the ground is still mostly a tint. Per
+  INSPIRATION's Control note, a boundary should read as arriving somewhere mechanically: give each biome a
+  distinct terrain mechanic that changes routing (some already exist — Rocky Shore tide-shortcuts, Neon Kelp
+  funnel lanes — so extend/assign the pattern per biome) so archetype shift + terrain hazard land *together*.
+  Depth, not breadth: reuse the existing hazard systems rather than inventing parallel ones. Still NOT the
+  endless/procedural/leaderboard rework — that stays gated in "Later" until Carl calls the inner loop done.
+- **Make perfect on-beat play pay off dramatically, not marginally — a legible skill ceiling inside the inner
+  loop.** Per INSPIRATION's precision-platformer note: a player who nails every beat should score *much* further
+  than one who ignores rhythm, and the gap should be visible. The scaffolding exists (PERFECT catches, groove
+  meter, on-beat multipliers, streak tiers) — deepen one of these so flawless on-beat play compounds noticeably
+  (e.g. a sustained-perfect streak that ramps scoring/reach and shows how far ahead it puts you). This is depth
+  inside the existing loop, NOT the gated arcade/leaderboard mode — build the mastery, not the scoreboard.
 
 ## Later (outer loop — not yet)
 
