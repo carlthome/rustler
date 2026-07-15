@@ -2,6 +2,8 @@
 
 Rust game (ggez 0.9.3), reverse Vampire Survivors: player builds a conga train of caught crabs.
 
+**INSPIRATION.md** — read this before making any design decisions. It captures Carl's stated influences (Vampire Survivors, Control, Diablo, Inscryption, precision platformers, Windows desktop toys) and the design principles distilled from them. Game Director and Feature Developer agents should treat it as the design compass.
+
 ## Session bootstrap (run this at the start of every session)
 
 `.vscode/tasks.json` runs this automatically on folder open (`Crab Rustler: auto-bootstrap
