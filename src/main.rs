@@ -793,6 +793,7 @@ struct MainState {
     // on-beat action the Dancer answers to, turning rhythm from something you watch into something
     // you play. Purely a control layer over existing Dancer hop logic — no new draw dependency.
     call_cooldown: f32,                          // >0 while on cooldown; Call unusable until it hits 0
+    cycle_cooldown: f32,                          // >0 while on cooldown; Cycle (X) unusable until it hits 0
     call_pulse: f32,                             // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
     call_pulse_center: Vec2,                     // player center captured when the Call rang out
     // Groove Call (V) — a player-initiated, FIELD-WIDE beat-phrase lure. Distinct from every other
@@ -1503,6 +1504,7 @@ impl MainState {
             stomp_center: Vec2::ZERO,
             stomp_beat_bonus: 1.0,
             call_cooldown: 0.0,
+            cycle_cooldown: 0.0,
             call_pulse: 0.0,
             call_pulse_center: Vec2::ZERO,
             groove_call_cooldown: 0.0,
@@ -6328,6 +6330,7 @@ impl MainState {
         self.stomp_cooldown = 0.0;
         self.stomp_beat_bonus = 1.0;
         self.call_cooldown = 0.0;
+        self.cycle_cooldown = 0.0;
         self.call_pulse = 0.0;
         self.groove_call_cooldown = 0.0;
         self.groove_call_bars = 0.0;
@@ -6775,7 +6778,7 @@ impl MainState {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
                 let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V — tap V again ON each beat to ECHO the call, extending and amplifying the herd flood\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T",
+                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V — tap V again ON each beat to ECHO the call, extending and amplifying the herd flood\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T\nCycle the train on the beat (rotate one slot to rearrange the head/tail slots before banking): X",
                 );
                 let dims = text.measure(ctx)?;
                 *cache = Some((text, dims.x, dims.y));
@@ -9187,6 +9190,60 @@ impl MainState {
             );
         }
     }
+    /// Cycle the train (X) — the reposition verb. Rotates every caught crab one slot toward the
+    /// head on the beat: the current head crab wraps around to the tail, and everyone else steps up
+    /// one place. This is the player's tool to *arrange* the conga line before banking — it's the
+    /// only way to change who rides the two slots that carry weight (the head figurehead: a Golden
+    /// gilds the match economy, a Dancer Drum-Major pumps groove; and the tail-guard: an Armored
+    /// parked at the tail tanks a Thief steal). A cyclic rotation preserves every same-type
+    /// adjacency bond exactly (rotation doesn't break neighbors), so it never scrambles the match-run
+    /// rope glow — it only rotates *which* crab occupies the coveted end slots. Rhythm-gated: only
+    /// lands on the beat (banks a little groove and reads as a PERFECT), fizzles off-beat, and holds
+    /// a short cooldown so it's a timed decision, not a mash. The lerp in the conga-follow pass reels
+    /// each crab smoothly to its new trail slot over a few frames, so the rotation slides rather than
+    /// teleports — including the head→tail wrap, which sweeps down the line instead of snapping.
+    fn cycle_train(&mut self) {
+        if self.cycle_cooldown > 0.0 {
+            return;
+        }
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        // Need at least two links for a rotation to mean anything.
+        if self.chain_count < 2 {
+            return;
+        }
+        self.cycle_cooldown = 0.7;
+        if self.on_beat_now() {
+            let n = self.chain_count;
+            // Rotate one slot toward the head: index i moves to (i + n - 1) % n, i.e. every crab
+            // steps up one and the head (0) wraps to the tail (n-1). Preserves adjacency bonds.
+            for crab in self.crabs.iter_mut() {
+                if let Some(ci) = crab.chain_index {
+                    crab.chain_index = Some((ci + n - 1) % n);
+                }
+            }
+            self.groove = (self.groove + 0.1).min(1.0);
+            self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
+            self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
+            self.zoom_punch = self.zoom_punch.max(0.03);
+            self.call_pulse = 1.0;
+            self.call_pulse_center = center;
+            self.floating_texts.spawn(
+                "CYCLE!".to_string(),
+                center - Vec2::new(52.0, 84.0),
+                28.0,
+                [0.4, 0.9, 1.0, 1.0],
+            );
+        } else {
+            // Off beat: fizzle. Red flash so the miss reads, no rotation applied.
+            self.shop_denied = self.shop_denied.max(0.6);
+            self.floating_texts.spawn(
+                "off beat…".to_string(),
+                center - Vec2::new(40.0, 70.0),
+                24.0,
+                [0.9, 0.4, 0.4, 0.9],
+            );
+        }
+    }
     /// Groove Call (V) — arm a FIELD-WIDE, bar-unfolding herd lure. Unlike the whistle (a local,
     /// instant radial yank) or the Dancer Call (F, nearby Dancers only), this reaches the WHOLE field
     /// and its response plays out over the next couple of bars: `groove_call_bars` counts down one per
@@ -10446,6 +10503,9 @@ impl EventHandler for MainState {
         }
         if self.stomp_cooldown > 0.0 {
             self.stomp_cooldown = (self.stomp_cooldown - dt).max(0.0);
+        }
+        if self.cycle_cooldown > 0.0 {
+            self.cycle_cooldown = (self.cycle_cooldown - dt).max(0.0);
         }
         if self.call_cooldown > 0.0 {
             self.call_cooldown = (self.call_cooldown - dt).max(0.0);

@@ -354,6 +354,11 @@ pub fn handle_key_down_event(
                 // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.
                 state.issue_call();
             }
+            if key == KeyCode::X {
+                // Cycle: the reposition verb. On the beat, rotate the whole train one slot toward
+                // the head so you can arrange who rides the coveted head/tail slots before banking.
+                state.cycle_train();
+            }
             if key == KeyCode::V {
                 // Groove Call: a field-wide beat lure. Call on the beat and the WHOLE herd streams
                 // toward you over the next couple bars, surging on each downbeat.
