@@ -29,6 +29,8 @@ the signature fun. Catch-time crossovers fire visibly (Dancer hops chip shells a
 Goldens supercharge Magnets, shine lures Thieves off your tail, Golden→Magnet-tail arcs a shine cascade),
 and both train slots now carry weight: **head** figureheads (Golden boosts match-run bonuses, Dancer
 Drum-Major pumps groove economy) and **tail** placement (Armored parked at the tail tanks a Thief steal).
+The **bank-now-vs-push-luck** axis is now fully legible on both sides: a live AT RISK readout, snap teeth that
+escalate with length, and a superlinear triangular bank payoff with a BIG/LONG/GRAND HAUL cashout.
 
 Biomes **push the herd** (Rocky Shore tide-shortcuts, Neon Kelp funnel lanes, chokepoints/tail-snag/wade-drag).
 **All three bosses fight inside the archetype web** (King Crab bait-into-Armored, Tide Boss Golden-slingshot,
@@ -39,12 +41,18 @@ regression test. A first slice of **meta-progression** + campaign scaffolding ex
 
 **Signal.** No new Slack reactions/replies this cycle; Carl's one standing note is *"Would be nice to see
 example videos here!"* (a diary-agent task) — keep favoring legible, watchable moments. **Both prior top "Now"
-items shipped**: the **Splitter** delivers the shape-*bet* (halve your conga on catch; grabbing it mid-match-run
-is a Groove-Gamble-style wager with a live CLEAVE stakes tag), and two **field-level rhythm reads** landed
-(downbeat herd pulse, on-beat catch bloom). Catch *order*, both train *positions*, and now a shape-*bet* all
-pay. The remaining frontier per Carl's core direction: the **long-train-vs-bank-often** tension. Upside is
-legible (train-worth tag over the pen), but the *downside* of holding a long unbanked train isn't — a snap
-reads as an abstract event, not a mounting, visible cost. Make holding long **actively, legibly dangerous**.
+items shipped, and the risk/reward axis is now genuinely balanced.** The long-train-vs-bank-often tension is
+served on all three fronts: a live **AT RISK** readout mirrors the pen-worth tag with what a snap costs *right
+now* (417c818), snap teeth **escalate by length** (3→4→5→6 tail links torn, b7b7448), and the bank payoff is
+**superlinear** — `pen_worth = (n·(n+1)/2)·3`, a triangular sum, so a long train's priciest tail links pay
+disproportionately, keeping the gamble tempting rather than pure punishment. The **BIG/LONG/GRAND HAUL** cashout
+(36e880d) makes that reward face legible. So the bank-now-vs-push-luck decision now has real, visible teeth on
+both sides — treat this axis as closed for now unless Carl says it still feels flat.
+
+**Next frontier: the middle of the train is positionally inert.** Only the **head** (Golden figurehead, Dancer
+Drum-Major) and **tail** (Armored tail-guard) slots carry weight; every crab between them is just a number for
+pen_worth. A longer train should mean more *arrangement* decisions, not just more banking value — this deepens
+the inner loop AND sharpens Carl's tension (holding long becomes a puzzle to set up, not only a risk to carry).
 
 ## Bugs (fix before anything else in Now)
 
@@ -57,18 +65,20 @@ item in "Now" below.
 
 ## Now
 
-- **Make holding a long train legibly dangerous. (Top Now item.)** The bank-now-vs-push-luck choice is
-  Carl's core tension, but right now only the *upside* is on screen (the train-worth tag over the pen); the
-  *risk* of not banking is abstract. Make the downside mount visibly with length: a live **"at-risk" readout**
-  mirroring the train-worth tag (this is what a snap would cost you *right now*), so a long unbanked train
-  reads as a loaded gun, not just a bigger number. Reuse the existing chain-snap and pen-worth systems — this
-  is about legibility of the risk you're already carrying, so the decision to bank finally has teeth.
-- **Give the risk real teeth as the train grows — escalating snap pressure by length.** Pair the readout above
-  with a downside that actually scales: hold longer and a snap should hurt more or grow likelier — e.g. Thieves
-  hunt longer tails harder, chain-snap chance climbs past a length threshold, or a slow decay nibbles an
-  unbanked train. Balance it against a **superlinear bank payoff** so pushing a long train stays tempting, not
-  just punishing — the point is to sharpen the gamble, not kill the long-train fantasy. Keep it legible: the
-  player should *feel* the tension rising as they refuse to bank.
+- **Make the middle of the train matter — mid-train arrangement depth. (Top Now item.)** Today only the head
+  and tail slots pay; the crabs between are inert. Give the body of the conga positional meaning so a long
+  train becomes a thing you *arrange*, not just accumulate. Concrete directions (pick one, reuse existing
+  systems): **adjacency combos** — two same-type crabs sitting next to each other in the chain form a small
+  bonus link (visible glow on the rope segment), so ordering your catches sets up a chain of pairs; or a
+  **"sandwich"** where an archetype between two Goldens/Dancers inherits a slice of the figurehead effect.
+  Keep it legible — the rope segment itself should show the bonus, mirroring the RUN xN badge. This directly
+  serves Carl's long-train tension: holding long is now a setup puzzle worth the risk, not only a bigger number.
+- **Reposition-your-train verb — let the player rearrange the conga mid-run.** Arrangement depth (above) is
+  only interesting if the player can *act* on it. Right now catch order is fixed at catch time. Add a light
+  way to shuffle the line — e.g. a rhythm-gated "cycle" that rotates the train one slot on the beat, or a
+  drag/whistle that pulls a specific archetype toward the head. This turns the whole train into a live
+  instrument to tune before banking, and gives the coveted head/tail slots something to *compete* for beyond
+  luck of catch order. Keep the cost real (an on-beat window, a groove spend) so it's a decision, not a freebie.
 
 ## Later (outer loop — not yet)
 
