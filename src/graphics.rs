@@ -196,6 +196,13 @@ thread_local! {
     // with a DrawParam per tile position and issue a single draw_instanced_mesh. Same texture,
     // same positions, identical on-screen output.
     static GRASS_TILE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // Last (tiles_x, tiles_y, texture_w, texture_h) used to fill GRASS_TILE_INSTANCES. The tile
+    // grid is purely a function of window size and texture size (both constant between resizes and
+    // level changes), so we skip the `instances.set()` upload when none of these change — the GPU
+    // buffer already holds the right data from the previous frame. Resizes and level transitions
+    // are rare, so this turns a per-frame O(tiles_x*tiles_y) iterator-to-GPU upload into a
+    // near-zero-cost early-out on every normal gameplay frame.
+    static GRASS_TILE_LAST_KEY: RefCell<(i32, i32, u32, u32)> = RefCell::new((0, 0, 0, 0));
 
     // Scratch grouping map + reusable InstanceArrays for draw_chain_rings, keyed by the same
     // rounded (radius*2, thickness*4) key cached_stroke_circle() already uses to memoize the
@@ -1522,14 +1529,33 @@ pub fn draw_grass(
     let tile_h = texture.height() as f32;
     let tiles_x = (width / tile_w).ceil() as i32;
     let tiles_y = (height / tile_h).ceil() as i32;
+    let tile_key = (tiles_x, tiles_y, texture.width(), texture.height());
     GRASS_TILE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
-        let mut inst_slot = inst_cell.borrow_mut();
-        let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, texture.clone()));
-        instances.set((0..tiles_y).flat_map(|y| (0..tiles_x).map(move |x| (x, y))).map(
-            |(x, y)| DrawParam::default().dest([x as f32 * tile_w, y as f32 * tile_h]),
-        ));
-        canvas.draw(instances, DrawParam::default());
-        Ok(())
+        GRASS_TILE_LAST_KEY.with(|key_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let mut last_key = key_cell.borrow_mut();
+            let need_rebuild = *last_key != tile_key;
+            let instances = match inst_slot.as_mut() {
+                Some(arr) if !need_rebuild => arr,
+                _ => {
+                    // Window size or texture changed (or first frame) — rebuild the InstanceArray
+                    // with the current texture and repopulate the tile grid. Happens at most a
+                    // handful of times per session (window open, level transitions, resizes);
+                    // never during normal steady-state gameplay. This early-out replaces the
+                    // per-frame O(tiles_x * tiles_y) iterator-to-GPU upload that fired every frame
+                    // regardless of whether anything had changed.
+                    *inst_slot = Some(InstanceArray::new(ctx, texture.clone()));
+                    *last_key = tile_key;
+                    let arr = inst_slot.as_mut().unwrap();
+                    arr.set((0..tiles_y).flat_map(|y| (0..tiles_x).map(move |x| (x, y))).map(
+                        |(x, y)| DrawParam::default().dest([x as f32 * tile_w, y as f32 * tile_h]),
+                    ));
+                    arr
+                }
+            };
+            canvas.draw(instances, DrawParam::default());
+            Ok(())
+        })
     })?;
 
     // Biome color grade: a full-screen multiply pass that recolors the whole ground so each
