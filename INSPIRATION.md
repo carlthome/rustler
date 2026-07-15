@@ -34,6 +34,18 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
+## Doom Eternal
+
+**What Carl said:** Tool-versus-weakness matching (Destructible Demons system).
+
+**What we're taking:** The "fantasy combat puzzle" where choosing the right *tool* against the right *target* becomes the core decision loop. Doom Eternal's Destructible Demons system + the four tools (chainsaw → ammo, flamethrower → armor, Glory Kill → health, Blood Punch → armor strip) make combat a rock-paper-scissors matching game: you read what resource you need, look at what each enemy weak point offers, and chain your tool picks to stay alive. This is pure agency — the player decides the sequence, not the game.
+
+**Direction for agents:** Crab Rustler's four tools (Beam/Lasso/Whistle/Stomp) already have different payoffs (catch radius, crowd control, rhythm activation, dash mechanics). As archetype matchups deepen (e.g., Dancers vs. Magnets vs. Armored), the tool choice becomes the *decision*: do I Lasso to group them, Beam to melt fast ones, Whistle to trigger rhythm, or Stomp for the dash? The train arrangement becomes the puzzle just like Eternal's resource extraction does — satisfying because it's legible and *chosen*.
+
+**What we're *not* taking:** Ammo scarcity and punishment. Crab Rustler's only real cost is chain snap; everything else is win state. Keep it that way — tension from *arrangement* risk, not starvation.
+
+---
+
 ## Precision platformers (Celeste, Super Meat Boy, etc.)
 
 **What Carl said:** "If you do the mechanics PERFECTLY you can get really good and make it further" — like precision platformers, but around the beat mechanic really paying off.
