@@ -3113,6 +3113,34 @@ impl MainState {
                         ((run as usize) * mult) as f32 * self.beat_gamble_mult * figurehead_mult;
                     self.score += match_bonus.round() as usize;
                     match_run_catches.push((crab.pos, self.tail_run_len, crab.crab_color()));
+                    // Match-Run Milestone: crossing every 4th same-type link (4, 8, 12…) is a big,
+                    // watchable payoff on top of the incremental run bonus — a bold callout, a
+                    // color-matched shockwave down the tail, and a chunky score kicker. Makes
+                    // committing to a long single-type run (the order-as-bet) climax visibly
+                    // instead of just ticking a counter. Inlined (shockwave/floating_texts fields
+                    // are disjoint from the active &mut self.crabs borrow in this loop).
+                    if self.tail_run_len >= 4 && self.tail_run_len % 4 == 0 {
+                        let tier = self.tail_run_len / 4; // 1 at 4, 2 at 8, …
+                        let col = crab.crab_color();
+                        // Score kicker scales with the run tier and rides the same hot-streak mults.
+                        let kicker = ((self.tail_run_len as usize * 6 * mult) as f32
+                            * self.beat_gamble_mult
+                            * figurehead_mult)
+                            .round() as usize;
+                        self.score += kicker;
+                        self.floating_texts.spawn(
+                            format!("MATCH x{}!  +{}", self.tail_run_len, kicker),
+                            crab.pos - Vec2::new(60.0, 64.0),
+                            34.0 + tier as f32 * 4.0,
+                            [col[0], col[1], col[2], 1.0],
+                        );
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((crab.pos, 0.0, col));
+                        }
+                        self.on_beat_flash = self.on_beat_flash.max(0.4);
+                        self.shake_timer = self.shake_timer.max(0.5);
+                        self.zoom_punch = self.zoom_punch.max(0.06);
+                    }
                     if head_is_golden {
                         // Gild the run callout so the figurehead's assist reads on screen, not just
                         // in the score — a small golden shine on the newly-linked tail.
