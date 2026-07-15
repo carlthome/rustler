@@ -1,0 +1,94 @@
+use std::{cell::RefCell, collections::HashMap};
+use ggez::glam::Vec2;
+use ggez::graphics::{Mesh, Text};
+use crate::enemies::CrabType;
+
+thread_local! {
+    pub static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());
+
+    pub static FRENZY_BANNER_CACHE: RefCell<Option<(Text, Vec2)>> = RefCell::new(None);
+    pub static STAGE_BANNER_CACHE: RefCell<Option<(&'static str, Text, Vec2)>> = RefCell::new(None);
+
+    pub static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
+
+    pub static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
+
+    #[cfg(debug_assertions)]
+    pub static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, Text, f32)>> = RefCell::new(None);
+
+    pub static DEBUG_TEXT_CACHE: RefCell<Option<(&'static str, i32, Text)>> = RefCell::new(None);
+
+    pub static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    pub static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+    pub static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+
+    pub static GROOVE_LABEL_CACHE: RefCell<Option<(bool, Text, f32)>> = RefCell::new(None);
+
+    pub static GAMBLE_BADGE_CACHE: RefCell<Option<(u32, Text, f32)>> = RefCell::new(None);
+
+    pub static ON_BEAT_TEXT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
+    pub static MENU_PANEL_CACHE: RefCell<Option<(u32, u32, Mesh)>> = RefCell::new(None);
+
+    pub static MENU_TITLE_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
+    pub static MENU_TITLE_CHARS_CACHE: RefCell<Option<Vec<Text>>> = RefCell::new(None);
+    pub static MENU_SUBTITLE_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+    pub static MENU_INSTRUCTIONS_CACHE: RefCell<Option<(Text, f32, f32)>> = RefCell::new(None);
+    pub static MENU_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
+    pub static MENU_TUTORIAL_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
+    pub static CAREER_LABEL_CACHE: RefCell<Option<(usize, usize, usize, Text, f32)>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static SHOP_CACHE: RefCell<Option<((usize, u32, u32, u32, u32), Text, f32, Text, f32)>> =
+        RefCell::new(None);
+
+    pub static BANK_NOW_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+
+    pub static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2, Option<[f32; 3]>)>> = RefCell::new(Vec::new());
+
+    pub static CHAIN_TYPE_BUF: RefCell<Vec<(usize, usize, CrabType, [f32; 3])>> = RefCell::new(Vec::new());
+
+    pub static CHAIN_ORDER_CACHE: RefCell<Option<(usize, Vec<(usize, Option<[f32; 3]>)>)>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static LEVEL_TITLE_OVERLAY_CACHE: RefCell<Option<(String, &'static str, Text, Mesh, Mesh, Text, f32, f32, f32, f32, f32, Option<(Text, f32)>)>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static UPGRADE_SCREEN_CACHE: RefCell<Option<(
+        ([usize; 3], u32, u32, u32, u32),
+        Text, f32,
+        Text, f32,
+        [(Text, f32, Text, f32, Text, f32, Text, f32, Text, f32); 3],
+    )>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static TUTORIAL_OVERLAY_CACHE: RefCell<Option<(
+        &'static str,
+        u32, u32,
+        Mesh,
+        Text, f32, f32,
+        Text, f32,
+        Text, f32,
+        Text, f32, f32,
+        u32,
+        Text, f32,
+    )>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static GAME_OVER_CACHE: RefCell<Option<(
+        (usize, u32, u32, usize, usize, usize, bool),
+        Mesh,
+        Text,
+        Option<(Text, f32)>,
+    )>> = RefCell::new(None);
+
+    #[allow(clippy::type_complexity)]
+    pub static LOADOUT_PAGE_CACHE: RefCell<Option<(
+        (crate::skins::Hat, crate::skins::FacialHair, crate::skins::Accessory, usize, u32, u32),
+        Mesh,
+        Text,
+        [(Text, f32, Text, f32, Text, f32); 3],
+    )>> = RefCell::new(None);
+}
