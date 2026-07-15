@@ -6063,6 +6063,10 @@ pub fn draw_tail_run_badge(
         // The pip that's about to complete the group pulses on the beat so the "one more lands it"
         // moment is legible.
         let about_to_land = filled == 4;
+        // Reuse the cached unit-circle mesh (radius 1.0, built once) and push all variation —
+        // position, radius, color — into DrawParam. This replaces 4 Mesh::new_circle GPU buffer
+        // allocations per frame with 4 cheap DrawParam draws.
+        let uc = unit_circle(ctx)?;
         for i in 0..4u32 {
             let lit = i < filled;
             let cx = px0 + gap * i as f32;
@@ -6082,15 +6086,13 @@ pub fn draw_tail_run_badge(
             } else {
                 pip_r
             };
-            let mesh = Mesh::new_circle(
-                ctx,
-                DrawMode::fill(),
-                Vec2::new(cx, py),
-                rr,
-                0.5,
-                Color::new(r, g, b, a),
-            )?;
-            canvas.draw(&mesh, DrawParam::default());
+            canvas.draw(
+                uc,
+                DrawParam::default()
+                    .dest(Vec2::new(cx, py))
+                    .scale(Vec2::splat(rr))
+                    .color(Color::new(r, g, b, a)),
+            );
         }
         Ok(())
     })
