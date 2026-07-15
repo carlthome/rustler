@@ -7776,7 +7776,23 @@ impl MainState {
         // Groove vignette — frame the whole screen in a beat-pulsing edge glow while the player is
         // in the pocket, so "in the groove" reads peripherally, not just from the corner meter.
         // Drawn over the world but under the HUD so it never obscures numbers/readouts.
-        draw_groove_vignette(ctx, canvas, width, height, self.groove, self.beat_intensity)?;
+        // Streak heat: map the on-beat catch streak onto 0..1 so the vignette catches fire as the
+        // run climbs the HEATING UP (3) -> ON FIRE (5) -> BLAZING (8) -> INFERNO (12+) tiers. Below
+        // the first callout tier there's no heat, so ordinary play stays cool; INFERNO maxes it.
+        let streak_heat = if self.beat_streak >= 3 {
+            ((self.beat_streak as f32 - 3.0) / 9.0).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        draw_groove_vignette(
+            ctx,
+            canvas,
+            width,
+            height,
+            self.groove,
+            self.beat_intensity,
+            streak_heat,
+        )?;
 
         // Beat indicator (top right)
         let beat_center = Vec2::new(width - 50.0, 50.0);

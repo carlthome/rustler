@@ -727,25 +727,42 @@ pub fn draw_groove_vignette(
     height: f32,
     groove: f32,
     beat_intensity: f32,
+    // On-beat streak heat, 0..1: 0 = no live streak, rising as consecutive on-beat catches climb
+    // the HEATING UP -> ON FIRE -> BLAZING -> INFERNO tiers. Drives the vignette hotter — wider
+    // reach, more opacity, and a color push toward orange/red fire — so the game's most watchable
+    // rhythm-escalation moment visibly sets the screen edges ablaze instead of only spawning text.
+    heat: f32,
 ) -> ggez::GameResult {
+    let heat = heat.clamp(0.0, 1.0);
     // Nothing until the player is meaningfully in the groove — keeps it a reward, not clutter,
-    // and means zero draws during ordinary cold play.
-    if groove < 0.25 {
+    // and means zero draws during ordinary cold play. A live streak forces the vignette on even
+    // if the groove meter dipped, so the heat always reads while the run is hot.
+    if groove < 0.25 && heat <= 0.0 {
         return Ok(());
     }
     // Remap 0.25..1.0 onto 0..1 so the glow eases in from the threshold rather than popping on.
     let t = ((groove - 0.25) / 0.75).clamp(0.0, 1.0);
 
-    // Color walks cyan -> magenta/gold as the meter fills, matching the corner groove bar.
-    let r = 0.30 + t * 0.70;
-    let g = 0.95 - t * 0.45;
-    let b = 0.90 - t * 0.55;
+    // Base color walks cyan -> magenta/gold as the meter fills, matching the corner groove bar.
+    let base_r = 0.30 + t * 0.70;
+    let base_g = 0.95 - t * 0.45;
+    let base_b = 0.90 - t * 0.55;
+    // Streak heat blends the whole frame toward fire — orange at first, deep red at INFERNO — so a
+    // hot on-beat run reads as the screen literally heating up, not just a text callout.
+    let fire_r = 1.0;
+    let fire_g = 0.45 - heat * 0.35;
+    let fire_b = 0.12 * (1.0 - heat);
+    let r = base_r + (fire_r - base_r) * heat;
+    let g = base_g + (fire_g - base_g) * heat;
+    let b = base_b + (fire_b - base_b) * heat;
 
     // Breathe on the beat: a maxed groove pulses harder so the frame throbs in time with the music.
-    let pulse = 1.0 + beat_intensity * (0.25 + t * 0.55);
-    // How far the glow reaches in from each edge, and its peak opacity — both grow with the meter.
-    let reach = (26.0 + t * 90.0) * pulse;
-    let peak = (0.10 + t * 0.32) * pulse;
+    // Heat throbs harder still — a blazing streak makes the frame flare on every beat.
+    let pulse = 1.0 + beat_intensity * (0.25 + t * 0.55 + heat * 0.45);
+    // How far the glow reaches in from each edge, and its peak opacity — both grow with the meter
+    // and are pushed further by streak heat so the fire bloom crowds in from the edges as it climbs.
+    let reach = (26.0 + t * 90.0 + heat * 70.0) * pulse;
+    let peak = (0.10 + t * 0.32 + heat * 0.26) * pulse;
 
     // Stack a few bands per edge, fading toward the interior, to fake a smooth gradient falloff.
     // All bands use the same unit_square mesh — batch into one InstanceArray (up to 20 draws
