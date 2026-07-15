@@ -7257,12 +7257,21 @@ impl MainState {
         // and delivery-streak bonuses, since those are only earned at the moment you actually bank on
         // beat. So it reads as the honest floor ("at least this much"), and timing the bank well pays
         // even more, keeping the on-beat delivery worth engaging rather than spoiling it.
+        //
+        // Precompute bonds for the full chain once — count_chain_bonds walks all crabs every call, and
+        // it used to be called twice with the same argument (pen_worth preview + at-risk readout).
+        // Cache it here so the second call is a free integer read instead of another O(n) scan.
+        let bonds_n = if self.chain_count > 0 {
+            self.count_chain_bonds(self.chain_count)
+        } else {
+            0
+        };
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
             // Include the same arrangement (same-type adjacent pair) bonus try_deliver_train pays,
             // so the live preview stays honest — holding a well-arranged train visibly raises the
             // pen worth, which is the whole point of making the middle of the train matter.
-            let base = (n * (n + 1) / 2) * 3 + self.count_chain_bonds(n) * BOND_PAIR_BONUS;
+            let base = (n * (n + 1) / 2) * 3 + bonds_n * BOND_PAIR_BONUS;
             Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
         } else {
             None
@@ -7319,7 +7328,9 @@ impl MainState {
                 // which destroys every same-type bond in the torn region (and the one straddling the
                 // cut), so the pricier a train's tail arrangement, the more a snap costs — mirroring
                 // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
-                let bonds_lost = self.count_chain_bonds(n).saturating_sub(self.count_chain_bonds(keep));
+                // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
+                // second O(n) crab scan with the same argument.
+                let bonds_lost = bonds_n.saturating_sub(self.count_chain_bonds(keep));
                 let marginal = tri(n).saturating_sub(tri(keep)) + bonds_lost * BOND_PAIR_BONUS;
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
