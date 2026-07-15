@@ -160,6 +160,7 @@ item in "Now" below.
     campaign (world-map nodes) is the "learn the game" path most players finish once and funnels into endless;
     the tutorial sandboxes teach individual verbs; the procedural endless/horde mode is the prestige game to
     master. Weave them so they hand off cleanly rather than duplicating each other.
+  - **Explorable maps, not viewport-locked.** Unlike Vampire Survivors' single-screen lock, allow the player to move around the map — strategy becomes choosing *where* to position your train, not just *what* to catch. Inspired by older games like Asteroids where exploration and positioning matter. This changes pacing (less constant spawning in your face, more "where am I going next?") and opens room for terrain/hazard placement that doesn't spam you but invites routing decisions. Smaller viewport, larger playfield = risk/reward on where you farm vs. where you bank.
   - **Sequencing note.** The upgrade-frequency fix and the "rarer, bigger boundaries" step (both in "Now") are
     the safe, buildable slices of this now. The full endless/leaderboard rework stays deferred until the inner
     loop feels done (Carl's call) — don't promote it to "Now" ahead of that gate.
