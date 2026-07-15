@@ -180,6 +180,15 @@ const PERFECT_DELIVERY_BONUS: f32 = 0.5; // +50% on a bank that lands on the bea
 // definition the rope glow uses (see CHAIN_TYPE_BUF / count_chain_bonds), so the number paid equals
 // the number of glowing rope segments on screen — mechanic and visual can't disagree.
 const BOND_PAIR_BONUS: usize = 12;
+// Flat points paid at BANK time for every SANDWICH held intact — a crab flanked in the chain by
+// two of the same figurehead archetype (Golden or Dancer) on both sides. This is the mid-train
+// arrangement bet: the two slots that carry weight used to be only the head and tail, so the body
+// of a long train was inert; a sandwich makes a *mid-train* pairing of figureheads pay for the
+// filling they protect between them. Larger than a plain same-type pair (BOND_PAIR_BONUS=12)
+// because a sandwich is harder to arrange — it needs three specific crabs in a specific order —
+// but kept modest so a single Golden-Golden-Golden cluster (which also pays two adjacency bonds)
+// can't dominate a bank. Counted from the same chain_index lookup count_chain_bonds uses.
+const SANDWICH_BONUS: usize = 20;
 
 // --- Meta-progression shop (spend side) ---------------------------------------------------
 // Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
@@ -2861,9 +2870,10 @@ impl MainState {
     /// relocate the pen. This is the "bank now vs. push your luck" beat that closes the risk/reward
     /// loop chain-snap opened.
     /// Count same-type adjacent pairs in the caught train — the arrangement bonus tally. A "bond"
-    /// is a caught crab whose immediate predecessor by chain_index is the same archetype, the exact
-    /// definition the rope glow uses (CHAIN_TYPE_BUF), so this equals the number of glowing rope
-    /// segments. Optionally restricted to chain_index < `keep` so the cleave/snap payouts can count
+    /// is a caught crab whose immediate predecessor by chain_index is the same archetype. The rope
+    /// glow (CHAIN_TYPE_BUF) lights these segments — plus, separately, any sandwich filling (see
+    /// count_sandwiches) — so glowing segments equal bonds PLUS non-overlapping sandwiches, not just
+    /// bonds. Optionally restricted to chain_index < `keep` so the cleave/snap payouts can count
     /// only the bonds that actually stay attached. O(n): builds a chain_index→type lookup, then
     /// walks it comparing each link to the one ahead.
     fn count_chain_bonds(&self, keep: usize) -> usize {
@@ -2894,6 +2904,47 @@ impl MainState {
         })
     }
 
+    /// Count SANDWICHES in the caught train — a crab whose immediate chain neighbors on BOTH sides
+    /// are the same figurehead archetype (two Goldens, or two Dancers). This is the mid-train
+    /// arrangement bet: it makes the *body* of the train pay, since the filling between two matched
+    /// figureheads earns SANDWICH_BONUS at bank. Restricted to chain_index < `keep` so the snap /
+    /// cleave paths can count only the sandwiches that actually stay attached, mirroring how
+    /// count_chain_bonds handles the arrangement pairs. O(n): reuses the same chain_index→type
+    /// lookup, then walks the interior comparing each link's two neighbors.
+    fn count_sandwiches(&self, keep: usize) -> usize {
+        if keep < 3 {
+            return 0;
+        }
+        BOND_INDEX_BUF.with(|buf| {
+            let mut by_index = buf.borrow_mut();
+            by_index.clear();
+            by_index.resize(keep, None);
+            for c in self.crabs.iter().filter(|c| c.caught) {
+                if let Some(ci) = c.chain_index {
+                    if ci < keep {
+                        by_index[ci] = Some(c.crab_type);
+                    }
+                }
+            }
+            let mut sandwiches = 0;
+            for i in 1..keep - 1 {
+                // Both neighbors must be the SAME figurehead archetype (Golden or Dancer). The
+                // filling itself can be anything — including another figurehead, so a G-G-G run
+                // makes the middle a sandwich too (and still pays its two adjacency bonds; that's a
+                // deliberately-arranged cluster, so paying both is intended).
+                let left = by_index[i - 1];
+                let right = by_index[i + 1];
+                if left == right
+                    && matches!(left, Some(CrabType::Golden) | Some(CrabType::Dancer))
+                    && by_index[i].is_some()
+                {
+                    sandwiches += 1;
+                }
+            }
+            sandwiches
+        })
+    }
+
     fn try_deliver_train(&mut self, ctx: &mut Context) {
         if self.chain_count == 0 {
             return;
@@ -2917,7 +2968,12 @@ impl MainState {
         // stack exactly like the triangular sum, and so the pen_worth preview (which recomputes the
         // same base+bonds) can't disagree with what actually banks.
         let bonds = self.count_chain_bonds(n);
-        let base = (n * (n + 1) / 2) * 3 + bonds * BOND_PAIR_BONUS;
+        // Sandwiches: a crab flanked by two matched figureheads (Golden/Dancer) pays a bigger
+        // kicker on top of the pair bonds — the reward for arranging the *middle* of the train,
+        // not just accumulating length. Folded into `base` before the multipliers exactly like the
+        // pair bonds so the pen_worth preview (which recomputes the same base) stays honest.
+        let sandwiches = self.count_sandwiches(n);
+        let base = (n * (n + 1) / 2) * 3 + bonds * BOND_PAIR_BONUS + sandwiches * SANDWICH_BONUS;
 
         // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
         // window; the streak multiplier escalates the payout so cashing in repeatedly at tempo pays
@@ -3017,6 +3073,17 @@ impl MainState {
                 self.pen_pos - Vec2::new(90.0, callout_y),
                 26.0,
                 [0.4, 0.95, 1.0, 1.0],
+            );
+            callout_y += 26.0;
+        }
+        // SANDWICH — the mid-train figurehead-flanking bonus made legible. Warm gold so it reads as
+        // kin to the Golden figurehead economy while staying distinct from the cyan ARRANGED tag.
+        if sandwiches > 0 {
+            self.floating_texts.spawn(
+                format!("SANDWICH x{}  (+{})", sandwiches, sandwiches * SANDWICH_BONUS),
+                self.pen_pos - Vec2::new(90.0, callout_y),
+                26.0,
+                [1.0, 0.8, 0.35, 1.0],
             );
             callout_y += 26.0;
         }
@@ -7266,12 +7333,20 @@ impl MainState {
         } else {
             0
         };
+        let sandwiches_n = if self.chain_count > 0 {
+            self.count_sandwiches(self.chain_count)
+        } else {
+            0
+        };
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
-            // Include the same arrangement (same-type adjacent pair) bonus try_deliver_train pays,
-            // so the live preview stays honest — holding a well-arranged train visibly raises the
-            // pen worth, which is the whole point of making the middle of the train matter.
-            let base = (n * (n + 1) / 2) * 3 + bonds_n * BOND_PAIR_BONUS;
+            // Include the same arrangement (same-type adjacent pair) AND sandwich bonuses
+            // try_deliver_train pays, so the live preview stays honest — holding a well-arranged
+            // train visibly raises the pen worth, which is the whole point of making the middle of
+            // the train matter.
+            let base = (n * (n + 1) / 2) * 3
+                + bonds_n * BOND_PAIR_BONUS
+                + sandwiches_n * SANDWICH_BONUS;
             Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
         } else {
             None
@@ -7331,7 +7406,13 @@ impl MainState {
                 // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
                 // second O(n) crab scan with the same argument.
                 let bonds_lost = bonds_n.saturating_sub(self.count_chain_bonds(keep));
-                let marginal = tri(n).saturating_sub(tri(keep)) + bonds_lost * BOND_PAIR_BONUS;
+                // Sandwiches destroyed by the cut too — any sandwich straddling or inside the torn
+                // tail region is gone, so the at-risk number folds in its lost value the same way
+                // the bank pays it. Mirrors bonds_lost exactly.
+                let sandwiches_lost = sandwiches_n.saturating_sub(self.count_sandwiches(keep));
+                let marginal = tri(n).saturating_sub(tri(keep))
+                    + bonds_lost * BOND_PAIR_BONUS
+                    + sandwiches_lost * SANDWICH_BONUS;
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
                 let danger01 = ((n.saturating_sub(5)) as f32 / 7.0).clamp(0.0, 1.0);
@@ -7475,8 +7556,24 @@ impl MainState {
                         // instead of dropping it and collecting a fresh one each time.
                         let mut sorted = order_cache.take().map(|(_, v)| v).unwrap_or_default();
                         sorted.clear();
-                        sorted.extend(typed.iter().map(|&(_, ci, ty, col)| {
-                            let bond = if prev_type == Some(ty) { Some(col) } else { None };
+                        sorted.extend(typed.iter().enumerate().map(|(pos, &(_, ci, ty, col))| {
+                            // Same-type adjacency bond (unchanged): the link inherits the shared
+                            // type color so its rope segment glows.
+                            let mut bond = if prev_type == Some(ty) { Some(col) } else { None };
+                            // Sandwich highlight: if THIS crab is flanked in the sorted chain by two
+                            // of the same figurehead archetype (Golden/Dancer), light its rope
+                            // segment with the flanking figurehead's color so the arrangement reads
+                            // live on the train, not only as a bank callout. `typed` is sorted by
+                            // chain_index, so pos-1 / pos+1 are the true chain neighbors.
+                            if pos > 0 && pos + 1 < typed.len() {
+                                let (_, _, lty, lcol) = typed[pos - 1];
+                                let (_, _, rty, _) = typed[pos + 1];
+                                if lty == rty
+                                    && matches!(lty, CrabType::Golden | CrabType::Dancer)
+                                {
+                                    bond = Some(lcol);
+                                }
+                            }
                             prev_type = Some(ty);
                             (ci, bond)
                         }));
