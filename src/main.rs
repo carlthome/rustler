@@ -7446,27 +7446,45 @@ impl MainState {
         if self.chain_count >= 2
             && self.free_splitter_present
         {
-            let (keep, _) = self.cleave_split_point();
-            // Split point in the world: the midpoint between the last kept front link (keep-1) and the
-            // first banked link (keep), read from current chain positions. Falls back to either link
-            // alone if only one is found.
-            let front = self
-                .crabs
-                .iter()
-                .find(|c| c.caught && c.chain_index == Some(keep.saturating_sub(1)))
-                .map(|c| c.pos);
-            let back = self
-                .crabs
-                .iter()
-                .find(|c| c.caught && c.chain_index == Some(keep))
-                .map(|c| c.pos);
+            let (keep, banked) = self.cleave_split_point();
+            // Single O(n) scan: find both split-point positions and tally the back-half
+            // composition (Goldens/Magnets) for the jackpot check — avoids three separate
+            // O(n) passes (two .find() + cleave_clean_worth's .fold()) that this block used
+            // to issue every frame whenever a free Splitter and a live train are both present.
+            let front_idx = keep.saturating_sub(1);
+            let mut front: Option<Vec2> = None;
+            let mut back: Option<Vec2> = None;
+            let mut golden_in_slice = 0usize;
+            let mut magnet_in_slice = 0usize;
+            for c in &self.crabs {
+                if !c.caught { continue; }
+                if let Some(ci) = c.chain_index {
+                    if ci == front_idx { front = Some(c.pos); }
+                    if ci == keep      { back  = Some(c.pos); }
+                    if ci >= keep {
+                        if c.is_golden() { golden_in_slice += 1; }
+                        if c.is_magnet() { magnet_in_slice += 1; }
+                    }
+                }
+            }
+            let combo = self.combo_multiplier();
+            let base = (banked * (banked + 1) / 2) * 3;
+            let cashed_run = if self.tail_run_len >= 3 { self.tail_run_len } else { 0 };
+            let golden_bonus = golden_in_slice * 120 * combo;
+            let magnet_bonus = if magnet_in_slice > 0 {
+                magnet_in_slice * banked.max(1) * 6 * combo
+            } else { 0 };
+            let run_bonus = (cashed_run as usize) * (cashed_run as usize) * 5 * combo;
+            let crossover = golden_bonus + magnet_bonus + run_bonus;
+            let worth = (base as f32 * combo as f32 * self.beat_gamble_mult).round() as usize
+                + crossover;
+            let jackpot = crossover > 0;
             if let Some(split_pt) = match (front, back) {
                 (Some(f), Some(b)) => Some((f + b) * 0.5),
                 (Some(f), None) => Some(f),
                 (None, Some(b)) => Some(b),
                 (None, None) => None,
             } {
-                let (worth, jackpot) = self.cleave_clean_worth();
                 if worth > 0 {
                     // Same beat-proximity curve the splitter aura uses, so the tag and the aura go hot
                     // together in the clean-cut window.
