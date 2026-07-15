@@ -32,7 +32,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_hermit_coil_dots, unit_circle, unit_square,
 };
@@ -877,6 +877,13 @@ struct MainState {
     // each level so routing the train there stays a fresh decision.
     pen_pos: Vec2,                       // center of the delivery pen on the field
     deliver_flash: f32,                  // 1..0 bloom timer after a successful bank (visual only)
+    // Where the player (and so the train's head) stood at the instant of the last bank. The delivery
+    // beam is drawn from here to the pen while deliver_flash decays, connecting where the conga line
+    // departed to the vault it cashes into — the one connective beat the pen's own coin-spray/rings
+    // don't cover, since those all erupt at the pen. Set in try_deliver_train, purely visual.
+    deliver_beam_from: Vec2,             // player center at the last bank (source of the delivery beam)
+    deliver_beam_to: Vec2,               // pen center the last bank cashed into (the pen relocates after a bank, so snapshot it)
+    deliver_beam_perfect: bool,          // whether the last bank was on-beat (beam runs gold vs. green)
     // Delivery streak — consecutive banks escalate a payout multiplier so cashing in repeatedly
     // (rather than hoarding one giant train) builds its own rising reward, and banking *on the
     // beat* stacks a "PERFECT DELIVERY" rhythm bonus on top. Closes the rhythm hook over the
@@ -1522,6 +1529,9 @@ impl MainState {
             reef_hit_flash: 0.0,
             pen_pos: init_pen,
             deliver_flash: 0.0,
+            deliver_beam_from: Vec2::ZERO,
+            deliver_beam_to: Vec2::ZERO,
+            deliver_beam_perfect: false,
             deliver_streak: 0,
             deliver_streak_timer: 0.0,
             tide_pools: init_tide_pools,
@@ -2977,6 +2987,11 @@ impl MainState {
             [1.0, 0.95, 0.6, 1.0],
         );
         self.deliver_flash = 1.0;
+        // Anchor the delivery beam at the player (train head) as it stood this bank, before the pen
+        // relocates below — the beam is drawn to the OLD pen this frame's flash decays over.
+        self.deliver_beam_from = player_center;
+        self.deliver_beam_to = self.pen_pos;
+        self.deliver_beam_perfect = perfect;
         // A perfect / hot-streak bank hits harder: more zoom, more shake, a fuller groove kick.
         let intensity = streak_mult * perfect_mult;
         self.zoom_punch = self.zoom_punch.max(0.11 * intensity);
@@ -7176,6 +7191,21 @@ impl MainState {
         } else {
             None
         };
+        // Delivery beam — a lit tether from where the train's head departed to the pen it cashed
+        // into, drawn under the pen's own bloom while the deliver flash decays. Connects the two
+        // ends of the bank so the payoff reads as the conga line rushing home, not just the pen
+        // popping in place. Uses the snapshotted pen the bank actually paid into (the live pen has
+        // relocated by now).
+        if self.deliver_flash > 0.0 {
+            draw_deliver_beam(
+                ctx,
+                canvas,
+                self.deliver_beam_from,
+                self.deliver_beam_to,
+                self.deliver_flash,
+                self.deliver_beam_perfect,
+            )?;
+        }
         draw_delivery_pen(
             ctx,
             canvas,

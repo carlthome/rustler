@@ -4159,6 +4159,96 @@ pub fn draw_slam_ring(
     Ok(())
 }
 
+/// Draw the delivery beam — a bright tapering streak from where the player (the train's head) stood
+/// at the instant of a bank to the pen it cashed into, drawn while `flash` (1→0) decays. The pen's
+/// own celebration (coin spray, rings, rays) all erupts *at* the pen; this is the one connective
+/// beat that links where the conga line departed to the vault it pours into, so a bank reads as the
+/// train visibly rushing home rather than the pen popping in isolation. Gold on an on-beat PERFECT
+/// bank, go-green otherwise, to match the pen's own ready/perfect palette. A few gold sparks ride
+/// the beam toward the pen to sell the "crabs streaming in" flow. All ADD-blended, cached meshes —
+/// a handful of tinted draws, no allocation.
+pub fn draw_deliver_beam(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    from: Vec2,
+    to: Vec2,
+    flash: f32,
+    perfect: bool,
+) -> ggez::GameResult {
+    if flash <= 0.0 {
+        return Ok(());
+    }
+    let delta = to - from;
+    let len = delta.length();
+    if len < 1.0 {
+        return Ok(());
+    }
+    let dir = delta / len;
+    let angle = dir.y.atan2(dir.x);
+    let f = flash.clamp(0.0, 1.0);
+    // Base color: gold for a perfect on-beat bank, go-green for a plain one.
+    let (r, g, b) = if perfect { (1.0, 0.85, 0.35) } else { (0.5, 1.0, 0.55) };
+
+    let line = unit_line(ctx)?;
+    let orig = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // Two stacked beams: a fat soft glow underneath and a bright thin core on top, so the streak
+    // reads as a lit tether rather than a flat bar. Both fade with the flash and swell a touch at
+    // the bank instant (f near 1) then thin out as it decays.
+    let core_thick = 3.0 + 5.0 * f;
+    let glow_thick = core_thick * 3.2;
+    canvas.draw(
+        line,
+        DrawParam::default()
+            .dest(from)
+            .rotation(angle)
+            .scale(Vec2::new(len, glow_thick))
+            .color(Color::new(r, g, b, 0.22 * f)),
+    );
+    canvas.draw(
+        line,
+        DrawParam::default()
+            .dest(from)
+            .rotation(angle)
+            .scale(Vec2::new(len, core_thick))
+            .color(Color::new(
+                (r + 0.3).min(1.0),
+                (g + 0.15).min(1.0),
+                (b + 0.2).min(1.0),
+                (0.7 * f).clamp(0.0, 1.0),
+            )),
+    );
+
+    // Sparks streaming along the beam toward the pen — deterministic from the flash timer, so no
+    // RNG/state. As the flash decays (f: 1→0) the flow parameter runs 0→1, carrying each spark from
+    // the player toward the pen; staggered so they string out rather than clump.
+    let circle = unit_circle(ctx)?;
+    let flow = 1.0 - f; // 0 at the bank instant, 1 as it finishes
+    let spark_count = 7;
+    for i in 0..spark_count {
+        let stagger = i as f32 / spark_count as f32;
+        let t = (flow + stagger) % 1.0;
+        let pos = from + dir * (len * t);
+        let sr = (2.0 + 3.0 * f) * (1.0 - (t - 0.5).abs()); // fattest mid-flight
+        canvas.draw(
+            circle,
+            DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(sr.max(0.3)))
+                .color(Color::new(
+                    (r + 0.3).min(1.0),
+                    (g + 0.1).min(1.0),
+                    b,
+                    (0.85 * f).clamp(0.0, 1.0),
+                )),
+        );
+    }
+
+    canvas.set_blend_mode(orig);
+    Ok(())
+}
+
 /// Draw the delivery pen — the "bank your train" corral the player drives the conga line into.
 /// A warm gold goal-zone disc ringed by slowly-turning buoy posts, with a bobbing chevron beacon
 /// marking the drop-off. It's dormant-but-visible with no train, and lights up (brighter fill,
