@@ -2927,37 +2927,41 @@ impl MainState {
         // of re-scanning self.crabs mid-loop (which we can't, holding a &mut into it). None if the
         // train is empty. This is what makes catch *order* a live decision: whether a Magnet is the
         // link directly ahead of a just-caught Golden depends on the sequence the player caught in.
+        // Single O(n) snapshot pass over the caught-crab list for three per-frame reads that
+        // used to be three separate scans:
+        //   • prev_tail_type  — the type at the current tail (highest chain_index, == chain_count-1)
+        //   • head_is_golden  — whether chain_index 0 is a Golden (figurehead bonus)
+        //   • head_is_dancer  — whether chain_index 0 is a Dancer (Drum-Major bonus)
+        // chain_index 0 can't be the tail at the same time (only true when chain_count == 1, in
+        // which case prev_tail_type and both head flags all still get set correctly in one pass).
         let tail_ci = self.chain_count.checked_sub(1);
-        let mut prev_tail_type: Option<CrabType> = tail_ci.and_then(|ci| {
-            self.crabs
-                .iter()
-                .find(|c| c.chain_index == Some(ci))
-                .map(|c| c.crab_type)
-        });
-        // Golden Figurehead — the head-position mirror of the Armored tail-guard. A Golden crab
-        // riding at the *head* of the train (chain_index 0, directly behind the player) acts as a
-        // gilded figurehead: while it leads, every same-type match run pays a bigger bonus. This
-        // gives the *front* of the train real positional value — until now only the tail paid
-        // (match runs build there, an Armored back-guard tanks steals). The decision it creates:
-        // a caught Golden is worth a lot cashed on delivery, but parking it at the head instead
-        // (safe from tail-snaps up front) turns it into a run-economy engine you can't bank until
-        // the whole train delivers — hold the prize as a multiplier, or peel it and cash out now.
-        // Snapshotted once before the loop (chain_index 0 doesn't change mid-catch — new links go
-        // on the tail), so it's a single O(n) scan, not a per-catch rescan.
-        let head_is_golden = self
-            .crabs
-            .iter()
-            .any(|c| c.chain_index == Some(0) && c.is_golden());
-        // Dancer Drum-Major — the rhythm-economy sibling of the Golden figurehead, competing for the
-        // same coveted head slot. A Dancer riding at the head (chain_index 0) keeps time for the whole
-        // train: on-beat catches fill the groove meter faster and bump the Groove Gamble multiplier
-        // harder while it leads. This makes the head a real *arrangement bet* — park a Golden up front
-        // for a fatter match-run economy, or a Dancer for a hotter rhythm economy, but you only get
-        // one head. Snapshotted once (chain_index 0 is stable mid-catch — new links go on the tail).
-        let head_is_dancer = self
-            .crabs
-            .iter()
-            .any(|c| c.chain_index == Some(0) && c.is_dancer());
+        let mut prev_tail_type: Option<CrabType> = None;
+        let mut head_is_golden = false;
+        let mut head_is_dancer = false;
+        for c in &self.crabs {
+            match c.chain_index {
+                Some(0) => {
+                    // Head of the train.
+                    // Golden Figurehead — the head-position mirror of the Armored tail-guard. A
+                    // Golden crab riding at the head (chain_index 0) acts as a gilded figurehead:
+                    // every same-type match run pays a bigger bonus while it leads. This gives the
+                    // *front* of the train real positional value — until now only the tail paid.
+                    head_is_golden = c.is_golden();
+                    // Dancer Drum-Major — the rhythm-economy sibling of the Golden figurehead,
+                    // competing for the same coveted head slot. On-beat catches fill the groove
+                    // meter faster and bump the Groove Gamble harder while it leads.
+                    head_is_dancer = c.is_dancer();
+                    // Could also be the tail if chain_count == 1.
+                    if tail_ci == Some(0) {
+                        prev_tail_type = Some(c.crab_type);
+                    }
+                }
+                Some(ci) if Some(ci) == tail_ci => {
+                    prev_tail_type = Some(c.crab_type);
+                }
+                _ => {}
+            }
+        }
         // Reef DJ backup dancers caught this frame on a *called (hot) beat* — each one chips the
         // boss shell. Collected here and applied after the loop so we don't need a second &mut
         // borrow of self.crabs mid-loop. `reef_hot_now` is the same window the DJ's own shell uses.
