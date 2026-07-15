@@ -112,18 +112,23 @@ Steps:
 ## Cron 2 — Release Manager prompt
 
 ```
-You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler.
+You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler. Follow semver:
+minor bump (0.x.0) for new features, patch bump (0.x.y) for bug-fix/perf-only batches.
 
 Steps:
 1. `git -C $HOME/Repos/carlthome/rustler fetch --tags`
 2. Find the latest semver tag on main: `git -C $HOME/Repos/carlthome/rustler tag --list 'v*' --sort=-v:refname | head -1`
-3. Count commits since that tag, excluding chores (merge commits, tag-only commits, docs-only
-   commits to CLAUDE.md/AGENTS.md/README.md/ROADMAP.md, and screenshot-only commits from the
-   Developer Diary agent) — none of these ship a change a player would notice:
+3. List commits since that tag, excluding chores (merge commits, docs-only commits to
+   CLAUDE.md/AGENTS.md/README.md/ROADMAP.md, screenshot-only commits from the Developer Diary agent):
      git -C $HOME/Repos/carlthome/rustler log <tag>..main --oneline
-4. If there are ≥ 5 new non-chore commits, bump the patch version (e.g. v0.1.0 → v0.1.1) and:
-     git -C $HOME/Repos/carlthome/rustler tag v<new> && git -C $HOME/Repos/carlthome/rustler push origin v<new>
-5. If fewer than 5, do nothing this cycle.
+4. If fewer than 5 non-chore commits, do nothing this cycle.
+5. If 5 or more non-chore commits:
+   - If ANY commit is a new feature or mechanic → MINOR bump: e.g. v0.11.0 → v0.12.0
+   - If ALL commits are bug fixes or perf optimizations only → PATCH bump: e.g. v0.11.0 → v0.11.1
+   - Update Cargo.toml version to match:
+       sed -i '' 's/^version = ".*"/version = "<new>"/' $HOME/Repos/carlthome/rustler/Cargo.toml
+   - Commit: `git -C $HOME/Repos/carlthome/rustler add Cargo.toml && git -C $HOME/Repos/carlthome/rustler commit -m "Release <new>"`
+   - Tag and push: `git -C $HOME/Repos/carlthome/rustler tag -a v<new> -m "v<new>" && git -C $HOME/Repos/carlthome/rustler push origin main && git -C $HOME/Repos/carlthome/rustler push origin v<new>`
 ```
 
 ## Cron 3 — Developer Diary prompt
