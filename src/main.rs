@@ -194,6 +194,17 @@ const BOND_PAIR_BONUS: usize = 12;
 // but kept modest so a single Golden-Golden-Golden cluster (which also pays two adjacency bonds)
 // can't dominate a bank. Counted from the same chain_index lookup count_chain_bonds uses.
 const SANDWICH_BONUS: usize = 20;
+// Flat points paid at BANK time for every crab in a same-type RUN beyond the third — the deep-run
+// arrangement escalator. Adjacency bonds already pay each matched pair linearly, so a 4-long block
+// (3 bonds) already earns 3 kickers; this ADDS a superlinear kicker for holding a genuinely long
+// matched block together, so deliberately building a 4-, 5-, 6-in-a-row block in the *middle* of
+// the train pays disproportionately more than the same crabs scattered into separate pairs. That
+// turns a long train into an arrangement puzzle (line up a big block and hold it to the pen), not
+// just more banking value — the roadmap's "mid-train should mean more arrangement decisions" goal.
+// A run of length L (L>=3) pays RUN_STREAK_BONUS * (L-2): zero for a bare pair, one kicker at 3,
+// two at 4, and so on, so the reward only kicks in once you've held a real block. Counted in the
+// same O(n) chain_index scan as bonds/sandwiches so every payout/preview/at-risk site agrees.
+const RUN_STREAK_BONUS: usize = 15;
 
 // --- Meta-progression shop (spend side) ---------------------------------------------------
 // Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
@@ -370,7 +381,7 @@ thread_local! {
     // (level_title, biome_name) so it invalidates if those ever differ (in practice: once per
     // level transition), matching the MENU_PANEL_CACHE pattern for mesh storage.
     #[allow(clippy::type_complexity)]
-    static LEVEL_TITLE_OVERLAY_CACHE: RefCell<Option<(String, &'static str, Text, Mesh, Mesh, Text, f32, f32, f32, f32, f32)>> = RefCell::new(None);
+    static LEVEL_TITLE_OVERLAY_CACHE: RefCell<Option<(String, &'static str, Text, Mesh, Mesh, Text, f32, f32, f32, f32, f32, Option<(Text, f32)>)>> = RefCell::new(None);
 
     // The upgrade-card screen (draw_upgrade_screen) was building ~26 fresh Text/Mesh objects
     // every frame it was shown — every Text::new + measure() is a glyph-shaping pass, and
@@ -2891,12 +2902,14 @@ impl MainState {
         self.count_bonds_and_sandwiches(keep).1
     }
 
-    /// Combined bond + sandwich count in a single O(n) scan. Fills BOND_INDEX_BUF once and
-    /// returns (bonds, sandwiches) — callers that need both avoid a second full walk over
-    /// self.crabs. The individual wrappers above exist for call sites that only need one value.
-    fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize) {
+    /// Combined bond + sandwich + run-streak tally in a single O(n) scan. Fills BOND_INDEX_BUF once
+    /// and returns (bonds, sandwiches, run_bonus_points) — callers that need several avoid a second
+    /// full walk over self.crabs. `run_bonus_points` is already in points (RUN_STREAK_BONUS summed
+    /// over every same-type run beyond length 2), not a count, so callers add it directly. The
+    /// individual wrappers above exist for call sites that only need one value.
+    fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize, usize) {
         if keep < 2 {
-            return (0, 0);
+            return (0, 0, 0);
         }
         BOND_INDEX_BUF.with(|buf| {
             let mut by_index = buf.borrow_mut();
@@ -2935,7 +2948,25 @@ impl MainState {
                     }
                 }
             }
-            (bonds, sandwiches)
+            // Deep-run escalator: walk the contiguous same-type runs and pay RUN_STREAK_BONUS for
+            // every crab beyond the third in each run (a run of length L pays L-2 kickers). Same
+            // by_index lookup as bonds/sandwiches — one more linear pass, no extra crab scan.
+            let mut run_bonus_points = 0;
+            let mut run_len = 0usize; // length of the current same-type run ending at i-1
+            for i in 0..keep {
+                let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
+                if extends {
+                    run_len += 1;
+                } else {
+                    // A run just ended (or the chain begins). Score the run we were building, then
+                    // start a fresh one at this link (length 1 if occupied, 0 if a gap).
+                    run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
+                    run_len = if by_index[i].is_some() { 1 } else { 0 };
+                }
+            }
+            // Score the final trailing run, which never hit a boundary to close it above.
+            run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
+            (bonds, sandwiches, run_bonus_points)
         })
     }
 
@@ -2961,8 +2992,11 @@ impl MainState {
         // run). Folded into `base` BEFORE the multipliers so it rides the streak/perfect/gamble
         // stack exactly like the triangular sum, and so the pen_worth preview (which recomputes the
         // same base+bonds) can't disagree with what actually banks.
-        let (bonds, sandwiches) = self.count_bonds_and_sandwiches(n);
-        let base = (n * (n + 1) / 2) * 3 + bonds * BOND_PAIR_BONUS + sandwiches * SANDWICH_BONUS;
+        let (bonds, sandwiches, run_bonus) = self.count_bonds_and_sandwiches(n);
+        let base = (n * (n + 1) / 2) * 3
+            + bonds * BOND_PAIR_BONUS
+            + sandwiches * SANDWICH_BONUS
+            + run_bonus;
 
         // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
         // window; the streak multiplier escalates the payout so cashing in repeatedly at tempo pays
@@ -3073,6 +3107,19 @@ impl MainState {
                 self.pen_pos - Vec2::new(90.0, callout_y),
                 26.0,
                 [1.0, 0.8, 0.35, 1.0],
+            );
+            callout_y += 26.0;
+        }
+        // BLOCK — the deep-run escalator made legible. A same-type run of 3+ held to the pen paid
+        // run_bonus on top of its adjacency bonds; naming it tells the player that stacking a LONG
+        // matched block (not just scattered pairs) is what earned this. Vivid green so it reads as a
+        // third, distinct arrangement tier next to cyan ARRANGED and gold SANDWICH.
+        if run_bonus > 0 {
+            self.floating_texts.spawn(
+                format!("BLOCK!  (+{})", run_bonus),
+                self.pen_pos - Vec2::new(80.0, callout_y),
+                26.0,
+                [0.5, 1.0, 0.5, 1.0],
             );
             callout_y += 26.0;
         }
@@ -7343,10 +7390,10 @@ impl MainState {
         // Cache it here so the second call is a free integer read instead of another O(n) scan.
         // Single scan for both bonds and sandwiches — avoids two separate O(n) walks over the
         // caught crabs for what is effectively the same chain_index→type lookup.
-        let (bonds_n, sandwiches_n) = if self.chain_count > 0 {
+        let (bonds_n, sandwiches_n, run_bonus_n) = if self.chain_count > 0 {
             self.count_bonds_and_sandwiches(self.chain_count)
         } else {
-            (0, 0)
+            (0, 0, 0)
         };
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
@@ -7356,7 +7403,8 @@ impl MainState {
             // the train matter.
             let base = (n * (n + 1) / 2) * 3
                 + bonds_n * BOND_PAIR_BONUS
-                + sandwiches_n * SANDWICH_BONUS;
+                + sandwiches_n * SANDWICH_BONUS
+                + run_bonus_n;
             Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
         } else {
             None
@@ -7415,7 +7463,7 @@ impl MainState {
                 // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
                 // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
                 // second O(n) crab scan with the same argument.
-                let (bonds_keep, sandwiches_keep) = self.count_bonds_and_sandwiches(keep);
+                let (bonds_keep, sandwiches_keep, _run_bonus_keep) = self.count_bonds_and_sandwiches(keep);
                 let bonds_lost = bonds_n.saturating_sub(bonds_keep);
                 // Sandwiches destroyed by the cut too — any sandwich straddling or inside the torn
                 // tail region is gone, so the at-risk number folds in its lost value the same way
@@ -8457,7 +8505,7 @@ impl MainState {
         LEVEL_TITLE_OVERLAY_CACHE.with(|c| -> Result<(), ggez::GameError> {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
-                Some((cached_title, cached_biome, _, _, _, _, _, _, _, _, _)) => {
+                Some((cached_title, cached_biome, _, _, _, _, _, _, _, _, _, _)) => {
                     cached_title != &self.level_title || *cached_biome != biome.name
                 }
                 None => true,
@@ -8486,6 +8534,15 @@ impl MainState {
                 let mut subtitle = Text::new(biome.name);
                 subtitle.set_scale(40.0);
                 let sub_width = subtitle.measure(ctx)?.x;
+                let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
+                let threat_opt = if let Some(label) = crate::levels::emphasis_label(emphasis) {
+                    let mut threat = Text::new(format!("!! {label} !!"));
+                    threat.set_scale(30.0);
+                    let tw = threat.measure(ctx)?.x;
+                    Some((threat, tw))
+                } else {
+                    None
+                };
                 *cache = Some((
                     self.level_title.clone(),
                     biome.name,
@@ -8498,9 +8555,10 @@ impl MainState {
                     rect_y,
                     rect_h,
                     sub_width,
+                    threat_opt,
                 ));
             }
-            let (_, _, title, bg_rect, border_rect, subtitle, title_width, title_height, rect_y, rect_h, sub_width) =
+            let (_, _, title, bg_rect, border_rect, subtitle, title_width, title_height, rect_y, rect_h, sub_width, threat_opt) =
                 cache.as_ref().unwrap();
             canvas.draw(bg_rect, DrawParam::default());
             canvas.draw(border_rect, DrawParam::default());
@@ -8517,17 +8575,10 @@ impl MainState {
                     .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
                     .color(Color::from_rgb(pr, pg, pb)),
             );
-            // The zone's dominant threat, announced right under the biome name so crossing a
-            // boundary *reads* as a gear-change (a Magnet swarm, a wall of Armored shells, a Thief
-            // infestation), not just a tint swap. Drawn fresh each frame — it's a single small Text
-            // over the ~1s title window, cheap enough not to earn a slot in the cache tuple above.
-            let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
-            if let Some(label) = crate::levels::emphasis_label(emphasis) {
-                let mut threat = Text::new(format!("!! {label} !!"));
-                threat.set_scale(30.0);
-                let tw = threat.measure(ctx)?.x;
+            // Zone threat banner — built and measured once in the cache above, reused every frame.
+            if let Some((threat, tw)) = threat_opt {
                 canvas.draw(
-                    &threat,
+                    threat,
                     DrawParam::default()
                         .dest(Vec2::new((width - tw) / 2.0, rect_y + rect_h + 60.0))
                         .color(Color::from_rgb(255, 170, 60)),
