@@ -358,6 +358,17 @@ thread_local! {
     static GOLDEN_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static GOLDEN_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffer for the coil dots inside draw_hermit_shell. Each shelled Hermit
+    // draws up to 5 unit-circle dots (the borrowed-shell whorl) — all using the same UNIT_CIRCLE
+    // mesh. With multiple Hermits on screen (they spawn in clusters, ~7% of crabs, and can
+    // accumulate before their shells crack) draw_hermit_shell was issuing 5 individual
+    // canvas.draw() calls per crab per frame. Instead push each coil dot's DrawParam here and
+    // flush them all as one draw_instanced_mesh (flush_hermit_coil_dots) after all auras are drawn
+    // — same pattern as GOLDEN_SPARKLE_PARAMS. Identical on-screen output; one GPU submission
+    // for all hermit coil dots regardless of how many shelled Hermits are in play.
+    static HERMIT_COIL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static HERMIT_COIL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -465,6 +476,34 @@ pub fn flush_golden_sparkles(ctx: &mut Context, canvas: &mut Canvas) -> ggez::Ga
             }
         };
         GOLDEN_SPARKLE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all hermit-coil dot DrawParams deferred by draw_hermit_shell() calls this frame into a
+/// single draw_instanced_mesh. Call this once after all per-crab aura draws (alongside
+/// flush_golden_sparkles / flush_crab_legs / flush_crab_bodies) while still in ADD blend mode.
+pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    HERMIT_COIL_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_circle = match UNIT_CIRCLE.get() {
+            Some(mesh) => mesh.clone(),
+            None => {
+                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                UNIT_CIRCLE.get_or_init(|| mesh).clone()
+            }
+        };
+        HERMIT_COIL_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
@@ -5643,27 +5682,29 @@ pub fn draw_hermit_shell(
             .color(Color::new(0.85, 0.55, 0.28, 0.82 + pulse * 0.18)),
     );
 
-    // A slow-turning spiral of little coil dots inside the ring — the borrowed-shell whorl. Uses the
-    // shared unit-circle mesh (like the crab bodies) so it's a handful of cheap instanced draws, and
-    // only draws as many dots as shell remains so the coil visibly unwinds as the shell is chipped.
+    // A slow-turning spiral of little coil dots inside the ring — the borrowed-shell whorl. Defers
+    // each dot's DrawParam into HERMIT_COIL_PARAMS (same pattern as GOLDEN_SPARKLE_PARAMS) so all
+    // hermit coil dots across every shelled Hermit on screen flush as one draw_instanced_mesh call
+    // in flush_hermit_coil_dots() instead of up to 5 individual canvas.draw() calls per crab.
     let coil_dots = 5usize;
     let shown = ((coil_dots as f32) * frac).ceil().max(1.0) as usize;
-    let unit = cached_unit_circle(ctx)?;
-    for k in 0..shown {
-        let f = k as f32 / coil_dots as f32;
-        // Tightening spiral: angle winds faster than one turn, radius shrinks toward the center.
-        let ang = time * 1.2 + f * std::f32::consts::TAU * 1.6;
-        let rr = radius * (0.62 - f * 0.42);
-        let d = pos + Vec2::new(ang.cos(), ang.sin()) * rr;
-        let dot_r = (2.6 - f * 1.2).max(1.0);
-        canvas.draw(
-            &unit,
-            DrawParam::default()
-                .dest(d)
-                .scale(Vec2::splat(dot_r))
-                .color(Color::new(0.95, 0.68, 0.38, 0.7)),
-        );
-    }
+    HERMIT_COIL_PARAMS.with(|params_cell| {
+        let mut params = params_cell.borrow_mut();
+        for k in 0..shown {
+            let f = k as f32 / coil_dots as f32;
+            // Tightening spiral: angle winds faster than one turn, radius shrinks toward the center.
+            let ang = time * 1.2 + f * std::f32::consts::TAU * 1.6;
+            let rr = radius * (0.62 - f * 0.42);
+            let d = pos + Vec2::new(ang.cos(), ang.sin()) * rr;
+            let dot_r = (2.6 - f * 1.2).max(1.0);
+            params.push(
+                DrawParam::default()
+                    .dest(d)
+                    .scale(Vec2::splat(dot_r))
+                    .color(Color::new(0.95, 0.68, 0.38, 0.7)),
+            );
+        }
+    });
     Ok(())
 }
 
