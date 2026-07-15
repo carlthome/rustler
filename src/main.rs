@@ -164,6 +164,15 @@ const DELIVER_STREAK_MAX: u32 = 8;      // cap so the multiplier can't run away
 // Banking on the beat lands a PERFECT DELIVERY: a flat percentage bonus on the bank, stacking on
 // top of the streak multiplier — the game's rhythm hook applied to its biggest payoff.
 const PERFECT_DELIVERY_BONUS: f32 = 0.5; // +50% on a bank that lands on the beat
+// Flat points paid at BANK time for every same-type adjacent pair still intact in the train — the
+// arrangement bonus. This is the reward for HOLDING an ordering all the way to the pen, distinct
+// from the catch-time MATCH x-run (which pays a single tail-contiguous run as you build it): the
+// bank rewards keeping every same-type pair *anywhere* in the chain intact at once, so a train can
+// carry several separate clusters (a Golden pair at the head, an Armored pair mid-train) and each
+// one pays. Counted from the exact same "same archetype as the link ahead by chain_index"
+// definition the rope glow uses (see CHAIN_TYPE_BUF / count_chain_bonds), so the number paid equals
+// the number of glowing rope segments on screen — mechanic and visual can't disagree.
+const BOND_PAIR_BONUS: usize = 12;
 
 // --- Meta-progression shop (spend side) ---------------------------------------------------
 // Banked crabs are spent on the title screen for permanent starting tool ranks. Each tool caps
@@ -2842,6 +2851,33 @@ impl MainState {
     /// last, so a longer, riskier train pays off disproportionately), then clear the chain and
     /// relocate the pen. This is the "bank now vs. push your luck" beat that closes the risk/reward
     /// loop chain-snap opened.
+    /// Count same-type adjacent pairs in the caught train — the arrangement bonus tally. A "bond"
+    /// is a caught crab whose immediate predecessor by chain_index is the same archetype, the exact
+    /// definition the rope glow uses (CHAIN_TYPE_BUF), so this equals the number of glowing rope
+    /// segments. Optionally restricted to chain_index < `keep` so the cleave/snap payouts can count
+    /// only the bonds that actually stay attached. O(n): builds a chain_index→type lookup, then
+    /// walks it comparing each link to the one ahead.
+    fn count_chain_bonds(&self, keep: usize) -> usize {
+        if keep < 2 {
+            return 0;
+        }
+        let mut by_index: Vec<Option<CrabType>> = vec![None; keep];
+        for c in self.crabs.iter().filter(|c| c.caught) {
+            if let Some(ci) = c.chain_index {
+                if ci < keep {
+                    by_index[ci] = Some(c.crab_type);
+                }
+            }
+        }
+        let mut bonds = 0;
+        for i in 1..keep {
+            if by_index[i].is_some() && by_index[i] == by_index[i - 1] {
+                bonds += 1;
+            }
+        }
+        bonds
+    }
+
     fn try_deliver_train(&mut self, ctx: &mut Context) {
         if self.chain_count == 0 {
             return;
@@ -2859,7 +2895,13 @@ impl MainState {
 
         // Super-linear base payout: triangular sum so crab #n adds n points, times a flat handler.
         let n = delivered;
-        let base = (n * (n + 1) / 2) * 3;
+        // Arrangement bonus: every same-type adjacent pair still intact at bank pays a flat kicker.
+        // This is the reward for HOLDING an ordering to the pen (distinct from the catch-time MATCH
+        // run). Folded into `base` BEFORE the multipliers so it rides the streak/perfect/gamble
+        // stack exactly like the triangular sum, and so the pen_worth preview (which recomputes the
+        // same base+bonds) can't disagree with what actually banks.
+        let bonds = self.count_chain_bonds(n);
+        let base = (n * (n + 1) / 2) * 3 + bonds * BOND_PAIR_BONUS;
 
         // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
         // window; the streak multiplier escalates the payout so cashing in repeatedly at tempo pays
@@ -2945,6 +2987,20 @@ impl MainState {
                 self.pen_pos - Vec2::new(85.0, callout_y),
                 26.0,
                 [1.0, 0.55, 0.9, 1.0],
+            );
+            callout_y += 26.0;
+        }
+        // ARRANGED — the arrangement bonus made legible. Every same-type adjacent pair held intact
+        // to the pen (each a glowing rope segment on the way in) paid BOND_PAIR_BONUS; naming it
+        // here tells the player their *ordering*, not just their length, earned this — the payoff
+        // face of making the middle of the train matter. Cyan so it reads distinct from the gold
+        // perfect / pink streak callouts.
+        if bonds > 0 {
+            self.floating_texts.spawn(
+                format!("ARRANGED x{}  (+{})", bonds, bonds * BOND_PAIR_BONUS),
+                self.pen_pos - Vec2::new(90.0, callout_y),
+                26.0,
+                [0.4, 0.95, 1.0, 1.0],
             );
             callout_y += 26.0;
         }
@@ -7186,7 +7242,10 @@ impl MainState {
         // even more, keeping the on-beat delivery worth engaging rather than spoiling it.
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
-            let base = (n * (n + 1) / 2) * 3;
+            // Include the same arrangement (same-type adjacent pair) bonus try_deliver_train pays,
+            // so the live preview stays honest — holding a well-arranged train visibly raises the
+            // pen worth, which is the whole point of making the middle of the train matter.
+            let base = (n * (n + 1) / 2) * 3 + self.count_chain_bonds(n) * BOND_PAIR_BONUS;
             Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
         } else {
             None
@@ -7239,7 +7298,12 @@ impl MainState {
                 // a longer train shows a bigger at-risk number precisely because a snap tears more
                 // (and pricier, since tri() is triangular) tail links off it.
                 let keep = n.saturating_sub(panic_snap_links(n)).max(1);
-                let marginal = tri(n).saturating_sub(tri(keep));
+                // Marginal loss folds in the arrangement bonus too: a snap tears off tail links,
+                // which destroys every same-type bond in the torn region (and the one straddling the
+                // cut), so the pricier a train's tail arrangement, the more a snap costs — mirroring
+                // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
+                let bonds_lost = self.count_chain_bonds(n).saturating_sub(self.count_chain_bonds(keep));
+                let marginal = tri(n).saturating_sub(tri(keep)) + bonds_lost * BOND_PAIR_BONUS;
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
                 let danger01 = ((n.saturating_sub(5)) as f32 / 7.0).clamp(0.0, 1.0);
