@@ -814,6 +814,7 @@ struct MainState {
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
+    free_splitter_present: bool,   // true when at least one uncaught Splitter is on the field; refreshed in update_crabs to avoid an O(n) scan in the draw path every frame
     tail_run_len: u32,             // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
     next_milestone: usize,               // Next train-length milestone to celebrate
     next_boss_score: usize,              // score at which the next boss arrives
@@ -1463,6 +1464,7 @@ impl MainState {
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
+            free_splitter_present: false,
             tail_run_len: 0,
             next_milestone: 5,
             next_boss_score: BOSS_SCORE_INTERVAL,
@@ -4331,6 +4333,7 @@ impl MainState {
         let mut armored_positions = std::mem::take(&mut self.armored_positions_buf);
         armored_positions.clear();
         let mut best_chain: Option<(usize, Vec2)> = None;
+        let mut free_splitter = false;
         for c in &self.crabs {
             if c.caught {
                 if let Some(ci) = c.chain_index {
@@ -4340,7 +4343,9 @@ impl MainState {
                 }
                 continue; // caught crabs can't be a Magnet/Golden/Armored source below
             }
-            if c.is_magnet() {
+            if c.is_splitter() {
+                free_splitter = true;
+            } else if c.is_magnet() {
                 magnet_positions.push(c.pos);
             } else if c.is_golden() {
                 if !c.in_flashlight {
@@ -4355,6 +4360,9 @@ impl MainState {
         // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
         // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
         self.cached_tail_pos = chain_tail_pos;
+        // Cache for the draw path: avoids an O(n) .any() scan over all crabs every frame to gate
+        // the cleave-stakes tag. Updated here in the snapshot pass we already do over every crab.
+        self.free_splitter_present = free_splitter;
 
         // Magnet-crab pull: free-roaming Magnet crabs each tug nearby uncaught crabs toward
         // themselves, so the herd clumps up around them. Snapshotted above so each ordinary crab
@@ -7056,7 +7064,7 @@ impl MainState {
         // number can't drift from the actual payout. Only shows when there's both a free Splitter and a
         // train (≥2 links) to meaningfully halve, so it's naturally transient and never HUD clutter.
         if self.chain_count >= 2
-            && self.crabs.iter().any(|c| !c.caught && c.is_splitter())
+            && self.free_splitter_present
         {
             let (keep, _) = self.cleave_split_point();
             // Split point in the world: the midpoint between the last kept front link (keep-1) and the
