@@ -88,6 +88,12 @@ const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const UPGRADE_FIRST_AT: usize = 25;
 const UPGRADE_STEP: usize = 1000;
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
+// A tight sub-window INSIDE the on-beat window: a catch this close to the beat is a PERFECT hit,
+// the legible skill ceiling. It pumps the streak harder and pays a dedicated, super-linear score
+// bonus (see perfect handling in the catch loop) that flows into the RHYTHM BONUS readout — so a
+// player who nails every beat pulls visibly, dramatically ahead of one who merely brushes the
+// window. ~2 frames at 60fps: earned, but hittable once you feel the pocket.
+const PERFECT_WINDOW: f32 = 0.032; // seconds around a beat that count as a PERFECT hit (tighter than BEAT_WINDOW)
 
 // --- Upgrade pool -----------------------------------------------------------------------------
 // The upgrade screen no longer offers the same fixed four lanes every time. Instead a pool of
@@ -758,6 +764,14 @@ struct MainState {
     on_beat_flash: f32,
     groove: f32,         // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
     beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
+    // Consecutive PERFECT (tight-window) catches. Distinct from beat_streak only in that it counts
+    // ONLY the flawless hits inside PERFECT_WINDOW, not the looser on-beat ones — so it can drive a
+    // super-linear dedicated bonus that rewards a sustained flawless run far out of proportion to a
+    // merely-good one. A single non-perfect catch (on-beat or off) resets it. It does NOT touch the
+    // global gamble multiplier or banking — its payoff is additive to score and flows into the
+    // RHYTHM BONUS readout, keeping the banking risk/reward axis untouched.
+    perfect_streak: u32,
+    perfect_flash: f32,  // 1→0 one-shot flash when a PERFECT lands, so the flawless hit reads on screen
     // Cumulative rhythm-attributable score: the running total of EXTRA points playing in the pocket
     // has earned over a hypothetical flat-1x run. On every award (catch and bank) we add the delta
     // between what actually paid out and what the same event would have paid at neutral rhythm
@@ -1561,6 +1575,8 @@ impl MainState {
             groove_full_flash: 0.0,
             groove: 0.0,
             beat_streak: 0,
+            perfect_streak: 0,
+            perfect_flash: 0.0,
             rhythm_bonus_score: 0,
             rhythm_bonus_flash: 0.0,
             music_layers,
@@ -3436,6 +3452,11 @@ impl MainState {
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
                     || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+                // PERFECT: the catch landed inside the tight sub-window at the very center of the
+                // beat. This is the skill ceiling — strictly harder than on_beat, and only it feeds
+                // the super-linear flawless-run bonus below.
+                let perfect = self.beat_timer < PERFECT_WINDOW
+                    || self.beat_timer > self.beat_interval - PERFECT_WINDOW;
                 let bonus;
                 if on_beat {
                     // Tutorial pass tracking: count real on-beat catches for the beat-timing
@@ -3450,6 +3471,15 @@ impl MainState {
                     // On-beat catch: build the groove. Consecutive on-beat catches escalate the
                     // score bonus and fill the groove meter, which in turn swells the music.
                     self.beat_streak += 1;
+                    // Precision ladder: a PERFECT hit extends the flawless run; an on-beat-but-not-
+                    // perfect catch keeps beat_streak alive (streak isn't broken) but resets the
+                    // flawless run — precision is a bonus lane, never a punishment for near-misses.
+                    if perfect {
+                        self.perfect_streak += 1;
+                        self.perfect_flash = 1.0;
+                    } else {
+                        self.perfect_streak = 0;
+                    }
                     // A Dancer Drum-Major at the head keeps the whole train on time: a fatter groove
                     // fill per on-beat catch so the meter swells (and the music with it) faster.
                     let groove_fill = if head_is_dancer { 0.30 } else { 0.22 };
@@ -3517,6 +3547,7 @@ impl MainState {
                         );
                     }
                     self.beat_streak = 0;
+                    self.perfect_streak = 0;
                     self.beat_gamble_mult = self.beat_gamble_locked;
                     self.groove = (self.groove - 0.3).max(0.0);
                     bonus = 0;
@@ -3540,6 +3571,35 @@ impl MainState {
                 // is the mastery the beat bought, tallied for the "how far ahead" readout.
                 let flat = (1 * mult) as usize; // bonus=0, gamble=1x
                 self.rhythm_bonus_score += pts.saturating_sub(flat);
+                // PERFECT precision bonus — the legible skill ceiling. Awarded on top of everything
+                // above, but SEPARATELY from the gamble multiplier (which we deliberately don't
+                // touch, so banking stays balanced): a flat, super-linear score kicker that scales
+                // with the flawless run. perfect_streak grows the reward quadratically (n*(n+1)/2,
+                // the same triangular shape as the pen jackpot) so a sustained in-the-pocket run
+                // pulls dramatically ahead of a merely-good one — and the callout shows how far.
+                if perfect && self.perfect_streak > 0 {
+                    let n = self.perfect_streak.min(24) as usize; // cap so it can't run away
+                    // Triangular growth, scaled by the level multiplier: 5, 15, 30, 50, ... per hit.
+                    let perfect_pts = (n * (n + 1) / 2) * 5 * mult as usize;
+                    self.score += perfect_pts;
+                    self.rhythm_bonus_score += perfect_pts;
+                    // Legible payoff: the flawless tier and its running rhythm-bonus total, so the
+                    // player sees precision compounding. Only fire the loud callout once the run is
+                    // deep enough to matter, so early perfects don't spam the screen.
+                    if self.perfect_streak >= 3 {
+                        let (label, size) = match self.perfect_streak {
+                            3..=5 => ("PERFECT!", 34.0),
+                            6..=9 => ("FLAWLESS!", 42.0),
+                            _ => ("IN THE POCKET!!", 50.0),
+                        };
+                        self.floating_texts.spawn(
+                            format!("{}  x{}  +{}", label, self.perfect_streak, perfect_pts),
+                            self.player_pos - Vec2::new(0.0, 116.0),
+                            size,
+                            [0.6, 0.95, 1.0, 1.0],
+                        );
+                    }
+                }
                 // Golden crab: on top of the normal catch award, queue a big lump-sum treasure bonus
                 // (paid out after the loop). This is the payoff for breaking off the herd to chase it.
                 // Splitter: record the catch so the after-loop cleave can bank the back half. The
@@ -6535,6 +6595,8 @@ impl MainState {
         self.slam_radius = 0.0;
         self.slam_flash = 0.0;
         self.beat_streak = 0;
+        self.perfect_streak = 0;
+        self.perfect_flash = 0.0;
         self.rhythm_bonus_score = 0;
         self.rhythm_bonus_flash = 0.0;
         self.beat_gamble_mult = 1.0;
@@ -10857,6 +10919,9 @@ impl EventHandler for MainState {
         if self.on_beat_flash > 0.0 {
             self.on_beat_flash = (self.on_beat_flash - dt * 3.0).max(0.0);
         }
+        if self.perfect_flash > 0.0 {
+            self.perfect_flash = (self.perfect_flash - dt * 2.5).max(0.0);
+        }
         if self.reef_hit_flash > 0.0 {
             self.reef_hit_flash = (self.reef_hit_flash - dt * 3.5).max(0.0);
         }
@@ -10923,6 +10988,7 @@ impl EventHandler for MainState {
             self.groove = (self.groove - dt * 0.18).max(0.0);
             if self.groove <= 0.0 {
                 self.beat_streak = 0;
+                self.perfect_streak = 0;
                 // The Gamble heat fades with the groove — a quiet lapse, not a punished break, so
                 // idling loses the unbanked climb gracefully. Whatever was cashed out with B stays.
                 self.beat_gamble_mult = self.beat_gamble_locked;

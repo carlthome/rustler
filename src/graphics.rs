@@ -347,12 +347,24 @@ thread_local! {
     // (base disc + shallow center) and the additive fills (glints + current streaks) each use the
     // same shared unit_circle mesh at different scales, so they're ideal for InstanceArray batching
     // exactly like the Rock/Kelp fills above: collect all DrawParams, fill one InstanceArray, one
-    // draw_instanced_mesh. Rims and ripple rings stay individual (each uses a different-radius stroke
-    // mesh; at most ~3 per pool they're already cached by cached_stroke_circle).
+    // draw_instanced_mesh.
+    //
+    // Rims and ripple rings are stroke meshes (not fill), so they can't be scaled from a shared
+    // unit mesh — stroke thickness would scale too. Instead they're batched by mesh key, using the
+    // same (radius*0.5, thickness) quantisation bucket that cached_stroke_circle() and
+    // draw_chain_rings use: pools with the same quantised radius share one InstanceArray submission.
+    // In practice 6-10 pools can produce as few as 3-8 distinct rim keys (many share the same
+    // pool-radius bucket) and likewise for ripple rings, collapsing up to 30 individual canvas.draw()
+    // calls into ~6-16 instanced submissions — the same technique as chain_rings.
     static POOL_FILL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static POOL_FILL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static POOL_ADD_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static POOL_ADD_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // Rim and ripple-ring batching grouped by stroke_circle_key, mirroring CHAIN_RING_GROUPS.
+    static POOL_RIM_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static POOL_RIM_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+    static POOL_RIPPLE_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static POOL_RIPPLE_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
 
     // Reusable instance buffer for draw_speed_lines' 7 wake lines. While the player is dashing
     // all 7 lines share the same unit_line mesh with different dest/rotation/scale/color params —
@@ -5006,42 +5018,91 @@ pub fn draw_tide_pools(
     let orig_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
-    // Rims and ripple rings — stays individual because each pool has a unique stroke radius.
-    for (i, (center, radius)) in pools.iter().enumerate() {
-        let center = *center;
-        let radius = *radius;
-        let phase = i as f32 * 1.7;
-        let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
-        let wading = player_center.distance(center) < radius;
+    // Rims and ripple rings — batched by stroke_circle_key bucket, same pattern as
+    // draw_chain_rings: stroke meshes can't share a single unit mesh (scaling would stretch
+    // stroke thickness), but pools with the same quantised radius do share the same cached mesh
+    // and therefore collapse into one instanced draw per key group.
+    POOL_RIM_GROUPS.with(|rim_groups_cell| -> ggez::GameResult {
+        let mut rim_groups = rim_groups_cell.borrow_mut();
+        rim_groups.clear();
+        POOL_RIPPLE_GROUPS.with(|ripple_groups_cell| -> ggez::GameResult {
+            let mut ripple_groups = ripple_groups_cell.borrow_mut();
+            ripple_groups.clear();
 
-        // Soft rim so the pool edge — the line you route around — reads clearly.
-        let rim = cached_stroke_circle(ctx, radius, 2.5)?;
-        canvas.draw(
-            &rim,
-            DrawParam::default().dest(center).color(Color::new(
-                0.45,
-                0.8,
-                1.0,
-                (0.22 + 0.18 * breathe + if wading { 0.25 } else { 0.0 }).clamp(0.0, 1.0),
-            )),
-        );
+            // Collect DrawParams grouped by mesh key.
+            for (i, (center, radius)) in pools.iter().enumerate() {
+                let center = *center;
+                let radius = *radius;
+                let phase = i as f32 * 1.7;
+                let breathe = 0.5 + 0.5 * (time * 1.3 + phase).sin();
+                let wading = player_center.distance(center) < radius;
 
-        // Two ripple rings expanding outward from the middle and fading at the rim.
-        for k in 0..2 {
-            let t = ((time * 0.35 + phase + k as f32 * 0.5).fract()).clamp(0.0, 1.0);
-            let rr = radius * (0.15 + t * 0.85);
-            let a = (1.0 - t) * 0.28;
-            if a > 0.01 {
-                let ripple = cached_stroke_circle(ctx, rr, 1.5)?;
-                canvas.draw(
-                    &ripple,
-                    DrawParam::default()
-                        .dest(center)
-                        .color(Color::new(0.55, 0.85, 1.0, a)),
-                );
+                // Soft rim so the pool edge reads clearly.
+                // Ensure the mesh exists in the cache for this key.
+                cached_stroke_circle(ctx, radius, 2.5)?;
+                let rim_key = stroke_circle_key(radius, 2.5);
+                let rim_alpha =
+                    (0.22 + 0.18 * breathe + if wading { 0.25 } else { 0.0 }).clamp(0.0, 1.0);
+                rim_groups
+                    .entry(rim_key)
+                    .or_default()
+                    .push(DrawParam::default().dest(center).color(Color::new(0.45, 0.8, 1.0, rim_alpha)));
+
+                // Two ripple rings expanding outward from the middle.
+                for k in 0..2 {
+                    let t = ((time * 0.35 + phase + k as f32 * 0.5).fract()).clamp(0.0, 1.0);
+                    let rr = radius * (0.15 + t * 0.85);
+                    let a = (1.0 - t) * 0.28;
+                    if a > 0.01 {
+                        cached_stroke_circle(ctx, rr, 1.5)?;
+                        let ripple_key = stroke_circle_key(rr, 1.5);
+                        ripple_groups
+                            .entry(ripple_key)
+                            .or_default()
+                            .push(DrawParam::default().dest(center).color(Color::new(0.55, 0.85, 1.0, a)));
+                    }
+                }
             }
-        }
-    }
+
+            // Flush rim groups.
+            POOL_RIM_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_map = inst_cell.borrow_mut();
+                for (key, params) in rim_groups.iter() {
+                    if params.is_empty() {
+                        continue;
+                    }
+                    let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                    if let Some(mesh) = mesh {
+                        let instances = inst_map
+                            .entry(*key)
+                            .or_insert_with(|| InstanceArray::new(ctx, None));
+                        instances.set(params.iter().copied());
+                        canvas.draw_instanced_mesh(mesh, instances, DrawParam::default());
+                    }
+                }
+                Ok(())
+            })?;
+
+            // Flush ripple groups.
+            POOL_RIPPLE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+                let mut inst_map = inst_cell.borrow_mut();
+                for (key, params) in ripple_groups.iter() {
+                    if params.is_empty() {
+                        continue;
+                    }
+                    let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                    if let Some(mesh) = mesh {
+                        let instances = inst_map
+                            .entry(*key)
+                            .or_insert_with(|| InstanceArray::new(ctx, None));
+                        instances.set(params.iter().copied());
+                        canvas.draw_instanced_mesh(mesh, instances, DrawParam::default());
+                    }
+                }
+                Ok(())
+            })
+        })
+    })?;
 
     // Glints and current streaks — batched into one InstanceArray (all unit_circle draws).
     // Precompute flow constants once outside the pool loop instead of per pool.
