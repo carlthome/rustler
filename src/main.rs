@@ -2877,8 +2877,19 @@ impl MainState {
     /// only the bonds that actually stay attached. O(n): builds a chain_index→type lookup, then
     /// walks it comparing each link to the one ahead.
     fn count_chain_bonds(&self, keep: usize) -> usize {
+        self.count_bonds_and_sandwiches(keep).0
+    }
+
+    fn count_sandwiches(&self, keep: usize) -> usize {
+        self.count_bonds_and_sandwiches(keep).1
+    }
+
+    /// Combined bond + sandwich count in a single O(n) scan. Fills BOND_INDEX_BUF once and
+    /// returns (bonds, sandwiches) — callers that need both avoid a second full walk over
+    /// self.crabs. The individual wrappers above exist for call sites that only need one value.
+    fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize) {
         if keep < 2 {
-            return 0;
+            return (0, 0);
         }
         BOND_INDEX_BUF.with(|buf| {
             let mut by_index = buf.borrow_mut();
@@ -2900,48 +2911,24 @@ impl MainState {
                     bonds += 1;
                 }
             }
-            bonds
-        })
-    }
-
-    /// Count SANDWICHES in the caught train — a crab whose immediate chain neighbors on BOTH sides
-    /// are the same figurehead archetype (two Goldens, or two Dancers). This is the mid-train
-    /// arrangement bet: it makes the *body* of the train pay, since the filling between two matched
-    /// figureheads earns SANDWICH_BONUS at bank. Restricted to chain_index < `keep` so the snap /
-    /// cleave paths can count only the sandwiches that actually stay attached, mirroring how
-    /// count_chain_bonds handles the arrangement pairs. O(n): reuses the same chain_index→type
-    /// lookup, then walks the interior comparing each link's two neighbors.
-    fn count_sandwiches(&self, keep: usize) -> usize {
-        if keep < 3 {
-            return 0;
-        }
-        BOND_INDEX_BUF.with(|buf| {
-            let mut by_index = buf.borrow_mut();
-            by_index.clear();
-            by_index.resize(keep, None);
-            for c in self.crabs.iter().filter(|c| c.caught) {
-                if let Some(ci) = c.chain_index {
-                    if ci < keep {
-                        by_index[ci] = Some(c.crab_type);
+            let mut sandwiches = 0;
+            if keep >= 3 {
+                for i in 1..keep - 1 {
+                    // Both neighbors must be the SAME figurehead archetype (Golden or Dancer). The
+                    // filling itself can be anything — including another figurehead, so a G-G-G run
+                    // makes the middle a sandwich too (and still pays its two adjacency bonds; that's a
+                    // deliberately-arranged cluster, so paying both is intended).
+                    let left = by_index[i - 1];
+                    let right = by_index[i + 1];
+                    if left == right
+                        && matches!(left, Some(CrabType::Golden) | Some(CrabType::Dancer))
+                        && by_index[i].is_some()
+                    {
+                        sandwiches += 1;
                     }
                 }
             }
-            let mut sandwiches = 0;
-            for i in 1..keep - 1 {
-                // Both neighbors must be the SAME figurehead archetype (Golden or Dancer). The
-                // filling itself can be anything — including another figurehead, so a G-G-G run
-                // makes the middle a sandwich too (and still pays its two adjacency bonds; that's a
-                // deliberately-arranged cluster, so paying both is intended).
-                let left = by_index[i - 1];
-                let right = by_index[i + 1];
-                if left == right
-                    && matches!(left, Some(CrabType::Golden) | Some(CrabType::Dancer))
-                    && by_index[i].is_some()
-                {
-                    sandwiches += 1;
-                }
-            }
-            sandwiches
+            (bonds, sandwiches)
         })
     }
 
@@ -2967,12 +2954,7 @@ impl MainState {
         // run). Folded into `base` BEFORE the multipliers so it rides the streak/perfect/gamble
         // stack exactly like the triangular sum, and so the pen_worth preview (which recomputes the
         // same base+bonds) can't disagree with what actually banks.
-        let bonds = self.count_chain_bonds(n);
-        // Sandwiches: a crab flanked by two matched figureheads (Golden/Dancer) pays a bigger
-        // kicker on top of the pair bonds — the reward for arranging the *middle* of the train,
-        // not just accumulating length. Folded into `base` before the multipliers exactly like the
-        // pair bonds so the pen_worth preview (which recomputes the same base) stays honest.
-        let sandwiches = self.count_sandwiches(n);
+        let (bonds, sandwiches) = self.count_bonds_and_sandwiches(n);
         let base = (n * (n + 1) / 2) * 3 + bonds * BOND_PAIR_BONUS + sandwiches * SANDWICH_BONUS;
 
         // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
@@ -7328,15 +7310,12 @@ impl MainState {
         // Precompute bonds for the full chain once — count_chain_bonds walks all crabs every call, and
         // it used to be called twice with the same argument (pen_worth preview + at-risk readout).
         // Cache it here so the second call is a free integer read instead of another O(n) scan.
-        let bonds_n = if self.chain_count > 0 {
-            self.count_chain_bonds(self.chain_count)
+        // Single scan for both bonds and sandwiches — avoids two separate O(n) walks over the
+        // caught crabs for what is effectively the same chain_index→type lookup.
+        let (bonds_n, sandwiches_n) = if self.chain_count > 0 {
+            self.count_bonds_and_sandwiches(self.chain_count)
         } else {
-            0
-        };
-        let sandwiches_n = if self.chain_count > 0 {
-            self.count_sandwiches(self.chain_count)
-        } else {
-            0
+            (0, 0)
         };
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
@@ -7405,11 +7384,12 @@ impl MainState {
                 // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
                 // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
                 // second O(n) crab scan with the same argument.
-                let bonds_lost = bonds_n.saturating_sub(self.count_chain_bonds(keep));
+                let (bonds_keep, sandwiches_keep) = self.count_bonds_and_sandwiches(keep);
+                let bonds_lost = bonds_n.saturating_sub(bonds_keep);
                 // Sandwiches destroyed by the cut too — any sandwich straddling or inside the torn
                 // tail region is gone, so the at-risk number folds in its lost value the same way
                 // the bank pays it. Mirrors bonds_lost exactly.
-                let sandwiches_lost = sandwiches_n.saturating_sub(self.count_sandwiches(keep));
+                let sandwiches_lost = sandwiches_n.saturating_sub(sandwiches_keep);
                 let marginal = tri(n).saturating_sub(tri(keep))
                     + bonds_lost * BOND_PAIR_BONUS
                     + sandwiches_lost * SANDWICH_BONUS;
