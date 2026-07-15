@@ -660,6 +660,12 @@ struct MainState {
     beat_gamble_locked: f32, // safe multiplier floor secured by a cash-out (>= 1.0)
     gamble_bank_flash: f32,  // gold pulse when a cash-out banks the streak
     gamble_bank_pulse: f32,  // "BANK NOW?" prompt pulse while a bankable streak is live
+    // Rising-edge tracking for the groove meter topping out. `groove_was_full` remembers whether
+    // the meter was already maxed last frame, so the "POCKET LOCKED" spectacle fires exactly once
+    // on the frame groove first reaches full — the watchable peak of rhythmic play, not a per-frame
+    // repeat. `groove_full_flash` is the one-shot celebration timer it lights.
+    groove_was_full: bool,
+    groove_full_flash: f32,
     music_layers: Vec<Source>,
     catch_radius_upgrade: f32,
     // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
@@ -1415,6 +1421,8 @@ impl MainState {
             beat_gamble_locked: 1.0,
             gamble_bank_flash: 0.0,
             gamble_bank_pulse: 0.0,
+            groove_was_full: false,
+            groove_full_flash: 0.0,
             groove: 0.0,
             beat_streak: 0,
             music_layers,
@@ -7940,7 +7948,9 @@ impl MainState {
             let gx = (width - gw) / 2.0;
             let gy = 16.0;
             let maxed = self.groove >= 0.999;
-            let pulse = if maxed { self.beat_intensity * 0.5 } else { 0.0 };
+            // The topping-out flash rides on top of the steady maxed pulse, so the bar visibly pops
+            // the instant it fills, then settles into its normal in-pocket glow.
+            let pulse = if maxed { self.beat_intensity * 0.5 + self.groove_full_flash * 0.8 } else { 0.0 };
             // Background track
             canvas.draw(
                 unit_square(ctx)?,
@@ -10208,6 +10218,38 @@ impl EventHandler for MainState {
         // Frenzy banner fades out over its lifetime after a frenzy wave lands.
         if self.frenzy_banner_timer > 0.0 {
             self.frenzy_banner_timer = (self.frenzy_banner_timer - dt).max(0.0);
+        }
+
+        // Rising edge: the frame groove first tops out is the peak of rhythmic play, so announce it
+        // loud and once. Fires a field-wide "POCKET LOCKED" celebration — a firework crown at the
+        // player, a bloom flash, a beat kick, and a light zoom punch — reusing existing juice paths.
+        // Reset when the meter drops out of full so it can re-fire on the next climb back up.
+        let groove_full = self.groove >= 0.999;
+        if groove_full && !self.groove_was_full {
+            self.groove_full_flash = 1.0;
+            self.on_beat_flash = self.on_beat_flash.max(0.7);
+            self.beat_intensity = self.beat_intensity.max(1.6);
+            self.zoom_punch = self.zoom_punch.max(0.06);
+            let mut rng = rand::rng();
+            self.particle_system
+                .spawn_milestone_fireworks(self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0), 24, &mut rng);
+            let banner_pos = Vec2::new(self.width / 2.0 - 150.0, 44.0);
+            self.floating_texts.spawn(
+                "POCKET LOCKED".to_string(),
+                banner_pos + Vec2::new(2.0, 2.0),
+                38.0,
+                [0.0, 0.0, 0.0, 0.8],
+            );
+            self.floating_texts.spawn(
+                "POCKET LOCKED".to_string(),
+                banner_pos,
+                38.0,
+                [1.0, 0.55, 0.95, 1.0],
+            );
+        }
+        self.groove_was_full = groove_full;
+        if self.groove_full_flash > 0.0 {
+            self.groove_full_flash = (self.groove_full_flash - dt * 2.0).max(0.0);
         }
 
         // Groove meter decays over time; when it empties the on-beat streak lapses too.
