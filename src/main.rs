@@ -8784,20 +8784,24 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                // The wild herd grooves too. On the beat every free crab pops upward, but the hop
-                // ripples across the field instead of firing in lockstep: a spatial phase offset
-                // (from screen position) delays the pop by where the crab stands, so the downbeat
-                // reads as a wave washing through the whole beach — the party the player recruits
-                // from is alive, not a static pickup field. Kept smaller than the conga train's
-                // dramatic wave (train amplitude ~10-26) so caught crabs still read as the most
-                // energized dancers. A fleeing/spooked crab skips the groove — it's panicking, not
-                // dancing — so the hop reads as mood, not just a global clock.
-                let wild_lift = if crab.fleeing || crab.spooked_timer > 0.0 || crab.startle_timer > 0.0 {
+                // The wild herd grooves too. Free crabs bob with the music, but with a spatial phase
+                // offset from screen position so the field reads as several organic ripples rolling
+                // through the crowd rather than a lockstep jump — the party the player recruits from
+                // is alive, not a static pickup field. Only the *amplitude* is beat-gated (the hop
+                // swells on the downbeat and settles between beats), so the whole beach breathes with
+                // the pulse. Kept smaller than the conga train's dramatic wave (amplitude ~10-26) so
+                // caught crabs still read as the liveliest dancers. Bosses don't dance — a bopping
+                // King Crab would undercut its menace — and fleeing/spooked crabs sit it out too
+                // (panic, not party), so the hop reads as mood rather than a global clock.
+                let wild_lift = if crab.is_boss()
+                    || crab.fleeing
+                    || crab.spooked_timer > 0.0
+                    || crab.startle_timer > 0.0
+                {
                     0.0
                 } else {
                     let ripple = (crab.pos.x + crab.pos.y) * 0.012;
-                    // Positive bump only (a hop, never a dip), peaking right on the downbeat and
-                    // fading between beats so the field breathes with the music.
+                    // Positive bump only — a hop, never a dip into the ground.
                     (self.beat_intensity * (ripple - self.time_elapsed * 5.0).sin()).max(0.0) * 7.0
                 };
                 // Raise the body by the hop (draw_pos moves up); pass the same amount as y_lift so
