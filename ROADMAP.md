@@ -111,6 +111,16 @@ item in "Now" below.
   navigation, player-skin slots) — treat it as scaffolding parked here, NOT as license to build out
   the campaign; it stays deferred until the "core feels done" call and meta-progression are settled.*
 
+- **Desktop level — fourth-wall terrain.** A special level with a transparent/borderless window
+  where the game reads the user's desktop pixels as terrain and treats their OS window borders as
+  solid walls/platforms crabs must navigate around. The secret mechanic: players can reshape the
+  level mid-run by dragging their browser, Finder, or other windows — not documented anywhere, just
+  discovered. In the spirit of old Windows desktop toys and Inscryption-style reality-breaking
+  moments. Technically: macOS/Wayland screen-capture API for the background grab, transparent ggez
+  window layer, luminance threshold → terrain collision map. Deliberately deferred — needs OS-level
+  screen capture permission UX to be unobtrusive. File under "the most delightful thing in the
+  whole game when someone stumbles on it."
+
 ## Blocked (needs a human, not a code agent)
 
 - **The soundtrack builds with the groove** — the `layer{1,2,3}.ogg` progressive-fade hook exists in
