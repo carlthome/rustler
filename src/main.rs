@@ -2941,6 +2941,16 @@ impl MainState {
             .crabs
             .iter()
             .any(|c| c.chain_index == Some(0) && c.is_golden());
+        // Dancer Drum-Major — the rhythm-economy sibling of the Golden figurehead, competing for the
+        // same coveted head slot. A Dancer riding at the head (chain_index 0) keeps time for the whole
+        // train: on-beat catches fill the groove meter faster and bump the Groove Gamble multiplier
+        // harder while it leads. This makes the head a real *arrangement bet* — park a Golden up front
+        // for a fatter match-run economy, or a Dancer for a hotter rhythm economy, but you only get
+        // one head. Snapshotted once (chain_index 0 is stable mid-catch — new links go on the tail).
+        let head_is_dancer = self
+            .crabs
+            .iter()
+            .any(|c| c.chain_index == Some(0) && c.is_dancer());
         // Reef DJ backup dancers caught this frame on a *called (hot) beat* — each one chips the
         // boss shell. Collected here and applied after the loop so we don't need a second &mut
         // borrow of self.crabs mid-loop. `reef_hot_now` is the same window the DJ's own shell uses.
@@ -3004,7 +3014,10 @@ impl MainState {
                     // On-beat catch: build the groove. Consecutive on-beat catches escalate the
                     // score bonus and fill the groove meter, which in turn swells the music.
                     self.beat_streak += 1;
-                    self.groove = (self.groove + 0.22).min(1.0);
+                    // A Dancer Drum-Major at the head keeps the whole train on time: a fatter groove
+                    // fill per on-beat catch so the meter swells (and the music with it) faster.
+                    let groove_fill = if head_is_dancer { 0.30 } else { 0.22 };
+                    self.groove = (self.groove + groove_fill).min(1.0);
                     bonus = self.beat_streak.min(5) as usize;
                     self.on_beat_flash = (0.25 + self.beat_streak as f32 * 0.06).min(0.6);
                     // Groove Gamble: the streak compounds a live global score multiplier. Each
@@ -3012,9 +3025,24 @@ impl MainState {
                     // the more every point — catches AND deliveries — is worth. The catch mid-streak
                     // feels louder: the multiplier only exists while the run is unbroken.
                     let prev_mult = self.beat_gamble_mult;
-                    self.beat_gamble_mult = (self.beat_gamble_mult + 0.25).min(5.0);
+                    // Drum-Major at the head bumps the gamble harder (+0.35x vs +0.25x): the rhythm
+                    // economy the Dancer leads scales the whole run faster, the counterweight to the
+                    // Golden figurehead's match-run amplification. One head slot, two ways to spend it.
+                    let gamble_step = if head_is_dancer { 0.35 } else { 0.25 };
+                    self.beat_gamble_mult = (self.beat_gamble_mult + gamble_step).min(5.0);
                     if self.beat_gamble_mult > prev_mult {
                         self.beat_gamble_flash = 1.0;
+                    }
+                    // Drum-Major assist reads on screen so the head-slot choice pays visibly, not just
+                    // in the meter — a teal rhythm shine on the newly-linked tail, the counterpart to
+                    // the Golden figurehead's gild. Fires on every on-beat catch while a Dancer leads.
+                    if head_is_dancer {
+                        self.floating_texts.spawn(
+                            "DRUM-MAJOR!".to_string(),
+                            crab.pos - Vec2::new(56.0, 46.0),
+                            24.0,
+                            [0.4, 1.0, 0.85, 1.0],
+                        );
                     }
                     // Escalating callouts as the heat tiers up, so the rising stakes read on screen.
                     if self.beat_streak >= 3 {
