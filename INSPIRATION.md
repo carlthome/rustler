@@ -108,37 +108,6 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
-## Competing DJs / Bring-Your-Own-Music (Carl's vision)
-
-**What Carl said:** Competing crab rustlers like competing DJs. A "bring-your-own-music" mode where the dominant conga line takes up the bulk of the audio mix — a crazy mashup competition with spatialized sound so you can hear large King Crabs approaching by their music. "You can hear large king crabs approaching by their crazy music, sort of like in agar.io where you see large circles creeping after you."
-
-**What we're taking:**
-- **Audio as terrain.** Each conga train has a "musical identity" — the dominant train's music is loudest in the mix; smaller/losing trains fade. Winning the beat mechanic means your music takes over.
-- **Spatialized threat.** A large NPC train approaching from off-screen is heard before seen: their music gets louder as they approach. Audio = radar.
-- **Bring-your-own-music.** Players can supply their own tracks; the game's BPM detection (already built) syncs mechanics to whatever tempo the track carries. The mashup happens naturally as multiple tracks compete in the mix.
-- **Multiplayer endgame.** Multiple human Rustlers, each with their own track, competing for the largest train and thus the dominant audio share. The winner's music overwhelms the mix; losers' tracks fade to silence.
-
-**What we're *not* taking (yet):** The full multiplayer infrastructure. Start with NPC competing trains using procedural audio, then layer in bring-your-own-music for singleplayer, then unlock multiplayer once the ecology is fun against bots.
-
----
-
-## Environmental Ambience (day/night cycles, weather)
-
-**What Carl said:** "I'd like some day/night cycle and weather changes just for the ambience as well."
-
-**What we're taking:** A living beach that breathes — time of day (dawn, noon, dusk, night) shifts the sky, lighting, and overall mood, but mechanics stay the same. Weather (rain, mist, clear skies, storm) adds atmospheric texture without affecting gameplay. The beach feels less like a static arena and more like a place you're visiting at different times, matching the Control-inspired sense of arrival. This is pure visual storytelling — no new rules, just a world that feels inhabited and alive.
-
-**Mechanic directions:**
-
-- **Day/night cycle:** Gradual color grading shift (warm morning → bright noon → golden hour → starlit night), no gameplay impact. 5-10 minute cycle per run so players see the arc over a normal session.
-
-- **Weather layers:** Occasional rain (particle effect, splash sfx), fog (softens distant terrain), clear skies (everything crisp), rare storms (heavy rain + thunder rumble, adds drama). Driven by a simple RNG at level boundaries, so each biome can feel fresh.
-- **Mood without rules:** The beach at night feels different than noon, but the crabs move the same, the beat lands the same — just *atmosphere*. The ambience rewards players who stay long enough to see the shift.
-
-**What we're *not* taking:** Mechanical weather (rain slows you, fog hides enemies, etc.). This is pure aesthetic layering on top of the existing game, the way HYPER DEMON layers delirium visuals on top of the core mechanic. The beach is a character, not a difficulty modifier.
-
----
-
 ## Design principles distilled from the above
 
 - **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.

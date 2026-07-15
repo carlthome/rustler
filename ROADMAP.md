@@ -187,3 +187,11 @@ item in "Now" below.
   supplies their own track, the game syncs to it, and the mashup is a natural consequence of
   competition — the winner's music overwhelms the mix while losers' tracks fade to silence.
   Spatialized sound means audio IS the radar. Defer until NPC ecology is fun against bots first.
+
+- **Environmental ambience — day/night cycles and weather.** Pure visual storytelling, no gameplay
+  impact: time of day shifts sky/lighting (dawn → noon → dusk → night over ~5-10 min per run);
+  weather layers add atmosphere (occasional rain, fog, clear skies, rare storms). The beach feels
+  alive and inhabited rather than a static arena, matching the Control-inspired sense of arrival.
+  No mechanical effects — rain doesn't slow you, fog doesn't hide enemies. This is aesthetic
+  layering on top of the existing game, the way HYPER DEMON layers delirium visuals on top of core
+  mechanics. Deferred until core loop feels complete and visual polish is the focus.
