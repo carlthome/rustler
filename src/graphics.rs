@@ -4710,6 +4710,43 @@ pub fn draw_train_at_risk(
     })
 }
 
+/// Telegraph an imminent kelp snag around the conga tail. `warn` (0..=1) is the rising tension the
+/// sim raises while the tail sits in a kelp patch and eases back down once it routes clear (see
+/// `kelp_snag_warn` / `snag_chain_on_kelp`). Draws two pulsing green fronds-warning rings that
+/// tighten inward as the tension climbs, so a snag is *seen coming* and the player can dash out —
+/// turning a random-feeling tail loss into a fair "route out NOW" call. Purely a legibility overlay;
+/// it reuses the cached stroke-circle mesh and changes no gameplay odds. Skip entirely at warn≈0.
+pub fn draw_kelp_snag_warning(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    tail: Vec2,
+    time: f32,
+    warn: f32,
+) -> ggez::GameResult {
+    if warn <= 0.02 {
+        return Ok(());
+    }
+    // Pulse quickens with the tension so an about-to-snap tail visibly throbs harder.
+    let pulse = 0.5 + 0.5 * (time * (5.0 + warn * 9.0)).sin();
+    // Two rings that tighten inward as warn climbs — the "weeds closing in" read. The outer ring
+    // starts wide and clamps toward the tail; a fainter inner ring trails it for depth.
+    let outer_r = 34.0 - warn * 10.0 + pulse * 4.0;
+    let inner_r = outer_r * 0.62;
+    // Green kelp warning that deepens toward a hot lime as it peaks, unmistakably a hazard cue.
+    let g = 0.85 + warn * 0.15;
+    let alpha = (0.25 + 0.55 * warn) * (0.55 + 0.45 * pulse);
+    for (r, a, th) in [(outer_r, alpha, 2.6), (inner_r, alpha * 0.6, 2.0)] {
+        let mesh = cached_stroke_circle(ctx, r.max(4.0), th)?;
+        canvas.draw(
+            &mesh,
+            DrawParam::default()
+                .dest(tail)
+                .color(Color::new(0.35, g, 0.4, a.min(1.0))),
+        );
+    }
+    Ok(())
+}
+
 /// Draw the delivery-streak heat badge anchored under the pen — the persistent, watchable face of
 /// the streak multiplier that until now only ever flashed for a frame at bank time and then decayed
 /// silently. Banking crabs in quick succession stacks a payout multiplier (up to 2.75x); if too long

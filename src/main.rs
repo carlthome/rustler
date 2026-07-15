@@ -40,7 +40,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
@@ -979,6 +979,12 @@ struct MainState {
     // — skirt the pools or dash across them — stays a live, geography-driven decision.
     tide_pools: Vec<(Vec2, f32)>,        // (center, radius) of each shallow-water drag zone
     in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
+    // Kelp-snag telegraph: a 0..=1 tension that RISES while the conga tail sits in a kelp patch and
+    // is long enough to snag, and eases back down once the tail routes clear. It drives a pulsing
+    // green warning ring around the tail crab so an imminent snag is *seen coming* — the loss stops
+    // feeling like a random tax and becomes a "route out NOW" decision the player has agency over.
+    // Purely a legibility layer over the existing `snag_chain_on_kelp` roll; it changes no odds.
+    kelp_snag_warn: f32,
     // Rocky Shore tide: on the Rock biome the sea rises and falls on the 4-beat bar cycle. Every
     // other native rock patch (see `rock_is_low` — the even-indexed ones) is a *low rock* that the
     // rising tide submerges: while covered it stops blocking and instead wade-drags like water, so a
@@ -1622,6 +1628,7 @@ impl MainState {
             deliver_beam_perfect: false,
             deliver_streak: 0,
             deliver_streak_timer: 0.0,
+            kelp_snag_warn: 0.0,
             tide_pools: init_tide_pools,
             rock_tide_fill: 0.0,
             in_tide_pool: false,
@@ -2071,10 +2078,12 @@ impl MainState {
         const SNAG_COOLDOWN: f32 = 2.2;
         const SNAG_CHANCE_PER_SEC: f32 = 0.6; // expected snags/sec while the tail sits in kelp
 
-        if self.current_terrain() != TerrainKind::Kelp {
-            return;
-        }
-        if self.chain_snap_cooldown > 0.0 || self.chain_count < MIN_TRAIN_TO_SNAG {
+        // Ease the telegraph tension DOWN by default; the danger checks below raise it back up when
+        // the tail is actually exposed. Doing it here (a per-frame call) keeps the warning ring
+        // fading out smoothly the instant the player routes clear.
+        self.kelp_snag_warn = (self.kelp_snag_warn - dt * 1.6).max(0.0);
+
+        if self.current_terrain() != TerrainKind::Kelp || self.chain_count < MIN_TRAIN_TO_SNAG {
             return;
         }
 
@@ -2089,6 +2098,16 @@ impl MainState {
             .iter()
             .any(|(c, r)| tail_pos.distance_squared(*c) < *r * *r);
         if !tail_in_kelp {
+            return;
+        }
+
+        // The tail IS exposed — ramp the telegraph up so the warning ring builds visibly. It fills
+        // faster than it fades (above), so lingering in the weeds clearly escalates toward a snag.
+        self.kelp_snag_warn = (self.kelp_snag_warn + dt * 2.4).min(1.0);
+
+        // Still gate the actual bite on the shared cooldown — but only AFTER the telegraph has been
+        // updated, so the warning keeps pulsing through the grace period between nibbles.
+        if self.chain_snap_cooldown > 0.0 {
             return;
         }
 
@@ -6499,6 +6518,7 @@ impl MainState {
         }
         self.chain_count = 0;
         self.tail_run_len = 0;
+        self.kelp_snag_warn = 0.0;
         self.beat_timer = BEAT_INTERVAL;
         self.beat_intensity = 0.0;
         self.music_intensity = 0.0;
@@ -7587,6 +7607,15 @@ impl MainState {
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
                 let danger01 = ((n.saturating_sub(5)) as f32 / 7.0).clamp(0.0, 1.0);
                 draw_train_at_risk(ctx, canvas, tail_pos, self.time_elapsed, at_risk, danger01)?;
+            }
+        }
+
+        // Kelp-snag telegraph: while the tail sits in the weeds and is long enough to snag, ring the
+        // tail crab with a rising green warning so an imminent snag is seen coming and the player can
+        // route out. Legibility only — the odds live in `snag_chain_on_kelp`.
+        if self.kelp_snag_warn > 0.02 {
+            if let Some(tail_pos) = self.cached_tail_pos {
+                draw_kelp_snag_warning(ctx, canvas, tail_pos, self.time_elapsed, self.kelp_snag_warn)?;
             }
         }
 
