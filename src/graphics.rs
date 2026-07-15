@@ -4349,19 +4349,20 @@ pub fn draw_delivery_pen(
     // visibly advertises a fat payout. The Text is cached and only re-shaped when the value changes.
     if let Some(worth) = worth {
         thread_local! {
-            static PEN_WORTH_CACHE: std::cell::RefCell<Option<(usize, Text)>> =
+            static PEN_WORTH_CACHE: std::cell::RefCell<Option<(usize, Text, f32)>> =
                 const { std::cell::RefCell::new(None) };
         }
         PEN_WORTH_CACHE.with(|cache| -> ggez::GameResult {
             let mut c = cache.borrow_mut();
-            let needs = c.as_ref().map_or(true, |(v, _)| *v != worth);
+            let needs = c.as_ref().map_or(true, |(v, _, _)| *v != worth);
             if needs {
                 let mut t = Text::new(format!("~ {} pts", worth));
                 t.set_scale(20.0);
-                *c = Some((worth, t));
+                let w = t.measure(ctx)?.x;
+                *c = Some((worth, t, w));
             }
-            let (_, text) = c.as_ref().unwrap();
-            let w = text.measure(ctx)?.x;
+            let (_, text, w) = c.as_ref().unwrap();
+            let w = *w;
             // Bob above the pen, a touch livelier the hotter the haul. Sit clear of the fence ring.
             let bob = (time * (3.5 + haul * 4.0)).sin() * (2.0 + haul * 3.0);
             let base = center - Vec2::new(w * 0.5, radius + 34.0 - bob);
@@ -4450,21 +4451,22 @@ pub fn draw_delivery_streak(
 
     // The multiplier readout itself — cached, re-shaped only when the displayed value changes.
     thread_local! {
-        static STREAK_MULT_CACHE: std::cell::RefCell<Option<(u32, Text)>> =
+        static STREAK_MULT_CACHE: std::cell::RefCell<Option<(u32, Text, f32)>> =
             const { std::cell::RefCell::new(None) };
     }
     // Key on the two-decimal centi-multiplier so the Text rebuilds only on an actual value change.
     let key = (mult * 100.0).round() as u32;
     STREAK_MULT_CACHE.with(|cache| -> ggez::GameResult {
         let mut c = cache.borrow_mut();
-        let needs = c.as_ref().map_or(true, |(k, _)| *k != key);
+        let needs = c.as_ref().map_or(true, |(k, _, _)| *k != key);
         if needs {
             let mut t = Text::new(format!("STREAK {:.2}x", mult));
             t.set_scale(18.0);
-            *c = Some((key, t));
+            let w = t.measure(ctx)?.x;
+            *c = Some((key, t, w));
         }
-        let (_, text) = c.as_ref().unwrap();
-        let w = text.measure(ctx)?.x;
+        let (_, text, w) = c.as_ref().unwrap();
+        let w = *w;
         // Sit just below the pen, opposite the worth tag above it. A tiny urgency jitter shakes the
         // tag when a notch-drop is imminent so the warning reads even without color.
         let jitter = if urgency > 0.5 { (time * 40.0).sin() * urgency * 2.0 } else { 0.0 };
@@ -5948,14 +5950,14 @@ pub fn draw_cleave_stakes(
     time: f32,
 ) -> ggez::GameResult {
     thread_local! {
-        static CLEAVE_STAKES_CACHE: std::cell::RefCell<Option<(usize, bool, Text)>> =
+        static CLEAVE_STAKES_CACHE: std::cell::RefCell<Option<(usize, bool, Text, f32)>> =
             const { std::cell::RefCell::new(None) };
     }
     CLEAVE_STAKES_CACHE.with(|cache| -> ggez::GameResult {
         let mut c = cache.borrow_mut();
         let needs = c
             .as_ref()
-            .map_or(true, |(v, j, _)| *v != worth || *j != jackpot);
+            .map_or(true, |(v, j, _, _)| *v != worth || *j != jackpot);
         if needs {
             let label = if jackpot {
                 format!("JACKPOT CLEAVE ~ {}", worth)
@@ -5964,10 +5966,11 @@ pub fn draw_cleave_stakes(
             };
             let mut t = Text::new(label);
             t.set_scale(18.0);
-            *c = Some((worth, jackpot, t));
+            let w = t.measure(ctx)?.x;
+            *c = Some((worth, jackpot, t, w));
         }
-        let (_, _, text) = c.as_ref().unwrap();
-        let w = text.measure(ctx)?.x;
+        let (_, _, text, w) = c.as_ref().unwrap();
+        let w = *w;
         // Bob above the split point, a touch livelier in the beat window so the tag "leans in" as the
         // clean-cut window opens — the anticipation cue on the number itself.
         let bob = (time * (4.0 + beat_prox * 5.0)).sin() * (2.0 + beat_prox * 3.0);
