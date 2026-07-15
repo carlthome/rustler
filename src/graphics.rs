@@ -4390,6 +4390,103 @@ pub fn draw_delivery_pen(
     Ok(())
 }
 
+/// Draw the delivery-streak heat badge anchored under the pen — the persistent, watchable face of
+/// the streak multiplier that until now only ever flashed for a frame at bank time and then decayed
+/// silently. Banking crabs in quick succession stacks a payout multiplier (up to 2.75x); if too long
+/// passes between banks the streak drops a notch (see `try_deliver_train` / the idle decay in
+/// `update`). This badge makes both halves legible: the live multiplier reads at a glance, and as the
+/// grace window runs down it heats and pulses with rising urgency so "bank again before you lose a
+/// notch" becomes a tension the player can see and play to, instead of an invisible timer.
+///
+/// `mult` is the live streak multiplier (1.25x .. 2.75x). `decay01` is 0..1 = fraction of the grace
+/// window remaining (1 just after a bank, 0 the instant before a notch drops), so the caller owns the
+/// timer and this stays a pure readout. Only draw this when the streak is worth showing (>= 2 banks);
+/// at streak 1 the multiplier is 1.0x and there's nothing at stake. Reuses the cached unit circle.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_delivery_streak(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    time: f32,
+    mult: f32,
+    decay01: f32,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+
+    // Urgency ramps only in the last stretch of the grace window (below ~30% remaining), so the badge
+    // sits calm most of the time and then visibly panics right before a notch drops — the SNAP-loss of
+    // the delivery loop. 0 = safe, 1 = about to lose a notch.
+    let urgency = (1.0 - decay01 / 0.3).clamp(0.0, 1.0);
+    // Fast, insistent flash when urgent; a slow calm breath otherwise.
+    let pulse = 0.5 + 0.5 * (time * (3.0 + urgency * 22.0)).sin();
+
+    // Hot pink when safe (matches the "x{} STREAK" bank callout at [1.0,0.55,0.9]), flaring toward an
+    // alarm red-orange as the streak is about to slip — the same warm-danger read as the "!" SNAP pops.
+    let cr = 1.0;
+    let cg = 0.55 - urgency * 0.35 + pulse * 0.1 * urgency;
+    let cb = 0.9 - urgency * 0.75;
+
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    // A pulsing halo ring beneath the pen — grows and brightens with urgency so a streak on the brink
+    // throbs a warning without adding any HUD clutter (it lives on the pen the player's already watching).
+    let ring_r = radius * (0.72 + 0.10 * pulse + urgency * 0.18);
+    let ring_a = 0.18 + 0.22 * pulse * (0.4 + urgency);
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(center)
+            .scale(Vec2::splat(ring_r))
+            .color(Color::new(cr, cg.max(0.0), cb.max(0.0), ring_a)),
+    );
+    canvas.set_blend_mode(orig_blend);
+
+    // The multiplier readout itself — cached, re-shaped only when the displayed value changes.
+    thread_local! {
+        static STREAK_MULT_CACHE: std::cell::RefCell<Option<(u32, Text)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    // Key on the two-decimal centi-multiplier so the Text rebuilds only on an actual value change.
+    let key = (mult * 100.0).round() as u32;
+    STREAK_MULT_CACHE.with(|cache| -> ggez::GameResult {
+        let mut c = cache.borrow_mut();
+        let needs = c.as_ref().map_or(true, |(k, _)| *k != key);
+        if needs {
+            let mut t = Text::new(format!("STREAK {:.2}x", mult));
+            t.set_scale(18.0);
+            *c = Some((key, t));
+        }
+        let (_, text) = c.as_ref().unwrap();
+        let w = text.measure(ctx)?.x;
+        // Sit just below the pen, opposite the worth tag above it. A tiny urgency jitter shakes the
+        // tag when a notch-drop is imminent so the warning reads even without color.
+        let jitter = if urgency > 0.5 { (time * 40.0).sin() * urgency * 2.0 } else { 0.0 };
+        let base = center + Vec2::new(-w * 0.5 + jitter, radius + 12.0);
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base + Vec2::splat(1.5))
+                .color(Color::new(0.0, 0.0, 0.0, 0.6)),
+        );
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base)
+                .color(Color::new(cr, (cg + 0.2).min(1.0), cb.max(0.15), 0.7 + 0.3 * pulse)),
+        );
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
 /// Draw a directional guide toward the delivery pen while the player has an uncashed train.
 ///
 /// The pen relocates on every bank, so once you've built a conga line the game's biggest payoff

@@ -31,7 +31,7 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, PennedMarcherSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_delivery_pen, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
@@ -7001,6 +7001,26 @@ impl MainState {
             self.deliver_flash,
         )?;
 
+        // Delivery-streak heat badge — the persistent, watchable face of the streak multiplier that
+        // otherwise only flashed for a frame at bank time and then decayed silently. Shows the live
+        // multiplier under the pen and pulses toward an alarm color as the grace window runs down, so
+        // "bank again before you drop a notch" is a visible tension. Gated to streak >= 2 (streak 1 is
+        // 1.0x — nothing at stake). Kept SEPARATE from pen_worth on purpose: pen_worth is the honest
+        // floor excluding streak/on-beat bonuses, and folding the streak in would spoil that read.
+        if self.deliver_streak >= 2 {
+            let streak_mult = 1.0 + (self.deliver_streak.saturating_sub(1) as f32) * 0.25;
+            let decay01 = (self.deliver_streak_timer / DELIVER_STREAK_GRACE).clamp(0.0, 1.0);
+            draw_delivery_streak(
+                ctx,
+                canvas,
+                self.pen_pos,
+                PEN_RADIUS,
+                self.time_elapsed,
+                streak_mult,
+                decay01,
+            )?;
+        }
+
         // Cleave stakes tag — the Splitter bet made legible BEFORE the catch. While a free Splitter is
         // loose and the player has a train worth cleaving, float a live "CLEAVE ~N" figure at the split
         // point (the midpoint where the cut lands) showing what a clean on-beat cut would bank, heating
@@ -10141,6 +10161,19 @@ impl EventHandler for MainState {
             self.deliver_streak_timer = (self.deliver_streak_timer - dt).max(0.0);
             if self.deliver_streak_timer <= 0.0 {
                 self.deliver_streak -= 1;
+                // Losing a streak notch is a real (if gentle) setback — give it the SNAP-style loss
+                // feedback so heat draining away reads on screen, not just silently in the pen badge.
+                // Fires per notch (the decay is gradual, not a cliff), and only while a multiplier is
+                // still at stake (>= 1 remaining bank = >= 1.25x), so a fizzle from streak 1 stays quiet.
+                if self.deliver_streak >= 1 {
+                    let lost_mult = 1.0 + self.deliver_streak as f32 * 0.25;
+                    self.floating_texts.spawn(
+                        format!("STREAK -1  ({:.2}x)", lost_mult),
+                        self.pen_pos - Vec2::new(70.0, PEN_RADIUS + 8.0),
+                        24.0,
+                        [1.0, 0.45, 0.55, 1.0],
+                    );
+                }
                 if self.deliver_streak > 0 {
                     self.deliver_streak_timer = DELIVER_STREAK_GRACE;
                 }
