@@ -8784,7 +8784,26 @@ impl MainState {
                         + rng.random_range(-shake_strength..=shake_strength) * 0.3;
                 }
                 let crab_beat = (self.beat_intensity * 0.7 + (crab.pos.x * 0.003).sin().abs() * 0.3).clamp(0.0, 1.0);
-                draw_crab(ctx, canvas, crab, pos, crab_beat, crab.join_pulse, 0.0, crab.facing_angle, self.time_elapsed)?;
+                // The wild herd grooves too. On the beat every free crab pops upward, but the hop
+                // ripples across the field instead of firing in lockstep: a spatial phase offset
+                // (from screen position) delays the pop by where the crab stands, so the downbeat
+                // reads as a wave washing through the whole beach — the party the player recruits
+                // from is alive, not a static pickup field. Kept smaller than the conga train's
+                // dramatic wave (train amplitude ~10-26) so caught crabs still read as the most
+                // energized dancers. A fleeing/spooked crab skips the groove — it's panicking, not
+                // dancing — so the hop reads as mood, not just a global clock.
+                let wild_lift = if crab.fleeing || crab.spooked_timer > 0.0 || crab.startle_timer > 0.0 {
+                    0.0
+                } else {
+                    let ripple = (crab.pos.x + crab.pos.y) * 0.012;
+                    // Positive bump only (a hop, never a dip), peaking right on the downbeat and
+                    // fading between beats so the field breathes with the music.
+                    (self.beat_intensity * (ripple - self.time_elapsed * 5.0).sin()).max(0.0) * 7.0
+                };
+                // Raise the body by the hop (draw_pos moves up); pass the same amount as y_lift so
+                // the drop shadow shrinks/detaches underneath, matching how the conga train hops.
+                let hop_pos = pos - Vec2::new(0.0, wild_lift);
+                draw_crab(ctx, canvas, crab, hop_pos, crab_beat, crab.join_pulse, wild_lift, crab.facing_angle, self.time_elapsed)?;
                 // Attraction halo for crabs currently being pulled by the flashlight beam
                 if crab.in_flashlight {
                     let size = crab.scale * CRAB_SIZE;
