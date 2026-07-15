@@ -334,6 +334,12 @@ thread_local! {
     static POOL_ADD_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static POOL_ADD_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffer for draw_speed_lines' 7 wake lines. While the player is dashing
+    // all 7 lines share the same unit_line mesh with different dest/rotation/scale/color params —
+    // the exact InstanceArray use-case. Collapses 7 individual canvas.draw() calls to 1 GPU
+    // submission. The buffer is always exactly 7 entries (one per line), so it never grows.
+    static SPEED_LINE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Reusable instance buffer for draw_groove_vignette's edge-band quads. The vignette draws
     // up to 5 bands × 4 edges = 20 individual canvas.draw(unit_square, ...) calls every frame
     // the groove meter is active (which is most of late-game play). All 20 use the same
@@ -671,25 +677,30 @@ pub fn draw_speed_lines(
     if last_dir.length() < 0.01 {
         return Ok(());
     }
-    let line = unit_line(ctx)?;
+    let line = unit_line(ctx)?.clone();
     let wake = -last_dir.normalize();
     let angle = wake.y.atan2(wake.x);
     let perp = Vec2::new(-wake.y, wake.x);
     let alpha = (intensity.clamp(0.0, 1.0) * 110.0) as u8;
-    for i in 0i32..7 {
-        let t = (i as f32 - 3.0) / 3.0;
-        let origin = center + perp * (t * 14.0);
-        let length = 20.0 + (3.0 - (i as f32 - 3.0).abs()) * 8.0;
-        canvas.draw(
-            line,
+    let col = Color::from_rgba(190, 215, 255, alpha);
+    // Batch all 7 wake lines into one InstanceArray draw instead of 7 individual canvas.draw()
+    // calls — same unit_line mesh, same color, different dest/rotation/scale per line.
+    SPEED_LINE_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set((0i32..7).map(|i| {
+            let t = (i as f32 - 3.0) / 3.0;
+            let origin = center + perp * (t * 14.0);
+            let length = 20.0 + (3.0 - (i as f32 - 3.0).abs()) * 8.0;
             DrawParam::default()
                 .dest(origin)
                 .rotation(angle)
                 .scale(Vec2::new(length, 1.5))
-                .color(Color::from_rgba(190, 215, 255, alpha)),
-        );
-    }
-    Ok(())
+                .color(col)
+        }));
+        canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+        Ok(())
+    })
 }
 
 /// Draw the beat-wave's expanding ring outline. Reuses `cached_stroke_circle` instead of
