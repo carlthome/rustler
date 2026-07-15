@@ -48,6 +48,31 @@ use crate::world_map::WorldMap;
 const PLAYER_SIZE: f32 = 48.0;
 const CRAB_SIZE: f32 = 36.0;
 const SPEED: f32 = 200.0;
+
+/// How many tail links a *panic* snap tears loose for a train of length `n`.
+///
+/// The second half of the bank-now-vs-push-luck tension: a snap on a short train nibbles a few
+/// links, but a long unbanked train bleeds MORE per hit — the downside scales with the length
+/// you refuse to bank, so holding long is actively (not just abstractly) dangerous. Because
+/// `pen_worth` is triangular the tail links are the priciest, so tearing more of them off a long
+/// train makes the points-lost climb superlinearly on its own — no separate punishment curve
+/// needed. Stepped rather than continuous so the ramp reads as clear tiers (3 → 4 → 5 → 6).
+/// The head is never in scope here (callers clamp `keep` to >= 1), so even a big hit leaves a
+/// long train alive to route away and bank.
+///
+/// This is the single source of truth for panic-snap severity: `snap_chain_on_panic` uses it to
+/// decide how many links to release, and the live "AT RISK" readout uses the SAME function to
+/// compute its marginal-loss number, so the tag can never lie about what a snap costs. The other
+/// snap sites (kelp-snag, tide surge, blast) have their own fixed severities and are deliberately
+/// NOT routed through here — the readout mirrors the panic snap only.
+fn panic_snap_links(n: usize) -> usize {
+    match n {
+        0..=7 => 3,
+        8..=11 => 4,
+        12..=15 => 5,
+        _ => 6,
+    }
+}
 const CHAIN_LINK_FRAMES: usize = 12;
 const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
@@ -1988,7 +2013,6 @@ impl MainState {
     fn snap_chain_on_panic(&mut self) {
         const MIN_TRAIN_TO_SNAP: usize = 5;        // short trains are safe — the risk only bites once you've invested
         const SNAP_COLLIDE_DIST: f32 = CRAB_SIZE * 0.9;
-        const SNAP_LINKS: usize = 3;               // how many tail links a hit knocks loose
         const SNAP_COOLDOWN: f32 = 1.6;            // grace period so a herd can't strip everything at once
 
         if self.chain_snap_cooldown > 0.0 || self.chain_count < MIN_TRAIN_TO_SNAP {
@@ -2018,8 +2042,12 @@ impl MainState {
             return;
         }
 
-        // Release the last SNAP_LINKS links — always leave at least the head crab attached.
-        let keep = self.chain_count.saturating_sub(SNAP_LINKS).max(1);
+        // Release the tail links — count scales with train length (longer = a bigger, pricier
+        // bite), always leaving at least the head crab attached.
+        let keep = self
+            .chain_count
+            .saturating_sub(panic_snap_links(self.chain_count))
+            .max(1);
         let snapped = self.chain_count - keep;
         let mut snapped_positions: Vec<Vec2> = Vec::new();
         for crab in &mut self.crabs {
@@ -7080,9 +7108,11 @@ impl MainState {
 
         // Live "at-risk" readout — the downside half of the bank-now-vs-push-luck decision, mirroring
         // the gold pen-worth tag but for what a snap would cost you RIGHT NOW. A panic snap strips the
-        // last SNAP_LINKS(=3) tail links (snap_chain_on_panic), and because pen_worth is triangular the
-        // tail links are the priciest ones, so the honest number is the MARGINAL loss pen_worth(n) -
-        // pen_worth(n-3), computed with the same combo/gamble multipliers so the two tags agree. Gated
+        // last panic_snap_links(n) tail links (snap_chain_on_panic), and because pen_worth is triangular
+        // the tail links are the priciest ones, so the honest number is the MARGINAL loss pen_worth(n) -
+        // pen_worth(keep), computed with the same combo/gamble multipliers so the two tags agree. That
+        // link count now GROWS with train length, so a long unbanked train's at-risk number jumps at
+        // each severity tier — the downside visibly mounts the longer you hold. Gated
         // to the same length threshold (MIN_TRAIN_TO_SNAP=5) at which a panic snap can actually fire —
         // below that there's genuinely no risk, so no tag; it appears exactly when holding turns
         // dangerous and the number climbs the longer you refuse to bank. Anchored on the tail in warning
@@ -7092,7 +7122,10 @@ impl MainState {
                 let mult = self.combo_multiplier() as f32 * self.beat_gamble_mult;
                 let tri = |m: usize| (m * (m + 1) / 2) * 3;
                 let n = self.chain_count;
-                let keep = n.saturating_sub(3).max(1);
+                // Use the SAME severity function the panic snap uses, so the readout can't lie:
+                // a longer train shows a bigger at-risk number precisely because a snap tears more
+                // (and pricier, since tri() is triangular) tail links off it.
+                let keep = n.saturating_sub(panic_snap_links(n)).max(1);
                 let marginal = tri(n).saturating_sub(tri(keep));
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
