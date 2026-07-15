@@ -3179,6 +3179,15 @@ impl MainState {
 
         // Move the pen so the next bank is a fresh routing decision, not a treadmill loop.
         self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rng);
+
+        // Banking is the single biggest score jump in the game, so it's the most likely place to
+        // cross an upgrade threshold — check HERE, at the pen, so the upgrade screen lands on the
+        // natural pause right after a delivery (the moment the player earned it). Previously the
+        // check ran only from the three catch sites, so a threshold crossed by a big bank sat
+        // silent until some unrelated mid-field catch popped the screen out of nowhere — the
+        // "fires at an odd moment" bug Carl hit in playtest. A bank is a lull, not mid-action, so
+        // it's exactly when a menu is least disruptive.
+        self.check_upgrade_unlock(ctx);
     }
 
     /// If the banked score has crossed the next upgrade threshold, queue an upgrade and advance
