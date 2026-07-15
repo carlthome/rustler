@@ -3959,6 +3959,7 @@ pub fn draw_downbeat_pulse_ring(
     center: Vec2,
     pulse: f32,
     reach: f32,
+    haul: f32,
 ) -> ggez::GameResult {
     if pulse <= 0.0 {
         return Ok(());
@@ -3966,19 +3967,27 @@ pub fn draw_downbeat_pulse_ring(
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
 
+    // `haul` (0..1) is how big a herd this downbeat is actually sweeping. It blooms the ring so the
+    // routing tool's *power* reads: a fat scoop flares brighter, thicker, and shifts from a faint
+    // amber thump toward hot gold; an empty-field downbeat stays subtle. Color lerps amber→gold and
+    // alpha/thickness scale up with the haul.
+    let h = haul.clamp(0.0, 1.0);
+    let g = 0.72 + 0.18 * h; // amber (0.72) → gold (0.90)
+    let alpha_scale = 0.5 + 0.5 * h; // faint on an empty field, bold over a big herd
+
     // Two rings collapsing inward as the pulse decays — arrows of the herd being scooped in.
     for phase in [0.0_f32, 0.4] {
         let p = (pulse - phase).clamp(0.0, 1.0);
         // r shrinks from `reach` toward the player as the pulse fades (p: 1 → 0).
         let r = reach * p.max(0.05);
-        let alpha = (pulse * 0.5).clamp(0.0, 1.0);
-        let thickness = 2.0 + 3.0 * (1.0 - p);
+        let alpha = (pulse * alpha_scale).clamp(0.0, 1.0);
+        let thickness = 2.0 + 3.0 * (1.0 - p) + 3.0 * h;
         let ring = cached_stroke_circle(ctx, r, thickness)?;
         canvas.draw(
             &ring,
             DrawParam::default()
                 .dest(center)
-                .color(Color::new(1.0, 0.72, 0.3, alpha)),
+                .color(Color::new(1.0, g, 0.3, alpha)),
         );
     }
 

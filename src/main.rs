@@ -801,6 +801,12 @@ struct MainState {
     // fights the flee/lure passes or becomes an autocatcher next to the on-beat catch bloom.
     downbeat_pull: f32,
     downbeat_pull_center: Vec2, // player center captured on the downbeat, for the visual clump ring
+    // How big a herd the last downbeat actually swept — 0..1, normalized against a "full scoop" count.
+    // Captured on the downbeat by counting free, non-fleeing crabs inside the pull radius, and used to
+    // bloom the visual clump ring: a downbeat that hoovers a fat loose herd flares brighter and gold,
+    // a downbeat over an empty field stays a faint thump. Makes the passive routing tool's *power* read
+    // on screen so a groove-savvy player sees when standing in the herd on the "1" paid off.
+    downbeat_pull_haul: f32,
     // Camera shake
     screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     screen_shake_vel: Vec2,     // current shake offset velocity
@@ -1456,6 +1462,7 @@ impl MainState {
             groove_dash_dir: Vec2::ZERO,
             downbeat_pull: 0.0,
             downbeat_pull_center: Vec2::ZERO,
+            downbeat_pull_haul: 0.0,
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
@@ -6137,6 +6144,7 @@ impl MainState {
         self.groove_dash_dir = Vec2::ZERO;
         self.downbeat_pull = 0.0;
         self.downbeat_pull_center = Vec2::ZERO;
+        self.downbeat_pull_haul = 0.0;
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
@@ -7410,6 +7418,7 @@ impl MainState {
                 self.downbeat_pull_center,
                 self.downbeat_pull,
                 300.0, // matches DOWNBEAT_PULL_RADIUS in update_crabs
+                self.downbeat_pull_haul,
             )?;
         }
 
@@ -9373,7 +9382,25 @@ impl EventHandler for MainState {
             // update_crabs and decays over the frames after. Captured center drives the visual ring.
             if downbeat {
                 self.downbeat_pull = 1.0;
-                self.downbeat_pull_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                self.downbeat_pull_center = center;
+                // Count the herd this downbeat is actually about to sweep — free, un-spooked crabs
+                // inside the same 300px radius the per-crab pull uses — so the ring's flare reflects
+                // real routing payoff, not just that a beat happened. Normalized against a "full
+                // scoop" of ~10 crabs; standing in a fat loose herd on the "1" flares the ring gold.
+                let swept = self
+                    .crabs
+                    .iter()
+                    .filter(|c| {
+                        !c.caught
+                            && !c.is_boss()
+                            && c.startle_timer <= 0.0
+                            && c.charm_timer <= 0.0
+                            && c.magnet_snared <= 0.0
+                            && c.pos.distance_squared(center) < 300.0 * 300.0
+                    })
+                    .count();
+                self.downbeat_pull_haul = (swept as f32 / 10.0).clamp(0.0, 1.0);
             }
             // Drum Roll: if T is being held as this beat fires, bank a roll hit (the charge). The
             // beat handler runs at most once per beat, so a held key naturally counts exactly one
