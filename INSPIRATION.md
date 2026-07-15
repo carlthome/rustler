@@ -62,6 +62,24 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
+## HYPER DEMON
+
+**What Carl said:** The crazy visuals are appealing — that weird "everything blends into everything" delirium style could be interesting to play with.
+
+**What we're taking:** Not the FPS combat, but the visual permission. HYPER DEMON's identity is psychedelic, surreal, high-speed score-attack pressure: spherical projection, huge peripheral awareness, a red holographic rear-view readout, strobing intensity, and enemies/arena/feedback all fighting to become one hostile visual field. For Crab Rustler, that suggests a late-run "delirium" layer where the beach stops being a clean board and starts becoming a pulsing, smeared, reactive mess: crab trails, rope heat, beat rings, danger halos, score particles, tide foam, and enemy tells blending together into one readable-but-unhinged system.
+
+**Mechanic directions:**
+
+- **Delirium meter:** As score, combo, train length, or groove rises, the world becomes more hyper-saturated and warped. This should feel earned, not random.
+- **Peripheral threat language:** Borrow the idea of rear/peripheral awareness without copying the camera tech: edge glows, mirrored silhouettes, red warning ghosts, or "echo crabs" on screen borders that hint where danger is coming from.
+- **Visual fusion as reward/risk:** Perfect rhythm play could briefly make all caught crabs, ropes, beat pulses, and score pickups harmonize into one blazing conga waveform. Missing the beat could make that same fusion noisy and harder to parse.
+- **Score-attack escalation:** The faster and cleaner the player catches crabs, the more hostile and spectacular the presentation becomes. High score should look slightly impossible to survive.
+- **Boss/biome delirium phases:** Certain levels can temporarily abandon natural color and become abstract: black sand, white-hot crabs, red rear-warning ghosts, chromatic tide rings, and screen-space afterimages.
+
+**What we're *not* taking:** Unchecked visual chaos that hides the beat, player, rope state, or enemy intent. HYPER DEMON can flood the senses because it builds its whole readability model around that. Crab Rustler needs delirium as a controllable layer over a fundamentally legible rhythm game.
+
+---
+
 ## Design principles distilled from the above
 
 1. **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.
@@ -69,3 +87,4 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 3. **Depth before breadth.** One mechanic done with a real skill ceiling beats three mechanics done shallowly.
 4. **Thresholds, not interruptions.** Level transitions, upgrade moments, boss arrivals — each should feel earned and brief, not like a pause menu.
 5. **Secrets that reward curiosity.** At least one mechanic (the desktop level) should be undocumented and discoverable. The best moment in the game might be one most players never find.
+6. **Controlled delirium.** Visual excess is good when it makes mastery feel dangerous and ecstatic; it is bad when it obscures the rhythm contract.
