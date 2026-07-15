@@ -2898,6 +2898,38 @@ impl MainState {
             );
             callout_y += 26.0;
         }
+        // LONG HAUL — the payoff face of the AT RISK gamble. It fires at the SAME length tiers the
+        // risk escalates at (the panic_snap_links steps: 8, 12, 16), so a train that was flashing
+        // AT RISK on the way in now cashes out as a named reward. This adds NO new multiplier — the
+        // bank is already superlinear via the triangular base curve. Instead it *names* how much of
+        // that base the priciest tail links (everything past the tier threshold) actually earned,
+        // so the upside of holding long reads as loudly on screen as the downside did. The number
+        // shown is the marginal triangular value of links past `thresh`: base(n) - base(thresh).
+        let long_haul_tier = match n {
+            16.. => Some(("GRAND HAUL!", 16usize, [1.0, 0.55, 0.2, 1.0])),
+            12..=15 => Some(("LONG HAUL!", 12, [1.0, 0.75, 0.25, 1.0])),
+            8..=11 => Some(("BIG HAUL!", 8, [1.0, 0.9, 0.4, 1.0])),
+            _ => None,
+        };
+        if let Some((label, thresh, color)) = long_haul_tier {
+            // Marginal points the tail links past the tier threshold contributed to the base payout,
+            // carried through the same multipliers the whole bank got — real earned score attributed
+            // to the length you refused to bank, not a bolt-on bonus.
+            let tail_base = (n * (n + 1) / 2).saturating_sub(thresh * (thresh + 1) / 2) * 3;
+            let tail_bank =
+                (tail_base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
+            self.floating_texts.spawn(
+                format!("{}  +{} FROM THE TAIL", label, tail_bank),
+                self.pen_pos - Vec2::new(120.0, callout_y),
+                30.0,
+                color,
+            );
+            callout_y += 30.0;
+            // A held-long bank earns extra celebration so the risk you carried pays off viscerally.
+            self.particle_system
+                .spawn_milestone_fireworks(self.pen_pos, n + (n - thresh) * 3, &mut rng);
+            self.screen_shake = self.screen_shake.max(24.0);
+        }
         self.floating_texts.spawn(
             format!("{} crabs delivered!", n),
             self.pen_pos - Vec2::new(70.0, callout_y),
