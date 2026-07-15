@@ -187,3 +187,21 @@ item in "Now" below.
   catch-everything sprint, a rhythm-only gauntlet, something silly and short. Parked here rather
   than in "Now" since it's a side-system/breadth item by nature, same category as alternate game
   modes — worth revisiting once the core loop itself feels done.
+
+- **NPC conga ecology (agar.io + Rain World) → multiplayer endgame.** Carl's vision: King Crabs
+  have their own conga trains of followers; they steal crabs from the player's train and from each
+  other. The beach becomes a living ecosystem of competing conga leaders, not just a static arena.
+  The player starts as the smallest and must out-arrange (not just out-catch) larger NPC trains.
+  Sequencing: (1) NPC conga trains for King Crabs; (2) train-stealing interactions between NPC
+  and player trains; (3) ecology emerges from simple per-creature rules à la Rain World (see
+  INSPIRATION.md); (4) multiplayer where human Rustlers compete for the largest train and thus
+  the dominant audio share. Size is legible from across the field — a well-arranged shorter train
+  should beat a larger, poorly-arranged one (arrangement depth matters more than raw length).
+
+- **Spatialized audio + bring-your-own-music (competing DJ mode).** The dominant conga train's
+  music takes up the bulk of the audio mix; smaller/losing trains fade. Each approaching NPC
+  King Crab train is *heard* before seen — their music gets louder as they near, like agar.io
+  circles creeping in from the edge. BPM detection already exists. In multiplayer: each player
+  supplies their own track, the game syncs to it, and the mashup is a natural consequence of
+  competition — the winner's music overwhelms the mix while losers' tracks fade to silence.
+  Spatialized sound means audio IS the radar. Defer until NPC ecology is fun against bots first.

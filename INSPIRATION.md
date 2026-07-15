@@ -80,6 +80,47 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
+## Agar.io
+
+**What Carl said:** "I love agar.io" — the dynamic where the biggest wins, smaller players fear and flee large ones, you absorb others to grow, and giant cells creep after you from the edge of the screen.
+
+**What we're taking:** The NPC-conga-line ecology vision. King Crabs should have their own conga trains of followers, steal trains from the player and from each other, and create a living ecosystem of competing conga leaders on the beach. The player is the smallest at first and has to outmaneuver bigger trains. The spatial anxiety of watching a large circle creep toward you = the spatial anxiety of hearing a King Crab's music getting louder as their massive train approaches. Size is legible from across the field.
+
+**Mechanic directions:**
+- NPC conga leaders (King Crabs with their own trains) that steal crabs from smaller trains they overtake.
+- The player wins by out-arranging, not just out-catching — a well-arranged short train can outmaneuver a longer, poorly-arranged NPC train.
+- Eventually: multiplayer, where several human Rustlers compete for the largest conga to dominate the beat.
+
+**What we're *not* taking:** Agar.io's pure size-wins simplicity. Crab Rustler's arrangement system (bonds, sandwiches, figureheads) means a *smarter* train beats a bigger one — skill expression over raw accumulation.
+
+---
+
+## Rain World (Videocult)
+
+**What Carl said:** "Natural ecology ecosystem effects like in Rain World."
+
+**What we're taking:** The feeling that the world is alive and indifferent — creatures pursuing their own agendas, predator/prey chains, emergent behavior from simple rules. In Crab Rustler this means the beach isn't a static arena but a living ecosystem: King Crabs hunting smaller crabs, NPC conga trains competing for followers, crabs fleeing and regrouping on their own. The player is a participant in the ecology, not the only agent with goals.
+
+**Direction for agents:** When adding NPC behavior, ask "what does this creature want?" not "how does this creature challenge the player?" The challenge emerges from the ecology, not from designed difficulty curves.
+
+**What we're *not* taking:** Rain World's cruelty and opacity. Crab Rustler is playful. The ecology should feel fair and legible — you should be able to read what's happening and why you lost crabs to an NPC train.
+
+---
+
+## Competing DJs / Bring-Your-Own-Music (Carl's vision)
+
+**What Carl said:** Competing crab rustlers like competing DJs. A "bring-your-own-music" mode where the dominant conga line takes up the bulk of the audio mix — a crazy mashup competition with spatialized sound so you can hear large King Crabs approaching by their music. "You can hear large king crabs approaching by their crazy music, sort of like in agar.io where you see large circles creeping after you."
+
+**What we're taking:**
+- **Audio as terrain.** Each conga train has a "musical identity" — the dominant train's music is loudest in the mix; smaller/losing trains fade. Winning the beat mechanic means your music takes over.
+- **Spatialized threat.** A large NPC train approaching from off-screen is heard before seen: their music gets louder as they approach. Audio = radar.
+- **Bring-your-own-music.** Players can supply their own tracks; the game's BPM detection (already built) syncs mechanics to whatever tempo the track carries. The mashup happens naturally as multiple tracks compete in the mix.
+- **Multiplayer endgame.** Multiple human Rustlers, each with their own track, competing for the largest train and thus the dominant audio share. The winner's music overwhelms the mix; losers' tracks fade to silence.
+
+**What we're *not* taking (yet):** The full multiplayer infrastructure. Start with NPC competing trains using procedural audio, then layer in bring-your-own-music for singleplayer, then unlock multiplayer once the ecology is fun against bots.
+
+---
+
 ## Design principles distilled from the above
 
 1. **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.
