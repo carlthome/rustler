@@ -5998,6 +5998,104 @@ pub fn draw_cleave_stakes(
     })
 }
 
+/// Tail-run badge — the persistent, watchable face of the same-type match run at the tail of the
+/// train. `tail_run_len` only ever flashed for a frame at catch time, so the player could never
+/// *set up* the every-4th-link Match-Run Milestone — they couldn't see how long their current run
+/// was or how close the next x4 flourish was. This floats a live "RUN xN" over the tail link with a
+/// 4-pip meter filling toward the next milestone, color-matched to the run's crab type, and heats +
+/// bobs harder in the beat window so committing to a single-type run reads as a live decision, not a
+/// silent counter. `col` is the run's crab color; `beat_prox` (0..1) rises as a beat nears.
+pub fn draw_tail_run_badge(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    at: Vec2,
+    run: u32,
+    col: [f32; 3],
+    beat_prox: f32,
+    time: f32,
+) -> ggez::GameResult {
+    thread_local! {
+        static TAIL_RUN_CACHE: std::cell::RefCell<Option<(u32, Text, f32)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    TAIL_RUN_CACHE.with(|cache| -> ggez::GameResult {
+        let mut c = cache.borrow_mut();
+        let needs = c.as_ref().map_or(true, |(v, _, _)| *v != run);
+        if needs {
+            let mut t = Text::new(format!("RUN x{}", run));
+            t.set_scale(16.0);
+            let w = t.measure(ctx)?.x;
+            *c = Some((run, t, w));
+        }
+        let (_, text, w) = c.as_ref().unwrap();
+        let w = *w;
+        // Bob above the tail link, leaning in as a beat nears — same anticipation cue the cleave tag
+        // uses so the rhythm HUD reads consistently.
+        let bob = (time * (3.5 + beat_prox * 4.0)).sin() * (1.5 + beat_prox * 2.5);
+        let base = at - Vec2::new(w * 0.5, 34.0 - bob);
+        // Text tinted toward the run's crab color, brightened so it stays legible; heats a touch on
+        // the beat.
+        let hot = beat_prox;
+        let tr = (col[0] * 0.5 + 0.5 + 0.15 * hot).min(1.0);
+        let tg = (col[1] * 0.5 + 0.5 + 0.15 * hot).min(1.0);
+        let tb = (col[2] * 0.5 + 0.5 + 0.15 * hot).min(1.0);
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base + Vec2::splat(1.5))
+                .color(Color::new(0.0, 0.0, 0.0, 0.55)),
+        );
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base)
+                .color(Color::new(tr, tg, tb, 0.95)),
+        );
+        // 4-pip milestone meter under the label: how many links into the current group of four, so
+        // the next Match-Run Milestone (4, 8, 12…) is a visible target you close on. Full row lit
+        // means the flourish fires on the next same-type catch.
+        let filled = if run == 0 { 0 } else { ((run - 1) % 4) + 1 };
+        let pip_r = 3.0;
+        let gap = 10.0;
+        let row_w = gap * 3.0;
+        let py = base.y + 20.0;
+        let px0 = at.x - row_w * 0.5;
+        // The pip that's about to complete the group pulses on the beat so the "one more lands it"
+        // moment is legible.
+        let about_to_land = filled == 4;
+        for i in 0..4u32 {
+            let lit = i < filled;
+            let cx = px0 + gap * i as f32;
+            let (r, g, b, a) = if lit {
+                let boost = if about_to_land { 0.3 * hot } else { 0.0 };
+                (
+                    (col[0] + boost).min(1.0),
+                    (col[1] + boost).min(1.0),
+                    (col[2] + boost).min(1.0),
+                    0.95,
+                )
+            } else {
+                (0.4, 0.4, 0.45, 0.5)
+            };
+            let rr = if lit && about_to_land {
+                pip_r + hot * 1.5
+            } else {
+                pip_r
+            };
+            let mesh = Mesh::new_circle(
+                ctx,
+                DrawMode::fill(),
+                Vec2::new(cx, py),
+                rr,
+                0.5,
+                Color::new(r, g, b, a),
+            )?;
+            canvas.draw(&mesh, DrawParam::default());
+        }
+        Ok(())
+    })
+}
+
 /// Cleave slash — the blade stroke drawn the instant a Splitter cuts the conga train. Runs from the
 /// last kept front link (`a`) to the split point (`b`), overshooting both ends so it reads as a
 /// swung stroke rather than a connecting line. `flash` is a 1→0 life: the stroke starts long and

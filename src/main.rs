@@ -33,7 +33,7 @@ use crate::graphics::{
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
-    draw_reef_phrase, draw_tide_pulses, draw_wave_telegraph,
+    draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
@@ -7130,6 +7130,31 @@ impl MainState {
                         self.time_elapsed,
                     )?;
                 }
+            }
+        }
+
+        // Tail-run badge — the persistent readout of the same-type match run at the tail. Shows
+        // "RUN xN" plus a 4-pip meter over the tail link so the player can *set up* the every-4th
+        // Match-Run Milestone instead of only seeing the count flash for a frame at catch time.
+        // Only shown for a run worth committing to (>=2) — a lone link isn't a run yet.
+        if self.tail_run_len >= 2 {
+            let tail_idx = self.chain_count.saturating_sub(1);
+            if let Some(tail) = self
+                .crabs
+                .iter()
+                .find(|c| c.caught && c.chain_index == Some(tail_idx))
+            {
+                let to_beat = self.beat_timer.min(self.beat_interval - self.beat_timer);
+                let beat_prox = (1.0 - to_beat / (BEAT_WINDOW * 1.5)).clamp(0.0, 1.0);
+                draw_tail_run_badge(
+                    ctx,
+                    canvas,
+                    tail.pos,
+                    self.tail_run_len,
+                    tail.crab_color(),
+                    beat_prox,
+                    self.time_elapsed,
+                )?;
             }
         }
 
