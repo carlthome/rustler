@@ -7463,15 +7463,20 @@ impl MainState {
                 // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
                 // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
                 // second O(n) crab scan with the same argument.
-                let (bonds_keep, sandwiches_keep, _run_bonus_keep) = self.count_bonds_and_sandwiches(keep);
+                let (bonds_keep, sandwiches_keep, run_bonus_keep) = self.count_bonds_and_sandwiches(keep);
                 let bonds_lost = bonds_n.saturating_sub(bonds_keep);
                 // Sandwiches destroyed by the cut too — any sandwich straddling or inside the torn
                 // tail region is gone, so the at-risk number folds in its lost value the same way
                 // the bank pays it. Mirrors bonds_lost exactly.
                 let sandwiches_lost = sandwiches_n.saturating_sub(sandwiches_keep);
+                // Deep-run block value lost to the cut, same logic: chopping the tail shortens (or
+                // erases) any long matched run there, so the at-risk number reflects the run bonus
+                // the bank would no longer pay — keeping the two tags honest with each other.
+                let run_bonus_lost = run_bonus_n.saturating_sub(run_bonus_keep);
                 let marginal = tri(n).saturating_sub(tri(keep))
                     + bonds_lost * BOND_PAIR_BONUS
-                    + sandwiches_lost * SANDWICH_BONUS;
+                    + sandwiches_lost * SANDWICH_BONUS
+                    + run_bonus_lost;
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
                 let danger01 = ((n.saturating_sub(5)) as f32 / 7.0).clamp(0.0, 1.0);
@@ -9230,20 +9235,23 @@ impl MainState {
                     accent
                 };
                 // Lane rank badge — lit in the lane accent once invested.
+                // All elements centered on the card's fixed midline (cx + card_w/2) so no element
+                // shifts when rank text width changes between sequential upgrade screens.
+                let mid = cx + card_w / 2.0;
                 canvas.draw(ico, DrawParam::default()
-                    .dest(Vec2::new(cx + (card_w - iw) / 2.0, y0 + 18.0))
+                    .dest(Vec2::new(mid - iw / 2.0, y0 + 18.0))
                     .color(accent));
                 canvas.draw(nm, DrawParam::default()
-                    .dest(Vec2::new(cx + (card_w - nw) / 2.0, y0 + 118.0))
+                    .dest(Vec2::new(mid - nw / 2.0, y0 + 118.0))
                     .color(Color::WHITE));
                 canvas.draw(rk, DrawParam::default()
-                    .dest(Vec2::new(cx + (card_w - rkw) / 2.0, y0 + 146.0))
+                    .dest(Vec2::new(mid - rkw / 2.0, y0 + 146.0))
                     .color(rank_col));
                 canvas.draw(dsc, DrawParam::default()
-                    .dest(Vec2::new(cx + (card_w - dw) / 2.0, y0 + 176.0))
+                    .dest(Vec2::new(mid - dw / 2.0, y0 + 176.0))
                     .color(Color::from_rgba(205, 205, 205, 215)));
                 canvas.draw(kh, DrawParam::default()
-                    .dest(Vec2::new(cx + (card_w - kw) / 2.0, y0 + card_h - 46.0))
+                    .dest(Vec2::new(mid - kw / 2.0, y0 + card_h - 46.0))
                     .color(accent));
             }
             Ok(())
