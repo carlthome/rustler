@@ -39,22 +39,19 @@ The opt-in **How to Play** tutorial ships four scenarios, each a pure headless p
 regression test. A first slice of **meta-progression** + campaign scaffolding exists but stays parked in
 "Later" — the gate is Carl's explicit "the core feels done" call, which hasn't come.
 
-**Signal.** Carl gave substantive playtest feedback this cycle (see "Now" + "Level system rethink"): (1) the
-upgrade screen fires too often and reads as a flow-breaking *pause* — cut its frequency (**SHIPPED**, rising
-threshold 39daa76); (2) the level title cards look cool (Control-style aesthetic) but
-levels don't vary or feel impactful and happen too often — make boundaries rarer and bigger (**first pass
-SHIPPED**: longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755; terrain-hazard half
-still open), and weave levels/campaign/tutorial together more holistically; (3) he wants a procedural horde / world-record leaderboard
-endless mode (Diablo-style) with a beat-mastery skill ceiling (precision-platformer "play it perfectly and go
-further") for longevity — this is the arcade mode already parked in "Later", now sharpened. **Both prior top
-"Now" items (mid-train arrangement depth, reposition verb) shipped, and the risk/reward axis is genuinely
-balanced.** The long-train-vs-bank-often tension is
-served on all three fronts: a live **AT RISK** readout mirrors the pen-worth tag with what a snap costs *right
-now* (417c818), snap teeth **escalate by length** (3→4→5→6 tail links torn, b7b7448), and the bank payoff is
-**superlinear** — `pen_worth = (n·(n+1)/2)·3`, a triangular sum, so a long train's priciest tail links pay
-disproportionately, keeping the gamble tempting rather than pure punishment. The **BIG/LONG/GRAND HAUL** cashout
-(36e880d) makes that reward face legible. So the bank-now-vs-push-luck decision now has real, visible teeth on
-both sides — treat this axis as closed for now unless Carl says it still feels flat.
+**Signal.** No new Slack reactions/replies this cycle — the recent Dev Diary posts are unreacted, so direction
+holds from Carl's last substantive playtest: (1) upgrade screen fires too often and reads as a flow-breaking
+*pause* — frequency cut **SHIPPED** (rising threshold 39daa76), and the wrong-timing/back-to-back **bugs are
+now fixed** (c01b922 loops the threshold past the current score; 3b17573 fires the check at the pen); (2) level
+title cards look cool (Control aesthetic) but levels don't vary or feel impactful — boundaries-rarer-and-bigger
+**first pass SHIPPED** (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755;
+terrain-hazard half still open); (3) he wants a procedural horde / world-record leaderboard endless mode
+(Diablo-style) with a beat-mastery skill ceiling — parked in "Later", sharpened. **The risk/reward axis is
+genuinely balanced** and served on all three fronts: a live **AT RISK** readout mirrors the pen-worth tag with
+what a snap costs *right now*, snap teeth **escalate by length** (3→4→5→6 tail links torn, b7b7448), and the
+bank payoff is **superlinear** — `pen_worth = (n·(n+1)/2)·3`, a triangular sum, so a long train's priciest tail
+links pay disproportionately. The **BIG/LONG/GRAND HAUL** cashout (36e880d) makes that reward face legible.
+Treat this axis as closed unless Carl says it still feels flat.
 
 **Next frontier: the middle of the train is positionally inert.** Only the **head** (Golden figurehead, Dancer
 Drum-Major) and **tail** (Armored tail-guard) slots carry weight; every crab between them is just a number for
@@ -66,47 +63,32 @@ the inner loop AND sharpens Carl's tension (holding long becomes a puzzle to set
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- **Upgrade screen fires at wrong time / bugged behavior reported by Carl during playtesting —
-  investigate and fix before shipping anything new.** Carl hit a wrong-feeling upgrade screen in a
-  fresh playtest this cycle (fires at an odd moment and/or misbehaves). Reproduce and fix it before
-  the upgrade redesign below or any other Now item — a broken upgrade flow blocks the redesign that
-  depends on it.
-- (The start-of-run `InstanceArray capacity > 0` crash and the windowed-instead-of-fullscreen bug
-  are both fixed.) If you hit a panic or a wrong-looking frame while testing, log it here before
-  shipping anything new.
+- None open. (Fixed: the upgrade screen fired at the wrong time / popped back-to-back — c01b922 loops the
+  threshold past the current banked score, 3b17573 fires the check at the pen; also the start-of-run
+  `InstanceArray capacity > 0` crash and the windowed-instead-of-fullscreen bug.) If you hit a panic or a
+  wrong-looking frame while testing, log it here before shipping anything new.
 
 ## Now
 
 - **NOTE — MECHANICS FREEZE (called by Carl this cycle).** Carl: "We might have sufficient game mechanics
   content for now, and should work on strengthening what we have to make the player feel agency and control."
   Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
-  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. The two live
-  Now items below (biome terrain hazard, perfect-on-beat payoff) survive the freeze: they *deepen and polish
-  existing* mechanics rather than adding new ones, which is exactly the work Carl is asking for. Deepen and
-  polish what exists; make the player feel in control of it.
+  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. All three
+  live Now items below (upgrade redesign, biome terrain hazard, perfect-on-beat payoff) survive the freeze:
+  each *deepens and polishes existing* mechanics rather than adding new ones — the upgrade redesign reshapes the
+  upgrade system that already exists, it doesn't add one — which is exactly the work Carl is asking for. Deepen
+  and polish what exists; make the player feel in control of it.
 
-- **Redesign the upgrade screen from "more of everything" to a meaningful choice.** Offer 3 random upgrades per
-  screen (pick 1), where each upgrade meaningfully reshapes how the next few minutes play rather than just
-  increments a rank. Tradeoffs and specialization over pure power addition. See INSPIRATION.md Vampire Survivors
-  and precision platformer notes. This is the NEXT item after the upgrade bug (see Bugs) is fixed — it reshapes
-  the *existing* upgrade system (consistent with the mechanics freeze), it does not add a new one.
+- **[TOP PRIORITY — UNBLOCKED] Redesign the upgrade screen from "more of everything" to a meaningful choice.**
+  Both upgrade bugs are now fixed (see Bugs), so this — the thing they were blocking — is the next thing to
+  build. Offer 3 random upgrades per screen (pick 1), where each upgrade meaningfully reshapes how the next few
+  minutes play rather than just incrementing a rank. Tradeoffs and specialization over pure power addition (a
+  pick can cost you something as well as give — e.g. faster beam but a shorter catch window, a heavier train
+  that banks bigger but snaps meaner). This directly answers Carl's Vampire Survivors note — the upgrade moment
+  should feel like a lucky, powerful *choice*, not a pause. It reshapes the *existing* upgrade system, so it's
+  consistent with the mechanics freeze; it does not add a new one. See INSPIRATION.md (Vampire Survivors +
+  precision-platformer depth notes).
 
-- **~~Make the middle of the train matter — mid-train arrangement depth.~~ SHIPPED** — adjacency pairs pay
-  a banked bonus with a glowing rope segment + ARRANGED xN callout (d68f252), and the SANDWICH bonus rewards
-  a crab flanked by two matched figureheads (78623b5). Mid-train is no longer inert.
-- **~~Reposition-your-train verb.~~ SHIPPED** — X cycles the whole train one slot on the beat (13be12e), a
-  rhythm-gated setup move that preserves match-run bonds. The train is now a live instrument to tune.
-- **~~Fix upgrade-screen frequency.~~ SHIPPED** — the buggy `score % 10` trigger is replaced with a rising
-  threshold (first upgrade at 25 banked points, +15 each after, reset on new run; 39daa76), so upgrades land
-  noticeably rarer and never skip. A later bolder fix — a non-blocking pick that doesn't freeze the run — stays
-  unbuilt; the frequency cut may be enough on its own. Revisit only if Carl still reads upgrades as a flow-break.
-  **REOPENED (this cycle):** the frequency cut was NOT enough — Carl still hit a wrong-feeling upgrade screen in
-  playtest (see Bugs), and separately flagged the upgrade *content* as shallow ("more more more"). Both are now
-  live: the bug is logged in Bugs, and the content problem is the redesign item at the top of Now below.
-- **~~Rarer, bigger level boundaries — first pass.~~ SHIPPED** — levels are lengthened so boundaries land rarer
-  (22caa05), each biome now carries a dominant crab archetype (Water→Magnet, Rock→Armored, Kelp→Thief) plus a
-  threat banner on the title card, and the redirect is eased to ~33% so zones stay buildable (f83c755). The
-  *who-you-catch* half of the gear-change landed; the terrain-hazard half is the next item.
 - **Pair each biome with its own terrain hazard — finish the gear-change. (Next step of the level rethink.)**
   Boundaries now shift *who you catch* (archetype emphasis) but the ground is still mostly a tint. Per
   INSPIRATION's Control note, a boundary should read as arriving somewhere mechanically: give each biome a
