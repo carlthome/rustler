@@ -42,6 +42,14 @@ static UNIT_SQUARE: OnceLock<Mesh> = OnceLock::new();
 // screen edge was allocating two brand-new GPU meshes per frame it stayed there.
 static UNIT_TRIANGLE: OnceLock<Mesh> = OnceLock::new();
 
+// Per-raindrop constants (rx, ry, speed, len) precomputed once — see rain_consts(). Only the
+// time-varying vertical position is computed per frame; everything else is baked.
+const RAIN_DROP_COUNT: usize = 220;
+static RAIN_CONSTS: OnceLock<[(f32, f32, f32, f32); RAIN_DROP_COUNT]> = OnceLock::new();
+// Per-puddle-ripple constants (rx, ry, phase, period) precomputed once — see puddle_consts().
+const PUDDLE_RIPPLE_COUNT: usize = 26;
+static PUDDLE_CONSTS: OnceLock<[(f32, f32, f32, f32); PUDDLE_RIPPLE_COUNT]> = OnceLock::new();
+
 thread_local! {
     // Cache of stroke-circle meshes keyed by (radius, thickness) quantized to the nearest
     // 2px/1px (see cached_stroke_circle). Ring-style effects (beat ghost rings, catch
@@ -379,6 +387,12 @@ thread_local! {
     // batching: collect all 20 params, fill one InstanceArray, one draw_instanced_mesh.
     static VIGNETTE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static VIGNETTE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
+    // Weather rain-streak batching: one InstanceArray filled from RAIN_CONSTS each frame and drawn
+    // as a single instanced submission (same unit_line mesh), instead of a canvas.draw() per drop.
+    static RAIN_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+    // Weather puddle-ripple batching: one InstanceArray of expanding unit-circle rings.
+    static PUDDLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
     // Reusable instance buffer for the orbiting sparkle dots in draw_golden_sparkle. Each Golden
     // crab draws 5 unit-circle dots (or 5 tighter dots when snared) — all using the same
@@ -1813,6 +1827,254 @@ pub fn draw_ambient_motes(
         Ok(())
     })?;
 
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
+// ===================== WEATHER + DAY/NIGHT AMBIENCE =====================
+
+fn rain_consts() -> &'static [(f32, f32, f32, f32); RAIN_DROP_COUNT] {
+    RAIN_CONSTS.get_or_init(|| {
+        let mut arr = [(0.0f32, 0.0f32, 0.0f32, 0.0f32); RAIN_DROP_COUNT];
+        for (i, entry) in arr.iter_mut().enumerate() {
+            let fi = i as f32;
+            let a = (fi * 12.9898).sin() * 43758.547;
+            let b = (fi * 78.233).sin() * 12543.219;
+            let c = (fi * 39.425).sin() * 20214.13;
+            let rx = a - a.floor(); // 0..1 column
+            let ry = b - b.floor(); // 0..1 initial vertical offset
+            let speed = 900.0 + (c - c.floor()) * 700.0; // px/s fall speed
+            let len = 14.0 + (a - a.floor()) * 16.0; // streak length
+            *entry = (rx, ry, speed, len);
+        }
+        arr
+    })
+}
+
+fn puddle_consts() -> &'static [(f32, f32, f32, f32); PUDDLE_RIPPLE_COUNT] {
+    PUDDLE_CONSTS.get_or_init(|| {
+        let mut arr = [(0.0f32, 0.0f32, 0.0f32, 0.0f32); PUDDLE_RIPPLE_COUNT];
+        for (i, entry) in arr.iter_mut().enumerate() {
+            let fi = i as f32;
+            let a = (fi * 45.164).sin() * 43758.547;
+            let b = (fi * 91.117).sin() * 12543.219;
+            let c = (fi * 7.311).sin() * 33217.5;
+            let rx = a - a.floor();
+            let ry = b - b.floor();
+            let phase = c - c.floor(); // ripple cycle offset
+            let period = 1.4 + (a - a.floor()) * 1.6; // seconds per ripple
+            *entry = (rx, ry, phase, period);
+        }
+        arr
+    })
+}
+
+/// World-space sky overlay: a soft full-world tint carrying the time-of-day mood plus the
+/// cloudy/rain grey dimming. `day_phase_t` (0..1: dawn→day→dusk→night) picks a warm→neutral→
+/// orange→deep-blue wash; `weather_intensity` (0..1) layers a cool grey dim on top so heavier
+/// weather darkens the world. Kept low-alpha so it grades the scene without hiding gameplay. One
+/// draw call (a single tinted full-world quad).
+pub fn draw_sky_overlay(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    day_phase_t: f32,
+    weather_intensity: f32,
+) -> ggez::GameResult {
+    let t = day_phase_t.clamp(0.0, 1.0);
+    let wi = weather_intensity.clamp(0.0, 1.0);
+
+    // Time-of-day wash color + strength. Midday is nearly clear; dawn/dusk warm; night cool-blue.
+    // (r,g,b,a) with a in 0..1.
+    let (r, g, b, base_a) = if t < 0.25 {
+        // dawn → day: warm amber fading out toward neutral
+        let f = t / 0.25;
+        (1.0, 0.72, 0.42, 0.16 * (1.0 - f))
+    } else if t < 0.55 {
+        // day → dusk: clear ramping into orange-pink
+        let f = (t - 0.25) / 0.30;
+        (1.0, 0.55, 0.45, 0.02 + 0.16 * f)
+    } else if t < 0.80 {
+        // dusk → night: orange-pink deepening into blue
+        let f = (t - 0.55) / 0.25;
+        (
+            1.0 - 0.75 * f,
+            0.55 - 0.30 * f,
+            0.45 + 0.45 * f,
+            0.18 + 0.10 * f,
+        )
+    } else {
+        // deep night: steady deep blue. Kept modest because the ground tint is already graded
+        // toward blue/dim in parallel — this overlay only needs to add mood, not black out the field.
+        (0.20, 0.26, 0.62, 0.22)
+    };
+
+    // Weather grey dim, layered as extra alpha of a desaturated cool tone.
+    let weather_a = wi * 0.22;
+
+    let square = unit_square(ctx)?.clone();
+    if base_a > 0.001 {
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .scale(Vec2::new(width, height))
+                .color(Color::new(r, g, b, base_a)),
+        );
+    }
+    if weather_a > 0.001 {
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .scale(Vec2::new(width, height))
+                .color(Color::new(0.42, 0.46, 0.52, weather_a)),
+        );
+    }
+    Ok(())
+}
+
+/// Screen-space weather pass: diagonal rain streaks (density/opacity scale with intensity, with a
+/// subtle on-beat opacity pulse), a heavy-rain edge vignette that closes visibility in at the
+/// screen border, and the storm lightning full-screen flash. Drawn in viewport space so nothing
+/// smears as the world scrolls. Rain is one instanced draw regardless of drop count.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_weather(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    time: f32,
+    weather_intensity: f32,
+    beat: f32,
+    lightning_flash: f32,
+) -> ggez::GameResult {
+    let wi = weather_intensity.clamp(0.0, 1.0);
+
+    // Rain only reads once it's actually raining (>~Rain). Below that, skip the whole pass except
+    // any active lightning flash (a storm flash can linger as intensity eases).
+    let raining = wi > 0.35;
+
+    if raining {
+        // How many of the precomputed drops are active, scaled with intensity (calm rain is sparse,
+        // heavy rain/storm fills the screen).
+        let active = ((wi - 0.35) / 0.65).clamp(0.0, 1.0);
+        let drop_count = ((RAIN_DROP_COUNT as f32) * active) as usize;
+        // On-beat opacity pulse so the rain breathes with the music like everything else.
+        let beat_pulse = 1.0 + beat.clamp(0.0, 1.0) * 0.25;
+        let base_alpha = (0.18 + 0.35 * active) * beat_pulse;
+        // Diagonal fall: slight rightward slant. dir is (slant, 1) normalized-ish for the streak angle.
+        let slant: f32 = 0.28;
+        let angle = slant.atan2(1.0) + std::f32::consts::FRAC_PI_2; // near-vertical, tilted
+
+        let unit_line = unit_line(ctx)?.clone();
+        let consts = rain_consts();
+        let original_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ALPHA);
+        RAIN_INSTANCES.with(|cell| -> ggez::GameResult {
+            let mut slot = cell.borrow_mut();
+            let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(consts[..drop_count].iter().map(|&(rx, ry, speed, len)| {
+                let x_base = rx * (width + 120.0) - 60.0;
+                // Wrap the fall over the screen height plus the streak length so drops recycle.
+                let span = height + 80.0;
+                let y = ((ry * span) + time * speed) % span - 40.0;
+                // Horizontal drift matches the slant so the streak angle and travel agree.
+                let x = x_base + y * slant;
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .rotation(angle)
+                    .scale(Vec2::new(len, 1.4))
+                    .color(Color::new(0.72, 0.80, 0.92, base_alpha.min(0.7)))
+            }));
+            canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+            Ok(())
+        })?;
+        canvas.set_blend_mode(original_blend);
+
+        // Heavy-rain edge vignette: darken the screen border so visibility closes in as it pours.
+        // Four thin gradient-ish bands (top/bottom/left/right) via alpha quads — cheap, and only
+        // once it's heavy (>~HeavyRain).
+        let vig = ((wi - 0.6) / 0.4).clamp(0.0, 1.0);
+        if vig > 0.01 {
+            let square = unit_square(ctx)?.clone();
+            let band = (width.min(height)) * 0.14;
+            let a = vig * 0.34;
+            let dark = Color::new(0.05, 0.07, 0.12, a);
+            // top
+            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, 0.0)).scale(Vec2::new(width, band)).color(dark));
+            // bottom
+            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, height - band)).scale(Vec2::new(width, band)).color(dark));
+            // left
+            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, 0.0)).scale(Vec2::new(band, height)).color(dark));
+            // right
+            canvas.draw(&square, DrawParam::default().dest(Vec2::new(width - band, 0.0)).scale(Vec2::new(band, height)).color(dark));
+        }
+    }
+
+    // Lightning flash: a full-screen white brighten that decays with lightning_flash (1→0). Uses ADD
+    // so it floods light in rather than washing to grey. Thunder (screen shake) is fired from the
+    // sim off the same event, so the flash and the shake land together.
+    let lf = lightning_flash.clamp(0.0, 1.0);
+    if lf > 0.001 {
+        let square = unit_square(ctx)?.clone();
+        let original_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .scale(Vec2::new(width, height))
+                // Sharp peak that falls off fast so it reads as a strobe, not a fade.
+                .color(Color::new(0.9, 0.93, 1.0, lf * lf * 0.55)),
+        );
+        canvas.set_blend_mode(original_blend);
+    }
+
+    Ok(())
+}
+
+/// World-space puddle ripples: expanding rings that pop where rain "lands" on the ground, only
+/// while it's raining. Positions are spread across the visible viewport slice (offset by the
+/// camera origin) so they follow the player without being wasted off-screen. One instanced draw.
+pub fn draw_puddle_ripples(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    camera_origin: Vec2,
+    view_w: f32,
+    view_h: f32,
+    time: f32,
+    weather_intensity: f32,
+) -> ggez::GameResult {
+    let wi = weather_intensity.clamp(0.0, 1.0);
+    let active = ((wi - 0.35) / 0.65).clamp(0.0, 1.0);
+    if active <= 0.01 {
+        return Ok(());
+    }
+
+    let unit = unit_circle(ctx)?.clone();
+    let consts = puddle_consts();
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    PUDDLE_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set(consts.iter().map(|&(rx, ry, phase, period)| {
+            let cx = camera_origin.x + rx * view_w;
+            let cy = camera_origin.y + ry * view_h;
+            // Ripple cycle 0..1: ring grows and fades over `period` seconds.
+            let cyc = ((time / period) + phase).fract();
+            let radius = 2.0 + cyc * (10.0 + active * 14.0);
+            // Ring alpha: brightest just after the drop lands, fading to nothing as it spreads.
+            let alpha = (1.0 - cyc) * 0.22 * active;
+            // Draw a thin ring by scaling the filled unit circle small — a faint disc reads as a
+            // ripple highlight under the ADD blend without needing a stroked mesh.
+            DrawParam::default()
+                .dest(Vec2::new(cx, cy))
+                .scale(Vec2::splat(radius))
+                .color(Color::new(0.70, 0.82, 0.95, alpha))
+        }));
+        canvas.draw_instanced_mesh(unit, instances, DrawParam::default());
+        Ok(())
+    })?;
     canvas.set_blend_mode(original_blend);
     Ok(())
 }

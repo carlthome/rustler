@@ -48,7 +48,7 @@ use crate::graphics::{
     cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_sky_overlay, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
@@ -3110,7 +3110,134 @@ impl MainState {
     /// the transient on-beat bloom (widest on the downbeat, decayed between beats). Kept in one place
     /// so the gameplay value and the drawn ring can't drift apart.
     fn catch_radius(&self) -> f32 {
-        45.0 + self.catch_radius_upgrade + self.beat_catch_bloom
+        (45.0 + self.catch_radius_upgrade + self.beat_catch_bloom) * self.weather_catch_mult()
+    }
+
+    /// Ambience multiplier on the catch radius — subtle, never punishing. Rain/Storm make crabs
+    /// harder to spot (down to ~-13% at full Storm), night dims the beam a touch (~-6% at deep
+    /// night), and a Storm lightning flash briefly floods light back in (a short catch-radius
+    /// spike). All three fold into one factor so the gameplay number and the drawn ring stay in
+    /// lockstep. Clamped so upgrades always dominate.
+    fn weather_catch_mult(&self) -> f32 {
+        let rain = self.weather_intensity.clamp(0.0, 1.0) * 0.13;
+        let night = self.night_factor() * 0.06;
+        // Lightning flash illuminates a wider area for its ~0.5s life.
+        let flash = self.lightning_flash.clamp(0.0, 1.0) * 0.30;
+        (1.0 - rain - night + flash).clamp(0.80, 1.35)
+    }
+
+    /// 0 in daylight, ramping to 1 at deepest night — shared by the catch-radius dim and the
+    /// beat-pulse brighten so "night" reads consistently in feel and visuals.
+    fn night_factor(&self) -> f32 {
+        // day_phase_t: 0=dawn .25=day .5=dusk .75→1=night. Night ramps from dusk onward.
+        ((self.day_phase_t - 0.5) / 0.5).clamp(0.0, 1.0)
+    }
+
+    /// Day/night ground+sky tint: a warm→bright→orange→deep-blue color the world is graded toward.
+    /// Returned as (r,g,b) multipliers in 0..1 applied on top of the biome tint, plus an ambient
+    /// brightness scalar. Kept subtle so gameplay reads clearly at every phase.
+    fn day_tint(&self) -> (f32, f32, f32) {
+        // Keyframes across day_phase_t: dawn(amber) → day(neutral bright) → dusk(orange-pink) → night(deep blue).
+        // Each is an RGB multiplier centered near 1.0 so the shift is a grade, not a repaint.
+        let keys = [
+            (0.00, (1.06, 0.92, 0.78)), // dawn — warm amber
+            (0.25, (1.00, 1.00, 1.00)), // midday — bright neutral
+            (0.55, (1.08, 0.82, 0.72)), // dusk — orange-pink
+            (0.80, (0.72, 0.78, 1.05)), // night — deep blue
+            (1.00, (0.66, 0.74, 1.08)), // deep night
+        ];
+        let t = self.day_phase_t.clamp(0.0, 1.0);
+        let mut lo = keys[0];
+        let mut hi = keys[keys.len() - 1];
+        for w in keys.windows(2) {
+            if t >= w[0].0 && t <= w[1].0 {
+                lo = w[0];
+                hi = w[1];
+                break;
+            }
+        }
+        let span = (hi.0 - lo.0).max(1e-4);
+        let f = ((t - lo.0) / span).clamp(0.0, 1.0);
+        (
+            lo.1 .0 + (hi.1 .0 - lo.1 .0) * f,
+            lo.1 .1 + (hi.1 .1 - lo.1 .1) * f,
+            lo.1 .2 + (hi.1 .2 - lo.1 .2) * f,
+        )
+    }
+
+    /// Advance the weather random-walk and the day/night clock. Called only from the live sim
+    /// update (after the pause early-return), so a paused menu doesn't age the world.
+    fn update_weather(&mut self, dt: f32) {
+        let mut rng = rand::rng();
+        // Day/night: one full run ≈ 8 minutes covers dawn→night. Clamped at 1 so a long run just
+        // sits in night rather than wrapping back to dawn mid-run.
+        const RUN_SECONDS: f32 = 480.0;
+        self.day_phase_t = (self.day_phase_t + dt / RUN_SECONDS).min(1.0);
+
+        // Ease the visible intensity toward the current target so state changes cross-fade
+        // instead of snapping.
+        let target = self.weather_target.intensity();
+        let ease = 1.0 - (-dt * 0.6).exp();
+        self.weather_intensity += (target - self.weather_intensity) * ease;
+
+        // Random walk over the discrete states. Early in a run it tends to calm; past the midpoint
+        // it tends to escalate, so a run builds from a clear sky toward rain/storm.
+        self.weather_step_timer -= dt;
+        if self.weather_step_timer <= 0.0 {
+            self.weather_step_timer = rng.random_range(14.0..26.0);
+            let cur = self.weather_target as i32; // Sunny=0 .. Storm=4
+            // Escalation bias grows through the run: more likely to worsen later on.
+            let escalate_bias = 0.35 + self.day_phase_t * 0.4; // 0.35 → 0.75
+            let roll: f32 = rng.random();
+            let next = if roll < escalate_bias {
+                cur + 1
+            } else if roll < escalate_bias + 0.30 {
+                cur - 1
+            } else {
+                cur
+            };
+            self.weather_target = match next.clamp(0, 4) {
+                0 => WeatherState::Sunny,
+                1 => WeatherState::Cloudy,
+                2 => WeatherState::Rain,
+                3 => WeatherState::HeavyRain,
+                _ => WeatherState::Storm,
+            };
+        }
+
+        // Decay any active lightning flash (1→0 over ~0.5s).
+        if self.lightning_flash > 0.0 {
+            self.lightning_flash = (self.lightning_flash - dt * 2.0).max(0.0);
+        }
+
+        // Storm-only lightning: countdown to the next strike. On strike, fire ONE event that drives
+        // all three responses — visual brighten (lightning_flash), thunder (screen_shake) and the
+        // catch-radius spike (also via lightning_flash in weather_catch_mult) — so they stay synced.
+        if self.weather_target == WeatherState::Storm && self.weather_intensity > 0.7 {
+            self.lightning_timer -= dt;
+            if self.lightning_timer <= 0.0 {
+                self.lightning_timer = rng.random_range(3.5..9.0);
+                self.lightning_flash = 1.0;
+                // Thunder: a sharp kick through the existing screen-shake system.
+                self.screen_shake = self.screen_shake.max(12.0);
+                let a: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+                self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 12.0 * 60.0;
+            }
+        } else {
+            // Keep the timer primed so a strike can't fire the instant a storm begins.
+            self.lightning_timer = self.lightning_timer.max(2.5);
+        }
+    }
+
+    /// Coarse day/night label for the current `day_phase_t`. Purely for readability/debug.
+    #[allow(dead_code)]
+    fn day_phase(&self) -> DayPhase {
+        match self.day_phase_t {
+            t if t < 0.20 => DayPhase::Dawn,
+            t if t < 0.45 => DayPhase::Day,
+            t if t < 0.70 => DayPhase::Dusk,
+            _ => DayPhase::Night,
+        }
     }
 
     fn catch_by_chain(&mut self, ctx: &mut Context) {
@@ -5140,6 +5267,13 @@ impl MainState {
         self.downbeat_pull = 0.0;
         self.downbeat_pull_center = Vec2::ZERO;
         self.downbeat_pull_haul = 0.0;
+        // Weather + day/night start calm at the top of every run so nothing bleeds across runs.
+        self.weather_target = WeatherState::Sunny;
+        self.weather_intensity = 0.0;
+        self.weather_step_timer = 18.0;
+        self.lightning_flash = 0.0;
+        self.lightning_timer = 4.0;
+        self.day_phase_t = 0.0;
         self.screen_shake = 0.0;
         self.screen_shake_vel = Vec2::ZERO;
         self.screen_shake_offset = Vec2::ZERO;
@@ -5973,7 +6107,16 @@ impl MainState {
         let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
         let (tr, tg, tb) = biome.tint;
 
-        // Draw level background, color-graded to the current biome.
+        // Fold the day/night grade into the ground tint so the whole world shifts together with the
+        // sky overlay below — dawn amber → midday bright → dusk orange-pink → night deep blue. A
+        // lightning flash briefly floods the ground bright white to match the sky flash.
+        let (dr, dg, db) = self.day_tint();
+        let flash = self.lightning_flash.clamp(0.0, 1.0);
+        let ground_r = ((tr as f32 * dr) + 255.0 * flash * 0.25).min(255.0) as u8;
+        let ground_g = ((tg as f32 * dg) + 255.0 * flash * 0.25).min(255.0) as u8;
+        let ground_b = ((tb as f32 * db) + 255.0 * flash * 0.25).min(255.0) as u8;
+
+        // Draw level background, color-graded to the current biome and time of day.
         draw_grass(
             ctx,
             canvas,
@@ -5985,12 +6128,28 @@ impl MainState {
             // Beat phase 0→1 across a beat (0 the instant one lands), so the grass shader can
             // fire a ripple of light outward from center on every downbeat.
             (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0),
-            Color::from_rgb(tr, tg, tb),
+            Color::from_rgb(ground_r, ground_g, ground_b),
         )?;
 
-        // Subtle beat pulse: an on-beat flash tinted to match the current biome's mood.
+        // World-space sky overlay: a soft full-world tint carrying the day/night mood plus the
+        // cloudy/rain grey dimming. Sits over the ground but under the action. Rain streaks, the
+        // edge vignette and the lightning full-screen flash draw later in SCREEN space so they're
+        // camera-independent.
+        draw_sky_overlay(
+            ctx,
+            canvas,
+            world_w,
+            world_h,
+            self.day_phase_t,
+            self.weather_intensity,
+        )?;
+
+        // Subtle beat pulse: an on-beat flash tinted to match the current biome's mood. At night the
+        // pulse glows brighter — the beat is the one thing that reads MORE in the dark, trading the
+        // dimmed base visibility for a stronger rhythmic cue.
         if self.beat_intensity > 0.0 {
-            let pulse_alpha = (self.beat_intensity * 28.0) as u8;
+            let night_glow = 1.0 + self.night_factor() * 0.6;
+            let pulse_alpha = (self.beat_intensity * 28.0 * night_glow).min(255.0) as u8;
             let (pr, pg, pb) = biome.pulse;
             canvas.draw(
                 unit_square(ctx)?,
@@ -6014,6 +6173,22 @@ impl MainState {
                 self.time_elapsed,
                 self.beat_intensity,
                 Color::from_rgb(ar, ag, ab),
+            )?;
+        }
+
+        // Rain puddle ripples on the ground (world space, under the action) — expanding rings that
+        // pop where rain "lands", scaled up with weather intensity. Only visible once it's actually
+        // raining; sits over the ambient motes but under the tide pools/crabs. Camera origin lets it
+        // cover just the visible viewport slice of the world so it isn't wasted off-screen.
+        if self.weather_intensity > 0.35 {
+            draw_puddle_ripples(
+                ctx,
+                canvas,
+                self.camera_origin,
+                width,
+                height,
+                self.time_elapsed,
+                self.weather_intensity,
             )?;
         }
 
@@ -6684,6 +6859,21 @@ impl MainState {
             width,
             height,
         ));
+
+        // Weather screen-space pass: rain streaks, heavy-rain edge vignette, and the storm
+        // lightning flash. All pinned to the viewport (drawn after the screen-coordinate switch) so
+        // rain density and the flash are camera-independent — they don't smear as the world scrolls.
+        // beat_intensity drives a subtle on-beat opacity pulse on the streaks.
+        draw_weather(
+            ctx,
+            canvas,
+            width,
+            height,
+            self.time_elapsed,
+            self.weather_intensity,
+            self.beat_intensity,
+            self.lightning_flash,
+        )?;
 
         // Screen-edge radar arrows pointing to free crabs — now in the HUD pass so they pin to the
         // viewport border; the camera origin translates each crab's world position into the viewport.
@@ -8812,6 +9002,10 @@ impl EventHandler for MainState {
 
         self.time_elapsed += dt;
         self.time_since_catch += dt;
+
+        // Weather + day/night ambience. Runs on REAL delta (not the slowmo-dilated dt) so the
+        // world clock and weather evolve at a steady wall-clock pace regardless of bullet-time.
+        self.update_weather(ctx.time.delta().as_secs_f32());
 
         // Tutorial session bookkeeping: keep the sandbox stocked, detect the pass condition, and
         // run a short celebratory hold before handing control back to the title screen. Kept here

@@ -87,6 +87,42 @@ pub struct GameTextures {
     pub(crate) player: Image,
 }
 
+/// Weather ambience state. Transitions are smooth: the discrete `target` a random walk picks
+/// each step is what `weather_intensity` eases toward, so the visuals never hard-cut between states.
+/// Ordered calm→wild so escalation is just "step the index".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WeatherState {
+    Sunny,
+    Cloudy,
+    Rain,
+    HeavyRain,
+    Storm,
+}
+
+impl WeatherState {
+    /// 0..1 "how wild" — the target `weather_intensity` eases toward. Drives streak density,
+    /// tint strength, catch-radius reduction and whether lightning can fire.
+    pub(crate) fn intensity(self) -> f32 {
+        match self {
+            WeatherState::Sunny => 0.0,
+            WeatherState::Cloudy => 0.28,
+            WeatherState::Rain => 0.55,
+            WeatherState::HeavyRain => 0.80,
+            WeatherState::Storm => 1.0,
+        }
+    }
+}
+
+/// Time-of-day phase over a run (~8 min). `day_phase_t` (0..1) is the continuous clock; this is
+/// just the coarse label for readability. Dawn→Day→Dusk→Night.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DayPhase {
+    Dawn,
+    Day,
+    Dusk,
+    Night,
+}
+
 pub struct MainState {
     pub(crate) player_pos: Vec2,                          // Player position
     pub(crate) player_vel: Vec2,                          // Player velocity (for smooth movement)
@@ -396,6 +432,15 @@ pub struct MainState {
     // on screen so a groove-savvy player sees when standing in the herd on the "1" paid off.
     pub(crate) downbeat_pull_haul: f32,
     // Camera shake
+    // Weather + day/night ambience. Routes only through catch_radius/screen_shake/particles —
+    // no new mechanics, just mood. `weather_intensity` eases toward `weather_target.intensity()`
+    // so states cross-fade; `weather_step_timer` gates the random-walk retarget cadence.
+    pub(crate) weather_target: WeatherState,
+    pub(crate) weather_intensity: f32,     // 0..1, eased toward the target's intensity() each frame
+    pub(crate) weather_step_timer: f32,    // counts down to the next random-walk retarget
+    pub(crate) lightning_flash: f32,       // 1→0 storm flash: brightens screen, spikes catch radius, kicks shake
+    pub(crate) lightning_timer: f32,       // counts down to the next possible strike (only while Storm)
+    pub(crate) day_phase_t: f32,           // 0..1 across a run: dawn→day→dusk→night
     pub(crate) screen_shake: f32,          // current shake magnitude (pixels), decays each frame
     pub(crate) screen_shake_vel: Vec2,     // current shake offset velocity
     pub(crate) screen_shake_offset: Vec2,  // current pixel offset applied to viewport
@@ -1096,6 +1141,12 @@ impl MainState {
             downbeat_pull: 0.0,
             downbeat_pull_center: Vec2::ZERO,
             downbeat_pull_haul: 0.0,
+            weather_target: WeatherState::Sunny,
+            weather_intensity: 0.0,
+            weather_step_timer: 18.0,
+            lightning_flash: 0.0,
+            lightning_timer: 4.0,
+            day_phase_t: 0.0,
             screen_shake: 0.0,
             screen_shake_vel: Vec2::ZERO,
             screen_shake_offset: Vec2::ZERO,
