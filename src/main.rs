@@ -23,6 +23,10 @@ use std::{cell::RefCell, env, fs, path};
 // run at max chain length and never allocates again during normal gameplay.
 thread_local! {
     static BOND_INDEX_BUF: RefCell<Vec<Option<CrabType>>> = RefCell::new(Vec::new());
+    // Scratch buffer for centerpiece_link_indices — reused every draw frame so the per-frame
+    // Vec<usize> allocation that was fired inside draw_crabs_with_shake is eliminated. Same
+    // grown-but-not-shrunk pattern: reaches steady state at max train length and stays there.
+    static CENTERPIECE_OUT_BUF: RefCell<Vec<usize>> = RefCell::new(Vec::new());
 }
 
 use ggez::audio::SoundSource;
@@ -1483,10 +1487,13 @@ impl MainState {
     /// `keep/2`): if the two ever drifted, we'd highlight a "centerpiece" that doesn't pay (or hide
     /// one that does), teaching the player the wrong arrangement. Returns a small owned Vec of the
     /// qualifying indices (trains are short; typically 0-1 runs); empty when nothing qualifies.
-    fn centerpiece_link_indices(&self, keep: usize) -> Vec<usize> {
-        let mut out = Vec::new();
+    /// Fill `out` with the chain indices that belong to a paying CENTERPIECE run.
+    /// Uses a reused scratch buffer (`out`) rather than allocating a fresh Vec every call —
+    /// this runs once per draw frame; at 60 fps on a long train that was a Vec::new() + heap
+    /// alloc every 16 ms. Caller must clear `out` before calling.
+    fn centerpiece_link_indices(&self, keep: usize, out: &mut Vec<usize>) {
         if keep < 3 {
-            return out;
+            return;
         }
         BOND_INDEX_BUF.with(|buf| {
             let mut by_index = buf.borrow_mut();
@@ -1513,17 +1520,16 @@ impl MainState {
                     run_len += 1;
                 } else {
                     if run_len > 0 {
-                        flush(run_len, run_start, i, &mut out);
+                        flush(run_len, run_start, i, out);
                     }
                     run_len = if by_index[i].is_some() { 1 } else { 0 };
                     run_start = i;
                 }
             }
             if run_len > 0 {
-                flush(run_len, run_start, keep, &mut out);
+                flush(run_len, run_start, keep, out);
             }
         });
-        out
     }
 
     fn try_deliver_train(&mut self, ctx: &mut Context) {
@@ -7771,7 +7777,11 @@ impl MainState {
         // Which seated links are part of a paying CENTERPIECE run right now, so we can ring them
         // live (see draw_centerpiece_ring). Computed once per frame from the same predicate the pen
         // pays on. `keep` mirrors the delivered count used at bank time (chain_count == train len).
-        let centerpiece_set = self.centerpiece_link_indices(self.chain_count);
+        // Uses a reused thread-local scratch buffer (take/fill/put-back) instead of allocating a
+        // fresh Vec every frame — eliminates a ~60 Hz heap alloc on any frame a train is present.
+        let mut centerpiece_set = CENTERPIECE_OUT_BUF.with(|buf| std::mem::take(&mut *buf.borrow_mut()));
+        centerpiece_set.clear();
+        self.centerpiece_link_indices(self.chain_count, &mut centerpiece_set);
         // Interior link under the flashlight aim right now — the one a bubble-swap (X on beat) would
         // move toward the centre. Computed once so the per-crab draw loop can ring it as a preview.
         let aimed_bubble_link = if self.cycle_preview_active {
@@ -7867,6 +7877,9 @@ impl MainState {
         // centerpiece link (a 6-link run → 60 individual canvas.draw() calls) collapsed to one
         // instanced draw regardless of how long the qualifying run gets.
         flush_centerpiece_dots(ctx, canvas)?;
+        // Return the scratch buffer to the thread-local so it keeps its allocated capacity for
+        // next frame instead of freeing and reallocating it each draw call.
+        CENTERPIECE_OUT_BUF.with(|buf| *buf.borrow_mut() = centerpiece_set);
         Ok(())
     }
 
