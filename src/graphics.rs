@@ -1933,6 +1933,91 @@ pub fn draw_sky_overlay(
     Ok(())
 }
 
+// World-edge band width as a fraction of the shorter world dimension. The edge treatment
+// (a soft darkening that fades inward from the true playfield boundary) occupies this much
+// of the world on each side.
+const WORLD_EDGE_FRAC: f32 = 0.09;
+// How many nested quads approximate the inward fade. More = smoother gradient; a handful reads
+// as a soft band without meaningfully touching the frame budget (one batched instance draw).
+const WORLD_EDGE_STEPS: usize = 8;
+
+thread_local! {
+    // One reusable instance array for the world-edge fade band, so the whole four-sided border
+    // is a single batched GPU submission per frame instead of dozens of individual quads.
+    static WORLD_EDGE_INSTANCES: RefCell<Option<InstanceArray>> = const { RefCell::new(None) };
+}
+
+/// Draw a soft, darkening border that fades inward from the true edges of the (larger-than-
+/// viewport) world, so scrolling to the playfield limit reads as arriving at a tangible shore/
+/// boundary rather than an abrupt camera clamp. Drawn in WORLD space (over the ground, under the
+/// action), tinted to the biome accent so each zone's edge feels like part of its place. The band
+/// only becomes visible when the camera actually reaches an edge, since off-edge slices sit outside
+/// the viewport.
+pub fn draw_world_edge(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    world_w: f32,
+    world_h: f32,
+    tint: Color,
+    night_factor: f32,
+) -> ggez::GameResult {
+    let band = world_w.min(world_h) * WORLD_EDGE_FRAC;
+    if band <= 1.0 {
+        return Ok(());
+    }
+    // The edge reads a touch deeper at night, matching the dimmed field, so the boundary still
+    // frames the space when everything else has gone dark.
+    let peak_a = 0.34 + night_factor.clamp(0.0, 1.0) * 0.20;
+    let steps = WORLD_EDGE_STEPS.max(1);
+    let sq = unit_square(ctx)?.clone();
+
+    WORLD_EDGE_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        let mut params: Vec<DrawParam> = Vec::with_capacity(steps * 4);
+        for i in 0..steps {
+            // f: 0 at the outermost slice (full strength), →1 at the innermost (transparent).
+            let f = i as f32 / steps as f32;
+            let inset = band * f;
+            let seg = band / steps as f32;
+            // Quadratic falloff so the darkening hugs the true edge and feathers gently inward.
+            let a = peak_a * (1.0 - f) * (1.0 - f);
+            let col = Color::new(tint.r * 0.45, tint.g * 0.45, tint.b * 0.55, a);
+            // Top band
+            params.push(
+                DrawParam::default()
+                    .dest([0.0, inset])
+                    .scale(Vec2::new(world_w, seg))
+                    .color(col),
+            );
+            // Bottom band
+            params.push(
+                DrawParam::default()
+                    .dest([0.0, world_h - inset - seg])
+                    .scale(Vec2::new(world_w, seg))
+                    .color(col),
+            );
+            // Left band
+            params.push(
+                DrawParam::default()
+                    .dest([inset, 0.0])
+                    .scale(Vec2::new(seg, world_h))
+                    .color(col),
+            );
+            // Right band
+            params.push(
+                DrawParam::default()
+                    .dest([world_w - inset - seg, 0.0])
+                    .scale(Vec2::new(seg, world_h))
+                    .color(col),
+            );
+        }
+        arr.set(params.iter().copied());
+        canvas.draw_instanced_mesh(sq, arr, DrawParam::default());
+        Ok(())
+    })
+}
+
 /// Screen-space weather pass: diagonal rain streaks (density/opacity scale with intensity, with a
 /// subtle on-beat opacity pulse), a heavy-rain edge vignette that closes visibility in at the
 /// screen border, and the storm lightning full-screen flash. Drawn in viewport space so nothing

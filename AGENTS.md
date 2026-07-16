@@ -36,27 +36,34 @@ Short plain-English messages. No "Co-Authored-By" lines. Always push after commi
 git -C $HOME/Repos/carlthome/rustler push origin main
 ```text
 
-## Session bootstrap
+## Agent roster
 
-To set up the six recurring cron agents, say "bootstrap" in the Claude Code chat. Each spawns via the Agent tool with an explicit `model` param. Route by cost of failure: bad bookkeeping → Haiku; gameplay/architecture decisions → Sonnet or Opus.
+Two tiers: **remote routines** (run in Anthropic's cloud, survive restarts, managed at claude.ai/code/routines) and **local crons** (session-scoped, need Claude Code open, set up via "bootstrap").
+
+**Remote routines — always running, no bootstrap needed:**
 
 ```text
-1. Feature Developer — every 12 min  — opus   / effort: high   ← main gameplay driver, compounds most
-2. Release Manager  — every 6 hours  — haiku  / effort: low    ← pure counting/tagging
-3. Developer Diary  — every 4 hours  — haiku  / effort: low    ← mechanical summarizing
-4. Overnight Dev    — daily at 00:03 — sonnet / effort: medium ← conservative, nobody watching
-5. Optimizer        — every 30 min   — sonnet / effort: medium ← one perf fix per pass
-6. Game Director    — every 4 hours  — opus   / effort: high   ← fuzzy feedback → direction
-7. Architect        — every 3 hours  — sonnet / effort: medium ← structural judgment
-8. Supervisor       — every 8 hours  — sonnet / effort: high   ← grounds agent instructions in observed behaviour
+2. Release Manager  — daily 07:00 UTC     — haiku  ← pure counting/tagging, no build needed
+3. Developer Diary  — 01:00/09:00/17:00Z  — haiku  ← Slack updates, no build needed
+6. Game Director    — every 4 hours UTC   — opus   ← reads Slack + git, updates ROADMAP.md
+8. Supervisor       — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
 ```
 
-Token budget principle: Opus+high on decisions that compound (feature direction, gameplay choices,
-design judgment). Haiku+low for mechanical tasks (bookkeeping, summarizing). Sonnet+medium for code
-that needs correctness but not creative judgment. Don't run agents more often than their inputs change.
+Manage at: [claude.ai/code/routines](https://claude.ai/code/routines)
 
-Note: the Agent tool doesn't yet expose an effort param — effort is documented here as intent.
-When it gains that param, wire it per the table above.
+**Local crons — need Claude Code open (say "bootstrap" to start):**
+
+```text
+1. Feature Developer — every 12 min  — opus   / effort: high   ← main gameplay driver, needs nix+cargo
+4. Overnight Dev     — daily at 00:03 — sonnet / effort: medium ← conservative overnight work
+5. Optimizer         — every 30 min   — sonnet / effort: medium ← perf fixes, needs build
+7. Architect         — every 3 hours  — sonnet / effort: medium ← file splits, needs build
+```
+
+Token budget principle: Opus+high on decisions that compound. Haiku+low for mechanical tasks.
+Sonnet+medium for code correctness. Don't run agents more often than their inputs change.
+
+**DO NOT** bootstrap the remote agents (2, 3, 6, 8) as local crons — they're already running remotely and duplicates will create conflicting commits.
 
 ## How the agents work together
 

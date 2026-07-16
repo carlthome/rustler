@@ -48,7 +48,7 @@ use crate::graphics::{
     cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_sky_overlay, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
@@ -6143,6 +6143,22 @@ impl MainState {
             self.day_phase_t,
             self.weather_intensity,
         )?;
+
+        // World-edge boundary: a soft darkening that fades inward from the true playfield limits,
+        // so scrolling to the edge of the larger-than-viewport world reads as arriving at a shore
+        // rather than an abrupt camera clamp. World space, tinted to the biome accent, under the
+        // action. Only visible when the camera actually reaches an edge.
+        {
+            let (er, eg, eb) = biome.pulse;
+            draw_world_edge(
+                ctx,
+                canvas,
+                world_w,
+                world_h,
+                Color::from_rgb(er, eg, eb),
+                self.night_factor(),
+            )?;
+        }
 
         // Subtle beat pulse: an on-beat flash tinted to match the current biome's mood. At night the
         // pulse glows brighter — the beat is the one thing that reads MORE in the dark, trading the
