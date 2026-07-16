@@ -1349,7 +1349,10 @@ impl MainState {
 
             // Big centered banner text — spawn two: one shadow, one lit
             let banner = format!("{} CRABS!", milestone);
-            let screen_center = Vec2::new(self.width / 2.0 - 100.0, self.height / 2.0 - 80.0);
+            // Floating texts live in the world layer (drawn before the HUD pass), so anchor the
+            // banner near the player so it reads on-screen wherever the camera is, not at a fixed
+            // world coordinate that the scrolling camera may have left behind.
+            let screen_center = self.player_pos + Vec2::new(-100.0, -160.0);
             // Shadow
             self.floating_texts.spawn(banner.clone(), screen_center + Vec2::new(3.0, 3.0), 72.0, [0.0, 0.0, 0.0, 0.85]);
             // Main text — gold/yellow
@@ -1764,7 +1767,7 @@ impl MainState {
         let _ = self.sounds.success2.play_detached(ctx);
 
         // Move the pen so the next bank is a fresh routing decision, not a treadmill loop.
-        self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rng);
+        self.pen_pos = pick_pen_pos(self.world_width, self.world_height, player_center, &mut rng);
 
         // Banking is the single biggest score jump in the game, so it's the most likely place to
         // cross an upgrade threshold — check HERE, at the pen, so the upgrade screen lands on the
@@ -2596,7 +2599,9 @@ impl MainState {
         self.score += bonus;
         self.particle_system
             .spawn_milestone_fireworks(pos, 30, &mut rng);
-        let screen_center = Vec2::new(self.width / 2.0 - 200.0, self.height / 2.0 - 90.0);
+        // World-layer text: anchor to the player so the boss-caught banner reads on-screen under
+        // the scrolling camera rather than at a fixed world coordinate.
+        let screen_center = self.player_pos + Vec2::new(-200.0, -170.0);
         let (label, label_color, shock_color): (&str, [f32; 4], [f32; 3]) = if is_tide {
             ("TIDE BOSS CAUGHT!", [0.4, 0.85, 1.0, 1.0], [0.3, 0.75, 1.0])
         } else {
@@ -2667,9 +2672,14 @@ impl MainState {
             attempts += 1;
             let radius = rng.random_range(56.0..92.0);
             let margin = radius + 30.0;
+            // Cracks well up around the boss/fight, not across the whole (now larger-than-viewport)
+            // world — sample a ring around the boss so the set-piece reshapes the arena the player
+            // is standing in, clamped to world bounds.
+            let ang = rng.random_range(0.0..std::f32::consts::TAU);
+            let dist = rng.random_range(0.0..self.height * 0.45);
             let c = Vec2::new(
-                rng.random_range(margin..(self.width - margin)),
-                rng.random_range(margin..(self.height - margin)),
+                (boss_pos.x + ang.cos() * dist).clamp(margin, self.world_width - margin),
+                (boss_pos.y + ang.sin() * dist).clamp(margin, self.world_height - margin),
             );
             if c.distance(self.pen_pos) < radius + PEN_RADIUS + 50.0 {
                 continue;
@@ -2710,9 +2720,12 @@ impl MainState {
             attempts += 1;
             let radius = rng.random_range(80.0..130.0);
             let margin = radius + 30.0;
+            // Flood wells up around the boss/fight, clamped to world bounds — see spawn_boss_fissures.
+            let ang = rng.random_range(0.0..std::f32::consts::TAU);
+            let dist = rng.random_range(0.0..self.height * 0.5);
             let c = Vec2::new(
-                rng.random_range(margin..(self.width - margin)),
-                rng.random_range(margin..(self.height - margin)),
+                (boss_pos.x + ang.cos() * dist).clamp(margin, self.world_width - margin),
+                (boss_pos.y + ang.sin() * dist).clamp(margin, self.world_height - margin),
             );
             if c.distance(self.pen_pos) < radius + PEN_RADIUS + 40.0 {
                 continue;
@@ -4459,7 +4472,7 @@ impl MainState {
                     .count();
                 if loose_dancers < 3 {
                     let mut rng = rand::rng();
-                    let dancer = spawn_hype_dancer((self.width, self.height), reef_boss_pos, &mut rng);
+                    let dancer = spawn_hype_dancer((self.world_width, self.world_height), reef_boss_pos, &mut rng);
                     let dpos = dancer.pos;
                     self.crabs.push(dancer);
                     // Little violet summon puff so the dancer reads as the DJ's call, not a stray.
@@ -4878,7 +4891,7 @@ impl MainState {
             self.level_title_timer = 1.0;
             // Fresh biome, fresh pen location — keep routing the train there a live decision.
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-            self.pen_pos = pick_pen_pos(self.width, self.height, player_center, &mut rand::rng());
+            self.pen_pos = pick_pen_pos(self.world_width, self.world_height, player_center, &mut rand::rng());
             // New zone, new water: relocate the tide-pool hazards too, scaling with difficulty.
             let difficulty = self
                 .levels
@@ -4886,8 +4899,8 @@ impl MainState {
                 .map(|l| l.difficulty)
                 .unwrap_or(0);
             self.tide_pools = pick_tide_pools(
-                self.width,
-                self.height,
+                self.world_width,
+                self.world_height,
                 self.pen_pos,
                 player_center,
                 difficulty,
@@ -4902,7 +4915,7 @@ impl MainState {
             // Game completed, show game over screen.
             self.game_over = true;
         }
-        let area = (self.width, self.height);
+        let area = (self.world_width, self.world_height);
         self.start_current_pattern(area);
     }
 
@@ -5026,8 +5039,10 @@ impl MainState {
     }
 
     fn reset_game(&mut self) {
-        let width = self.width;
-        let height = self.height;
+        // Reset places the player at the WORLD centre (the playfield is larger than the viewport;
+        // the camera follows). pen/pool placement below is world-space too.
+        let width = self.world_width;
+        let height = self.world_height;
         let player_pos = Vec2::new(
             width / 2.0 - PLAYER_SIZE / 2.0,
             height / 2.0 - PLAYER_SIZE / 2.0,
@@ -5142,14 +5157,14 @@ impl MainState {
         self.deliver_flash = 0.0;
         self.penned_marchers.marchers.clear();
         self.pen_pos = pick_pen_pos(
-            self.width,
-            self.height,
+            self.world_width,
+            self.world_height,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             &mut rand::rng(),
         );
         self.tide_pools = pick_tide_pools(
-            self.width,
-            self.height,
+            self.world_width,
+            self.world_height,
             self.pen_pos,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             self.levels.first().map(|l| l.difficulty).unwrap_or(0),
@@ -5232,6 +5247,27 @@ impl MainState {
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
         self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut rand::rng());
+        // Tutorial crabs spawn in a ring around the VIEWPORT centre (self.width/2, self.height/2),
+        // but reset_game() parks the player at WORLD centre (the world is larger than the viewport).
+        // Relocate the tutorial player onto the viewport-centre ring so its crabs are on-screen and
+        // in reach — keeps the tutorial (which doubles as a regression test) self-contained rather
+        // than off-screen from a world-centred player.
+        let tut_center = Vec2::new(
+            self.width / 2.0 - PLAYER_SIZE / 2.0,
+            self.height / 2.0 - PLAYER_SIZE / 2.0,
+        );
+        self.player_pos = tut_center;
+        self.position_history.clear();
+        for _ in 0..2000 {
+            self.position_history.push_back(tut_center);
+        }
+        // Pen for the tutorial belongs near the learner too, not at a random world corner.
+        self.pen_pos = pick_pen_pos(
+            self.width,
+            self.height,
+            tut_center + Vec2::splat(PLAYER_SIZE / 2.0),
+            &mut rand::rng(),
+        );
         // Stomp is gated only by its cooldown (not by rank), so a rank-0 career can still Stomp in
         // the ShellCrack lesson — clear the cooldown so the very first press lands immediately.
         self.stomp_cooldown = 0.0;
@@ -5904,6 +5940,16 @@ impl MainState {
         Ok(())
     }
 
+    /// Top-left world coordinate of the visible viewport: centre the player, then clamp so the
+    /// camera never shows past the world's edges (no void beyond the playfield). When the world is
+    /// smaller than the viewport in a dimension the clamp collapses to 0 (whole world visible).
+    fn compute_camera_origin(&self) -> Vec2 {
+        let focus = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let x = (focus.x - self.width / 2.0).clamp(0.0, (self.world_width - self.width).max(0.0));
+        let y = (focus.y - self.height / 2.0).clamp(0.0, (self.world_height - self.height).max(0.0));
+        Vec2::new(x, y)
+    }
+
     fn draw_game(
         &self,
         ctx: &mut Context,
@@ -5911,6 +5957,12 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> GameResult {
+        // The world (playfield) is larger than the viewport (width/height). Ground-layer fills
+        // (grass, biome pulse, ambient motes) must cover the whole world so no void shows past the
+        // viewport edge as the camera scrolls; the HUD later switches back to viewport dims.
+        let world_w = self.world_width;
+        let world_h = self.world_height;
+
         // Select texture for current level.
         let texture = match self.level_textures[self.current_level] {
             LevelTexture::Grass => &self.textures.grass,
@@ -5925,8 +5977,8 @@ impl MainState {
         draw_grass(
             ctx,
             canvas,
-            width,
-            height,
+            world_w,
+            world_h,
             texture,
             &self.shader,
             self.time_elapsed,
@@ -5943,7 +5995,7 @@ impl MainState {
             canvas.draw(
                 unit_square(ctx)?,
                 DrawParam::default()
-                    .scale(Vec2::new(width, height))
+                    .scale(Vec2::new(world_w, world_h))
                     .color(Color::from_rgba(pr, pg, pb, pulse_alpha)),
             );
         }
@@ -5957,8 +6009,8 @@ impl MainState {
             draw_ambient_motes(
                 ctx,
                 canvas,
-                width,
-                height,
+                world_w,
+                world_h,
                 self.time_elapsed,
                 self.beat_intensity,
                 Color::from_rgb(ar, ag, ab),
@@ -6436,14 +6488,15 @@ impl MainState {
                 &self.flashlight_shader,
                 self.width,
                 self.height,
+                self.camera_origin,
             )?;
         }
 
         // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
 
-        // Draw screen-edge radar arrows pointing to free crabs
-        draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.beat_intensity, self.time_elapsed)?;
+        // (Radar arrows are screen-edge indicators — drawn in the HUD pass below, after the switch
+        // to screen space, so they pin to the viewport border rather than scrolling with the world.)
 
         // Point the player at the delivery pen while there's a train to cash in. The pen jumps on
         // every bank, so this keeps its "route the train here" decision legible instead of a hunt.
@@ -6459,6 +6512,7 @@ impl MainState {
                 PEN_RADIUS,
                 width,
                 height,
+                self.camera_origin,
                 urgency,
                 self.beat_intensity,
                 self.time_elapsed,
@@ -6617,6 +6671,23 @@ impl MainState {
             let spin = self.time_elapsed * 18.0; // fast spin in radians/sec
             draw_lasso(ctx, canvas, player_center, tip, outward_progress, spin)?;
         }
+
+        // ===== SWITCH TO SCREEN SPACE FOR THE HUD =====
+        // Everything above draws in world space (the camera-following rect set in draw()); the
+        // camera can be scrolled far from the origin. The HUD/overlays below must be pinned to the
+        // screen, so re-set the canvas coordinates to a fixed viewport rect (origin 0, plus the
+        // same screen-shake offset the world got). ggez allows re-setting coordinates mid-canvas
+        // between draws. Every draw after this line lands in screen space.
+        canvas.set_screen_coordinates(Rect::new(
+            self.screen_shake_offset.x,
+            self.screen_shake_offset.y,
+            width,
+            height,
+        ));
+
+        // Screen-edge radar arrows pointing to free crabs — now in the HUD pass so they pin to the
+        // viewport border; the camera origin translates each crab's world position into the viewport.
+        draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.camera_origin, self.beat_intensity, self.time_elapsed)?;
 
         // Show stats. The HUD line (score/train/combo) only changes on catch/combo events, not
         // every tick, so cache the built Text and only rebuild it (fresh format! String + fresh
@@ -9110,8 +9181,8 @@ impl EventHandler for MainState {
                 };
                 let dir = if dir == Vec2::ZERO { Vec2::new(0.0, -1.0) } else { dir };
                 crab.pos += dir * DANCER_HOP;
-                crab.pos.x = crab.pos.x.clamp(0.0, self.width - crab.scale);
-                crab.pos.y = crab.pos.y.clamp(0.0, self.height - crab.scale);
+                crab.pos.x = crab.pos.x.clamp(0.0, self.world_width - crab.scale);
+                crab.pos.y = crab.pos.y.clamp(0.0, self.world_height - crab.scale);
                 crab.vel = dir; // face the hop; unit vel so the drift branch stays gentle
                 crab.join_pulse = 1.0; // reuse the join squash-pop as a little "landed" bounce
                 // A Dancer bolting away from the player becomes a fear source; note where it
@@ -9602,7 +9673,8 @@ impl EventHandler for MainState {
             let mut rng = rand::rng();
             self.particle_system
                 .spawn_milestone_fireworks(self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0), 24, &mut rng);
-            let banner_pos = Vec2::new(self.width / 2.0 - 150.0, 44.0);
+            // World-layer banner: anchor near the player so it reads on-screen under the camera.
+            let banner_pos = self.player_pos + Vec2::new(-150.0, -220.0);
             self.floating_texts.spawn(
                 "POCKET LOCKED".to_string(),
                 banner_pos + Vec2::new(2.0, 2.0),
@@ -9706,7 +9778,9 @@ impl EventHandler for MainState {
             }
         }
 
-        let area = (self.width, self.height);
+        // The playfield (world) is larger than the viewport; movement, spawning and clamping all
+        // happen in world space. The camera (computed below and in draw) maps it back to the screen.
+        let area = (self.world_width, self.world_height);
         handle_player_movement(self, ctx, dt, SPEED, area);
 
         // Drum Roll (hold T): poll the held key here rather than off the key-down event, since the
@@ -10308,19 +10382,19 @@ impl EventHandler for MainState {
             // hold the light on it *on the beat*). Cycling guarantees variety instead of RNG streaks.
             let (boss, title, hint, title_color) = match self.next_boss_kind {
                 1 => (
-                    spawn_tide_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    spawn_tide_boss((self.world_width, self.world_height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "A TIDE BOSS SURGES IN!",
                     "Hold your light — but keep your train clear of its pulse!",
                     [0.35, 0.8, 1.0, 1.0],
                 ),
                 2 => (
-                    spawn_rhythm_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    spawn_rhythm_boss((self.world_width, self.world_height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "THE REEF DJ DROPS IN!",
                     "Echo the lit pips with light — or catch its dancers on a hot beat!",
                     [0.75, 0.4, 1.0, 1.0],
                 ),
                 _ => (
-                    spawn_boss((self.width, self.height), &mut rand::rng(), BOSS_MAX_HEALTH),
+                    spawn_boss((self.world_width, self.world_height), &mut rand::rng(), BOSS_MAX_HEALTH),
                     "A KING CRAB APPROACHES!",
                     "Hold your light on it!",
                     [1.0, 0.8, 0.2, 1.0],
@@ -10331,15 +10405,16 @@ impl EventHandler for MainState {
             self.crabs.push(boss);
             boss_active = true;
             free_crab_count += 1;
+            // World-layer boss intro banners: anchor near the player so they read on-screen.
             self.floating_texts.spawn(
                 title.to_string(),
-                Vec2::new(self.width / 2.0 - 230.0, 80.0),
+                self.player_pos + Vec2::new(-230.0, -200.0),
                 46.0,
                 title_color,
             );
             self.floating_texts.spawn(
                 hint.to_string(),
-                Vec2::new(self.width / 2.0 - 180.0, 130.0),
+                self.player_pos + Vec2::new(-180.0, -150.0),
                 26.0,
                 [1.0, 0.95, 0.7, 0.9],
             );
@@ -10410,6 +10485,10 @@ impl EventHandler for MainState {
                 self.advance_pattern();
             }
         }
+
+        // Recompute the camera every frame so both draw() and the mouse handlers (which run outside
+        // draw) agree on the screen<->world mapping this frame.
+        self.camera_origin = self.compute_camera_origin();
         Ok(())
     }
 
@@ -10423,11 +10502,15 @@ impl EventHandler for MainState {
         // pixel-locked while the world snaps in on a catch. z == 0 leaves the view untouched.
         let z = self.zoom_punch.clamp(0.0, 0.2);
         let focus = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+        // Camera scrolls across the larger-than-viewport world, following the player (clamped to
+        // world bounds so no void edge shows). The zoom punch magnifies toward the focus point:
+        // origin = camera + z·(focus − camera). At camera == 0 this collapses to the old focus·z.
+        let cam = self.camera_origin;
         let vw = width * (1.0 - z);
         let vh = height * (1.0 - z);
         canvas.set_screen_coordinates(Rect::new(
-            focus.x * z + shake_ox,
-            focus.y * z + shake_oy,
+            cam.x + z * (focus.x - cam.x) + shake_ox,
+            cam.y + z * (focus.y - cam.y) + shake_oy,
             vw,
             vh,
         ));
@@ -10517,7 +10600,9 @@ impl EventHandler for MainState {
         let window_size = ctx.gfx.window().inner_size();
         let scale_x = window_size.width as f32 / self.width;
         let scale_y = window_size.height as f32 / self.height;
-        self.mouse_pos = Vec2::new(x / scale_x, y / scale_y);
+        // mouse_pos is used against player/crab positions (world space) for flashlight aim and crab
+        // picking, so store it in world space: screen point offset by the camera origin.
+        self.mouse_pos = self.camera_origin + Vec2::new(x / scale_x, y / scale_y);
         Ok(())
     }
 
@@ -10552,7 +10637,9 @@ impl EventHandler for MainState {
             let window_size = ctx.gfx.window().inner_size();
             let scale_x = window_size.width as f32 / self.width;
             let scale_y = window_size.height as f32 / self.height;
-            let target = Vec2::new(x / scale_x, y / scale_y);
+            // Map the screen click into world space: the viewport is offset by the camera origin,
+            // so a click at screen (sx,sy) targets world (cam + (sx,sy)).
+            let target = self.camera_origin + Vec2::new(x / scale_x, y / scale_y);
             self.lasso_target = target;
             self.lasso_timer = 0.5;
             self.lasso_pos = Some(self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0));

@@ -2518,6 +2518,7 @@ pub fn draw_flashlight(
     shader: &Shader,
     screen_width: f32,
     screen_height: f32,
+    cam: Vec2,
 ) -> ggez::GameResult {
     // To position the flashlight in the player sprite hand.
     let offset = Vec2 { x: -50.0, y: -5.0 };
@@ -2539,10 +2540,17 @@ pub fn draw_flashlight(
     );
     let angle = dir.y.atan2(dir.x);
 
+    // The shader's fragment space is the VIEWPORT (uv → [0, screen_width]×[0, screen_height]), but
+    // player_pos/center are WORLD coords and the camera can be scrolled far from the origin. Feed
+    // the cone centre in viewport space (world centre minus the camera origin) so the lit cone lands
+    // on the player wherever the camera is. The mesh body/motes below still draw in world space
+    // (world pass), so they keep the raw world `center`.
+    let center_view = center - cam;
+
     // Create uniform data for the shader
     let uniform_data = FlashlightUniform {
-        center_x: center.x,
-        center_y: center.y,
+        center_x: center_view.x,
+        center_y: center_view.y,
         angle,
         spread,
         range: flashlight_len,
@@ -3511,6 +3519,7 @@ pub fn draw_crab_radar(
     crabs: &[EnemyCrab],
     width: f32,
     height: f32,
+    cam: Vec2,
     beat_intensity: f32,
     time: f32,
 ) -> ggez::GameResult {
@@ -3543,9 +3552,11 @@ pub fn draw_crab_radar(
                 if crab.caught {
                     continue;
                 }
-                // Only show arrow if crab is near an edge (within margin*5) or fully off-screen
-                let cx = crab.pos.x;
-                let cy = crab.pos.y;
+                // Crab positions are world-space; the radar draws in screen space (HUD pass), so
+                // translate by the camera origin to get the crab's position within the viewport.
+                // Only show arrow if crab is near an edge (within margin*5) or fully off-screen.
+                let cx = crab.pos.x - cam.x;
+                let cy = crab.pos.y - cam.y;
                 let near_edge = cx < margin * 5.0
                     || cx > width - margin * 5.0
                     || cy < margin * 5.0
@@ -5250,6 +5261,7 @@ pub fn draw_pen_guide(
     pen_radius: f32,
     width: f32,
     height: f32,
+    cam: Vec2,
     urgency: f32,
     beat_intensity: f32,
     time: f32,
@@ -5271,11 +5283,15 @@ pub fn draw_pen_guide(
     let unit_line = unit_line(ctx)?;
     let unit_circle = unit_circle(ctx)?;
 
+    // The pen lives in world space; the viewport is offset by the camera origin. Test on-screen
+    // against the viewport (world coord minus camera), and — since this draws in the world pass —
+    // build any edge-pinned arrow as a world coordinate at the viewport border (cam + screen edge).
     let margin = 30.0_f32;
-    let on_screen = pen_pos.x > margin
-        && pen_pos.x < width - margin
-        && pen_pos.y > margin
-        && pen_pos.y < height - margin;
+    let pen_screen = pen_pos - cam;
+    let on_screen = pen_screen.x > margin
+        && pen_screen.x < width - margin
+        && pen_screen.y > margin
+        && pen_screen.y < height - margin;
 
     let orig_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
@@ -5322,10 +5338,14 @@ pub fn draw_pen_guide(
     } else {
         // Pen is off-screen: pin a bigger, more insistent arrow to the screen edge in the pen's
         // direction (same clamp trick as the crab radar), so you know which way to haul the train.
-        let edge = Vec2::new(
-            (player_center.x + dir.x * 4000.0).clamp(margin, width - margin),
-            (player_center.y + dir.y * 4000.0).clamp(margin, height - margin),
-        );
+        // Compute the edge in SCREEN space (player projected to viewport, clamped to the border),
+        // then add the camera origin back so it lands at the right world coord in this world pass.
+        let player_screen = player_center - cam;
+        let edge = cam
+            + Vec2::new(
+                (player_screen.x + dir.x * 4000.0).clamp(margin, width - margin),
+                (player_screen.y + dir.y * 4000.0).clamp(margin, height - margin),
+            );
         let pulse = 1.0 + beat * 0.4 + (time * 6.0).sin() * 0.1;
         chevron(edge, (18.0 + u * 10.0) * pulse);
         // A faint trailing tick behind the edge arrow so it reads as "keep going this way".

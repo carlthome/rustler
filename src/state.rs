@@ -163,8 +163,11 @@ pub struct MainState {
     pub(crate) start_stomp_rank: u32,
     pub(crate) shop_flash: f32,                           // brief green flash on the last-bought perk (title-screen juice)
     pub(crate) shop_denied: f32,                          // brief red flash when a purchase is refused (can't afford / maxed)
-    pub(crate) width: f32,                                // Virtual width of the game
-    pub(crate) height: f32,                               // Virtual height of the game
+    pub(crate) width: f32,                                // Virtual width of the game (viewport)
+    pub(crate) height: f32,                               // Virtual height of the game (viewport)
+    pub(crate) world_width: f32,                          // Full playfield width — larger than the viewport; the camera scrolls across it
+    pub(crate) world_height: f32,                         // Full playfield height — larger than the viewport
+    pub(crate) camera_origin: Vec2,                       // Top-left world coord of the visible viewport this frame (player-following, clamped to world bounds). Read by draw() and the mouse handlers to map screen<->world.
     pub(crate) shader: ggez::graphics::Shader,            // Shader for grass rendering
     pub(crate) flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
     pub(crate) particle_system: ParticleSystem,           // Particle effects system
@@ -745,11 +748,16 @@ impl MainState {
     pub fn new(ctx: &mut Context) -> GameResult<MainState> {
         let width = 1280.0;
         let height = 960.0;
+        // The playfield is larger than the viewport so rival conga trains (roadmap thesis) have
+        // room to approach from off-screen and the player has somewhere to route to. The camera
+        // follows the player across it. 2x each dimension for now — density is a separate tuning pass.
+        let world_width = width * 2.0;
+        let world_height = height * 2.0;
 
-        // Player starts in the center always.
+        // Player starts in the center of the WORLD always.
         let player_pos = Vec2::new(
-            width / 2.0 - PLAYER_SIZE / 2.0,
-            height / 2.0 - PLAYER_SIZE / 2.0,
+            world_width / 2.0 - PLAYER_SIZE / 2.0,
+            world_height / 2.0 - PLAYER_SIZE / 2.0,
         );
 
         // TODO Load all sound effects.
@@ -805,14 +813,14 @@ impl MainState {
         // Delivery pen + tide-pool hazards for the opening level, placed before `levels` is moved
         // into the struct so we can read the first zone's difficulty for the pool count.
         let init_pen = pick_pen_pos(
-            width,
-            height,
+            world_width,
+            world_height,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             &mut rand::rng(),
         );
         let init_tide_pools = pick_tide_pools(
-            width,
-            height,
+            world_width,
+            world_height,
             init_pen,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             levels.first().map(|l| l.difficulty).unwrap_or(0),
@@ -984,6 +992,9 @@ impl MainState {
             run_is_new_best: false,
             width,
             height,
+            world_width,
+            world_height,
+            camera_origin: Vec2::ZERO,
             shader,
             flashlight_shader,
             particle_system: ParticleSystem::new(),
