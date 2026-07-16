@@ -41,18 +41,21 @@ git -C $HOME/Repos/carlthome/rustler push origin main
 To set up the six recurring cron agents, say "bootstrap" in the Claude Code chat. Each spawns via the Agent tool with an explicit `model` param. Route by cost of failure: bad bookkeeping → Haiku; gameplay/architecture decisions → Sonnet or Opus.
 
 ```text
-1. Feature Developer — every 12 minutes — model: opus   ← main gameplay driver, worth the cost
-2. Release Manager  — every 6 hours    — model: haiku   ← pure bookkeeping
-3. Developer Diary  — every 4 hours    — model: haiku   ← mechanical summarizing
-4. Overnight Dev    — daily at 00:03   — model: sonnet  ← conservative, nobody watching
-5. Optimizer        — every 30 minutes — model: sonnet  ← cleanup pass after Feature Dev; was 15 min (redundant)
-6. Game Director    — every 4 hours    — model: opus    ← Slack signal arrives in batches; was 2 hr (overkill)
-7. Architect        — every 3 hours    — model: sonnet  ← structural cleanup, infrequent by design
+1. Feature Developer — every 12 min  — opus   / effort: high   ← main gameplay driver, compounds most
+2. Release Manager  — every 6 hours  — haiku  / effort: low    ← pure counting/tagging
+3. Developer Diary  — every 4 hours  — haiku  / effort: low    ← mechanical summarizing
+4. Overnight Dev    — daily at 00:03 — sonnet / effort: medium ← conservative, nobody watching
+5. Optimizer        — every 30 min   — sonnet / effort: medium ← one perf fix per pass
+6. Game Director    — every 4 hours  — opus   / effort: high   ← fuzzy feedback → direction
+7. Architect        — every 3 hours  — sonnet / effort: medium ← structural judgment
 ```
 
-Token budget principle: spend Opus on decisions that compound (feature direction, gameplay choices).
-Use Haiku for mechanical tasks (bookkeeping, summarizing). Sonnet for code that needs correctness
-but not creative judgment. Don't run expensive agents more often than their inputs change.
+Token budget principle: Opus+high on decisions that compound (feature direction, gameplay choices,
+design judgment). Haiku+low for mechanical tasks (bookkeeping, summarizing). Sonnet+medium for code
+that needs correctness but not creative judgment. Don't run agents more often than their inputs change.
+
+Note: the Agent tool doesn't yet expose an effort param — effort is documented here as intent.
+When it gains that param, wire it per the table above.
 
 ## How the agents work together
 
@@ -88,28 +91,6 @@ Steps:
 6. Fix any build errors and rebuild until clean
 7. Commit with a short plain-English message — no Co-Authored-By lines
 8. Push: `git -C $HOME/Repos/carlthome/rustler push origin main`
-```text
-
-## Cron 2 — Release Manager prompt
-
-```text
-You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler. Follow semver:
-minor bump (0.x.0) for new features, patch bump (0.x.y) for bug-fix/perf-only batches.
-
-Steps:
-1. `git -C $HOME/Repos/carlthome/rustler fetch --tags`
-2. Find the latest semver tag on main: `git -C $HOME/Repos/carlthome/rustler tag --list 'v*' --sort=-v:refname | head -1`
-3. List commits since that tag, excluding chores (merge commits, docs-only commits to
-   AGENTS.md/README.md/ROADMAP.md, screenshot-only commits from the Developer Diary agent):
-     git -C $HOME/Repos/carlthome/rustler log <tag>..main --oneline
-4. If fewer than 5 non-chore commits, do nothing this cycle.
-5. If 5 or more non-chore commits:
-   - If ANY commit is a new feature or mechanic → MINOR bump: e.g. v0.11.0 → v0.12.0
-   - If ALL commits are bug fixes or perf optimizations only → PATCH bump: e.g. v0.11.0 → v0.11.1
-   - Update Cargo.toml version to match:
-       sed -i '' 's/^version = ".*"/version = "<new>"/' $HOME/Repos/carlthome/rustler/Cargo.toml
-   - Commit: `git -C $HOME/Repos/carlthome/rustler add Cargo.toml && git -C $HOME/Repos/carlthome/rustler commit -m "Release <new>"`
-   - Tag and push: `git -C $HOME/Repos/carlthome/rustler tag -a v<new> -m "v<new>" && git -C $HOME/Repos/carlthome/rustler push origin main && git -C $HOME/Repos/carlthome/rustler push origin v<new>`
 ```text
 
 ## Cron 3 — Developer Diary prompt
@@ -245,7 +226,7 @@ Steps:
 8. `git -C $HOME/Repos/carlthome/rustler pull --ff-only --rebase` then push
 ```
 
-## Cron 2 (updated) — Release Manager prompt with release notes
+## Cron 2 — Release Manager prompt
 
 ```text
 You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler. Follow semver:
