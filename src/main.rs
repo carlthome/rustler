@@ -2582,9 +2582,9 @@ impl MainState {
     /// full walk over self.crabs. `run_bonus_points` is already in points (RUN_STREAK_BONUS summed
     /// over every same-type run beyond length 2), not a count, so callers add it directly. The
     /// individual wrappers above exist for call sites that only need one value.
-    fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize, usize) {
+    fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize, usize, usize) {
         if keep < 2 {
-            return (0, 0, 0);
+            return (0, 0, 0, 0);
         }
         BOND_INDEX_BUF.with(|buf| {
             let mut by_index = buf.borrow_mut();
@@ -2627,7 +2627,23 @@ impl MainState {
             // every crab beyond the third in each run (a run of length L pays L-2 kickers). Same
             // by_index lookup as bonds/sandwiches — one more linear pass, no extra crab scan.
             let mut run_bonus_points = 0;
+            // CENTERPIECE: a same-type run of length >= 3 that straddles the train's midpoint pays
+            // a flat bonus once per qualifying run — positional identity for the MIDDLE of the line
+            // (a deep run seated in the protected center beats one dangling at the snappable tail).
+            // The midpoint is a link boundary at keep/2; a run [start..=end] straddles it when it
+            // spans that boundary, i.e. start <= mid-1 and end >= mid (using half-open indices).
+            let mut centerpiece_bonus = 0;
+            let mid = keep / 2;
             let mut run_len = 0usize; // length of the current same-type run ending at i-1
+            let mut run_start = 0usize; // chain_index where the current run began
+            let close_run = |len: usize, start: usize, end_exclusive: usize| -> usize {
+                // Runs of length >= 3 straddling the midpoint earn the centerpiece kicker.
+                if len >= 3 && start < mid && end_exclusive > mid {
+                    CENTERPIECE_BONUS
+                } else {
+                    0
+                }
+            };
             for i in 0..keep {
                 let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
                 if extends {
@@ -2636,12 +2652,19 @@ impl MainState {
                     // A run just ended (or the chain begins). Score the run we were building, then
                     // start a fresh one at this link (length 1 if occupied, 0 if a gap).
                     run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
+                    if run_len > 0 {
+                        centerpiece_bonus += close_run(run_len, run_start, i);
+                    }
                     run_len = if by_index[i].is_some() { 1 } else { 0 };
+                    run_start = i;
                 }
             }
             // Score the final trailing run, which never hit a boundary to close it above.
             run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
-            (bonds, sandwiches, run_bonus_points)
+            if run_len > 0 {
+                centerpiece_bonus += close_run(run_len, run_start, keep);
+            }
+            (bonds, sandwiches, run_bonus_points, centerpiece_bonus)
         })
     }
 
@@ -2667,11 +2690,12 @@ impl MainState {
         // run). Folded into `base` BEFORE the multipliers so it rides the streak/perfect/gamble
         // stack exactly like the triangular sum, and so the pen_worth preview (which recomputes the
         // same base+bonds) can't disagree with what actually banks.
-        let (bonds, sandwiches, run_bonus) = self.count_bonds_and_sandwiches(n);
+        let (bonds, sandwiches, run_bonus, centerpiece) = self.count_bonds_and_sandwiches(n);
         let base = (n * (n + 1) / 2) * 3
             + bonds * BOND_PAIR_BONUS
             + sandwiches * SANDWICH_BONUS
-            + run_bonus;
+            + run_bonus
+            + centerpiece;
 
         // A bank in quick succession bumps the delivery streak (capped) and refreshes its grace
         // window; the streak multiplier escalates the payout so cashing in repeatedly at tempo pays
@@ -2807,6 +2831,19 @@ impl MainState {
                 [0.5, 1.0, 0.5, 1.0],
             );
             callout_y += 26.0;
+        }
+        // CENTERPIECE — positional identity for the MIDDLE of the train. A deep run seated across
+        // the train's midpoint (safe from tail snaps) earned this; naming it tells the player that
+        // WHERE they parked their best block, not just that they built one, is what paid. Bright
+        // magenta so it reads as the top arrangement tier above cyan ARRANGED / gold SANDWICH / green BLOCK.
+        if centerpiece > 0 {
+            self.floating_texts.spawn(
+                format!("CENTERPIECE!  (+{})", centerpiece),
+                self.pen_pos - Vec2::new(105.0, callout_y),
+                28.0,
+                [1.0, 0.45, 0.95, 1.0],
+            );
+            callout_y += 28.0;
         }
         // LONG HAUL — the payoff face of the AT RISK gamble. It fires at the SAME length tiers the
         // risk escalates at (the panic_snap_links steps: 8, 12, 16), so a train that was flashing
@@ -7141,10 +7178,10 @@ impl MainState {
         // Cache it here so the second call is a free integer read instead of another O(n) scan.
         // Single scan for both bonds and sandwiches — avoids two separate O(n) walks over the
         // caught crabs for what is effectively the same chain_index→type lookup.
-        let (bonds_n, sandwiches_n, run_bonus_n) = if self.chain_count > 0 {
+        let (bonds_n, sandwiches_n, run_bonus_n, centerpiece_n) = if self.chain_count > 0 {
             self.count_bonds_and_sandwiches(self.chain_count)
         } else {
-            (0, 0, 0)
+            (0, 0, 0, 0)
         };
         let pen_worth = if self.chain_count > 0 {
             let n = self.chain_count;
@@ -7155,7 +7192,8 @@ impl MainState {
             let base = (n * (n + 1) / 2) * 3
                 + bonds_n * BOND_PAIR_BONUS
                 + sandwiches_n * SANDWICH_BONUS
-                + run_bonus_n;
+                + run_bonus_n
+                + centerpiece_n;
             Some((base as f32 * self.combo_multiplier() as f32 * self.beat_gamble_mult).round() as usize)
         } else {
             None
@@ -7175,8 +7213,10 @@ impl MainState {
                 if player_center.distance(self.pen_pos) > PEN_RADIUS * 1.4 {
                     // The arrangement-only slice of the haul, run through the same live multipliers the
                     // total uses so the two numbers stay honest with each other.
-                    let arr_base =
-                        bonds_n * BOND_PAIR_BONUS + sandwiches_n * SANDWICH_BONUS + run_bonus_n;
+                    let arr_base = bonds_n * BOND_PAIR_BONUS
+                        + sandwiches_n * SANDWICH_BONUS
+                        + run_bonus_n
+                        + centerpiece_n;
                     let arranged = (arr_base as f32
                         * self.combo_multiplier() as f32
                         * self.beat_gamble_mult)
@@ -7248,7 +7288,8 @@ impl MainState {
                 // how the bank pays those same bonds. bonds(n) - bonds(keep) is what the cut erases.
                 // bonds_n (bonds for the full chain) was precomputed above — reuse it instead of a
                 // second O(n) crab scan with the same argument.
-                let (bonds_keep, sandwiches_keep, run_bonus_keep) = self.count_bonds_and_sandwiches(keep);
+                let (bonds_keep, sandwiches_keep, run_bonus_keep, centerpiece_keep) =
+                    self.count_bonds_and_sandwiches(keep);
                 let bonds_lost = bonds_n.saturating_sub(bonds_keep);
                 // Sandwiches destroyed by the cut too — any sandwich straddling or inside the torn
                 // tail region is gone, so the at-risk number folds in its lost value the same way
@@ -7258,10 +7299,15 @@ impl MainState {
                 // erases) any long matched run there, so the at-risk number reflects the run bonus
                 // the bank would no longer pay — keeping the two tags honest with each other.
                 let run_bonus_lost = run_bonus_n.saturating_sub(run_bonus_keep);
+                // Centerpiece bonus lost to the cut: a straddling deep run in the full train may no
+                // longer straddle the shortened train's new midpoint (or gets chopped below length 3),
+                // so the at-risk number folds in the centerpiece the bank would no longer pay.
+                let centerpiece_lost = centerpiece_n.saturating_sub(centerpiece_keep);
                 let marginal = tri(n).saturating_sub(tri(keep))
                     + bonds_lost * BOND_PAIR_BONUS
                     + sandwiches_lost * SANDWICH_BONUS
-                    + run_bonus_lost;
+                    + run_bonus_lost
+                    + centerpiece_lost;
                 let at_risk = (marginal as f32 * mult).round() as usize;
                 // Danger ramps from the snap threshold up to a long train (~12), so color/pulse escalate.
                 let danger01 = ((n.saturating_sub(5)) as f32 / 7.0).clamp(0.0, 1.0);

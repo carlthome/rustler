@@ -60,6 +60,11 @@ pub const PERFECT_DELIVERY_BONUS: f32 = 0.5;
 pub const BOND_PAIR_BONUS: usize = 12;
 pub const SANDWICH_BONUS: usize = 20;
 pub const RUN_STREAK_BONUS: usize = 15;
+// CENTERPIECE: a same-type run of length >= 3 that straddles the train's midpoint pays this
+// once. Positional identity for the MIDDLE of the train — a deep run is worth more parked in
+// the protected center (safe from tail snaps) than dangling at the snappable tail, so WHERE you
+// seat your best run matters, not just that you built one. Deepens the existing run vocabulary.
+pub const CENTERPIECE_BONUS: usize = 40;
 
 pub const MAX_START_RANK: u32 = 2;
 pub const PERK_COST_STEP: usize = 30;
