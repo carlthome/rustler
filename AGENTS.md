@@ -282,15 +282,3 @@ Steps:
 7. Commit with a short plain-English message — no Co-Authored-By lines
 8. `git -C $HOME/Repos/carlthome/rustler pull --ff-only` then push
 ```
-
-## Features already shipped
-
-conga train · lasso throw · beat wave burst · disco rainbow laser · BPM-synced animations ·
-BeatGrid/Spiral spawn patterns · rhythm bonus scoring · upgrade cards (3-pick with tradeoffs) ·
-dash particle burst + speed lines · beat-synced crab positional wobble · combo multiplier ·
-beat pulse rings · milestone fireworks · panic flee mechanic · screen-edge radar arrows ·
-crab drop shadow · beat-reactive chain bounce · spinning lasso loop with catch-radius ring ·
-crabs rotate to face movement direction · beat-synced ghost rings on chain · flashlight
-attraction glow · PERFECT streak bonus · CENTERPIECE arrangement bonus · beat-aimed bubble
-swap (interior Cycle verb) · catch-next hint rings · live HAUL/ARRANGED readout · kelp snag
-warning rings · cycle-promote preview ring
