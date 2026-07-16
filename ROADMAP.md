@@ -69,11 +69,6 @@ item in "Now" below.
 
 - **[TOP PRIORITY — PREREQUISITE FOR EVERYTHING BELOW] Scrolling world: extend the map beyond the fixed viewport.** The competing-conga-lines vision (NPC King Crab trains, BYO music dominating the mix, train-vs-train stealing) cannot work in a fixed viewport — rival trains need space to approach from off-screen, their music needs to be audible before they're visible, and players need room to maneuver. This is also the "explorable maps" item Carl called out (Black Isle / Vampire Survivors exploration dopamine). Concretely: a world larger than the viewport, a camera that follows the player's train, and spawning/NPC logic that works in world-space rather than screen-space. Scaffolding already in place: radar arrows (off-screen awareness), screen/world coordinate separation in draw code, off-screen draw culling. This is the single most load-bearing architectural change before NPC ecology can begin.
 
-- *(Shipped this cycle and checked off: active control over train ORDER — the agency gap Carl named.
-  a8172f3 deepened the Cycle verb so X now aims at an interior train crab and bubbles it one slot toward
-  the centre, letting the player build a centerpiece on purpose instead of only rotating the ends.
-  Arrangement is now both legible AND shapeable — reading the train and controlling it are both closed.)*
-
 ## Later (outer loop — not yet)
 
 - **Expand meta-progression past the first slice** — the persistent career + perk shop is in.
