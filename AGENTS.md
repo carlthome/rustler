@@ -113,7 +113,7 @@ Steps:
 6. Fix any build errors and rebuild until clean
 7. Commit with a short plain-English message — no Co-Authored-By lines
 8. Push: `git -C $HOME/Repos/carlthome/rustler push origin main`
-```text
+```
 
 ## Cron 3 — Developer Diary prompt
 
@@ -142,7 +142,7 @@ Steps:
      https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
 5. This post is the thing the Game Director agent (cron 6) reads reactions and replies from —
    it's the actual feedback channel to Carl, not just a status update.
-```text
+```
 
 ## Cron 4 — Overnight Developer prompt
 
@@ -165,7 +165,7 @@ Steps:
 6. Fix any build errors and rebuild until clean
 7. Commit with a short plain-English message — no Co-Authored-By lines
 8. Push: `git -C $HOME/Repos/carlthome/rustler push origin main`
-```text
+```
 
 ## Cron 5 — Optimizer prompt
 
@@ -192,7 +192,7 @@ Steps:
 
 If nothing obvious stands out, add lightweight FPS/frame-time instrumentation (print average
 frame time every few seconds in debug builds) so future runs have real data to act on.
-```text
+```
 
 ## Cron 6 — Game Director prompt
 
