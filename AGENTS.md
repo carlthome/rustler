@@ -42,14 +42,18 @@ git -C $HOME/Repos/carlthome/rustler push origin main
 To set up the six recurring cron agents, say "bootstrap" in the Claude Code chat. Each spawns via the Agent tool with an explicit `model` param. Route by cost of failure: bad bookkeeping → Haiku; gameplay/architecture decisions → Sonnet or Opus.
 
 ```text
-1. Feature Developer — every 12 minutes — model: opus
-2. Release Manager  — every 6 hours    — model: haiku
-3. Developer Diary  — every 4 hours    — model: haiku
-4. Overnight Dev    — daily at 00:03   — model: sonnet
-5. Optimizer        — every 15 minutes — model: sonnet
-6. Game Director    — every 2 hours    — model: opus
-7. Architect        — every 3 hours    — model: sonnet
+1. Feature Developer — every 12 minutes — model: opus   ← main gameplay driver, worth the cost
+2. Release Manager  — every 6 hours    — model: haiku   ← pure bookkeeping
+3. Developer Diary  — every 4 hours    — model: haiku   ← mechanical summarizing
+4. Overnight Dev    — daily at 00:03   — model: sonnet  ← conservative, nobody watching
+5. Optimizer        — every 30 minutes — model: sonnet  ← cleanup pass after Feature Dev; was 15 min (redundant)
+6. Game Director    — every 4 hours    — model: opus    ← Slack signal arrives in batches; was 2 hr (overkill)
+7. Architect        — every 3 hours    — model: sonnet  ← structural cleanup, infrequent by design
 ```
+
+Token budget principle: spend Opus on decisions that compound (feature direction, gameplay choices).
+Use Haiku for mechanical tasks (bookkeeping, summarizing). Sonnet for code that needs correctness
+but not creative judgment. Don't run expensive agents more often than their inputs change.
 
 ## How the agents work together
 
