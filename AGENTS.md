@@ -65,6 +65,20 @@ Sonnet+medium for code correctness. Don't run agents more often than their input
 
 **DO NOT** bootstrap the remote agents (2, 3, 6, 8) as local crons — they're already running remotely and duplicates will create conflicting commits.
 
+## Worktree isolation
+
+Local agents that write code (1, 4, 5, 7) should be spawned with `isolation: "worktree"` in the Agent tool call. This gives each agent its own isolated git worktree so they never stomp on each other's uncommitted changes or break each other's builds. The worktree is automatically cleaned up after the agent finishes (or kept if changes were made, with the branch name returned).
+
+Without isolation, concurrent agents share the same working directory — partial lasso work breaks the flashlight agent's build, stashes pile up, conflicts occur on push. With worktrees, each agent works in a clean copy and merges/rebases cleanly when done.
+
+Example spawn call:
+
+```python
+Agent(description="...", prompt="...", model="opus", isolation="worktree", run_in_background=True)
+```
+
+Remote routines (2, 3, 6, 8) run in Anthropic's cloud with their own checkout — they're already isolated by design.
+
 ## How the agents work together
 
 1. **Feature Developer** (cron 1) and **Overnight Developer** (cron 4) write game code, checking ROADMAP.md first.
