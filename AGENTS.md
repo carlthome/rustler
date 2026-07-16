@@ -16,9 +16,8 @@ nix develop $HOME/Repos/carlthome/rustler --command cargo build
 nix develop $HOME/Repos/carlthome/rustler --command ./target/debug/rustler
 ```text
 
-> **Note:** Use `nix develop .` from the repo root (the game repo's own flake), not the
-> dotfiles flake. The game flake's `shellHook` sets `LD_LIBRARY_PATH` and `VK_ICD_FILENAMES`
-> so the game binary can find the Vulkan/Wayland graphics stack.
+> **Note:** Run `nix develop .` from the repo root. The shellHook sets `LD_LIBRARY_PATH` and
+> `VK_ICD_FILENAMES` so the binary can find the Vulkan/Wayland graphics stack.
 
 ## File ownership (parallel agent splits)
 
