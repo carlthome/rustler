@@ -3560,7 +3560,31 @@ impl MainState {
             }
         }
         let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
-        let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
+        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
+        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
+        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
+        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
+        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
+        let splice_target_pos: Option<Vec2> = if self.chain_count >= 4 {
+            let target_ci = self.chain_count * 2 / 3; // aim 2/3 down from head = 1/3 from tail
+            let mut best_dist = f32::MAX;
+            let mut found: Option<Vec2> = None;
+            for c in &self.crabs {
+                if c.caught {
+                    if let Some(ci) = c.chain_index {
+                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
+                        if dist < best_dist {
+                            best_dist = dist;
+                            found = Some(c.pos);
+                        }
+                    }
+                }
+            }
+            found
+        } else {
+            None
+        };
+        let charge_target = splice_target_pos.unwrap_or_else(|| chain_tail_pos.unwrap_or(self.player_pos));
         // Captured before the &mut self.crabs loop: while the post-scatter regroup window is live the
         // King Crab can't wind up a fresh charge, so you can't be chain-detonated back-to-back.
         let boss_hit_iframes_active = self.boss_hit_iframes > 0.0;
@@ -5484,12 +5508,27 @@ impl MainState {
         self.in_campaign = false;
     }
 
-    /// Start a campaign run from the currently selected world map node.
+    /// Start a campaign run (or tutorial) from the currently selected world map node.
+    /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level.
     fn enter_campaign_level(&mut self) {
+        // Check if the selected node is a tutorial sandbox.
+        let tutorial_kind = self
+            .world_map
+            .as_ref()
+            .and_then(|m| m.selected_tutorial_kind());
+
+        if let Some(kind) = tutorial_kind {
+            // Tutorial nodes run the scripted sandbox instead of a normal level.
+            self.enter_tutorial(kind);
+            self.show_world_map = false;
+            self.in_campaign = true;
+            return;
+        }
+
         let level_index = self
             .world_map
             .as_ref()
-            .map(|m| m.selected_level_index())
+            .and_then(|m| m.selected_level_index())
             .unwrap_or(0);
         self.reset_game();
         self.current_level = level_index.min(self.levels.len().saturating_sub(1));
@@ -5940,11 +5979,11 @@ impl MainState {
             );
         });
 
-        // --- "Press H — How to Play" tutorial prompt, sitting just under the start prompt --------
+        // --- "Press C — Campaign" hint (tutorials live as the first campaign nodes) -----------
         let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — Beat Timing    J  — Chain & Deliver    K  — Crack Shells    L  — Lasso    C  — Campaign");
+                let mut prompt = Text::new("Press  C  — Campaign  (tutorials are the first stops)");
                 prompt.set_scale(22.0);
                 let w = prompt.measure(ctx)?.x;
                 *cache = Some((prompt, w));
@@ -5968,7 +6007,7 @@ impl MainState {
         // --- Career line: the persistent thread across runs -------------------------------
         // Only surfaces once there's a career to show, so a brand-new player sees a clean title.
         // Reminds returning players what they're building toward before they hit start.
-        // Anchored 30px below the tutorial hint row (itself at +58) to avoid overlap.
+        // Anchored 30px below the campaign hint row (itself at +58) to avoid overlap.
         if self.career_runs > 0 {
             let career_base = text_y + text_height + pad * 2.0 + 90.0;
             let cw = CAREER_LABEL_CACHE.with(|c| -> GameResult<f32> {
@@ -6859,6 +6898,37 @@ impl MainState {
 
         // Draw Tide Boss shockwave pulses sweeping outward
         draw_tide_pulses(ctx, canvas, &self.tide_pulses, TIDE_PULSE_RADIUS)?;
+
+        // Draw King Crab stolen crabs — magnetically flying toward the boss.
+        // Each is a pulsing crab-colored disc with a magenta tint that fades out as the timer drops.
+        for (pos, timer, color) in &self.king_stolen_crabs {
+            let t = (*timer / 0.9_f32).clamp(0.0, 1.0); // 1=just stolen, 0=absorbed
+            let alpha = t;
+            let size = CRAB_SIZE * (0.6 + 0.4 * t); // shrinks as it's absorbed
+            let draw_pos = *pos - self.camera_origin;
+            let r = color[0] * 0.6 + 0.6 * (1.0 - t); // blend toward magenta
+            let g = color[1] * t * 0.5;
+            let gb = color[2] * t * 0.8 + 0.5 * (1.0 - t);
+            let circle = ggez::graphics::Mesh::new_circle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                draw_pos,
+                size * 0.5,
+                1.0,
+                ggez::graphics::Color::new(r, g, gb, alpha),
+            )?;
+            canvas.draw(&circle, ggez::graphics::DrawParam::default());
+            // Outer magnetic ring.
+            let ring = ggez::graphics::Mesh::new_circle(
+                ctx,
+                ggez::graphics::DrawMode::stroke(1.5),
+                draw_pos,
+                size * 0.7,
+                1.0,
+                ggez::graphics::Color::new(1.0, 0.3, 0.9, alpha * 0.7),
+            )?;
+            canvas.draw(&ring, ggez::graphics::DrawParam::default());
+        }
 
         // Draw particle effects
         draw_particles(ctx, canvas, &self.particle_system)?;
@@ -10141,6 +10211,35 @@ impl EventHandler for MainState {
         }
         if self.chain_snap_cooldown > 0.0 {
             self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);
+        }
+        if self.king_splice_cooldown > 0.0 {
+            self.king_splice_cooldown = (self.king_splice_cooldown - dt).max(0.0);
+        }
+        // Update stolen-crab magnetic pull: each stolen crab flies toward the nearest boss position,
+        // advancing its timer. When the timer expires the crab is "absorbed" (just removed — the boss
+        // train system comes later; for now the visual pull is enough).
+        if !self.king_stolen_crabs.is_empty() {
+            let boss_pos: Option<Vec2> = self.crabs.iter().find_map(|c| {
+                if c.is_boss() && !c.caught && !c.is_tide_boss() && !c.is_rhythm_boss() {
+                    Some(c.pos)
+                } else {
+                    None
+                }
+            });
+            if let Some(bpos) = boss_pos {
+                for (pos, timer, _color) in &mut self.king_stolen_crabs {
+                    *timer -= dt;
+                    // Lerp toward boss — starts slow (magnetic pull builds), accelerates as timer drops.
+                    let t = (*timer / 0.9_f32).clamp(0.0, 1.0);
+                    let speed = (1.0 - t * t) * dt * 6.0; // quadratic acceleration toward boss
+                    let dir = (bpos - *pos).normalize_or_zero();
+                    *pos += dir * (bpos - *pos).length() * speed;
+                }
+                self.king_stolen_crabs.retain(|(_, timer, _)| *timer > 0.0);
+            } else {
+                // Boss is gone (caught), free the stolen crabs instead of holding them.
+                self.king_stolen_crabs.clear();
+            }
         }
         if self.boss_hit_iframes > 0.0 {
             self.boss_hit_iframes = (self.boss_hit_iframes - dt).max(0.0);

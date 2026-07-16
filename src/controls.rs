@@ -219,27 +219,11 @@ pub fn handle_key_down_event(
                 }
                 return true;
             }
-            // Home-page-only keys: tutorials and campaign.
+            // Home-page-only keys: campaign world map.
             if state.menu_page == 0 {
-                // "C" opens the campaign world map.
+                // "C" opens the campaign world map (tutorials are the first nodes there).
                 if key == KeyCode::C {
                     state.enter_world_map();
-                    return true;
-                }
-                if key == KeyCode::H {
-                    state.enter_tutorial(crate::tutorial::TutorialKind::BeatTiming);
-                    return true;
-                }
-                if key == KeyCode::J {
-                    state.enter_tutorial(crate::tutorial::TutorialKind::ChainDeliver);
-                    return true;
-                }
-                if key == KeyCode::K {
-                    state.enter_tutorial(crate::tutorial::TutorialKind::ShellCrack);
-                    return true;
-                }
-                if key == KeyCode::L {
-                    state.enter_tutorial(crate::tutorial::TutorialKind::LassoGrab);
                     return true;
                 }
             }
