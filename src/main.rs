@@ -3982,7 +3982,14 @@ impl MainState {
                 // hunkers and holds ground between its scripted host-swap darts (see the dart block
                 // below), so it reads as a hiding lump you have to crack rather than a chaser. Once
                 // cracked it's an ordinary crab and flees like anything else.
-                let now_fleeing = !crab_in_light
+                // The beam is a boss-pressure tool, not a herd lure. Only SHELLED targets the player
+                // is actively burning down (Armored / borrowed-shell Hermit — the ones with a shell
+                // the beam is chewing through) get "held" by the light; everything else ignores the
+                // beam entirely and wanders/flees on its own. This is what keeps the flashlight's
+                // identity clean: it burns hard targets, the whistle pulls the herd. A normal crab
+                // caught in the cone drifts as if the light weren't there.
+                let beam_holds = crab_in_light && crab.boss_health > 0.0 && !crab.is_hermit();
+                let now_fleeing = !beam_holds
                     && distance < FLEE_RADIUS
                     && !crab.is_boss()
                     && !crab.is_dancer()
@@ -3990,16 +3997,11 @@ impl MainState {
                     && !(crab.is_thief() && self.chain_count >= 4)
                     && crab.charm_timer <= 0.0;
 
-                if crab_in_light {
-                    // Crab is gently attracted to the player's position (sauntering, not rocketing)
-                    let toward_dir = (self.player_pos - crab.pos).normalize_or_zero();
-                    let max_speed = crab.crab_type.speed_range().end;
-                    let min_speed = crab.crab_type.speed_range().start;
-
-                    // Instead of instantly max speed, interpolate velocity and use a gentle boost.
-                    let gentle_speed = min_speed + (max_speed - min_speed) * 0.10;
-                    crab.vel = crab.vel.lerp(toward_dir * gentle_speed, 0.01);
-                    crab.speed = gentle_speed;
+                if beam_holds {
+                    // A crab whose shell is being seared holds under the beam — it can't scurry off
+                    // while you burn it down, so the pressure reads as "pinned and melting". No pull
+                    // toward the player (that was the old herd-lure); it simply stops fleeing.
+                    crab.vel = crab.vel.lerp(Vec2::ZERO, 0.04);
                     crab.spooked_timer = 0.7;
                     crab.fleeing = false;
                 } else if now_fleeing {
@@ -4553,17 +4555,25 @@ impl MainState {
                     crab.facing_angle += delta * (dt * 8.0).min(1.0);
                 }
 
-                // Collect sparkle particles drifting toward player for attracted crabs
-                if crab_in_light {
-                    // ~2 sparkles per second (probabilistic)
-                    if rng.random_range(0.0_f32..1.0_f32) < dt * 2.0 {
-                        let toward_player = (self.player_pos - crab.pos).normalize_or_zero();
-                        let perp = Vec2::new(-toward_player.y, toward_player.x);
-                        let spread = rng.random_range(-0.6_f32..0.6_f32);
-                        let dir = (toward_player + perp * spread).normalize();
-                        let speed = rng.random_range(40.0_f32..90.0_f32);
-                        let life = rng.random_range(0.4_f32..0.8_f32);
-                        let color = crab.crab_color();
+                // Searing sparks — ONLY for a shelled target the beam is actively burning down
+                // (drain is live). Not a herd attraction cue anymore: normal crabs in the cone emit
+                // nothing. The sparks spray OUTWARD off the scorched shell (not toward the player)
+                // and burn harsh white-hot, so the read is "this thing is melting under the beam",
+                // reinforcing the flashlight's boss-pressure identity.
+                let searing = crab_in_light && crab.boss_health > 0.0 && !crab.is_hermit();
+                if searing {
+                    // ~14 sparks per second while burning — a dense, unmistakable scorch spray.
+                    if rng.random_range(0.0_f32..1.0_f32) < dt * 14.0 {
+                        // Spray back along the beam (away from the player, off the hit face).
+                        let off_beam = (crab.pos - self.player_pos).normalize_or_zero();
+                        let perp = Vec2::new(-off_beam.y, off_beam.x);
+                        let spread = rng.random_range(-0.9_f32..0.9_f32);
+                        let dir = (off_beam + perp * spread).normalize_or_zero();
+                        let speed = rng.random_range(90.0_f32..190.0_f32);
+                        let life = rng.random_range(0.25_f32..0.5_f32);
+                        // Harsh white-yellow scorch, occasionally flaring to orange ember.
+                        let hot = rng.random_range(0.0_f32..1.0_f32) < 0.35;
+                        let color = if hot { [1.0, 0.55, 0.15] } else { [1.0, 0.95, 0.7] };
                         attraction_particles.push((crab.pos, dir * speed, life, color));
                     }
                 }
@@ -4630,14 +4640,32 @@ impl MainState {
         // Celebrate any King Crab worn down to catchable this frame
         for &pos in boss_broke.iter() {
             self.floating_texts.spawn(
-                "WORN DOWN — CATCH IT!".to_string(),
-                pos - Vec2::new(110.0, 46.0),
-                34.0,
+                "SHELL CRACKED!".to_string(),
+                pos - Vec2::new(96.0, 60.0),
+                40.0,
+                [1.0, 0.95, 0.6, 1.0],
+            );
+            self.floating_texts.spawn(
+                "CATCH IT!".to_string(),
+                pos - Vec2::new(64.0, 20.0),
+                30.0,
                 [0.4, 1.0, 0.5, 1.0],
             );
-            self.spawn_catch_shockwave(pos, [1.0, 0.85, 0.3]);
-            self.screen_shake = self.screen_shake.max(14.0);
-            self.on_beat_flash = self.on_beat_flash.max(0.4);
+            // Telegraphed pop: the shell finally gives under sustained beam pressure. A hot burst of
+            // scorch sparks off the crack, a double shockwave (white flash + hot ring), a hard shake,
+            // and a brief hitstop that STAGGERS the moment so it lands as a satisfying "pop" beat
+            // rather than a health number quietly hitting zero.
+            self.spawn_catch_shockwave(pos, [1.0, 0.98, 0.85]);
+            self.spawn_catch_shockwave(pos, [1.0, 0.6, 0.15]);
+            self.particle_system
+                .spawn_milestone_fireworks(pos, 14, &mut rand::rng());
+            self.screen_shake = self.screen_shake.max(22.0);
+            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 16.0 * 60.0;
+            self.on_beat_flash = self.on_beat_flash.max(0.6);
+            // Freeze-frame the crack — a strong hitstop so a boss shell breaking is the single most
+            // emphatic pop the beam can produce.
+            self.hitstop_timer = self.hitstop_timer.max(0.16);
         }
 
         // A boss just crossed into its enrage phase — the fight's final act. A hard jolt, a big
@@ -4784,15 +4812,19 @@ impl MainState {
             }
         }
 
-        // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare
+        // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare, but
+        // still a scorch pop: a hot-tinted shockwave, a short shake and a light hitstop so burning a
+        // shell open with the beam reads as a satisfying break rather than a silent state flip.
         for &pos in armor_broke.iter() {
             self.floating_texts.spawn(
                 "SHELL CRACKED!".to_string(),
                 pos - Vec2::new(70.0, 40.0),
                 26.0,
-                [0.7, 0.85, 1.0, 1.0],
+                [1.0, 0.92, 0.6, 1.0],
             );
-            self.spawn_catch_shockwave(pos, [0.7, 0.8, 0.95]);
+            self.spawn_catch_shockwave(pos, [1.0, 0.8, 0.35]);
+            self.screen_shake = self.screen_shake.max(9.0);
+            self.hitstop_timer = self.hitstop_timer.max(0.06);
         }
 
         // Emit "!" floating texts for crabs that just started fleeing this frame
@@ -7951,10 +7983,17 @@ impl MainState {
                         self.tail_run_len,
                     )?;
                 }
-                // Attraction halo for crabs currently being pulled by the flashlight beam
-                if crab.in_flashlight {
+                // Scorch ring — ONLY for a shelled target the beam is actively burning down (a boss
+                // or an Armored crab still holding shell, lit up in the cone). This replaced the old
+                // "attraction halo" that used to ring every crab the light touched: the beam no
+                // longer herds normal crabs, so there's nothing to halo. A crab burning under the
+                // beam gets a harsh white-hot searing ring so the read is unmistakably "melting".
+                if crab.in_flashlight
+                    && crab.boss_health > 0.0
+                    && (crab.is_boss() || crab.is_armored())
+                {
                     let size = crab.scale * CRAB_SIZE;
-                    draw_attracted_crab_glow(ctx, canvas, pos, size, crab.crab_color(), self.time_elapsed, self.beat_intensity)?;
+                    draw_attracted_crab_glow(ctx, canvas, pos, size, [1.0, 0.9, 0.55], self.time_elapsed, self.beat_intensity)?;
                 }
                 // Boss aura + wear-down health ring — aura tinted per archetype.
                 if crab.is_boss() {

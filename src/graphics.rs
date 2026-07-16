@@ -6741,13 +6741,18 @@ pub fn draw_attracted_crab_glow(
     time: f32,
     beat_intensity: f32,
 ) -> ggez::GameResult {
-    // Pulse: fast sine wave (3 Hz) scaled up on beat
-    let pulse = (time * 3.0 * std::f32::consts::TAU).sin() * 0.5 + 0.5; // 0..1
-    let pulse = pulse * (0.7 + beat_intensity * 0.3);
+    // This is now the SCORCH ring drawn only on a shelled target the beam is burning down (see the
+    // gated call site in draw_crabs). It reads as a searing hot-spot on the shell, not a soft lure
+    // halo. Fast, jittery flicker (like a flame biting the shell) instead of a lazy breathing pulse.
+    let flicker = (time * 6.0 * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+    let flicker2 = (time * 13.0 * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+    let pulse = (flicker * 0.7 + flicker2 * 0.3) * (0.75 + beat_intensity * 0.25); // 0..1, twitchy
 
-    let base_radius = size * 0.9;
-    let outer_radius = base_radius + 6.0 + pulse * 9.0;
+    let base_radius = size * 0.85;
+    let outer_radius = base_radius + 4.0 + pulse * 7.0;
 
+    // Harsh white-yellow scorch (ignore the passed crab_color's hue for saturation; the caller
+    // passes a hot color, but clamp it toward white-hot so the burn always reads as searing).
     let [r, g, b] = crab_color;
 
     // Additively blended — the caller (draw_crabs_with_shake) already has the canvas in ADD
