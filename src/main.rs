@@ -44,7 +44,7 @@ use crate::graphics::{
     FloatingTextSystem, ParticleSystem, PennedMarcherSystem, cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
@@ -7138,6 +7138,40 @@ impl MainState {
         } else {
             None
         };
+        // Live HAUL readout floating over the PLAYER (where their eyes are) — the positive twin of the
+        // red AT RISK tag on the tail. pen_worth already shows the total over the pen, but the
+        // arrangement value is baked invisibly into it: the player can't tell how much of their haul is
+        // raw length vs. the bonds/sandwiches/runs they deliberately arranged. Surfacing the arrangement
+        // slice explicitly ("ARRANGED +N") is the agency/control the arrangement system was missing —
+        // it lets the player SEE arranging pay off in the moment and steer to complete more of it,
+        // instead of only discovering it at the pen. Shown from a 2-crab train up (arrangement can pay
+        // before the snap-risk threshold), and only carrying the readout past the pen guide's near zone
+        // so the two don't stack on top of each other.
+        if let Some(worth) = pen_worth {
+            if self.chain_count >= 2 {
+                let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                if player_center.distance(self.pen_pos) > PEN_RADIUS * 1.4 {
+                    // The arrangement-only slice of the haul, run through the same live multipliers the
+                    // total uses so the two numbers stay honest with each other.
+                    let arr_base =
+                        bonds_n * BOND_PAIR_BONUS + sandwiches_n * SANDWICH_BONUS + run_bonus_n;
+                    let arranged = (arr_base as f32
+                        * self.combo_multiplier() as f32
+                        * self.beat_gamble_mult)
+                        .round() as usize;
+                    draw_haul_worth(
+                        ctx,
+                        canvas,
+                        player_center,
+                        self.time_elapsed,
+                        self.beat_intensity,
+                        worth,
+                        arranged,
+                    )?;
+                }
+            }
+        }
+
         // Delivery beam — a lit tether from where the train's head departed to the pen it cashed
         // into, drawn under the pen's own bloom while the deliver flash decays. Connects the two
         // ends of the bank so the payoff reads as the conga line rushing home, not just the pen

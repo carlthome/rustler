@@ -4710,6 +4710,68 @@ pub fn draw_train_at_risk(
     })
 }
 
+/// The positive twin of `draw_train_at_risk`: a live "HAUL WORTH" readout floating above the player
+/// while they carry a train, showing what banking *right now* would pay — so the value you're building
+/// is legible in the moment, not a surprise revealed only at the pen. When the train carries live
+/// arrangement bonuses (same-type bonds / figurehead sandwiches / deep runs), it appends a compact
+/// "ARRANGED +N" so the player can *see* their arrangement paying off and steer to complete more of it
+/// — the agency/control the arrangement system was missing. `worth` is the total banked-now points
+/// (caller computes it with the same helpers as the pen payout, so the two agree). `arranged` is the
+/// arrangement-only slice of that worth (0 hides the suffix). `beat` (0..=1) gives it a gentle on-beat
+/// bob so it feels alive. Anchored above `at` in warm gold — kin to the pen reward palette, the
+/// opposite pole from the red AT RISK tag. Purely legibility; changes no odds.
+pub fn draw_haul_worth(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    at: Vec2,
+    time: f32,
+    beat: f32,
+    worth: usize,
+    arranged: usize,
+) -> ggez::GameResult {
+    thread_local! {
+        static HAUL_CACHE: std::cell::RefCell<Option<(usize, usize, Text, f32)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    HAUL_CACHE.with(|cache| -> ggez::GameResult {
+        let mut c = cache.borrow_mut();
+        let needs = c
+            .as_ref()
+            .map_or(true, |(w, a, _, _)| *w != worth || *a != arranged);
+        if needs {
+            let label = if arranged > 0 {
+                format!("HAUL  {}  ◆ ARRANGED +{}", worth, arranged)
+            } else {
+                format!("HAUL  {}", worth)
+            };
+            let mut t = Text::new(label);
+            t.set_scale(16.0);
+            let tw = t.measure(ctx)?.x;
+            *c = Some((worth, arranged, t, tw));
+        }
+        let (_, _, text, tw) = c.as_ref().unwrap();
+        let tw = *tw;
+        // Gentle on-beat bob so it breathes with the groove without jittering like the risk tag.
+        let bob = (time * 2.2).sin() * 2.0 - beat.clamp(0.0, 1.0) * 3.0;
+        let base = at - Vec2::new(tw * 0.5, 42.0) + Vec2::new(0.0, bob);
+        // Warm green-gold — the "come cash this in" palette, the opposite pole from the red AT RISK tag.
+        let glow = 0.85 + beat.clamp(0.0, 1.0) * 0.15;
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base + Vec2::splat(1.5))
+                .color(Color::new(0.0, 0.0, 0.0, 0.6)),
+        );
+        canvas.draw(
+            text,
+            DrawParam::default()
+                .dest(base)
+                .color(Color::new(0.65 * glow + 0.2, 1.0 * glow, 0.45 * glow + 0.1, 0.92)),
+        );
+        Ok(())
+    })
+}
+
 /// Telegraph an imminent kelp snag around the conga tail. `warn` (0..=1) is the rising tension the
 /// sim raises while the tail sits in a kelp patch and eases back down once it routes clear (see
 /// `kelp_snag_warn` / `snag_chain_on_kelp`). Draws two pulsing green fronds-warning rings that
