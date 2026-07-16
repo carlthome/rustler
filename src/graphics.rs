@@ -1468,6 +1468,29 @@ impl ParticleSystem {
         }
     }
 
+    /// A dry sandy puff kicked up where an EMPTY lasso loop slaps down. This is the miss-feedback:
+    /// a throw that finds no crab still lands with a legible little dust burst, so whiffing reads as
+    /// a real (if fruitless) throw rather than the loop silently vanishing. Sand flings outward and
+    /// low — a flat ring hugging the ground, distinct from the warm rising motes of a catch.
+    pub fn spawn_lasso_dust(&mut self, pos: Vec2, rng: &mut impl Rng) {
+        for _ in 0..14 {
+            let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
+            let speed = rng.random_range(40.0_f32..130.0_f32);
+            // Fling outward, mostly flat, with only a small upward hop so it settles fast like sand.
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed * 0.5 - rng.random_range(5.0_f32..30.0_f32));
+            let life = rng.random_range(0.22_f32..0.45_f32);
+            let shade = rng.random_range(0.0_f32..0.1_f32);
+            self.push(Particle {
+                pos: pos + Vec2::new(rng.random_range(-5.0..5.0), rng.random_range(-4.0..4.0)),
+                vel,
+                life,
+                max_life: life,
+                size: rng.random_range(2.0_f32..4.2_f32),
+                color: [0.72 + shade, 0.63 + shade, 0.44 + shade],
+            });
+        }
+    }
+
     /// A King Crab fissure GEYSERS on the beat: fling a short burst of molten debris up out of the
     /// pit. Launched near-vertically with a little spread so gravity (applied in `update`) arcs it
     /// back down like sparks off lava — a rhythmic spout that reads as the hazard surging, not just
@@ -2311,10 +2334,11 @@ fn build_cosmetics_meshes(
     let h = dims.y;
 
     // Reference points in body-local coords (c = Vec2::ZERO).
+    // The sprite's geometric centre sits in the leg area; the face is well above it.
     let ht = Vec2::new(0.0, -h * 0.40); // head_top
-    let fa = Vec2::new(0.0, -h * 0.08); // face
-    let mo = Vec2::new(0.0,  h * 0.06); // mouth
-    let sh = Vec2::new(0.0,  h * 0.10); // shell
+    let fa = Vec2::new(0.0, -h * 0.20); // face / eye-level
+    let mo = Vec2::new(0.0, -h * 0.08); // mouth (below eyes, still in upper shell)
+    let sh = Vec2::new(0.0,  h * 0.10); // shell / chest
 
     let col = |r: u8, g: u8, b: u8| Color::from_rgb(r, g, b);
 
@@ -6522,20 +6546,30 @@ fn draw_kelp_patches(
     Ok(())
 }
 
-/// Draw the thrown lasso: the rope from the player to its tip, a catch-radius indicator ring
-/// that fades in as it extends, the spinning open-loop noose, and a bright knot at the tip.
-/// `outward_progress` is 0..1 (how far the throw has extended) and `spin` is the loop's current
-/// rotation in radians. All geometry here reuses cached meshes (`UNIT_LINE`/`UNIT_CIRCLE` scaled
-/// via `DrawParam`, plus the dedicated stroke-circle and lasso-loop caches) instead of building
-/// fresh `Mesh::new_line`/`Mesh::new_circle` GPU buffers every frame — the lasso is thrown on
-/// nearly every catch attempt, so this used to be several fresh mesh allocations a frame for as
-/// long as it stayed in flight.
+/// Which beat of the lasso throw a frame is rendering — mirrors main's `LassoPhase` but is the
+/// draw-side view (Idle never reaches here). Lets `draw_lasso` give each beat its own read:
+/// a spinning loop stretching outward (Throw), a hard tightening squeeze-pop (Snag), a taut
+/// straining rope reeling the haul home (Drag), and an empty loop flattening into the sand (Miss).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LassoDrawPhase {
+    Throw,
+    Snag,
+    Drag,
+    Miss,
+}
+
+/// Draw the thrown lasso for the given phase. `phase_t` is 0..1 progress through the *current*
+/// phase and `spin` is the loop's spin in radians. All geometry reuses cached meshes
+/// (`UNIT_LINE`/`UNIT_CIRCLE` scaled via `DrawParam`, plus the stroke-circle and lasso-loop caches)
+/// rather than allocating fresh GPU buffers each frame — the lasso is thrown on nearly every catch
+/// attempt, so this stays hot.
 pub fn draw_lasso(
     ctx: &mut Context,
     canvas: &mut Canvas,
     player_center: Vec2,
     tip: Vec2,
-    outward_progress: f32,
+    phase: LassoDrawPhase,
+    phase_t: f32,
     spin: f32,
 ) -> ggez::GameResult {
     let unit_line = match UNIT_LINE.get() {
@@ -6550,72 +6584,6 @@ pub fn draw_lasso(
             UNIT_LINE.get_or_init(|| mesh)
         }
     };
-
-    let rope_delta = tip - player_center;
-    let rope_len = rope_delta.length();
-    if rope_len > 1.0 {
-        let rope_angle = rope_delta.y.atan2(rope_delta.x);
-
-        // Glowing rope: thick glow pass + thin bright pass
-        let orig_blend = canvas.blend_mode();
-        canvas.set_blend_mode(BlendMode::ADD);
-        canvas.draw(
-            unit_line,
-            DrawParam::default()
-                .dest(player_center)
-                .rotation(rope_angle)
-                .scale(Vec2::new(rope_len, 6.0))
-                .color(Color::from_rgba(230, 160, 30, 60)),
-        );
-        canvas.set_blend_mode(orig_blend);
-
-        canvas.draw(
-            unit_line,
-            DrawParam::default()
-                .dest(player_center)
-                .rotation(rope_angle)
-                .scale(Vec2::new(rope_len, 2.5))
-                .color(Color::from_rgba(220, 160, 50, 220)),
-        );
-    }
-
-    // Catch-radius indicator ring (fades in as lasso extends)
-    let catch_r = 60.0_f32;
-    let ring_alpha = (outward_progress * 80.0) as u8;
-    if ring_alpha > 4 {
-        let catch_ring = cached_stroke_circle(ctx, catch_r, 1.5)?;
-        canvas.draw(
-            &catch_ring,
-            DrawParam::default()
-                .dest(tip)
-                .color(Color::from_rgba(255, 220, 80, ring_alpha)),
-        );
-    }
-
-    // Spinning lasso loop: an open ring (gap = open lasso) that spins as it flies and grows
-    // slightly as the throw extends.
-    let loop_r = 18.0 + outward_progress * 6.0;
-    let loop_glow = cached_lasso_loop(ctx, loop_r, 8.0)?;
-    let orig_blend = canvas.blend_mode();
-    canvas.set_blend_mode(BlendMode::ADD);
-    canvas.draw(
-        &loop_glow,
-        DrawParam::default()
-            .dest(tip)
-            .rotation(spin)
-            .color(Color::from_rgba(255, 200, 60, 80)),
-    );
-    canvas.set_blend_mode(orig_blend);
-    let loop_line = cached_lasso_loop(ctx, loop_r, 3.5)?;
-    canvas.draw(
-        &loop_line,
-        DrawParam::default()
-            .dest(tip)
-            .rotation(spin)
-            .color(Color::from_rgba(255, 210, 70, 230)),
-    );
-
-    // Bright center dot at the tip knot
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
@@ -6623,12 +6591,125 @@ pub fn draw_lasso(
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
+
+    // Rope tension: the reel-in phase strains the rope taut and bright; a miss lets it go slack.
+    let (rope_thick, rope_bright): (f32, u8) = match phase {
+        LassoDrawPhase::Drag => (3.6, 245),   // straining under the weight of the haul
+        LassoDrawPhase::Snag => (3.2, 240),
+        LassoDrawPhase::Throw => (2.5, 220),
+        LassoDrawPhase::Miss => (1.6, 120),   // gone limp
+    };
+    let rope_delta = tip - player_center;
+    let rope_len = rope_delta.length();
+    if rope_len > 1.0 {
+        let rope_angle = rope_delta.y.atan2(rope_delta.x);
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(player_center)
+                .rotation(rope_angle)
+                .scale(Vec2::new(rope_len, rope_thick + 3.5))
+                .color(Color::from_rgba(230, 160, 30, 60)),
+        );
+        canvas.set_blend_mode(orig_blend);
+        canvas.draw(
+            unit_line,
+            DrawParam::default()
+                .dest(player_center)
+                .rotation(rope_angle)
+                .scale(Vec2::new(rope_len, rope_thick))
+                .color(Color::from_rgba(220, 160, 50, rope_bright)),
+        );
+    }
+
+    // Catch-radius indicator ring: only meaningful while the loop is still flying out to show
+    // where it will bite. Fades in as the throw extends, gone once it lands.
+    if phase == LassoDrawPhase::Throw {
+        let catch_r = 60.0_f32;
+        let ring_alpha = (phase_t * 80.0) as u8;
+        if ring_alpha > 4 {
+            let catch_ring = cached_stroke_circle(ctx, catch_r, 1.5)?;
+            canvas.draw(
+                &catch_ring,
+                DrawParam::default()
+                    .dest(tip)
+                    .color(Color::from_rgba(255, 220, 80, ring_alpha)),
+            );
+        }
+    }
+
+    // The spinning open loop (noose). Its radius tells the story of the throw:
+    //  - Throw: grows a touch as it flies out.
+    //  - Snag: SNAPS shut fast — the tightening squeeze — then a bright pop flash over the knot.
+    //  - Drag: stays cinched small around the haul, quivering slightly under tension.
+    //  - Miss: flattens/expands and fades as it flops empty onto the sand.
+    let (loop_r, loop_alpha, loop_glow_alpha): (f32, u8, u8) = match phase {
+        LassoDrawPhase::Throw => (18.0 + phase_t * 6.0, 230, 80),
+        LassoDrawPhase::Snag => {
+            // Ease the loop from ~24 down to ~11 as it bites shut.
+            let r = 24.0 - phase_t * 13.0;
+            (r, 240, 150)
+        }
+        LassoDrawPhase::Drag => {
+            let quiver = (phase_t * 40.0).sin() * 0.8;
+            (11.0 + quiver, 230, 90)
+        }
+        LassoDrawPhase::Miss => {
+            // Open out and fade — a spent loop settling.
+            let a = ((1.0 - phase_t) * 200.0) as u8;
+            (20.0 + phase_t * 10.0, a, (a as f32 * 0.4) as u8)
+        }
+    };
+    if loop_alpha > 4 {
+        let loop_glow = cached_lasso_loop(ctx, loop_r, 8.0)?;
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(
+            &loop_glow,
+            DrawParam::default()
+                .dest(tip)
+                .rotation(spin)
+                .color(Color::from_rgba(255, 200, 60, loop_glow_alpha)),
+        );
+        canvas.set_blend_mode(orig_blend);
+        let loop_line = cached_lasso_loop(ctx, loop_r, 3.5)?;
+        canvas.draw(
+            &loop_line,
+            DrawParam::default()
+                .dest(tip)
+                .rotation(spin)
+                .color(Color::from_rgba(255, 210, 70, loop_alpha)),
+        );
+    }
+
+    // Snag pop: a bright expanding flash the instant the loop bites, so a catch reads as a distinct
+    // "gotcha!" beat rather than the loop just shrinking.
+    if phase == LassoDrawPhase::Snag {
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        let pop_r = 6.0 + phase_t * 26.0;
+        let pop_a = ((1.0 - phase_t) * 200.0) as u8;
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(tip)
+                .scale(Vec2::splat(pop_r))
+                .color(Color::from_rgba(255, 240, 170, pop_a / 3)),
+        );
+        canvas.set_blend_mode(orig_blend);
+    }
+
+    // Bright center dot at the tip knot — swells on the snag pop, steady otherwise.
+    let knot_scale = if phase == LassoDrawPhase::Snag { 5.0 + (1.0 - phase_t) * 5.0 } else { 5.0 };
+    let knot_alpha = if phase == LassoDrawPhase::Miss { ((1.0 - phase_t) * 240.0) as u8 } else { 240 };
     canvas.draw(
         unit_circle,
         DrawParam::default()
             .dest(tip)
-            .scale(Vec2::splat(5.0))
-            .color(Color::from_rgba(255, 240, 160, 240)),
+            .scale(Vec2::splat(knot_scale))
+            .color(Color::from_rgba(255, 240, 160, knot_alpha)),
     );
 
     Ok(())

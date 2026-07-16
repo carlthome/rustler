@@ -48,7 +48,7 @@ use crate::graphics::{
     cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
+    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, LassoDrawPhase, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
@@ -6891,11 +6891,11 @@ impl MainState {
         // Draw lasso line and tip
         if let Some(tip) = self.lasso_pos {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            // Determine outward progress (0..1) and spin angle
+            // Derive outward progress from the throw timer (counts down from 0.5).
             let elapsed = 0.5 - self.lasso_timer;
-            let outward_progress = (elapsed / 0.3).clamp(0.0, 1.0);
+            let phase_t = (elapsed / 0.3).clamp(0.0, 1.0);
             let spin = self.time_elapsed * 18.0; // fast spin in radians/sec
-            draw_lasso(ctx, canvas, player_center, tip, outward_progress, spin)?;
+            draw_lasso(ctx, canvas, player_center, tip, LassoDrawPhase::Throw, phase_t, spin)?;
         }
 
         // ===== SWITCH TO SCREEN SPACE FOR THE HUD =====
