@@ -58,7 +58,9 @@ item in "Now" below.
   readout — 60ce8a0/3db854b/e5dc23d. All three train slots now carry arrangement weight, and legibility while
   building is well covered by next-catch rings, cycle-promote preview, and the live readouts.)*
 
-- **[TOP PRIORITY] Give the player active control over train ORDER — the agency gap Carl named.** Arrangement is
+- **[TOP PRIORITY — PREREQUISITE FOR EVERYTHING BELOW] Scrolling world: extend the map beyond the fixed viewport.** The competing-conga-lines vision (NPC King Crab trains, BYO music dominating the mix, train-vs-train stealing) cannot work in a fixed viewport — rival trains need space to approach from off-screen, their music needs to be audible before they're visible, and players need room to maneuver. This is also the "explorable maps" item Carl called out (Black Isle / Vampire Survivors exploration dopamine). Concretely: a world larger than the viewport, a camera that follows the player's train, and spawning/NPC logic that works in world-space rather than screen-space. Scaffolding already in place: radar arrows (off-screen awareness), screen/world coordinate separation in draw code, off-screen draw culling. This is the single most load-bearing architectural change before NPC ecology can begin.
+
+- **Give the player active control over train ORDER — the agency gap Carl named.** Arrangement is
   now legible and pays off (CENTERPIECE, sandwiches, figureheads), but the player can barely *shape* it: order is
   dictated by catch order, and the one manipulation verb — Cycle (X) — only rotates the whole train one slot, which
   can move a crab to the head but can't repair the interior. If two matching crabs land on opposite sides of a
