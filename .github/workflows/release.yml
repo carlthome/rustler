@@ -3,54 +3,86 @@ name: Release
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write  # needed to create GitHub Releases
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            archive: linux-x86_64.tar.gz
+            exe: rustler
+
+          - os: windows-latest
+            target: x86_64-windows
+            archive: windows-x86_64.tar.gz
+            exe: rustler.exe
+
+          - os: macos-latest
+            target: x86_64-darwin
+            archive: macos-x86_64.tar.gz
+            exe: rustler
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: DeterminateSystems/nix-installer-action@main
+        if: matrix.os != 'windows-latest'
+      - name: Cache Nix dependencies
+        uses: DeterminateSystems/magic-nix-cache-action@main
+        if: matrix.os != 'windows-latest'
+      - name: Build with Nix
+        if: matrix.os != 'windows-latest'
+        run: nix build
 
-      # Re-uses cached Nix store paths from previous runs — only rebuilds
-      # what actually changed (Cargo deps, game source, shaders).
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v6
+        if: matrix.os == 'windows-latest'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build with Cargo
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cargo build --release
+          mkdir -p result/bin
+          cp target/release/${{ matrix.exe }} result/bin/
+          cp -r resources result/bin/
 
-      - name: Build
-        run: nix build .#packages.x86_64-linux.default
-
-      - name: Package
+      - name: Package program
+        shell: bash
         run: |
           mkdir -p dist
-          cp result/bin/rustler dist/
+          cp result/bin/${{ matrix.exe }} dist/
           cp -r result/bin/resources dist/
-          tar -czf rustler-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+          tar -czf rustler-${{ github.ref_name }}-${{ matrix.archive }} -C dist .
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload program
+        uses: actions/upload-artifact@v7
         with:
-          files: rustler-${{ github.ref_name }}-linux-x86_64.tar.gz
-          generate_release_notes: true
-          body: |
-            ## Crab Rustler ${{ github.ref_name }}
+          name: rustler-${{ matrix.target }}
+          path: rustler-${{ github.ref_name }}-${{ matrix.archive }}
 
-            ### Install
-            ```sh
-            tar -xzf rustler-${{ github.ref_name }}-linux-x86_64.tar.gz
-            ./rustler
-            ```
-
-            ### Controls
-            | Key | Action |
-            |-----|--------|
-            | WASD / Arrow keys | Move |
-            | Mouse | Aim flashlight |
-            | Left click | Throw lasso |
-            | Q | Beat wave burst |
-            | Space | Dash |
-            | F | Toggle flashlight |
-            | 1–4 | Pick upgrade |
-            | Esc | Quit |
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" rustler-*.tar.gz \
+            --title "Crab Rustler ${{ github.ref_name }}" \
+            --generate-notes
