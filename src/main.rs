@@ -5833,7 +5833,9 @@ impl MainState {
         // --- Career line: the persistent thread across runs -------------------------------
         // Only surfaces once there's a career to show, so a brand-new player sees a clean title.
         // Reminds returning players what they're building toward before they hit start.
+        // Anchored 30px below the tutorial hint row (itself at +58) to avoid overlap.
         if self.career_runs > 0 {
+            let career_base = text_y + text_height + pad * 2.0 + 90.0;
             let cw = CAREER_LABEL_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
                 let needs_rebuild = match cache.as_ref() {
@@ -5869,7 +5871,7 @@ impl MainState {
                     DrawParam::default()
                         .dest(Vec2::new(
                             (width - cw) / 2.0,
-                            text_y + text_height + pad * 2.0 + 62.0,
+                            career_base,
                         ))
                         .color(Color::from_rgb(200, 190, 230)),
                 );
@@ -5924,7 +5926,8 @@ impl MainState {
             } else {
                 Color::from_rgb(150, 220, 210)
             };
-            let shop_y = text_y + text_height + pad * 2.0 + 92.0;
+            // Perk shop sits 30px below the career line (itself at career_base).
+            let shop_y = career_base + 30.0;
             SHOP_CACHE.with(|c| {
                 let cache = c.borrow();
                 let (_, header, _, list, _) = cache.as_ref().unwrap();
