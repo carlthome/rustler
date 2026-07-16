@@ -48,7 +48,7 @@ use crate::graphics::{
     cached_stroke_rect, draw_attracted_crab_glow,
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, LassoDrawPhase, draw_pen_guide,
+    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_lasso_windup, LassoDrawPhase, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
@@ -3469,6 +3469,9 @@ impl MainState {
         }
         let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
         let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
+        // Captured before the &mut self.crabs loop: while the post-scatter regroup window is live the
+        // King Crab can't wind up a fresh charge, so you can't be chain-detonated back-to-back.
+        let boss_hit_iframes_active = self.boss_hit_iframes > 0.0;
         // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
         // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
         self.cached_tail_pos = chain_tail_pos;
@@ -5269,9 +5272,15 @@ impl MainState {
         self.beat_interval = BEAT_INTERVAL;
         self.stage_banner_timer = 0.0;
         self.stage_banner_name = "";
+        self.lasso_phase = LassoPhase::Idle;
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
         self.lasso_target = Vec2::ZERO;
+        self.lasso_origin = Vec2::ZERO;
+        self.lasso_charge = 0.0;
+        self.lasso_mouse_down = false;
+        self.lasso_spin = 0.0;
+        self.lasso_on_beat_bonus = 1.0;
         self.whistle_active = 0.0;
         self.whistle_radius = 0.0;
         self.whistle_cooldown = 0.0;
@@ -6888,14 +6897,34 @@ impl MainState {
             }
         }
 
-        // Draw lasso line and tip
-        if let Some(tip) = self.lasso_pos {
+        // Draw lasso: winding-up OR in-flight (Throwing/Snag/Dragging/Miss).
+        {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            // Derive outward progress from the throw timer (counts down from 0.5).
-            let elapsed = 0.5 - self.lasso_timer;
-            let phase_t = (elapsed / 0.3).clamp(0.0, 1.0);
-            let spin = self.time_elapsed * 18.0; // fast spin in radians/sec
-            draw_lasso(ctx, canvas, player_center, tip, LassoDrawPhase::Throw, phase_t, spin)?;
+            match self.lasso_phase {
+                LassoPhase::Winding => {
+                    // Windup: spinning rope loop above/around the player, grows with charge.
+                    // Pulses brighter on each beat so the player can time the release.
+                    let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
+                    // Beat-proximity pulse: brighter the closer to the beat edge.
+                    let to_beat = self.beat_timer.min(self.beat_interval - self.beat_timer);
+                    let beat_prox = (1.0 - to_beat / (BEAT_WINDOW * 1.5)).clamp(0.0, 1.0);
+                    draw_lasso_windup(ctx, canvas, player_center, charge_frac, beat_prox, self.lasso_spin)?;
+                }
+                LassoPhase::Throwing | LassoPhase::Snag | LassoPhase::Dragging | LassoPhase::Miss => {
+                    if let Some(tip) = self.lasso_pos {
+                        let (dur, draw_phase) = match self.lasso_phase {
+                            LassoPhase::Throwing => (LASSO_THROW_TIME, LassoDrawPhase::Throw),
+                            LassoPhase::Snag     => (LASSO_SNAG_TIME,  LassoDrawPhase::Snag),
+                            LassoPhase::Dragging => (LASSO_DRAG_TIME,  LassoDrawPhase::Drag),
+                            LassoPhase::Miss     => (LASSO_MISS_TIME,  LassoDrawPhase::Miss),
+                            _                    => (LASSO_THROW_TIME, LassoDrawPhase::Throw),
+                        };
+                        let phase_t = (1.0 - self.lasso_timer / dur).clamp(0.0, 1.0);
+                        draw_lasso(ctx, canvas, player_center, tip, draw_phase, phase_t, self.lasso_spin)?;
+                    }
+                }
+                LassoPhase::Idle => {}
+            }
         }
 
         // ===== SWITCH TO SCREEN SPACE FOR THE HUD =====
@@ -10019,6 +10048,9 @@ impl EventHandler for MainState {
         if self.chain_snap_cooldown > 0.0 {
             self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);
         }
+        if self.boss_hit_iframes > 0.0 {
+            self.boss_hit_iframes = (self.boss_hit_iframes - dt).max(0.0);
+        }
         if self.dash_flash > 0.0 {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
@@ -10514,84 +10546,123 @@ impl EventHandler for MainState {
             self.hermit_popped_buf = hermit_popped; // hand the buffer back for reuse next frame
         }
 
-        // Lasso Throw: advance lasso along path, catch crabs near tip
-        if self.lasso_timer > 0.0 && self.lasso_pos.is_some() {
-            self.lasso_timer -= dt;
-            let elapsed = 0.5 - self.lasso_timer;
-            let progress = elapsed / 0.3;
+        // Lasso: phase-driven state machine (Winding → Throwing → Snag → Dragging | Miss → Idle).
+        // Winding charges while the mouse is held; Throwing advances each frame.
+        {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            let new_pos = if progress <= 1.0 {
-                player_center.lerp(self.lasso_target, progress)
-            } else {
-                // Return trip: map progress from (1..=5/3) back to (0..=1)
-                let return_progress = (progress - 1.0) / (0.2 / 0.3);
-                self.lasso_target.lerp(player_center, return_progress.min(1.0))
-            };
-            self.lasso_pos = Some(new_pos);
-
-            if self.lasso_timer <= 0.0 {
-                self.lasso_pos = None;
-            } else {
-                // Catch crabs while lasso is traveling outward (timer > 0.2 means elapsed < 0.3)
-                if elapsed < 0.3 {
-                    let tip = new_pos;
-                    // Lasso-lane-scaled grab window: higher ranks sweep whole clusters per throw.
-                    let grab_r = self.lasso_tip_radius();
-                    let mut to_catch = std::mem::take(&mut self.lasso_catch_buf);
-                    to_catch.clear();
-                    to_catch.extend(
-                        self.crabs.iter().enumerate()
-                            .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < grab_r)
-                            .map(|(i, _)| i),
-                    );
-                    let mut rng = rand::rng();
-                    // Yanking a crab off the sand spooks the herd around the snatch point, same as
-                    // a beam or chain catch — collected here and fired after the loop so the lasso
-                    // stampede reads as fear rippling outward from where the rope bit.
-                    let mut lasso_startle_origins = std::mem::take(&mut self.lasso_startle_buf);
-                    lasso_startle_origins.clear();
-                    for i in to_catch.iter().copied() {
-                        let pos = self.crabs[i].pos;
-                        let crab_type = self.crabs[i].crab_type;
-                        let crab_color = self.crabs[i].crab_color();
-                        self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
-                        self.spawn_catch_shockwave(pos, crab_color);
-                        let was_answering = self.crabs[i].answering_call > 0.0;
-                        self.crabs[i].caught = true;
-                        // Tutorial pass tracking: count real lasso grabs for the lasso learn-session.
-                        // Bumped only here (the rope-catch branch), guarded by the tutorial being
-                        // active and its kind, so a headless run of the same scenario reaches the same
-                        // `passed()` predicate without any rendering or beam catches sneaking in.
-                        if let Some(t) = self.tutorial.as_mut() {
-                            if t.kind == TutorialKind::LassoGrab {
-                                t.lasso_catches += 1;
-                            }
-                        }
-                        if self.crabs[i].is_boss() {
-                            self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
-                        }
-                        if self.crabs[i].is_golden() {
-                            self.on_golden_caught(pos, 0);
-                        }
-                        self.reward_dance_catch(was_answering, pos);
-                        lasso_startle_origins.push(pos);
-                        self.chain_join_ripple = true;
-                        self.crabs[i].chain_index = Some(self.chain_count);
-                        self.chain_count += 1;
-                        self.check_milestone(&mut rand::rng());
-                        self.score += self.combo_multiplier();
-                        self.shake_timer = 0.15;
-                        self.hitstop_timer = self.hitstop_timer.max(0.06);
-                        self.time_since_catch = 0.0;
-                        play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
-                        self.check_upgrade_unlock(ctx);
-                    }
-                    for &origin in lasso_startle_origins.iter() {
-                        self.emit_catch_startle(origin);
-                    }
-                    self.lasso_catch_buf = to_catch; // hand buffers back for reuse next frame
-                    self.lasso_startle_buf = lasso_startle_origins;
+            match self.lasso_phase {
+                LassoPhase::Winding => {
+                    // Grow charge and spin faster as it builds; cap at max.
+                    self.lasso_charge = (self.lasso_charge + dt).min(LASSO_MAX_CHARGE_TIME);
+                    let charge_frac = self.lasso_charge / LASSO_MAX_CHARGE_TIME;
+                    // Loop spins faster as charge builds (cowboy wind-up feel).
+                    self.lasso_spin += dt * (8.0 + charge_frac * 20.0);
+                    // Keep lasso tip parked at player center while winding.
+                    self.lasso_pos = Some(player_center);
+                    // If mouse was released (fire_lasso_throw called), phase will already be Throwing.
                 }
+                LassoPhase::Throwing => {
+                    self.lasso_timer -= dt;
+                    // Charge fraction drives speed: a full charge covers max-range in LASSO_THROW_TIME;
+                    // a tap covers only MIN_RANGE_FRAC of that (scales both range and tip travel).
+                    let progress = (1.0 - self.lasso_timer / LASSO_THROW_TIME).clamp(0.0, 1.0);
+                    let new_pos = self.lasso_origin.lerp(self.lasso_target, progress);
+                    self.lasso_pos = Some(new_pos);
+                    self.lasso_spin += dt * 18.0; // keep spinning during flight
+
+                    if self.lasso_timer <= 0.0 {
+                        // The throw has reached its target — check for catches.
+                        let tip = self.lasso_target;
+                        let grab_r = self.lasso_tip_radius();
+                        let mut to_catch = std::mem::take(&mut self.lasso_catch_buf);
+                        to_catch.clear();
+                        to_catch.extend(
+                            self.crabs.iter().enumerate()
+                                .filter(|(_, c)| c.is_catchable() && tip.distance(c.pos) < grab_r)
+                                .map(|(i, _)| i),
+                        );
+                        if to_catch.is_empty() {
+                            // Miss: loop flops empty with a dust puff.
+                            self.lasso_pos = Some(self.lasso_target);
+                            self.lasso_phase = LassoPhase::Miss;
+                            self.lasso_timer = LASSO_MISS_TIME;
+                        } else {
+                            // Snag: loop tightens/squeezes before dragging.
+                            self.lasso_pos = Some(self.lasso_target);
+                            self.lasso_phase = LassoPhase::Snag;
+                            self.lasso_timer = LASSO_SNAG_TIME;
+                        }
+                        let mut rng = rand::rng();
+                        let mut lasso_startle_origins = std::mem::take(&mut self.lasso_startle_buf);
+                        lasso_startle_origins.clear();
+                        for i in to_catch.iter().copied() {
+                            let pos = self.crabs[i].pos;
+                            let crab_type = self.crabs[i].crab_type;
+                            let crab_color = self.crabs[i].crab_color();
+                            self.particle_system.spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
+                            self.spawn_catch_shockwave(pos, crab_color);
+                            let was_answering = self.crabs[i].answering_call > 0.0;
+                            self.crabs[i].caught = true;
+                            if let Some(t) = self.tutorial.as_mut() {
+                                if t.kind == TutorialKind::LassoGrab {
+                                    t.lasso_catches += 1;
+                                }
+                            }
+                            if self.crabs[i].is_boss() {
+                                self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
+                            }
+                            if self.crabs[i].is_golden() {
+                                self.on_golden_caught(pos, 0);
+                            }
+                            self.reward_dance_catch(was_answering, pos);
+                            lasso_startle_origins.push(pos);
+                            self.chain_join_ripple = true;
+                            self.crabs[i].chain_index = Some(self.chain_count);
+                            self.chain_count += 1;
+                            self.check_milestone(&mut rand::rng());
+                            self.score += self.combo_multiplier();
+                            self.shake_timer = 0.15;
+                            self.hitstop_timer = self.hitstop_timer.max(0.06);
+                            self.time_since_catch = 0.0;
+                            play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
+                            self.check_upgrade_unlock(ctx);
+                        }
+                        for &origin in lasso_startle_origins.iter() {
+                            self.emit_catch_startle(origin);
+                        }
+                        self.lasso_catch_buf = to_catch;
+                        self.lasso_startle_buf = lasso_startle_origins;
+                    }
+                }
+                LassoPhase::Snag => {
+                    self.lasso_timer -= dt;
+                    self.lasso_spin += dt * 8.0;
+                    if self.lasso_timer <= 0.0 {
+                        self.lasso_phase = LassoPhase::Dragging;
+                        self.lasso_timer = LASSO_DRAG_TIME;
+                    }
+                }
+                LassoPhase::Dragging => {
+                    self.lasso_timer -= dt;
+                    let drag_t = (1.0 - self.lasso_timer / LASSO_DRAG_TIME).clamp(0.0, 1.0);
+                    // Tip reels back from target to player center.
+                    let new_pos = self.lasso_target.lerp(player_center, drag_t);
+                    self.lasso_pos = Some(new_pos);
+                    self.lasso_spin += dt * 6.0;
+                    if self.lasso_timer <= 0.0 {
+                        self.lasso_phase = LassoPhase::Idle;
+                        self.lasso_pos = None;
+                    }
+                }
+                LassoPhase::Miss => {
+                    self.lasso_timer -= dt;
+                    self.lasso_spin += dt * 4.0;
+                    if self.lasso_timer <= 0.0 {
+                        self.lasso_phase = LassoPhase::Idle;
+                        self.lasso_pos = None;
+                    }
+                }
+                LassoPhase::Idle => {}
             }
         }
 
@@ -10885,16 +10956,61 @@ impl EventHandler for MainState {
         if self.game_over || self.show_instructions {
             return Ok(());
         }
-        if button == MouseButton::Left && self.lasso_pos.is_none() {
-            let window_size = ctx.gfx.window().inner_size();
-            let scale_x = window_size.width as f32 / self.width;
-            let scale_y = window_size.height as f32 / self.height;
-            // Map the screen click into world space: the viewport is offset by the camera origin,
-            // so a click at screen (sx,sy) targets world (cam + (sx,sy)).
-            let target = self.camera_origin + Vec2::new(x / scale_x, y / scale_y);
-            self.lasso_target = target;
-            self.lasso_timer = 0.5;
-            self.lasso_pos = Some(self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0));
+        // Left click: BEGIN winding up the lasso. The throw fires on mouse_button_up.
+        if button == MouseButton::Left && self.lasso_phase == LassoPhase::Idle {
+            self.lasso_mouse_down = true;
+            self.lasso_charge = 0.0;
+            self.lasso_spin = 0.0;
+            self.lasso_phase = LassoPhase::Winding;
+            // Capture player center for the windup origin; target is updated every frame from mouse_pos.
+            self.lasso_origin = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+        }
+        Ok(())
+    }
+
+    fn mouse_button_up_event(
+        &mut self,
+        _ctx: &mut Context,
+        button: MouseButton,
+        _x: f32,
+        _y: f32,
+    ) -> GameResult {
+        if button == MouseButton::Left && self.lasso_phase == LassoPhase::Winding {
+            self.lasso_mouse_down = false;
+            // Compute scaled range from charge: tap = MIN_RANGE_FRAC × MAX_RANGE, full = MAX_RANGE.
+            let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
+            let range_frac = LASSO_MIN_RANGE_FRAC + (1.0 - LASSO_MIN_RANGE_FRAC) * charge_frac;
+            // On-beat release bonus: extra reach + groove reward.
+            let on_beat_bonus = if self.on_beat_now() {
+                let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+                self.reward_on_beat_tool(center, "LASSO");
+                LASSO_ONBEAT_BONUS
+            } else {
+                1.0
+            };
+            self.lasso_on_beat_bonus = on_beat_bonus;
+            let throw_range = LASSO_MAX_RANGE * range_frac * on_beat_bonus;
+            // Clamp target within throw_range of player center.
+            let origin = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            let to_aim = self.mouse_pos - origin;
+            let aim_dist = to_aim.length();
+            let clamped_target = if aim_dist > throw_range {
+                origin + to_aim / aim_dist * throw_range
+            } else if aim_dist > 1.0 {
+                self.mouse_pos
+            } else {
+                // Mouse right on player — throw in the last-faced direction.
+                origin + self.last_dir.normalize_or_zero() * throw_range
+            };
+            self.lasso_target = clamped_target;
+            self.lasso_origin = origin;
+            // Throw speed also scales with charge: a full charge is faster than a tap.
+            // We achieve this by scaling LASSO_THROW_TIME inversely with range_frac.
+            let throw_time = LASSO_THROW_TIME / range_frac.max(0.15);
+            self.lasso_timer = throw_time;
+            self.lasso_phase = LassoPhase::Throwing;
+            self.lasso_pos = Some(origin);
+            self.lasso_charge = 0.0;
         }
         Ok(())
     }

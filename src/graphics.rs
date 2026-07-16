@@ -1448,6 +1448,47 @@ impl ParticleSystem {
         }
     }
 
+    /// The biggest hit in the game: a King Crab charge landed a DIRECT player hit and the whole
+    /// conga line just exploded outward like Sonic dropping his rings. Throws a dense radial burst
+    /// of hot alarm-coloured motes plus a fast expanding debris ring so the moment reads as a
+    /// catastrophe you can still recover from. `radius_scale` widens the blast on a downbeat hit.
+    pub fn spawn_train_break_burst(&mut self, center: Vec2, radius_scale: f32, rng: &mut impl Rng) {
+        // Dense outward shockwave of debris.
+        let count = 64;
+        for j in 0..count {
+            let angle = (j as f32 / count as f32) * std::f32::consts::TAU
+                + rng.random_range(-0.15_f32..0.15_f32);
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let speed = rng.random_range(280.0_f32..640.0_f32) * radius_scale;
+            let life = rng.random_range(0.35_f32..0.75_f32);
+            // Hot red→orange→yellow embers — danger, not celebration.
+            let t = rng.random_range(0.0_f32..1.0_f32);
+            let color = [1.0, 0.35 + t * 0.5, 0.2 + t * 0.2];
+            self.push(Particle {
+                pos: center,
+                vel: dir * speed,
+                life,
+                max_life: life,
+                size: rng.random_range(3.5_f32..9.0_f32),
+                color,
+            });
+        }
+        // A brighter, tighter inner flash ring for the impact core.
+        for j in 0..24 {
+            let angle = (j as f32 / 24.0) * std::f32::consts::TAU;
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let life = rng.random_range(0.18_f32..0.32_f32);
+            self.push(Particle {
+                pos: center,
+                vel: dir * rng.random_range(120.0_f32..260.0_f32),
+                life,
+                max_life: life,
+                size: rng.random_range(4.0_f32..8.0_f32),
+                color: [1.0, 0.95, 0.7],
+            });
+        }
+    }
+
     /// A soft warm puff of gently-rising motes off a crab the whistle just talked down out of a
     /// panic — the calming counterpart to the cold "!" alarm rings the stampede throws.
     pub fn spawn_soothe_puff(&mut self, pos: Vec2, rng: &mut impl Rng) {
@@ -6711,6 +6752,96 @@ pub fn draw_lasso(
             .scale(Vec2::splat(knot_scale))
             .color(Color::from_rgba(255, 240, 160, knot_alpha)),
     );
+
+    Ok(())
+}
+
+/// Draw the lasso wind-up animation while the player is holding the mouse button.
+///
+/// `charge_frac` is 0..1 (how full the charge is), `beat_prox` is 0..1 (closeness to the next
+/// beat — 1 at the exact beat edge). The rope loop spins above the player, growing as charge
+/// builds and pulsing brighter on each beat so the player can time the release.
+pub fn draw_lasso_windup(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    player_center: Vec2,
+    charge_frac: f32,
+    beat_prox: f32,
+    spin: f32,
+) -> ggez::GameResult {
+    let unit_circle = match UNIT_CIRCLE.get() {
+        Some(mesh) => mesh,
+        None => {
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            UNIT_CIRCLE.get_or_init(|| mesh)
+        }
+    };
+
+    // Loop radius grows from ~14 up to ~38 as charge builds.
+    let loop_r = 14.0 + charge_frac * 24.0;
+    // Vertical hover offset: the loop circles above the player, not on top of it.
+    let hover = Vec2::new(0.0, -(22.0 + charge_frac * 14.0));
+    let loop_center = player_center + hover;
+
+    // Spin the loop: use the accumulated spin angle. Spins faster as charge builds.
+    // (spin is driven by the update loop)
+
+    // Beat pulse: alpha spikes toward 255 near the beat so "time your release" reads.
+    let base_alpha = (120.0 + charge_frac * 100.0) as u8;
+    let pulse_alpha = (base_alpha as f32 + beat_prox * 80.0).min(255.0) as u8;
+    let glow_alpha = (beat_prox * 60.0 + charge_frac * 30.0).min(100.0) as u8;
+
+    // Glow layer (additive).
+    let orig_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+    if glow_alpha > 4 {
+        let loop_glow = cached_lasso_loop(ctx, loop_r, 10.0)?;
+        canvas.draw(
+            &loop_glow,
+            DrawParam::default()
+                .dest(loop_center)
+                .rotation(spin)
+                .color(Color::from_rgba(255, 200, 60, glow_alpha)),
+        );
+    }
+    canvas.set_blend_mode(orig_blend);
+
+    // Main loop line.
+    if pulse_alpha > 4 {
+        let loop_line = cached_lasso_loop(ctx, loop_r, 3.5)?;
+        canvas.draw(
+            &loop_line,
+            DrawParam::default()
+                .dest(loop_center)
+                .rotation(spin)
+                .color(Color::from_rgba(255, 210, 70, pulse_alpha)),
+        );
+    }
+
+    // Dot at the knot.
+    let knot_alpha = pulse_alpha;
+    canvas.draw(
+        unit_circle,
+        DrawParam::default()
+            .dest(loop_center)
+            .scale(Vec2::splat(4.5))
+            .color(Color::from_rgba(255, 240, 160, knot_alpha)),
+    );
+
+    // Charge fill arc underneath the loop: shows how much is loaded (thin arc that grows as charge
+    // accumulates, so a glance down tells you "almost full / half-loaded / quick tap").
+    if charge_frac > 0.03 {
+        let segs = 32usize;
+        let filled = ((segs as f32) * charge_frac).ceil().max(1.0) as usize;
+        let arc = cached_stroke_arc(ctx, loop_r + 7.0, 2.5, segs, filled)?;
+        let arc_a = (60.0 + charge_frac * 140.0 + beat_prox * 40.0).min(220.0) as u8;
+        canvas.draw(
+            &arc,
+            DrawParam::default()
+                .dest(loop_center)
+                .color(Color::from_rgba(255, 230, 80, arc_a)),
+        );
+    }
 
     Ok(())
 }

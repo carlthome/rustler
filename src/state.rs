@@ -366,11 +366,16 @@ pub struct MainState {
     pub(crate) stage_banner_timer: f32,
     pub(crate) stage_banner_name: &'static str,
     // Lasso Throw ability
+    pub(crate) lasso_phase: LassoPhase,                   // Throw state machine (see LassoPhase)
     pub(crate) lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
     pub(crate) lasso_timer: f32,                          // Time remaining in the CURRENT phase
-    pub(crate) lasso_target: Vec2,                        // Aim point the loop flies toward
+    pub(crate) lasso_target: Vec2,                        // Aim point the loop flies toward (world space, set on release)
     pub(crate) lasso_origin: Vec2,                        // Player center captured at throw time (arc anchor)
-    pub(crate) lasso_phase: LassoPhase,                   // Throw state machine (see LassoPhase)
+    // Charge-throw fields: the player holds the mouse to wind up, releasing fires the throw.
+    pub(crate) lasso_charge: f32,                         // 0..LASSO_MAX_CHARGE_TIME, grows while mouse is held
+    pub(crate) lasso_mouse_down: bool,                    // True while left mouse button is held (winding)
+    pub(crate) lasso_spin: f32,                           // Accumulated rope spin angle in radians, for visual
+    pub(crate) lasso_on_beat_bonus: f32,                  // 1.0 normally; LASSO_ONBEAT_BONUS if released on-beat
     // Crabs bitten by the current throw, mid-reel-in: (crab index, snag point, per-crab age seconds).
     // Driven each Dragging frame to yank the crab from where the rope bit it toward the train with
     // visible tension. Reused (drained, not reallocated) per throw.
@@ -476,6 +481,7 @@ pub struct MainState {
                                 // sim keeps running but time is dilated, easing back to full speed
                                 // as the timer decays — so a set-piece victory lands in bullet-time
                                 // instead of just snapping past.
+    pub(crate) boss_hit_iframes: f32,         // >0 briefly after a King Crab charge lands a DIRECT player hit (the full-train scatter). While it ticks the boss can't chain-charge you, giving a regroup window. Decays each frame.
     pub(crate) chain_join_ripple: bool,       // set true when any crab is caught this frame
     pub(crate) chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     pub(crate) cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
@@ -795,6 +801,14 @@ pub struct MainState {
     pub(crate) pulse_anchor_positions_buf: Vec<Vec2>,
     pub(crate) pulse_scattered_buf: Vec<Vec2>,
     pub(crate) pulse_snapped_positions_buf: Vec<Vec2>,
+    // King Crab splice mechanic: crabs stolen by crossing through the conga line. Each entry is
+    // (world_pos, magnet_timer) — the crab visually flies toward the boss via magnetic pull until
+    // the timer expires, at which point it joins the boss as a visual follower.
+    // (pos, timer, color) — pos is current world position, timer counts down from 1.0→0.0,
+    // color is the crab's original body color for continuity.
+    pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
+    // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
+    pub(crate) king_splice_cooldown: f32,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1130,11 +1144,15 @@ impl MainState {
             intensity_stage: 0,
             stage_banner_timer: 0.0,
             stage_banner_name: "",
+            lasso_phase: LassoPhase::Idle,
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
             lasso_origin: Vec2::ZERO,
-            lasso_phase: LassoPhase::Idle,
+            lasso_charge: 0.0,
+            lasso_mouse_down: false,
+            lasso_spin: 0.0,
+            lasso_on_beat_bonus: 1.0,
             lasso_drag_buf: Vec::new(),
             whistle_active: 0.0,
             whistle_radius: 0.0,
@@ -1181,6 +1199,7 @@ impl MainState {
             screen_shake_offset: Vec2::ZERO,
             hitstop_timer: 0.0,
             slowmo_timer: 0.0,
+            boss_hit_iframes: 0.0,
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
@@ -1288,6 +1307,8 @@ impl MainState {
             pulse_anchor_positions_buf: Vec::new(),
             pulse_scattered_buf: Vec::new(),
             pulse_snapped_positions_buf: Vec::new(),
+            king_stolen_crabs: Vec::new(),
+            king_splice_cooldown: 0.0,
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
