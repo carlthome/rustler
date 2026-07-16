@@ -22,9 +22,9 @@ jobs:
             archive: windows-x86_64.tar.gz
             exe: rustler.exe
 
-          - os: macos-latest
-            target: x86_64-darwin
-            archive: macos-x86_64.tar.gz
+          - os: macos-14
+            target: aarch64-darwin
+            archive: macos-aarch64.tar.gz
             exe: rustler
     steps:
       - uses: actions/checkout@v7
