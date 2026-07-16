@@ -15,46 +15,25 @@ this for direction before picking their next task; they don't edit it themselves
    sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
    come back.
 
-**Where we are.** The inner loop is deep, closed, with a spine, a real climax, and genuine routing hazards.
-Four catching tools (beam/lasso/whistle/stomp) with upgrade lanes; a conga train with a chain-snap downside
-and a delivery-pen jackpot; rhythm/groove scoring that **drives real mechanics** (downbeat spawn drops,
-on-beat PERFECT hits, a beat-stepping train, an on-beat Call, a Downbeat Slam, a Groove Gamble cash-out, a
-charged Drum Roll blast, an audible kick drum, a **Groove Dash**, a **downbeat herd pulse** that clumps free
-crabs toward you, and an **on-beat catch bloom** that widens the catch window on the beat). Pacing ramps
-through named intensity stages with a beat-tempo shift.
+**Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/stomp) with
+upgrade lanes, a conga train with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring
+that **drives real mechanics** (downbeat spawn drops, on-beat PERFECT hits, a beat-stepping train, Groove
+Dash/Call/Gamble/Slam, a charged Drum Roll, a catch bloom). Pacing ramps through named intensity stages.
+**Eight archetypes** form a dense emergent web with visible catch-time crossovers — the signature fun.
+**All three train slots now carry weight**: head figureheads, tail placement, and (new this cycle) a
+mid-train **CENTERPIECE** that pays a scaling bonus for a deep same-type run straddling the midpoint.
+The **bank-now-vs-push-luck** axis is closed (live AT RISK readout, escalating snap teeth, superlinear
+`pen_worth = (n·(n+1)/2)·3` bank payoff, BIG/LONG/GRAND HAUL cashout). Biomes each carry a distinct,
+telegraphed terrain hazard, all three bosses fight inside the archetype web, and a four-scenario opt-in
+tutorial doubles as regression tests. A first slice of meta-progression + campaign scaffolding exists but
+stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Eight archetypes** (base, Armored → stomp, Dancer → rhythm, Magnet → routing, Thief → chain pressure,
-Golden → chase decision, Hermit → uncrackable shell, Splitter → shape-bet) form a dense **emergent web** —
-the signature fun. Catch-time crossovers fire visibly (Dancer hops chip shells and trip Goldens, snared
-Goldens supercharge Magnets, shine lures Thieves off your tail, Golden→Magnet-tail arcs a shine cascade),
-and both train slots now carry weight: **head** figureheads (Golden boosts match-run bonuses, Dancer
-Drum-Major pumps groove economy) and **tail** placement (Armored parked at the tail tanks a Thief steal).
-The **bank-now-vs-push-luck** axis is now fully legible on both sides: a live AT RISK readout, snap teeth that
-escalate with length, and a superlinear triangular bank payoff with a BIG/LONG/GRAND HAUL cashout.
-
-Biomes **push the herd** (Rocky Shore tide-shortcuts + rock-block chokepoints, Neon Kelp funnel lanes + tail-snag,
-Tide Pools wade-drag) — each of the four zones now carries its **own distinct terrain hazard, all telegraphed**, so
-crossing a boundary shifts *how the ground routes* alongside *what you catch*.
-**All three bosses fight inside the archetype web** (King Crab bait-into-Armored, Tide Boss Golden-slingshot,
-Reef DJ call-and-response), and rhythm verbs reach the climax (a charged Drum Roll cracks a boss shell fast).
-The opt-in **How to Play** tutorial ships four scenarios, each a pure headless pass predicate doubling as a
-regression test. A first slice of **meta-progression** + campaign scaffolding exists but stays parked in
-"Later" — the gate is Carl's explicit "the core feels done" call, which hasn't come.
-
-**Signal.** No new Slack reactions/replies this cycle — the recent Dev Diary posts are unreacted and the only
-thread reply is old and channel-meta ("would be nice to see example videos here", 2026-07-07), not game direction,
-so direction holds from Carl's last substantive playtest: (1) upgrade screen fired too often
-and back-to-back and read as a flow-breaking *pause* — **fully resolved**: frequency cut (39daa76), timing bugs
-fixed (c01b922/3b17573), and the redesign into a meaningful 3-pick choice with tradeoffs **SHIPPED** (b43045c);
-(2) level title cards look cool (Control aesthetic) but levels don't vary or feel impactful — **now fully addressed**:
-boundaries-rarer-and-bigger (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755) *and*
-the **terrain-hazard half SHIPPED** — all four zones carry a distinct routing hazard, and the last silent one (kelp
-snag) got a telegraph this cycle (d19ec27), so a boundary now reads as arriving somewhere mechanically, not a tint
-swap; (3) he wants a procedural horde / world-record
-leaderboard endless mode (Diablo-style) with a beat-mastery skill ceiling — parked in "Later", sharpened; a first
-slice of that skill ceiling landed as the **super-linear PERFECT streak** payoff (043a480). **The risk/reward
-axis is closed** — live AT RISK readout, snap teeth escalating by length, and a superlinear triangular bank payoff
-(`pen_worth = (n·(n+1)/2)·3`) with a BIG/LONG/GRAND HAUL cashout. Treat as closed unless Carl says it feels flat.
+**Signal.** No new Slack reactions/replies this cycle (recent Dev Diary posts unreacted; the only thread
+reply is old channel-meta, not direction), so direction holds from Carl's last substantive playtest and his
+**mechanics-freeze call**: strengthen what exists so the player feels *agency and control*. Prior playtest
+asks are all resolved — the upgrade screen (frequency/timing/3-pick redesign), the level "arrives somewhere
+mechanically" ask (rarer-bigger boundaries + per-biome hazards), and a first slice of the beat-mastery ceiling
+(super-linear PERFECT streak). The procedural-horde/leaderboard endless vision stays sharpened in "Later".
 
 ## Bugs (fix before anything else in Now)
 
@@ -72,22 +51,22 @@ item in "Now" below.
   content for now, and should work on strengthening what we have to make the player feel agency and control."
   Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
   until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. Every live
-  Now item below (biome terrain hazard, train-middle arrangement) survives the freeze: each *deepens and polishes
-  existing* mechanics rather than adding new ones — the arrangement item reshapes the conga train that already
-  exists, it doesn't add a new system — which is exactly the work Carl is asking for. Deepen and polish what
-  exists; make the player feel in control of it. *(Shipped this cycle and checked off: the per-biome terrain-hazard
-  gear-change — all four zones carry a distinct routing hazard and the last silent one, the kelp snag, got a
-  telegraph so it reads as earned, not random tax — d19ec27. That was the TOP PRIORITY Now item; the level rethink's
-  "boundary reads as arriving somewhere mechanically" goal is now met. The train-middle arrangement item below is
-  the single remaining Now focus.)*
+  Now item below survives the freeze: it *deepens an existing verb* (the Cycle reposition) rather than adding a
+  new one — exactly the "make the player feel in control" work Carl asked for. *(Shipped this cycle and checked
+  off: the train-middle arrangement frontier — a mid-train CENTERPIECE now pays a scaling bonus for a deep
+  same-type run straddling the midpoint, with a live ring on the train and an ARRANGED breakdown in the HAUL
+  readout — 60ce8a0/3db854b/e5dc23d. All three train slots now carry arrangement weight, and legibility while
+  building is well covered by next-catch rings, cycle-promote preview, and the live readouts.)*
 
-- **[TOP PRIORITY] Give the middle of the train arrangement weight — the inner loop's next frontier.** Right now only the
-  **head** (Golden figurehead, Dancer Drum-Major) and **tail** (Armored tail-guard) slots carry meaning; every
-  crab between them is just a number for pen_worth. Make a longer train mean more *arrangement* decisions, not
-  just more banking value — reuse the existing adjacency/sandwich/figurehead systems so that where a crab sits in
-  the line matters (mid-train combos, run-length synergies, positional archetype interactions). This deepens the
-  existing chain mechanic (freeze-safe — no new archetype or verb) AND sharpens Carl's hold-vs-bank tension:
-  holding long becomes a puzzle to *set up*, not only a risk to carry.
+- **[TOP PRIORITY] Give the player active control over train ORDER — the agency gap Carl named.** Arrangement is
+  now legible and pays off (CENTERPIECE, sandwiches, figureheads), but the player can barely *shape* it: order is
+  dictated by catch order, and the one manipulation verb — Cycle (X) — only rotates the whole train one slot, which
+  can move a crab to the head but can't repair the interior. If two matching crabs land on opposite sides of a
+  mismatch, the only fix is banking and restarting the run. Deepen the existing Cycle verb so the player can
+  actively *build* a centerpiece or sandwich on purpose at speed (e.g. an on-beat local swap / bubble-toward-center,
+  reusing the adjacency + beat-gate systems Cycle already uses). Freeze-safe — no new verb, it extends the one that
+  exists — and it turns holding a long train into a puzzle you can *solve*, not just a risk you carry and a payout
+  you hope catch-order handed you. This is the difference between reading the arrangement and controlling it.
 
 ## Later (outer loop — not yet)
 
