@@ -401,6 +401,15 @@ thread_local! {
     static HERMIT_COIL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static HERMIT_COIL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Catch-next-hint tick-dot batching: draw_catch_next_hint() draws 4 small orbiting ticks
+    // per matching crab (all using cached_stroke_circle(2.2, 1.4) — the same fixed mesh).
+    // With 10-15 matching crabs on a full map that's 40-60 individual canvas.draw() calls every
+    // frame for dots alone. Instead defer each dot's DrawParam here and flush once per frame in
+    // flush_catch_next_ticks(), collapsing all dots to one draw_instanced_mesh call regardless
+    // of how many matching crabs are in play. Identical on-screen output; one GPU submission.
+    static CATCH_NEXT_TICK_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static CATCH_NEXT_TICK_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Attracted-crab glow batching: draw_attracted_crab_glow() used to issue 2 individual
     // canvas.draw() calls per crab-in-flashlight (outer soft-glow ring + inner bright ring).
     // With 10-30 crabs in the flashlight beam at once that was 20-60 unbatched GPU submissions
@@ -555,6 +564,30 @@ pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
             canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all catch-next-hint tick-dot DrawParams deferred by draw_catch_next_hint() calls this
+/// frame into a single draw_instanced_mesh call. All dots share the same fixed stroke-circle
+/// mesh (radius 2.2, thickness 1.4) so no grouping is needed — one instanced draw covers every
+/// dot from every matching crab on screen. Call once per frame after the per-crab aura pass,
+/// while still in ADD blend mode, alongside flush_hermit_coil_dots / flush_magnet_auras / etc.
+pub fn flush_catch_next_ticks(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    CATCH_NEXT_TICK_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let tick_mesh = cached_stroke_circle(ctx, 2.2, 1.4)?;
+        CATCH_NEXT_TICK_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(tick_mesh, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -4137,17 +4170,19 @@ pub fn draw_catch_next_hint(
             .color(Color::new(color[0], color[1], color[2], alpha)),
     );
     // Four little orbiting ticks so it reads as an active "target" marker, not a static aura.
-    let tick = cached_stroke_circle(ctx, 2.2, 1.4)?;
-    for k in 0..4 {
-        let a = time * 1.5 + k as f32 * std::f32::consts::FRAC_PI_2;
-        let p = center + Vec2::new(a.cos(), a.sin()) * r;
-        canvas.draw(
-            &tick,
-            DrawParam::default()
-                .dest(p)
-                .color(Color::new(color[0], color[1], color[2], (alpha * 1.2).clamp(0.0, 1.0))),
-        );
-    }
+    // Defer into the shared CATCH_NEXT_TICK_PARAMS buffer (all ticks share the same fixed
+    // stroke-circle mesh) so flush_catch_next_ticks() can emit them all as one instanced draw
+    // after the per-crab aura pass — same technique as the hermit coil / golden sparkle batching.
+    let tick_alpha = (alpha * 1.2).clamp(0.0, 1.0);
+    let tick_color = Color::new(color[0], color[1], color[2], tick_alpha);
+    CATCH_NEXT_TICK_PARAMS.with(|params_cell| {
+        let mut params = params_cell.borrow_mut();
+        for k in 0..4 {
+            let a = time * 1.5 + k as f32 * std::f32::consts::FRAC_PI_2;
+            let p = center + Vec2::new(a.cos(), a.sin()) * r;
+            params.push(DrawParam::default().dest(p).color(tick_color));
+        }
+    });
 
     canvas.set_blend_mode(original_blend);
     Ok(())
