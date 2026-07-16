@@ -100,6 +100,7 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 **What we're taking:** The NPC-conga-line ecology vision. King Crabs should have their own conga trains of followers, steal trains from the player and from each other, and create a living ecosystem of competing conga leaders on the beach. The player is the smallest at first and has to outmaneuver bigger trains. The spatial anxiety of watching a large circle creep toward you = the spatial anxiety of hearing a King Crab's music getting louder as their massive train approaches. Size is legible from across the field.
 
 **Mechanic directions:**
+
 - NPC conga leaders (King Crabs with their own trains) that steal crabs from smaller trains they overtake.
 - The player wins by out-arranging, not just out-catching — a well-arranged short train can outmaneuver a longer, poorly-arranged NPC train.
 - Eventually: multiplayer, where several human Rustlers compete for the largest conga to dominate the beat.
@@ -117,6 +118,19 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 **Direction for agents:** When adding NPC behavior, ask "what does this creature want?" not "how does this creature challenge the player?" The challenge emerges from the ecology, not from designed difficulty curves.
 
 **What we're *not* taking:** Rain World's cruelty and opacity. Crab Rustler is playful. The ecology should feel fair and legible — you should be able to read what's happening and why you lost crabs to an NPC train.
+
+---
+
+## The core steal mechanic (Carl, 2026-07-16)
+
+**Reverse Snake + Agar.io crossing rule.** Your own conga line can cross itself freely — it's your party, crabs just vibe. But when a rival (King Crab NPC or future human Rustler) crosses your line, it **splices at the crossing point**: the back section detaches and magnetically snaps onto the rival's train as stolen crabs. One clean rule, massive emergent depth:
+
+- Long winding trains are vulnerable at every crossing point a rival can thread through
+- Tight short trains are defensively harder to splice
+- Rivals route *deliberately* through your line to steal the back half — they're competing conga leaders, not just obstacles
+- How you route your train is a strategic decision: a lazy spiral is easy to slice
+
+This is the steal mechanic. Everything else (tools, rhythm bonuses, archetypes) is in service of either executing this steal or defending against it.
 
 ---
 
