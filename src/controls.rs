@@ -355,8 +355,9 @@ pub fn handle_key_down_event(
                 state.issue_call();
             }
             if key == KeyCode::X {
-                // Cycle: the reposition verb. On the beat, rotate the whole train one slot toward
-                // the head so you can arrange who rides the coveted head/tail slots before banking.
+                // Cycle: the reposition verb. On the beat: aim at an interior link to BUBBLE that
+                // crab one slot toward the centre (build a centerpiece on purpose); aim at nothing
+                // to rotate the whole train one slot and arrange the coveted head/tail ends.
                 state.cycle_train();
             }
             if key == KeyCode::V {
