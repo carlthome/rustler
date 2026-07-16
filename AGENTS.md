@@ -115,6 +115,29 @@ Steps:
 8. Push: `git -C $HOME/Repos/carlthome/rustler push origin main`
 ```
 
+## Cron 2 — Release Manager prompt
+
+```text
+You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler. Follow semver:
+minor bump (0.x.0) for new features, patch bump (0.x.y) for bug-fix/perf-only batches.
+
+Steps:
+1. `git -C $HOME/Repos/carlthome/rustler fetch --tags`
+2. Find the latest semver tag on main: `git -C $HOME/Repos/carlthome/rustler tag --list 'v*' --sort=-v:refname | head -1`
+3. List commits since that tag, excluding chores (docs-only commits to AGENTS.md/README.md/ROADMAP.md,
+   screenshot-only commits): `git -C $HOME/Repos/carlthome/rustler log <tag>..main --oneline`
+4. If fewer than 5 non-chore commits, do nothing this cycle.
+5. If 5 or more non-chore commits:
+   - If ANY commit is a new feature or mechanic → MINOR bump (e.g. v0.11.0 → v0.12.0)
+   - If ALL are bug fixes or perf only → PATCH bump (e.g. v0.11.0 → v0.11.1)
+   - Update Cargo.toml: `sed -i '' 's/^version = ".*"/version = "<new>"/' $HOME/Repos/carlthome/rustler/Cargo.toml`
+   - Write release notes to `CHANGELOG.md` (append a new `## v<new> — <date>` section with bullet
+     points summarising the non-chore commits in plain English — one line per commit, grouped as
+     Features / Performance / Fixes / Refactoring). This file is picked up by the GitHub Release workflow.
+   - Commit: `git -C $HOME/Repos/carlthome/rustler add Cargo.toml CHANGELOG.md && git -C $HOME/Repos/carlthome/rustler commit -m "Release <new>"`
+   - Tag and push: `git -C $HOME/Repos/carlthome/rustler tag -a v<new> -m "v<new>" && git -C $HOME/Repos/carlthome/rustler push origin main && git -C $HOME/Repos/carlthome/rustler push origin v<new>`
+```
+
 ## Cron 3 — Developer Diary prompt
 
 ```text
@@ -246,29 +269,6 @@ Steps:
 6. Fix errors, rebuild until clean
 7. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
 8. `git -C $HOME/Repos/carlthome/rustler pull --ff-only --rebase` then push
-```
-
-## Cron 2 — Release Manager prompt
-
-```text
-You are the release manager for "Crab Rustler" at $HOME/Repos/carlthome/rustler. Follow semver:
-minor bump (0.x.0) for new features, patch bump (0.x.y) for bug-fix/perf-only batches.
-
-Steps:
-1. `git -C $HOME/Repos/carlthome/rustler fetch --tags`
-2. Find the latest semver tag on main: `git -C $HOME/Repos/carlthome/rustler tag --list 'v*' --sort=-v:refname | head -1`
-3. List commits since that tag, excluding chores (docs-only commits to AGENTS.md/README.md/ROADMAP.md,
-   screenshot-only commits): `git -C $HOME/Repos/carlthome/rustler log <tag>..main --oneline`
-4. If fewer than 5 non-chore commits, do nothing this cycle.
-5. If 5 or more non-chore commits:
-   - If ANY commit is a new feature or mechanic → MINOR bump (e.g. v0.11.0 → v0.12.0)
-   - If ALL are bug fixes or perf only → PATCH bump (e.g. v0.11.0 → v0.11.1)
-   - Update Cargo.toml: `sed -i '' 's/^version = ".*"/version = "<new>"/' $HOME/Repos/carlthome/rustler/Cargo.toml`
-   - Write release notes to `CHANGELOG.md` (append a new `## v<new> — <date>` section with bullet
-     points summarising the non-chore commits in plain English — one line per commit, grouped as
-     Features / Performance / Fixes / Refactoring). This file is picked up by the GitHub Release workflow.
-   - Commit: `git -C $HOME/Repos/carlthome/rustler add Cargo.toml CHANGELOG.md && git -C $HOME/Repos/carlthome/rustler commit -m "Release <new>"`
-   - Tag and push: `git -C $HOME/Repos/carlthome/rustler tag -a v<new> -m "v<new>" && git -C $HOME/Repos/carlthome/rustler push origin main && git -C $HOME/Repos/carlthome/rustler push origin v<new>`
 ```
 
 ## Cron 8 — Supervisor prompt
