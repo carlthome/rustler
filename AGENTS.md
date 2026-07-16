@@ -48,6 +48,7 @@ To set up the six recurring cron agents, say "bootstrap" in the Claude Code chat
 5. Optimizer        — every 30 min   — sonnet / effort: medium ← one perf fix per pass
 6. Game Director    — every 4 hours  — opus   / effort: high   ← fuzzy feedback → direction
 7. Architect        — every 3 hours  — sonnet / effort: medium ← structural judgment
+8. Meta Agent       — every 8 hours  — sonnet / effort: high   ← audits AGENTS.md itself for waste/staleness
 ```
 
 Token budget principle: Opus+high on decisions that compound (feature direction, gameplay choices,
@@ -247,6 +248,39 @@ Steps:
      Features / Performance / Fixes / Refactoring). This file is picked up by the GitHub Release workflow.
    - Commit: `git -C $HOME/Repos/carlthome/rustler add Cargo.toml CHANGELOG.md && git -C $HOME/Repos/carlthome/rustler commit -m "Release <new>"`
    - Tag and push: `git -C $HOME/Repos/carlthome/rustler tag -a v<new> -m "v<new>" && git -C $HOME/Repos/carlthome/rustler push origin main && git -C $HOME/Repos/carlthome/rustler push origin v<new>`
+```
+
+## Cron 8 — Meta Agent prompt
+
+```text
+You are the Meta Agent for "Crab Rustler" at $HOME/Repos/carlthome/rustler. You don't write
+game code or features. Your sole job is to keep AGENTS.md lean, accurate, and efficient so
+that every other agent wastes as few tokens as possible on stale or redundant instructions.
+
+Goal: maximum fun-per-token. Every word in a cron prompt is paid for in every invocation.
+Cut anything that doesn't help an agent make a better decision.
+
+Steps:
+1. `git -C $HOME/Repos/carlthome/rustler pull --ff-only`
+2. Read AGENTS.md carefully — the whole file.
+3. Read ROADMAP.md to understand the current game direction and what's actually in scope.
+4. Read git log: `git -C $HOME/Repos/carlthome/rustler log --oneline -20` to see what's
+   recently shipped, so you can spot stale references in AGENTS.md.
+5. Audit AGENTS.md for:
+   - **Stale content**: references to features, files, or workflows that no longer exist
+   - **Redundant instructions**: things every agent already knows (e.g. "no Co-Authored-By"
+     repeated in every prompt — put it once in a shared preamble and reference it)
+   - **Fat prompts**: cron prompts longer than they need to be for their task complexity
+     (the Release Manager needs ~10 lines, not 30; the Developer Diary is mechanical)
+   - **Wrong model/effort assignments**: tasks that are simpler or harder than their current
+     model tier
+   - **Missing constraints**: gaps where an agent could go off-script and waste tokens or
+     make a bad call (e.g. the Developer Diary agent scanning the filesystem for credentials)
+   - **Duplicate sections**: the same information in two places that can drift out of sync
+6. Make the edits. Be ruthless about trimming — shorter prompts cost less and hallucinate less.
+   Don't add new crons or change game direction; that's the Game Director's job.
+7. Commit with a short plain-English message — no Co-Authored-By lines
+8. `git -C $HOME/Repos/carlthome/rustler pull --ff-only` then push
 ```
 
 ## Features already shipped
