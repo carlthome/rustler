@@ -99,7 +99,12 @@ item in "Now" below.
   hand-crafted levels, choices with consequences, narrative stakes. Most players finish it once.
   Then the **arcade mode** (leaderboards, scoring pressure, ruthless difficulty) is the real game
   to master for the players who want to go deep. The two modes complement rather than compete:
-  campaign funnels players into arcade, arcade is the prestige path. Don't start this until the
+  campaign funnels players into arcade, arcade is the prestige path.
+  **Tutorials are folded into the first world map nodes — not a separate menu.** The opening
+  nodes are short, hand-crafted mechanic introductions (catch a chain → feel the beat → one tool
+  per node → first rival train). No "How to Play" menu item; the world map IS the tutorial funnel.
+  The existing TutorialKind scenarios become the first world map levels rather than menu sandboxes.
+  Players who want to skip go straight to arcade. Don't start this until the
   inner loop and meta-progression feel done — the arcade mode has to be worth mastering before
   the campaign exists to funnel people toward it. *A skeleton has landed (world-map node list +
   navigation, player-skin slots) — treat it as scaffolding parked here, NOT as license to build out
