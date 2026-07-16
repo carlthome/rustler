@@ -676,6 +676,98 @@ impl MainState {
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
     }
 
+    /// King Crab splice: when a charging boss CROSSES the player's conga line (passes through any
+    /// chain segment, not just the tail), it splices the chain at that point. Everything behind the
+    /// crossing (higher chain_index) detaches and magnetically flies toward the boss — stolen.
+    ///
+    /// This is the reverse-Snake + Agar.io core mechanic: the King Crab routes deliberately through
+    /// your line to steal crabs, making the chain a high-stakes spatial puzzle to protect.
+    fn check_king_crab_splice(&mut self) {
+        const SPLICE_COLLIDE_DIST: f32 = CRAB_SIZE * 1.4;
+        const SPLICE_COOLDOWN: f32 = 2.0;
+        const MAGNET_DURATION: f32 = 0.9;
+
+        if self.king_splice_cooldown > 0.0 || self.chain_count < 2 {
+            return;
+        }
+
+        let boss_pos: Option<Vec2> = self.crabs.iter().find_map(|c| {
+            if c.is_boss() && !c.caught && !c.is_tide_boss() && !c.is_rhythm_boss() {
+                if matches!(c.charge_state, crate::enemies::BossCharge::Charging(_)) {
+                    Some(c.pos)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        let Some(boss_pos) = boss_pos else { return; };
+
+        let splice_at: Option<usize> = {
+            let mut best: Option<usize> = None;
+            let d2_thresh = SPLICE_COLLIDE_DIST * SPLICE_COLLIDE_DIST;
+            for c in &self.crabs {
+                let Some(ci) = c.chain_index else { continue };
+                if boss_pos.distance_squared(c.pos) < d2_thresh {
+                    if best.map_or(true, |b| ci < b) {
+                        best = Some(ci);
+                    }
+                }
+            }
+            best
+        };
+        let Some(cut_ci) = splice_at else { return; };
+
+        let mut stolen: Vec<(Vec2, [f32; 4])> = Vec::new();
+        for c in &self.crabs {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= cut_ci) {
+                let [r, g, b] = c.crab_color();
+                stolen.push((c.pos, [r, g, b, 1.0]));
+            }
+        }
+        if stolen.is_empty() { return; }
+        let stolen_count = stolen.len();
+
+        for c in &mut self.crabs {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= cut_ci) {
+                c.caught = false;
+                c.chain_index = None;
+                c.vel = Vec2::ZERO;
+            }
+        }
+        self.chain_count = cut_ci;
+        self.recompute_tail_run();
+        self.king_splice_cooldown = SPLICE_COOLDOWN;
+
+        for (pos, color) in &stolen {
+            self.king_stolen_crabs.push((*pos, MAGNET_DURATION, *color));
+        }
+
+        let cut_pos = stolen.first().map(|(p, _)| *p).unwrap_or(boss_pos);
+        self.spawn_catch_shockwave(cut_pos, [1.0, 0.2, 0.8]);
+        self.screen_shake = self.screen_shake.max(10.0);
+        let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 10.0 * 60.0;
+        self.floating_texts.spawn(
+            format!("STOLEN! -{}", stolen_count),
+            cut_pos - Vec2::new(40.0, 40.0),
+            36.0,
+            [1.0, 0.3, 0.9, 1.0],
+        );
+        for (pos, _) in &stolen {
+            if self.fear_rings.len() < 48 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                *pos - Vec2::new(0.0, 20.0),
+                20.0,
+                [1.0, 0.4, 0.9, 1.0],
+            );
+        }
+    }
+
     /// Rebuild `tail_run_len` — the length of the unbroken run of same-type links at the tail — by
     /// walking backward from the current tail. Called after any peel/snap shrinks the train, since
     /// removing tail links can change what the tail is (and thus the run). A no-op-cheap O(n) scan
@@ -3815,6 +3907,7 @@ impl MainState {
                         // A stunned (recently-blocked) King Crab can't wind up until the daze passes.
                         if crab.charge_cooldown <= 0.0
                             && !crab.is_stunned()
+                            && !boss_hit_iframes_active
                             && self.chain_count >= 3
                             && crab.pos.distance(charge_target) < BOSS_CHARGE_ARM_RANGE
                         {
@@ -5320,6 +5413,7 @@ impl MainState {
         self.screen_shake_offset = Vec2::ZERO;
         self.hitstop_timer = 0.0;
         self.slowmo_timer = 0.0;
+        self.boss_hit_iframes = 0.0;
         self.chain_join_ripple = false;
         self.next_milestone = 5;
         self.next_boss_score = BOSS_SCORE_INTERVAL;
@@ -10120,6 +10214,10 @@ impl EventHandler for MainState {
 
         // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
         self.snap_chain_on_panic();
+
+        // King Crab splice: a charging boss that crosses ANY chain segment steals the back section,
+        // pulling it magnetically toward itself (reverse-Snake mechanic).
+        self.check_king_crab_splice();
 
         // Biome wrinkle (Neon Kelp Forest): clinging fronds can snag and strip the tail if you
         // route a long train through the weeds instead of around them.
