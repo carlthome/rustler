@@ -410,6 +410,16 @@ thread_local! {
     static CATCH_NEXT_TICK_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static CATCH_NEXT_TICK_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Centerpiece bracket-dot batching: draw_centerpiece_ring() draws 10 small orbiting bracket
+    // dots per centerpiece link (2 sides × 5 dots each), all using the same fixed
+    // cached_stroke_circle(2.2, 1.5) mesh. On a long train with a 5+ same-type run seated across
+    // the midpoint (the CENTERPIECE window) that's 10 × run_len individual canvas.draw() calls
+    // per frame — up to 50-60+ on a good arrangement run. Instead defer each dot DrawParam here
+    // and flush them all as one draw_instanced_mesh call in flush_centerpiece_dots() after the
+    // chain-crab loop, identical to the hermit-coil / catch-next-tick batching above.
+    static CENTERPIECE_DOT_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static CENTERPIECE_DOT_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Attracted-crab glow batching: draw_attracted_crab_glow() used to issue 2 individual
     // canvas.draw() calls per crab-in-flashlight (outer soft-glow ring + inner bright ring).
     // With 10-30 crabs in the flashlight beam at once that was 20-60 unbatched GPU submissions
@@ -590,6 +600,35 @@ pub fn flush_catch_next_ticks(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             canvas.draw_instanced_mesh(tick_mesh, instances, DrawParam::default());
             Ok(())
         })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all centerpiece bracket-dot DrawParams deferred by draw_centerpiece_ring() calls this
+/// frame into a single draw_instanced_mesh call. All dots share the same fixed stroke-circle
+/// mesh (radius 2.2, thickness 1.5) so no grouping is needed — one instanced draw covers every
+/// bracket dot from every centerpiece link on screen. Call once per frame after the chain-crab
+/// loop, in ADD blend mode, alongside flush_crab_legs / flush_crab_bodies. On a long run with
+/// a centerpiece arrangement this collapses up to 10 × run_len individual canvas.draw() calls
+/// (e.g. 60 for a 6-link centerpiece run) down to 1 GPU submission. Identical on-screen output.
+pub fn flush_centerpiece_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    CENTERPIECE_DOT_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let dot_mesh = cached_stroke_circle(ctx, 2.2, 1.5)?;
+        let orig_blend = canvas.blend_mode();
+        canvas.set_blend_mode(BlendMode::ADD);
+        CENTERPIECE_DOT_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(dot_mesh, instances, DrawParam::default());
+            Ok(())
+        })?;
+        canvas.set_blend_mode(orig_blend);
         params.clear();
         Ok(())
     })
@@ -4281,23 +4320,27 @@ pub fn draw_centerpiece_ring(
 
     // Facing brackets: short arcs on the left and right of the crab, drawn as small dots stepping
     // along each side arc. Reads as "held in place / enshrined" — a laurel hugging the link.
-    let dot = cached_stroke_circle(ctx, 2.2, 1.5)?;
-    for side in [0.0_f32, std::f32::consts::PI] {
-        for k in 0..5 {
-            // Sweep roughly +/- 55deg around the horizontal on each side.
-            let spread = (k as f32 / 4.0 - 0.5) * (110.0_f32.to_radians());
-            let a = side + spread;
-            let p = center + Vec2::new(a.cos(), a.sin()) * r;
-            // Endpoints of each bracket a touch dimmer so the middle of the arc leads.
-            let da = (alpha * (1.0 - (k as f32 / 4.0 - 0.5).abs() * 0.6)).clamp(0.0, 1.0);
-            canvas.draw(
-                &dot,
-                DrawParam::default()
-                    .dest(p)
-                    .color(Color::new(amber[0], amber[1], amber[2], da)),
-            );
+    // Defer into the shared CENTERPIECE_DOT_PARAMS buffer (all dots share the same fixed
+    // stroke-circle mesh) so flush_centerpiece_dots() emits them all as one instanced draw
+    // after the chain-crab loop — same technique as hermit-coil / catch-next-tick batching.
+    CENTERPIECE_DOT_PARAMS.with(|params_cell| {
+        let mut params = params_cell.borrow_mut();
+        for side in [0.0_f32, std::f32::consts::PI] {
+            for k in 0..5 {
+                // Sweep roughly +/- 55deg around the horizontal on each side.
+                let spread = (k as f32 / 4.0 - 0.5) * (110.0_f32.to_radians());
+                let a = side + spread;
+                let p = center + Vec2::new(a.cos(), a.sin()) * r;
+                // Endpoints of each bracket a touch dimmer so the middle of the arc leads.
+                let da = (alpha * (1.0 - (k as f32 / 4.0 - 0.5).abs() * 0.6)).clamp(0.0, 1.0);
+                params.push(
+                    DrawParam::default()
+                        .dest(p)
+                        .color(Color::new(amber[0], amber[1], amber[2], da)),
+                );
+            }
         }
-    }
+    });
     // Faint full ring underneath so the brackets read as attached to a whole, not two loose arcs.
     let ring = cached_stroke_circle(ctx, r, 1.4)?;
     canvas.draw(

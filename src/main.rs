@@ -47,7 +47,7 @@ use crate::graphics::{
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
+    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
@@ -7836,6 +7836,11 @@ impl MainState {
         // perceptible in motion.
         crate::graphics::flush_crab_legs(ctx, canvas)?;
         crate::graphics::flush_crab_bodies(ctx, canvas)?;
+        // Flush centerpiece bracket-dot DrawParams deferred by draw_centerpiece_ring() calls
+        // above — same technique as hermit-coil and catch-next-tick batching. Up to 10 dots per
+        // centerpiece link (a 6-link run → 60 individual canvas.draw() calls) collapsed to one
+        // instanced draw regardless of how long the qualifying run gets.
+        flush_centerpiece_dots(ctx, canvas)?;
         Ok(())
     }
 
