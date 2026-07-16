@@ -401,6 +401,21 @@ thread_local! {
     static HERMIT_COIL_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static HERMIT_COIL_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Attracted-crab glow batching: draw_attracted_crab_glow() used to issue 2 individual
+    // canvas.draw() calls per crab-in-flashlight (outer soft-glow ring + inner bright ring).
+    // With 10-30 crabs in the flashlight beam at once that was 20-60 unbatched GPU submissions
+    // a frame just for flashlight glow — the same per-crab redundancy the magnet aura rings and
+    // hermit coil dots had before batching. Instead defer each ring's DrawParam here (grouped by
+    // stroke_circle_key since different crab sizes land in different stroke-mesh buckets) and
+    // flush them all grouped into a couple of draw_instanced_mesh calls in
+    // flush_attracted_crab_glows() after the per-crab aura pass. Outer and inner rings use
+    // different radii and thicknesses but typically cluster into only a few key buckets (most
+    // normal crabs share the same scale), so in practice ~10 crabs collapse to 2-4 submissions.
+    static ATTRACTED_GLOW_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static ATTRACTED_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static ATTRACTED_GLOW_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+    static ATTRACTED_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -543,6 +558,56 @@ pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             Ok(())
         })?;
         params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all attracted-crab glow ring DrawParams deferred by draw_attracted_crab_glow() calls
+/// this frame, grouped by stroke-circle mesh key and drawn as instanced batches. Replaces up
+/// to 60 individual canvas.draw() calls (2 per crab-in-flashlight × ~30 crabs) with one
+/// draw_instanced_mesh submission per distinct stroke radius bucket — typically 2-4 total.
+/// Call this once after all per-crab aura draws while still in ADD blend mode, alongside
+/// flush_hermit_coil_dots / flush_magnet_auras / flush_golden_sparkles / flush_crab_legs /
+/// flush_crab_bodies.
+pub fn flush_attracted_crab_glows(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    // Outer soft-glow rings
+    ATTRACTED_GLOW_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        ATTRACTED_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() {
+                    continue;
+                }
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })?;
+        for v in groups.values_mut() { v.clear(); }
+        Ok(())
+    })?;
+    // Inner bright rings
+    ATTRACTED_RING_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        ATTRACTED_RING_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() {
+                    continue;
+                }
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })?;
+        for v in groups.values_mut() { v.clear(); }
         Ok(())
     })
 }
@@ -6065,30 +6130,41 @@ pub fn draw_attracted_crab_glow(
     // mode for this whole per-crab aura pass, so this doesn't toggle blend mode itself; see the
     // comment there for why (per-crab toggling used to cause a GPU pipeline switch per crab).
 
-    // Outer soft glow ring — attracted crabs tend to share similar size/pulse phase (same
-    // global beat clock), so this cache lookup is often shared across every glowing crab
-    // instead of building a fresh GPU mesh per crab per frame.
+    // Outer soft glow ring and inner bright ring — deferred into per-key scratch maps and
+    // flushed as a couple of instanced batches by flush_attracted_crab_glows() after the
+    // per-crab aura loop. Replaces 2 individual canvas.draw() calls per attracted crab with
+    // one grouped submission per distinct stroke-circle key bucket. Meshes are still built
+    // (or cache-hit) here so the key → mesh association stays consistent.
     let glow_alpha = (0.18 + pulse * 0.22).clamp(0.0, 1.0);
-    let glow = cached_stroke_circle(ctx, outer_radius + outer_radius * 0.18, outer_radius * 0.35)?;
-    canvas.draw(
-        &glow,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(r, g, b, glow_alpha)),
-    );
+    let glow_r = outer_radius + outer_radius * 0.18;
+    let glow_th = outer_radius * 0.35;
+    let glow_key = stroke_circle_key(glow_r, glow_th);
+    cached_stroke_circle(ctx, glow_r, glow_th)?;
+    ATTRACTED_GLOW_GROUPS.with(|groups_cell| {
+        let mut groups = groups_cell.borrow_mut();
+        groups.entry(glow_key).or_default().push(
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(r, g, b, glow_alpha)),
+        );
+    });
 
-    // Bright inner ring
     let ring_alpha = (0.45 + pulse * 0.45).clamp(0.0, 1.0);
-    let ring = cached_stroke_circle(ctx, outer_radius, 2.5)?;
-    canvas.draw(
-        &ring,
-        DrawParam::default().dest(pos).color(Color::new(
-            (r * 0.5 + 0.5).min(1.0),
-            (g * 0.5 + 0.5).min(1.0),
-            (b * 0.5 + 0.5).min(1.0),
-            ring_alpha,
-        )),
-    );
+    let ring_key = stroke_circle_key(outer_radius, 2.5);
+    cached_stroke_circle(ctx, outer_radius, 2.5)?;
+    ATTRACTED_RING_GROUPS.with(|groups_cell| {
+        let mut groups = groups_cell.borrow_mut();
+        groups.entry(ring_key).or_default().push(
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(
+                    (r * 0.5 + 0.5).min(1.0),
+                    (g * 0.5 + 0.5).min(1.0),
+                    (b * 0.5 + 0.5).min(1.0),
+                    ring_alpha,
+                )),
+        );
+    });
 
     Ok(())
 }

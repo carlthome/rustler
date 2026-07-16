@@ -47,7 +47,7 @@ use crate::graphics::{
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, draw_world_map, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
+    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
 use crate::levels::{Level, TerrainKind, get_levels};
 use crate::spawnings::{
@@ -8806,6 +8806,12 @@ impl MainState {
         // draw calls into at most 3 batched draw_instanced_mesh calls — one per phase bucket — plus
         // up to N core-ring calls. Net: from ~20 GPU submissions for 5 Magnets to ~8.
         flush_magnet_auras(ctx, canvas)?;
+        // Flush attracted-crab glow rings deferred by draw_attracted_crab_glow() above. Each crab
+        // in the flashlight beam deferred 2 canvas.draw() calls (outer soft-glow + inner ring) into
+        // key-grouped scratch maps; now collapsed to one draw_instanced_mesh per distinct stroke
+        // radius bucket. With ~10-30 crabs in beam range this trims 20-60 individual GPU submissions
+        // down to ~2-4 batched ones. Same blend mode (caller already in ADD), same pixels.
+        flush_attracted_crab_glows(ctx, canvas)?;
         canvas.set_blend_mode(original_blend);
         // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
