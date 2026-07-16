@@ -120,11 +120,22 @@ Games and ideas that shaped Crab Rustler's direction. This file is read by the G
 
 ---
 
+## The game in one paragraph (Carl, 2026-07-16)
+
+A competing-DJ mashup conga line game where the coolest, longest crab rave party dominates the music mix. Rustling crabs from other conga lines is core — like Agar.io but with trains instead of circles. Being in a rhythm groove with Doom Eternal-style soft rock/paper/scissors mechanics is rewarded heavily. Each tool key is a drum pad; hitting it on the beat to your own music is the skill expression; crabs caught are the consequence of playing the groove well. The dominant conga line's music wins. That's the whole game.
+
+**Every design decision should be tested against this.** Does it deepen the groove? Does it make stealing more interesting? Does it make the dominant train feel and sound powerful? Does hitting it on the beat feel like a drum hit?
+
+---
+
 ## Design principles distilled from the above
 
+- **Keys as drum pads.** Every tool should feel satisfying to hammer rhythmically. On-beat hits pay off more. Downbeats are the biggest moment. Players should be able to "play the music" with their hands and catch crabs as a consequence.
 - **Rhythm over power fantasy.** The beat is the mechanic. Every system should make hitting the beat feel better, not be optional.
+- **Steal to win.** The most interesting moment isn't catching a wild crab — it's snatching one from a rival train. Design for that tension.
+- **Dominant train dominates the mix.** Audio IS the scoreboard. The biggest, grooviest train should sound the loudest.
 - **Legible risk.** The long-train gamble should be visible (AT RISK tag, rope heat, escalating snap teeth) — players shouldn't lose crabs without understanding why it was their fault.
+- **Soft RPS, not hard counters.** Tool vs. archetype matchups should have clear strengths (Doom Eternal style) without hard locks — skill and groove override bad matchups.
 - **Depth before breadth.** One mechanic done with a real skill ceiling beats three mechanics done shallowly.
 - **Thresholds, not interruptions.** Level transitions, upgrade moments, boss arrivals — each should feel earned and brief, not like a pause menu.
-- **Secrets that reward curiosity.** At least one mechanic (the desktop level) should be undocumented and discoverable. The best moment in the game might be one most players never find.
 - **Controlled delirium.** Visual excess is good when it makes mastery feel dangerous and ecstatic; it is bad when it obscures the rhythm contract.
