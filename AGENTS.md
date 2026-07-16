@@ -14,7 +14,7 @@ nix develop $HOME/Repos/carlthome/rustler --command cargo build
 
 # Run (shellHook sets up Vulkan/Wayland env)
 nix develop $HOME/Repos/carlthome/rustler --command ./target/debug/rustler
-```text
+```
 
 > **Note:** Run `nix develop .` from the repo root. The shellHook sets `LD_LIBRARY_PATH` and
 > `VK_ICD_FILENAMES` so the binary can find the Vulkan/Wayland graphics stack.
@@ -34,7 +34,7 @@ Short plain-English messages. No "Co-Authored-By" lines. Always push after commi
 
 ```sh
 git -C $HOME/Repos/carlthome/rustler push origin main
-```text
+```
 
 ## Agent roster
 
