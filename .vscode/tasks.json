@@ -2,28 +2,6 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Crab Rustler: auto-bootstrap game-dev loop",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-c",
-        "unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION; exec ~/.local/bin/claude --dangerously-skip-permissions 'bootstrap'"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "showReuseMessage": false
-      },
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
       "label": "Crab Rustler: run game",
       "type": "shell",
       "command": "nix",

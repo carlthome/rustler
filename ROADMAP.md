@@ -5,15 +5,25 @@ Maintained by the Game Director agent (see CLAUDE.md, Cron 6) — it reads Slack
 releases and updates this list accordingly. Feature Developer and Overnight Developer read
 this for direction before picking their next task; they don't edit it themselves.
 
-**Sequencing.** Two phases, in order — don't jump ahead to phase 2 while phase 1 items remain:
+**The thesis (Carl, 2026-07-16).** The real game is *competing conga lines*: crab leaders (NPC King
+Crabs, and eventually human Rustlers) steal each other's crabs to grow their own train, and whoever's
+train dominates dominates the **music mix** — everyone brings their own track (BYO music) and the engine
+mashes them into one musical brawl (Crab Rave meme: more crabs in sync = more music; Rustler theme:
+stealing dancing crabs). This is the destination, not a side feature. The current single-player arena is
+**prototype scaffolding** toward it — a place to make catching/arranging/rhythm feel great before rivals
+show up to steal from you.
 
-1. **Now — depth before breadth.** Make the core inner loop (catching, chain, rhythm) excellent
-   before the game goes wide. Favor items that deepen existing mechanics over ones that add
-   parallel modes or systems. Hold off on anything like alternate game modes until the core
-   feels done.
-2. **Later — the outer loop.** Once the inner loop is tight and solid, shift attention to
-   sustaining player motivation across runs and sessions: meta-progression, unlocks, reasons to
-   come back.
+**Sequencing.** The path to the thesis, in order — don't jump ahead while an earlier item remains:
+
+1. **Now — make the inner loop excellent, then open the world.** A single train's catching, arranging,
+   and rhythm must feel great before rivals arrive. Then the scrolling world (top of Now) is the
+   architectural gate that lets rival trains exist at all.
+2. **Then — the competing-conga ecology + BYO-music mashup.** The core game above: NPC King Crab trains
+   that steal crabs, spatialized audio where the winning train's music dominates the mix, and ultimately
+   human-vs-human. Currently sharpened in "Also on our mind" — gated behind the scrolling world, promote
+   into Now once that lands.
+3. **Later — the outer loop.** Separate from the thesis: meta-progression, unlocks, campaign/story —
+   sustaining motivation across runs. Held until the inner loop feels done (Carl's call).
 
 **Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/stomp) with
 upgrade lanes, a conga train with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring
@@ -28,12 +38,13 @@ telegraphed terrain hazard, all three bosses fight inside the archetype web, and
 tutorial doubles as regression tests. A first slice of meta-progression + campaign scaffolding exists but
 stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal.** No new Slack reactions/replies this cycle (recent Dev Diary posts unreacted; the only thread
-reply is old channel-meta, not direction), so direction holds from Carl's last substantive playtest and his
-**mechanics-freeze call**: strengthen what exists so the player feels *agency and control*. Prior playtest
-asks are all resolved — the upgrade screen (frequency/timing/3-pick redesign), the level "arrives somewhere
-mechanically" ask (rarer-bigger boundaries + per-biome hazards), and a first slice of the beat-mastery ceiling
-(super-linear PERFECT streak). The procedural-horde/leaderboard endless vision stays sharpened in "Later".
+**Signal (this cycle).** Carl clarified the **thesis** (see top): competing conga lines + BYO-music mashup
+is the *core game*, and the arena is scaffolding toward it. That reframes the whole roadmap — it doesn't
+change the near-term work (still: finish the inner loop, then build the scrolling world that lets rivals
+exist), but it means the ecology/music items in "Also on our mind" are the destination, not breadth to
+maybe-someday get to. His standing **mechanics-freeze** still holds for near-term Now picks: strengthen
+what exists so the player feels *agency and control*, don't add new arena mechanics. No conflict — the
+freeze governs polish now; the thesis governs where we're headed. Prior playtest asks are all resolved.
 
 ## Bugs (fix before anything else in Now)
 
@@ -50,25 +61,18 @@ item in "Now" below.
 - **NOTE — MECHANICS FREEZE (called by Carl this cycle).** Carl: "We might have sufficient game mechanics
   content for now, and should work on strengthening what we have to make the player feel agency and control."
   Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
-  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. Every live
-  Now item below survives the freeze: it *deepens an existing verb* (the Cycle reposition) rather than adding a
-  new one — exactly the "make the player feel in control" work Carl asked for. *(Shipped this cycle and checked
-  off: the train-middle arrangement frontier — a mid-train CENTERPIECE now pays a scaling bonus for a deep
-  same-type run straddling the midpoint, with a live ring on the train and an ARRANGED breakdown in the HAUL
-  readout — 60ce8a0/3db854b/e5dc23d. All three train slots now carry arrangement weight, and legibility while
-  building is well covered by next-catch rings, cycle-promote preview, and the live readouts.)*
+  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. The freeze
+  applies to *arena mechanics polish* — it does not forbid the scrolling-world architecture below, which is
+  infrastructure toward the thesis, not a new arena verb. The two agency items it produced (train-middle
+  CENTERPIECE, and active control over train ORDER via the deepened Cycle verb) have both now shipped and
+  checked off — the arrangement inner loop is both legible and shapeable.
 
 - **[TOP PRIORITY — PREREQUISITE FOR EVERYTHING BELOW] Scrolling world: extend the map beyond the fixed viewport.** The competing-conga-lines vision (NPC King Crab trains, BYO music dominating the mix, train-vs-train stealing) cannot work in a fixed viewport — rival trains need space to approach from off-screen, their music needs to be audible before they're visible, and players need room to maneuver. This is also the "explorable maps" item Carl called out (Black Isle / Vampire Survivors exploration dopamine). Concretely: a world larger than the viewport, a camera that follows the player's train, and spawning/NPC logic that works in world-space rather than screen-space. Scaffolding already in place: radar arrows (off-screen awareness), screen/world coordinate separation in draw code, off-screen draw culling. This is the single most load-bearing architectural change before NPC ecology can begin.
 
-- **Give the player active control over train ORDER — the agency gap Carl named.** Arrangement is
-  now legible and pays off (CENTERPIECE, sandwiches, figureheads), but the player can barely *shape* it: order is
-  dictated by catch order, and the one manipulation verb — Cycle (X) — only rotates the whole train one slot, which
-  can move a crab to the head but can't repair the interior. If two matching crabs land on opposite sides of a
-  mismatch, the only fix is banking and restarting the run. Deepen the existing Cycle verb so the player can
-  actively *build* a centerpiece or sandwich on purpose at speed (e.g. an on-beat local swap / bubble-toward-center,
-  reusing the adjacency + beat-gate systems Cycle already uses). Freeze-safe — no new verb, it extends the one that
-  exists — and it turns holding a long train into a puzzle you can *solve*, not just a risk you carry and a payout
-  you hope catch-order handed you. This is the difference between reading the arrangement and controlling it.
+- *(Shipped this cycle and checked off: active control over train ORDER — the agency gap Carl named.
+  a8172f3 deepened the Cycle verb so X now aims at an interior train crab and bubbles it one slot toward
+  the centre, letting the player build a centerpiece on purpose instead of only rotating the ends.
+  Arrangement is now both legible AND shapeable — reading the train and controlling it are both closed.)*
 
 ## Later (outer loop — not yet)
 
@@ -139,23 +143,22 @@ item in "Now" below.
   than in "Now" since it's a side-system/breadth item by nature, same category as alternate game
   modes — worth revisiting once the core loop itself feels done.
 
-- **NPC conga ecology (agar.io + Rain World) → multiplayer endgame.** Carl's vision: King Crabs
-  have their own conga trains of followers; they steal crabs from the player's train and from each
-  other. The beach becomes a living ecosystem of competing conga leaders, not just a static arena.
-  The player starts as the smallest and must out-arrange (not just out-catch) larger NPC trains.
-  Sequencing: (1) NPC conga trains for King Crabs; (2) train-stealing interactions between NPC
-  and player trains; (3) ecology emerges from simple per-creature rules à la Rain World (see
-  INSPIRATION.md); (4) multiplayer where human Rustlers compete for the largest train and thus
-  the dominant audio share. Size is legible from across the field — a well-arranged shorter train
-  should beat a larger, poorly-arranged one (arrangement depth matters more than raw length).
+- **★ THE CORE GAME — competing conga ecology (agar.io + Rain World).** This is the destination the
+  whole prototype is scaffolding toward (see thesis at top). King Crabs run their own conga trains and
+  *steal* crabs from the player's train and each other; the beach is a living ecosystem of rival conga
+  leaders. The player starts smallest and must **out-arrange, not just out-catch** — a well-arranged short
+  train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs; (2) train-vs-train
+  stealing; (3) ecology from simple per-creature rules à la Rain World (see INSPIRATION.md); (4) human-vs-human
+  Rustlers competing for the largest, best-arranged train. Gated on the scrolling world (top of Now) — rivals
+  need room to approach. Promote into Now the moment that lands.
 
-- **Spatialized audio + bring-your-own-music (competing DJ mode).** The dominant conga train's
-  music takes up the bulk of the audio mix; smaller/losing trains fade. Each approaching NPC
-  King Crab train is *heard* before seen — their music gets louder as they near, like agar.io
-  circles creeping in from the edge. BPM detection already exists. In multiplayer: each player
-  supplies their own track, the game syncs to it, and the mashup is a natural consequence of
-  competition — the winner's music overwhelms the mix while losers' tracks fade to silence.
-  Spatialized sound means audio IS the radar. Defer until NPC ecology is fun against bots first.
+- **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
+  the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
+  **heard before seen** — its track swells as it nears, like an agar.io circle creeping in from the edge, so
+  audio IS the radar. Everyone brings their own track (BYO music); the engine syncs and *mashes them up*, and
+  the mashup is a natural consequence of the fight — the winner's song overwhelms, the losers' fade to silence.
+  King Crab NPCs carry tracks too for solo play / practice. BPM detection already exists. Defer wiring until
+  the NPC ecology is fun against bots first; but this is the whole point of the game, not a stretch goal.
 
 - **Environmental ambience — day/night cycles and weather.** Pure visual storytelling, no gameplay
   impact: time of day shifts sky/lighting (dawn → noon → dusk → night over ~5-10 min per run);
