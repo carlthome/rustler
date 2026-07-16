@@ -58,13 +58,14 @@ item in "Now" below.
 
 ## Now
 
-- **Direction (Carl, 2026-07-16): sharpen, distinguish, interact.** Mechanics freeze is lifted. Don't add a
-  bunch of new stuff — but DO make everything visually distinct, legible to the player, and rich with
-  interaction effects. Think Doom Eternal's soft rock/paper/scissors: each archetype should have a clear
-  *role*, each tool a clear *strength against certain targets*, and every meaningful interaction (catching a
-  Dancer while your tail is an Armored, landing a Stomp near a Magnet cluster) should *show* that it
-  happened — a spark, a sound shift, a visual tell. The player should be able to read the field and make
-  smart decisions, not learn through opaque trial and error. Deepen what exists, make it legible and crisp.
+- **Direction (Carl, 2026-07-16): sharpen, distinguish, interact — and keep everything rhythmic.** Mechanics
+  freeze is lifted. Don't add a bunch of new stuff — but DO make everything visually distinct, legible, and
+  rich with interaction effects. Think Doom Eternal's soft rock/paper/scissors: each archetype has a clear
+  *role*, each tool a clear *strength against certain targets*, every meaningful interaction *shows* that it
+  happened. The player should read the field and make smart decisions, not learn through opaque trial and error.
+  **Crucially: everything must fit the rhythm-game flavor.** Tool throws, interaction effects, boss burns,
+  lasso snags — all should have beat-synced bonuses (on-beat throws go further/faster/stronger, downbeats
+  trigger bigger effects). The beat is the mechanic; new polish deepens it, doesn't work around it.
 
 - **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** Each of the 8 crab
   archetypes and 4 tools already has distinct mechanics — but the *interactions* between them are often
