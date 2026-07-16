@@ -7843,12 +7843,14 @@ impl MainState {
                 // amber laurel so the player sees the protected centerpiece forming as they build,
                 // turning "hold a long train" into an arrangement puzzle they set up on purpose.
                 if let Some(ci) = crab.chain_index {
-                    if !centerpiece_set.is_empty() && centerpiece_set.contains(&ci) {
+                    if !centerpiece_set.is_empty() && centerpiece_set.binary_search(&ci).is_ok() {
                         // An endpoint is a link at the start/end of its own contiguous run, i.e.
                         // a neighbouring index isn't also in the set — works even if two runs
                         // qualify at once (the vec concatenates them but they're non-adjacent).
-                        let is_endpoint = !centerpiece_set.contains(&ci.wrapping_sub(1))
-                            || !centerpiece_set.contains(&(ci + 1));
+                        // centerpiece_set is always sorted (built from extend(start..end_exclusive)
+                        // ranges in ascending order), so binary_search replaces the O(n) contains().
+                        let is_endpoint = centerpiece_set.binary_search(&ci.wrapping_sub(1)).is_err()
+                            || centerpiece_set.binary_search(&(ci + 1)).is_err();
                         draw_centerpiece_ring(
                             ctx,
                             canvas,
