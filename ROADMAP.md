@@ -32,20 +32,25 @@ Drum-Major pumps groove economy) and **tail** placement (Armored parked at the t
 The **bank-now-vs-push-luck** axis is now fully legible on both sides: a live AT RISK readout, snap teeth that
 escalate with length, and a superlinear triangular bank payoff with a BIG/LONG/GRAND HAUL cashout.
 
-Biomes **push the herd** (Rocky Shore tide-shortcuts, Neon Kelp funnel lanes, chokepoints/tail-snag/wade-drag).
+Biomes **push the herd** (Rocky Shore tide-shortcuts + rock-block chokepoints, Neon Kelp funnel lanes + tail-snag,
+Tide Pools wade-drag) — each of the four zones now carries its **own distinct terrain hazard, all telegraphed**, so
+crossing a boundary shifts *how the ground routes* alongside *what you catch*.
 **All three bosses fight inside the archetype web** (King Crab bait-into-Armored, Tide Boss Golden-slingshot,
 Reef DJ call-and-response), and rhythm verbs reach the climax (a charged Drum Roll cracks a boss shell fast).
 The opt-in **How to Play** tutorial ships four scenarios, each a pure headless pass predicate doubling as a
 regression test. A first slice of **meta-progression** + campaign scaffolding exists but stays parked in
 "Later" — the gate is Carl's explicit "the core feels done" call, which hasn't come.
 
-**Signal.** No new Slack reactions/replies this cycle — Slack was unreadable this run and the recent Dev Diary
-posts are unreacted, so direction holds from Carl's last substantive playtest: (1) upgrade screen fired too often
+**Signal.** No new Slack reactions/replies this cycle — the recent Dev Diary posts are unreacted and the only
+thread reply is old and channel-meta ("would be nice to see example videos here", 2026-07-07), not game direction,
+so direction holds from Carl's last substantive playtest: (1) upgrade screen fired too often
 and back-to-back and read as a flow-breaking *pause* — **fully resolved**: frequency cut (39daa76), timing bugs
 fixed (c01b922/3b17573), and the redesign into a meaningful 3-pick choice with tradeoffs **SHIPPED** (b43045c);
-(2) level title cards look cool (Control aesthetic) but levels don't vary or feel impactful — boundaries-rarer-
-and-bigger **first pass SHIPPED** (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755;
-**terrain-hazard half still open** — top live Now item); (3) he wants a procedural horde / world-record
+(2) level title cards look cool (Control aesthetic) but levels don't vary or feel impactful — **now fully addressed**:
+boundaries-rarer-and-bigger (longer levels + per-biome archetype emphasis + threat banner, 22caa05/f83c755) *and*
+the **terrain-hazard half SHIPPED** — all four zones carry a distinct routing hazard, and the last silent one (kelp
+snag) got a telegraph this cycle (d19ec27), so a boundary now reads as arriving somewhere mechanically, not a tint
+swap; (3) he wants a procedural horde / world-record
 leaderboard endless mode (Diablo-style) with a beat-mastery skill ceiling — parked in "Later", sharpened; a first
 slice of that skill ceiling landed as the **super-linear PERFECT streak** payoff (043a480). **The risk/reward
 axis is closed** — live AT RISK readout, snap teeth escalating by length, and a superlinear triangular bank payoff
@@ -70,18 +75,13 @@ item in "Now" below.
   Now item below (biome terrain hazard, train-middle arrangement) survives the freeze: each *deepens and polishes
   existing* mechanics rather than adding new ones — the arrangement item reshapes the conga train that already
   exists, it doesn't add a new system — which is exactly the work Carl is asking for. Deepen and polish what
-  exists; make the player feel in control of it. *(Two Now items shipped this cycle and were checked off: the
-  upgrade-screen redesign into a 3-pick meaningful choice — b43045c — and the super-linear PERFECT streak payoff
-  as a first legible skill ceiling — 043a480.)*
+  exists; make the player feel in control of it. *(Shipped this cycle and checked off: the per-biome terrain-hazard
+  gear-change — all four zones carry a distinct routing hazard and the last silent one, the kelp snag, got a
+  telegraph so it reads as earned, not random tax — d19ec27. That was the TOP PRIORITY Now item; the level rethink's
+  "boundary reads as arriving somewhere mechanically" goal is now met. The train-middle arrangement item below is
+  the single remaining Now focus.)*
 
-- **[TOP PRIORITY] Pair each biome with its own terrain hazard — finish the gear-change. (Next step of the level rethink.)**
-  Boundaries now shift *who you catch* (archetype emphasis) but the ground is still mostly a tint. Per
-  INSPIRATION's Control note, a boundary should read as arriving somewhere mechanically: give each biome a
-  distinct terrain mechanic that changes routing (some already exist — Rocky Shore tide-shortcuts, Neon Kelp
-  funnel lanes — so extend/assign the pattern per biome) so archetype shift + terrain hazard land *together*.
-  Depth, not breadth: reuse the existing hazard systems rather than inventing parallel ones. Still NOT the
-  endless/procedural/leaderboard rework — that stays gated in "Later" until Carl calls the inner loop done.
-- **Give the middle of the train arrangement weight — the inner loop's next frontier.** Right now only the
+- **[TOP PRIORITY] Give the middle of the train arrangement weight — the inner loop's next frontier.** Right now only the
   **head** (Golden figurehead, Dancer Drum-Major) and **tail** (Armored tail-guard) slots carry meaning; every
   crab between them is just a number for pen_worth. Make a longer train mean more *arrangement* decisions, not
   just more banking value — reuse the existing adjacency/sandwich/figurehead systems so that where a crab sits in
