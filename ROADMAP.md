@@ -58,16 +58,30 @@ item in "Now" below.
 
 ## Now
 
-- **NOTE — MECHANICS FREEZE (called by Carl this cycle).** Carl: "We might have sufficient game mechanics
-  content for now, and should work on strengthening what we have to make the player feel agency and control."
-  Do **not** add new mechanics — no new crab archetypes, no new player verbs/tools, no new parallel systems —
-  until Carl explicitly lifts the freeze. Any such idea goes to "Also on our mind", not into work. The freeze
-  applies to *arena mechanics polish* — it does not forbid the scrolling-world architecture below, which is
-  infrastructure toward the thesis, not a new arena verb. The two agency items it produced (train-middle
-  CENTERPIECE, and active control over train ORDER via the deepened Cycle verb) have both now shipped and
-  checked off — the arrangement inner loop is both legible and shapeable.
+- **Direction (Carl, 2026-07-16): sharpen, distinguish, interact.** Mechanics freeze is lifted. Don't add a
+  bunch of new stuff — but DO make everything visually distinct, legible to the player, and rich with
+  interaction effects. Think Doom Eternal's soft rock/paper/scissors: each archetype should have a clear
+  *role*, each tool a clear *strength against certain targets*, and every meaningful interaction (catching a
+  Dancer while your tail is an Armored, landing a Stomp near a Magnet cluster) should *show* that it
+  happened — a spark, a sound shift, a visual tell. The player should be able to read the field and make
+  smart decisions, not learn through opaque trial and error. Deepen what exists, make it legible and crisp.
 
-- **[TOP PRIORITY — PREREQUISITE FOR EVERYTHING BELOW] Scrolling world: extend the map beyond the fixed viewport.** The competing-conga-lines vision (NPC King Crab trains, BYO music dominating the mix, train-vs-train stealing) cannot work in a fixed viewport — rival trains need space to approach from off-screen, their music needs to be audible before they're visible, and players need room to maneuver. This is also the "explorable maps" item Carl called out (Black Isle / Vampire Survivors exploration dopamine). Concretely: a world larger than the viewport, a camera that follows the player's train, and spawning/NPC logic that works in world-space rather than screen-space. Scaffolding already in place: radar arrows (off-screen awareness), screen/world coordinate separation in draw code, off-screen draw culling. This is the single most load-bearing architectural change before NPC ecology can begin.
+- **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** Each of the 8 crab
+  archetypes and 4 tools already has distinct mechanics — but the *interactions* between them are often
+  invisible or implied. Make them explicit and visually distinct: beam melts Hermit shells faster (show it),
+  Stomp disrupts Dancer rhythm (show it), Lasso excels at snagging Thieves mid-steal (show it). Each
+  archetype should telegraph its role with a clear visual identity, and each tool should feel like it has
+  a *purpose* on the field beyond "catch things." See INSPIRATION.md Doom Eternal note.
+
+- **Interaction effects: make every meaningful event read clearly.** Catch-time crossovers exist (Dancer
+  trips Goldens, Magnets supercharge on Golden-catch) but the visual feedback is sparse. Add small but
+  distinct effect bursts for: archetype-tool strong matches, chain crossover triggers, bond-forming catches,
+  boss phase transitions. Each effect should be *brief, distinctive, and informative* — the player learns
+  the system by watching it, not by reading a tutorial.
+
+- **Scrolling world density tuning.** World is now 2× viewport (7a52152) but spawn counts unchanged — field
+  feels sparse. Tune crab density, spawn ring radii, and boss positioning for the larger world so the beach
+  feels alive rather than empty. Exploration should reward venturing off-center.
 
 ## Later (outer loop — not yet)
 
