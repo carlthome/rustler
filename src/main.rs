@@ -5867,11 +5867,15 @@ impl MainState {
             crab.pos = old_pos.lerp(target, 0.4);
             // Rotate caught crab toward the direction it just moved
             let move_dir = crab.pos - old_pos;
+            // Compute the length once; reuse it for the facing-angle threshold, dust speed, and
+            // normalize — three operations that each used to call sqrt independently per chain link.
+            let move_len = move_dir.length();
+            let move_speed = move_len / dt.max(1e-4);
             // Kick up a little dust from the crab's feet as the conga train stampedes along.
             let feet = crab.pos + Vec2::new(0.0, CRAB_SIZE * 0.35);
             self.particle_system
-                .spawn_conga_dust(feet, move_dir, dt, &mut dust_rng);
-            if move_dir.length() > 0.5 {
+                .spawn_conga_dust(feet, move_dir, dt, move_len, move_speed, &mut dust_rng);
+            if move_len > 0.5 {
                 let target_angle = move_dir.y.atan2(move_dir.x);
                 let mut d = target_angle - crab.facing_angle;
                 while d > std::f32::consts::PI { d -= std::f32::consts::TAU; }
@@ -5885,7 +5889,9 @@ impl MainState {
             // lerp above continuously reels each crab back to its chain target every frame, so
             // this direct forward offset self-corrects and can never accumulate or drift the
             // train off its path.
-            let travel = move_dir.normalize_or_zero();
+            // Reuse the pre-computed length for normalize: if the move was large enough to face-
+            // update (len > 0.5), divide directly instead of calling normalize_or_zero (another sqrt).
+            let travel = if move_len > 1e-6 { move_dir / move_len } else { Vec2::ZERO };
             if travel != Vec2::ZERO {
                 let step_phase = (1.0 - self.beat_timer / self.beat_interval) * std::f32::consts::TAU
                     - ci as f32 * 0.7;

@@ -1275,19 +1275,22 @@ impl ParticleSystem {
     /// crab in the train emits, a longer conga line kicks up a bigger, more spectacular cloud
     /// — the visual payoff scales with how many crabs you've caught. `move_delta` is the crab's
     /// per-frame position change; `dt` the frame time.
-    pub fn spawn_conga_dust(&mut self, pos: Vec2, move_delta: Vec2, dt: f32, rng: &mut impl Rng) {
-        let dt = dt.max(1e-4);
-        let speed = move_delta.length() / dt;
-        if speed < 40.0 {
+    /// Kick up conga-train dust. `move_len` is the pre-computed `move_delta.length()` and
+    /// `move_speed = move_len / dt` (both already calculated by the caller for the facing-angle
+    /// update and normalize), so this function avoids the redundant sqrts that used to run per
+    /// chain-link per frame even when the train barely moved.
+    pub fn spawn_conga_dust(&mut self, pos: Vec2, move_delta: Vec2, dt: f32, move_len: f32, move_speed: f32, rng: &mut impl Rng) {
+        if move_speed < 40.0 {
             return;
         }
         // ~10-18 puffs/sec per crab, a touch faster the quicker it's moving. Probability per
         // frame = rate * dt, so total emission is stable regardless of FPS.
-        let rate = (10.0 + speed * 0.02).min(18.0);
+        let rate = (10.0 + move_speed * 0.02).min(18.0);
         if rng.random::<f32>() > rate * dt {
             return;
         }
-        let back = -move_delta.normalize_or_zero();
+        // Normalize using the pre-computed length to skip a second sqrt.
+        let back = if move_len > 1e-6 { -move_delta / move_len } else { Vec2::ZERO };
         let perp = Vec2::new(-back.y, back.x);
         // Mostly backward, with a little sideways scatter and a gentle upward kick so the puff
         // rises before the particle system's gravity settles it back down.
