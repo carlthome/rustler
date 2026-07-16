@@ -4097,6 +4097,59 @@ pub fn draw_catch_bloom_ring(
     Ok(())
 }
 
+/// Highlight a free crab that would EXTEND the tail match-run if caught next — the one arrangement
+/// lever the player can actually pull (interior chain order is frozen; only catch order at the tail
+/// is steerable). A soft rotating dashed ring in the crab's own archetype `color` (the color of the
+/// run it would continue), pulsing with the beat so the "grab me next to keep the run going" cue
+/// reads at a glance. Purely legibility — it changes no odds and adds no mechanic, it just surfaces
+/// the tail_run_len decision that already exists. `run_len` (the current unbroken same-type tail run)
+/// scales the emphasis so a longer hot run shouts louder about protecting it.
+pub fn draw_catch_next_hint(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    color: [f32; 3],
+    time: f32,
+    beat_intensity: f32,
+    run_len: u32,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    // A hot run (already 2+) makes the hint brighter and a touch wider, so the crab that *protects*
+    // a building streak is the loudest pickup on the field.
+    let heat = ((run_len as f32 - 1.0) / 4.0).clamp(0.0, 1.0);
+    let beat = 1.0 + 0.5 * beat_intensity.clamp(0.0, 1.0);
+    let pulse = 0.55 + 0.25 * (time * 3.0).sin();
+    let alpha = (pulse * (0.45 + 0.35 * heat) * beat).clamp(0.0, 1.0);
+    let r = radius + 4.0 + 3.0 * heat + 1.5 * (time * 3.0).sin();
+
+    let ring = cached_stroke_circle(ctx, r.max(1.0), 1.6 + 1.2 * heat)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .rotation(time * 1.5)
+            .color(Color::new(color[0], color[1], color[2], alpha)),
+    );
+    // Four little orbiting ticks so it reads as an active "target" marker, not a static aura.
+    let tick = cached_stroke_circle(ctx, 2.2, 1.4)?;
+    for k in 0..4 {
+        let a = time * 1.5 + k as f32 * std::f32::consts::FRAC_PI_2;
+        let p = center + Vec2::new(a.cos(), a.sin()) * r;
+        canvas.draw(
+            &tick,
+            DrawParam::default()
+                .dest(p)
+                .color(Color::new(color[0], color[1], color[2], (alpha * 1.2).clamp(0.0, 1.0))),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the rhythm "Call" pulse — concentric magenta rings that COLLAPSE inward toward the player,
 /// reading as a summon (pull-in), opposite of the whistle's outward horn-blast. `pulse` is 1..0
 /// (fresh→gone); `reach` is how far out the outermost ring starts. Additive so it glows on the beat.

@@ -45,7 +45,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
@@ -534,6 +534,7 @@ struct MainState {
     chain_join_ripple: bool,       // set true when any crab is caught this frame
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
+    cached_tail_type: Option<CrabType>, // archetype of that same tail crab, refreshed in the same snapshot pass. Drives the field "CATCH-NEXT" highlight: a free crab of this type would extend the tail_run_len match run, so it's lit as the arrangement-smart grab. Purely legibility.
     free_splitter_present: bool,   // true when at least one uncaught Splitter is on the field; refreshed in update_crabs to avoid an O(n) scan in the draw path every frame
     tail_run_len: u32,             // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
     next_milestone: usize,               // Next train-length milestone to celebrate
@@ -1214,6 +1215,7 @@ impl MainState {
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
+            cached_tail_type: None,
             free_splitter_present: false,
             tail_run_len: 0,
             next_milestone: 5,
@@ -4393,13 +4395,13 @@ impl MainState {
         golden_lure_positions.clear();
         let mut armored_positions = std::mem::take(&mut self.armored_positions_buf);
         armored_positions.clear();
-        let mut best_chain: Option<(usize, Vec2)> = None;
+        let mut best_chain: Option<(usize, Vec2, CrabType)> = None;
         let mut free_splitter = false;
         for c in &self.crabs {
             if c.caught {
                 if let Some(ci) = c.chain_index {
-                    if best_chain.map_or(true, |(bci, _)| ci > bci) {
-                        best_chain = Some((ci, c.pos));
+                    if best_chain.map_or(true, |(bci, ..)| ci > bci) {
+                        best_chain = Some((ci, c.pos, c.crab_type));
                     }
                 }
                 continue; // caught crabs can't be a Magnet/Golden/Armored source below
@@ -4416,11 +4418,13 @@ impl MainState {
                 armored_positions.push(c.pos);
             }
         }
-        let chain_tail_pos = best_chain.map(|(_, pos)| pos);
+        let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
         let charge_target = chain_tail_pos.unwrap_or(self.player_pos);
         // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
         // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
         self.cached_tail_pos = chain_tail_pos;
+        // Cache the tail archetype for the draw-path CATCH-NEXT highlight (same snapshot, no extra scan).
+        self.cached_tail_type = best_chain.map(|(_, _, ty)| ty);
         // Cache for the draw path: avoids an O(n) .any() scan over all crabs every frame to gate
         // the cleave-stakes tag. Updated here in the snapshot pass we already do over every crab.
         self.free_splitter_present = free_splitter;
@@ -8715,6 +8719,30 @@ impl MainState {
                 // the drop shadow shrinks/detaches underneath, matching how the conga train hops.
                 let hop_pos = pos - Vec2::new(0.0, wild_lift);
                 draw_crab(ctx, canvas, crab, hop_pos, crab_beat, crab.join_pulse, wild_lift, crab.facing_angle, self.time_elapsed)?;
+                // CATCH-NEXT hint: if this free crab shares the current tail's archetype, catching it
+                // next would extend the tail match-run (tail_run_len). Interior chain order is frozen,
+                // so this catch-order choice is the one arrangement lever the player actually controls —
+                // surface it as a ring in the crab's own type color so "grab me to keep the run going"
+                // reads live in the field. Skip bosses and spooked/fleeing crabs (not sensible grabs),
+                // and only bother once a train exists to extend. Purely legibility, no odds change.
+                if self.chain_count > 0
+                    && !crab.is_boss()
+                    && !crab.fleeing
+                    && crab.spooked_timer <= 0.0
+                    && crab.startle_timer <= 0.0
+                    && self.cached_tail_type == Some(crab.crab_type)
+                {
+                    draw_catch_next_hint(
+                        ctx,
+                        canvas,
+                        hop_pos + Vec2::splat(crab.scale * CRAB_SIZE * 0.5),
+                        crab.scale * CRAB_SIZE * 0.7,
+                        crab.crab_color(),
+                        self.time_elapsed,
+                        self.beat_intensity,
+                        self.tail_run_len,
+                    )?;
+                }
                 // Attraction halo for crabs currently being pulled by the flashlight beam
                 if crab.in_flashlight {
                     let size = crab.scale * CRAB_SIZE;
