@@ -123,6 +123,26 @@ pub enum DayPhase {
     Night,
 }
 
+/// Phases of a single lasso throw. A throw is a real skill-shot now: the loop flies out to the aim
+/// point over `LASSO_THROW_TIME` (Throwing), then either bites whatever crabs are clustered under it
+/// (Snag — a brief tightening squeeze) and reels them back with visible rope tension (Dragging), or
+/// finds nothing and flops down empty with a dust puff (Miss). `Idle` = no throw live.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LassoPhase {
+    /// No lasso activity — nothing drawn, nothing blocking the next throw.
+    Idle,
+    /// Mouse is held down: the rope swirls above the player, growing with charge. Fires on release.
+    Winding,
+    /// Rope is in the air flying toward the target.
+    Throwing,
+    /// Loop just landed on a crab — brief tighten/squeeze pop before the drag begins.
+    Snag,
+    /// Reeling the caught crabs back toward the player.
+    Dragging,
+    /// Empty throw — loop settling in a dust puff.
+    Miss,
+}
+
 pub struct MainState {
     pub(crate) player_pos: Vec2,                          // Player position
     pub(crate) player_vel: Vec2,                          // Player velocity (for smooth movement)
@@ -347,8 +367,14 @@ pub struct MainState {
     pub(crate) stage_banner_name: &'static str,
     // Lasso Throw ability
     pub(crate) lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
-    pub(crate) lasso_timer: f32,                          // Time remaining on lasso flight
-    pub(crate) lasso_target: Vec2,                        // Target position for lasso
+    pub(crate) lasso_timer: f32,                          // Time remaining in the CURRENT phase
+    pub(crate) lasso_target: Vec2,                        // Aim point the loop flies toward
+    pub(crate) lasso_origin: Vec2,                        // Player center captured at throw time (arc anchor)
+    pub(crate) lasso_phase: LassoPhase,                   // Throw state machine (see LassoPhase)
+    // Crabs bitten by the current throw, mid-reel-in: (crab index, snag point, per-crab age seconds).
+    // Driven each Dragging frame to yank the crab from where the rope bit it toward the train with
+    // visible tension. Reused (drained, not reallocated) per throw.
+    pub(crate) lasso_drag_buf: Vec<(usize, Vec2, f32)>,
     // Whistle ability — a sonic pulse that yanks nearby crabs toward the player. Soft-counters
     // skittish Sneaky crabs (strong pull) while heavy Big crabs barely budge (see CrabType::whistle_pull).
     pub(crate) whistle_active: f32,                        // >0 while the ring is expanding (seconds remaining)
@@ -1107,6 +1133,9 @@ impl MainState {
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
+            lasso_origin: Vec2::ZERO,
+            lasso_phase: LassoPhase::Idle,
+            lasso_drag_buf: Vec::new(),
             whistle_active: 0.0,
             whistle_radius: 0.0,
             whistle_cooldown: 0.0,

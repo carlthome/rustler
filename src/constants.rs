@@ -1,6 +1,27 @@
 use ggez::glam::Vec2;
 
 pub const PLAYER_SIZE: f32 = 48.0;
+
+// Lasso skill-shot tuning. The loop flies out to the (range-clamped) aim point over
+// LASSO_THROW_TIME — a real throw with travel time, so crabs can dodge the path. On landing it
+// pauses briefly to tighten on a catch (LASSO_SNAG_TIME — the squeeze/pop), then reels crabs back
+// in over LASSO_DRAG_TIME with visible rope tension. An empty throw flops down over LASSO_MISS_TIME
+// with a dust puff. LASSO_MAX_RANGE is the fixed reach so near/far throws share a consistent speed.
+pub const LASSO_MAX_RANGE: f32 = 340.0;
+pub const LASSO_THROW_TIME: f32 = 0.15;
+pub const LASSO_SNAG_TIME: f32 = 0.08;
+pub const LASSO_DRAG_TIME: f32 = 0.22;
+pub const LASSO_MISS_TIME: f32 = 0.18;
+// Charge-throw tuning. The player holds the mouse button to wind up; LASSO_MAX_CHARGE_TIME is the
+// full-charge cap (beyond which holding longer doesn't help). A quick tap (below MIN_THROW_FRAC of
+// the cap) fires a weak short throw; full charge reaches the full LASSO_MAX_RANGE at max speed.
+// LASSO_MIN_RANGE_FRAC is the fraction of max range a tap-throw reaches (so even a quick flick
+// still does something). LASSO_ONBEAT_BONUS is the range×speed multiplier when the release lands
+// on the beat — releasing in the pocket gives extra reach, deepening the rhythm layer.
+pub const LASSO_MAX_CHARGE_TIME: f32 = 1.2;
+pub const LASSO_MIN_RANGE_FRAC: f32 = 0.28; // quick tap reaches 28% of max range
+pub const LASSO_ONBEAT_BONUS: f32 = 1.35;   // 35% extra range+speed when released on-beat
+
 pub const CRAB_SIZE: f32 = 36.0;
 pub const SPEED: f32 = 200.0;
 
