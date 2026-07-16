@@ -66,6 +66,9 @@ item in "Now" below.
   **Crucially: everything must fit the rhythm-game flavor.** Tool throws, interaction effects, boss burns,
   lasso snags — all should have beat-synced bonuses (on-beat throws go further/faster/stronger, downbeats
   trigger bigger effects). The beat is the mechanic; new polish deepens it, doesn't work around it.
+  The ideal player feel: hammering keys like drum pads to their own music, crabs caught as the *consequence*
+  of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
+  beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
 - **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** Each of the 8 crab
   archetypes and 4 tools already has distinct mechanics — but the *interactions* between them are often
