@@ -45,7 +45,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
@@ -535,6 +535,13 @@ struct MainState {
     chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
     cached_tail_type: Option<CrabType>, // archetype of that same tail crab, refreshed in the same snapshot pass. Drives the field "CATCH-NEXT" highlight: a free crab of this type would extend the tail_run_len match run, so it's lit as the arrangement-smart grab. Purely legibility.
+    // CYCLE PREVIEW: the crab currently at chain_index == 1 — the one that WOULD become the new head
+    // if the player cycled (rotation maps ci → (ci + n - 1) % n, so ci=1 lands at the head slot 0).
+    // Cached in the same snapshot pass as cached_tail_type. The draw path rings this crab so the
+    // player can SEE which figurehead a cycle would promote before pressing X, turning a blind mash
+    // into an informed arrangement decision. Purely legibility — changes no odds. True when a train
+    // of >= 2 links exists and the cycle verb is off cooldown (i.e. pressing X would do something).
+    cycle_preview_active: bool,
     free_splitter_present: bool,   // true when at least one uncaught Splitter is on the field; refreshed in update_crabs to avoid an O(n) scan in the draw path every frame
     tail_run_len: u32,             // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
     next_milestone: usize,               // Next train-length milestone to celebrate
@@ -1216,6 +1223,7 @@ impl MainState {
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
             cached_tail_type: None,
+            cycle_preview_active: false,
             free_splitter_present: false,
             tail_run_len: 0,
             next_milestone: 5,
@@ -4425,6 +4433,10 @@ impl MainState {
         self.cached_tail_pos = chain_tail_pos;
         // Cache the tail archetype for the draw-path CATCH-NEXT highlight (same snapshot, no extra scan).
         self.cached_tail_type = best_chain.map(|(_, _, ty)| ty);
+        // The cycle preview marker is only meaningful with a real train (>= 2 links) and while the
+        // cycle verb is actually available (off cooldown), so it shows exactly when pressing X would
+        // do something. The draw path finds the chain_index==1 crab itself.
+        self.cycle_preview_active = self.chain_count >= 2 && self.cycle_cooldown <= 0.0;
         // Cache for the draw path: avoids an O(n) .any() scan over all crabs every frame to gate
         // the cleave-stakes tag. Updated here in the snapshot pass we already do over every crab.
         self.free_splitter_present = free_splitter;
@@ -8862,6 +8874,22 @@ impl MainState {
                 let chain_beat = self.beat_intensity.clamp(0.0, 1.0);
                 let lift = bob.min(0.0).abs(); // lift = how much the crab is up (bob is negative = up)
                 draw_crab(ctx, canvas, crab, crab.pos + Vec2::new(sway, bob), chain_beat, crab.join_pulse, lift, crab.facing_angle, self.time_elapsed)?;
+                // CYCLE PREVIEW: ring the crab a Cycle (X) would promote to the head (the link at
+                // chain_index 1). Only when the verb is actually available (cache is None otherwise),
+                // so the marker appears exactly when pressing X would land this crab up front — letting
+                // the player choose a cycle for its arrangement outcome instead of mashing blind.
+                if self.cycle_preview_active && crab.chain_index == Some(1) {
+                    draw_cycle_preview_ring(
+                        ctx,
+                        canvas,
+                        crab.pos + Vec2::new(sway, bob) + Vec2::splat(crab.scale * CRAB_SIZE * 0.5),
+                        crab.scale * CRAB_SIZE * 0.7,
+                        crab.crab_color(),
+                        self.time_elapsed,
+                        self.beat_intensity,
+                        crab.is_golden() || crab.is_dancer(),
+                    )?;
+                }
             }
         }
         // Every draw_crab() call above deferred its 6 leg draws and 12 body-part (shadow, shell,

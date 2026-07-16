@@ -4153,6 +4153,65 @@ pub fn draw_catch_next_hint(
     Ok(())
 }
 
+/// CYCLE PREVIEW ring — marks the train link that a Cycle (X) would promote to the HEAD figurehead
+/// slot, so the player can SEE the outcome before pressing the button instead of cycling blind. Drawn
+/// on the crab currently at chain_index 1 (rotation lands it at the head). A double chevron/arrow ring
+/// sweeping toward the head-crown reads as "this one steps up next". `is_figurehead` = the promoted
+/// crab is a Golden or Dancer, i.e. the cycle would actually seat a figurehead into its payoff slot —
+/// draw it brighter and gold so a *worthwhile* cycle shouts, while a neutral promotion whispers.
+/// Purely legibility: it changes no odds and adds no mechanic, it surfaces the arrangement decision
+/// the Cycle verb already offers.
+pub fn draw_cycle_preview_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    color: [f32; 3],
+    time: f32,
+    beat_intensity: f32,
+    is_figurehead: bool,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    let beat = 1.0 + 0.5 * beat_intensity.clamp(0.0, 1.0);
+    let pulse = 0.6 + 0.3 * (time * 4.0).sin();
+    // A figurehead promotion glows gold and brighter; a neutral one stays in the crab's own color.
+    let (tint, emphasis) = if is_figurehead {
+        ([1.0, 0.85, 0.3], 1.0)
+    } else {
+        (color, 0.55)
+    };
+    let alpha = (pulse * (0.4 + 0.35 * emphasis) * beat).clamp(0.0, 1.0);
+    let r = radius + 5.0 + 2.0 * (time * 4.0).sin();
+
+    let ring = cached_stroke_circle(ctx, r.max(1.0), 1.8 + 1.0 * emphasis)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(tint[0], tint[1], tint[2], alpha)),
+    );
+    // Chevron ticks that climb upward (toward the head of the screen-space train), reading as
+    // "promote": three dots marching up the top arc, offset by the beat.
+    let dot = cached_stroke_circle(ctx, 2.4, 1.4)?;
+    for k in 0..3 {
+        let climb = ((time * 2.0 + k as f32 * 0.33).fract()) - 0.5; // -0.5..0.5, wraps
+        let a = -std::f32::consts::FRAC_PI_2 + climb * 0.9; // near the top of the ring
+        let p = center + Vec2::new(a.cos(), a.sin()) * r;
+        let da = (alpha * (1.0 - climb.abs() * 1.4)).clamp(0.0, 1.0);
+        canvas.draw(
+            &dot,
+            DrawParam::default()
+                .dest(p)
+                .color(Color::new(tint[0], tint[1], tint[2], da)),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the rhythm "Call" pulse — concentric magenta rings that COLLAPSE inward toward the player,
 /// reading as a summon (pull-in), opposite of the whistle's outward horn-blast. `pulse` is 1..0
 /// (fresh→gone); `reach` is how far out the outermost ring starts. Additive so it glows on the beat.
