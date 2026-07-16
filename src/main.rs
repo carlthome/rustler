@@ -45,7 +45,7 @@ use crate::graphics::{
     draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
     draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
     draw_ambient_motes, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
+    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
     draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
@@ -1474,6 +1474,56 @@ impl MainState {
             }
             (bonds, sandwiches, run_bonus_points, centerpiece_bonus)
         })
+    }
+
+    /// Which seated chain_index links currently belong to a PAYING centerpiece run, so the live
+    /// draw pass can ring them and the player sees the protected mid-run *forming* instead of only
+    /// learning about it at the pen. The predicate here is deliberately identical to `close_run`
+    /// inside `count_bonds_and_sandwiches` (same-type run of `len >= 3` straddling the midpoint at
+    /// `keep/2`): if the two ever drifted, we'd highlight a "centerpiece" that doesn't pay (or hide
+    /// one that does), teaching the player the wrong arrangement. Returns a small owned Vec of the
+    /// qualifying indices (trains are short; typically 0-1 runs); empty when nothing qualifies.
+    fn centerpiece_link_indices(&self, keep: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        if keep < 3 {
+            return out;
+        }
+        BOND_INDEX_BUF.with(|buf| {
+            let mut by_index = buf.borrow_mut();
+            by_index.clear();
+            by_index.resize(keep, None);
+            for c in self.crabs.iter().filter(|c| c.caught) {
+                if let Some(ci) = c.chain_index {
+                    if ci < keep {
+                        by_index[ci] = Some(c.crab_type);
+                    }
+                }
+            }
+            let mid = keep / 2;
+            let mut run_len = 0usize;
+            let mut run_start = 0usize;
+            let mut flush = |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
+                if len >= 3 && start < mid && end_exclusive > mid {
+                    out.extend(start..end_exclusive);
+                }
+            };
+            for i in 0..keep {
+                let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
+                if extends {
+                    run_len += 1;
+                } else {
+                    if run_len > 0 {
+                        flush(run_len, run_start, i, &mut out);
+                    }
+                    run_len = if by_index[i].is_some() { 1 } else { 0 };
+                    run_start = i;
+                }
+            }
+            if run_len > 0 {
+                flush(run_len, run_start, keep, &mut out);
+            }
+        });
+        out
     }
 
     fn try_deliver_train(&mut self, ctx: &mut Context) {
@@ -7718,6 +7768,10 @@ impl MainState {
         // down to ~2-4 batched ones. Same blend mode (caller already in ADD), same pixels.
         flush_attracted_crab_glows(ctx, canvas)?;
         canvas.set_blend_mode(original_blend);
+        // Which seated links are part of a paying CENTERPIECE run right now, so we can ring them
+        // live (see draw_centerpiece_ring). Computed once per frame from the same predicate the pen
+        // pays on. `keep` mirrors the delivered count used at bank time (chain_count == train len).
+        let centerpiece_set = self.centerpiece_link_indices(self.chain_count);
         // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
             if crab.caught {
@@ -7748,6 +7802,27 @@ impl MainState {
                         self.beat_intensity,
                         crab.is_golden() || crab.is_dancer(),
                     )?;
+                }
+                // CENTERPIECE: ring this link if it's part of a paying mid-train run. Reads as an
+                // amber laurel so the player sees the protected centerpiece forming as they build,
+                // turning "hold a long train" into an arrangement puzzle they set up on purpose.
+                if let Some(ci) = crab.chain_index {
+                    if !centerpiece_set.is_empty() && centerpiece_set.contains(&ci) {
+                        // An endpoint is a link at the start/end of its own contiguous run, i.e.
+                        // a neighbouring index isn't also in the set — works even if two runs
+                        // qualify at once (the vec concatenates them but they're non-adjacent).
+                        let is_endpoint = !centerpiece_set.contains(&ci.wrapping_sub(1))
+                            || !centerpiece_set.contains(&(ci + 1));
+                        draw_centerpiece_ring(
+                            ctx,
+                            canvas,
+                            crab.pos + Vec2::new(sway, bob) + Vec2::splat(crab.scale * CRAB_SIZE * 0.5),
+                            crab.scale * CRAB_SIZE * 0.7,
+                            self.time_elapsed,
+                            self.beat_intensity,
+                            is_endpoint,
+                        )?;
+                    }
                 }
             }
         }

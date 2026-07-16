@@ -4247,6 +4247,70 @@ pub fn draw_cycle_preview_ring(
     Ok(())
 }
 
+/// CENTERPIECE ring — marks a seated chain link that currently belongs to a *paying* centerpiece
+/// run (a same-type run of length >= 3 straddling the train's midpoint, safe from tail snaps). Its
+/// job is to make the protected mid-run legible while it's being *built*, so a long train becomes a
+/// puzzle the player sets up on purpose rather than a bonus they only discover at the pen. The set
+/// of links this is drawn on is computed by `centerpiece_link_indices`, which reuses the exact pen
+/// scoring predicate, so what glows is exactly what pays.
+///
+/// Visually distinct from the cycle-preview and match-run rings: a steady warm-amber laurel — two
+/// facing brackets hugging the sides of the crab — reads as "protected / enshrined" rather than the
+/// upward "promote" chevrons or the pulsing catch-next dots. Kin to the Golden figurehead economy's
+/// gold, but calmer and bracketed, so it can't be mistaken for a Golden sparkle. `endpoint` brightens
+/// the two links that bookend the run so the player can read the run's extent at a glance.
+pub fn draw_centerpiece_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    radius: f32,
+    time: f32,
+    beat_intensity: f32,
+    endpoint: bool,
+) -> ggez::GameResult {
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    let beat = 1.0 + 0.4 * beat_intensity.clamp(0.0, 1.0);
+    // Slow, steady breathe — protection reads as calm, not urgent.
+    let breathe = 0.7 + 0.15 * (time * 2.2).sin();
+    let amber = [1.0, 0.78, 0.28];
+    let base_a = if endpoint { 0.55 } else { 0.4 };
+    let alpha = (breathe * base_a * beat).clamp(0.0, 1.0);
+    let r = (radius + 4.0).max(1.0);
+
+    // Facing brackets: short arcs on the left and right of the crab, drawn as small dots stepping
+    // along each side arc. Reads as "held in place / enshrined" — a laurel hugging the link.
+    let dot = cached_stroke_circle(ctx, 2.2, 1.5)?;
+    for side in [0.0_f32, std::f32::consts::PI] {
+        for k in 0..5 {
+            // Sweep roughly +/- 55deg around the horizontal on each side.
+            let spread = (k as f32 / 4.0 - 0.5) * (110.0_f32.to_radians());
+            let a = side + spread;
+            let p = center + Vec2::new(a.cos(), a.sin()) * r;
+            // Endpoints of each bracket a touch dimmer so the middle of the arc leads.
+            let da = (alpha * (1.0 - (k as f32 / 4.0 - 0.5).abs() * 0.6)).clamp(0.0, 1.0);
+            canvas.draw(
+                &dot,
+                DrawParam::default()
+                    .dest(p)
+                    .color(Color::new(amber[0], amber[1], amber[2], da)),
+            );
+        }
+    }
+    // Faint full ring underneath so the brackets read as attached to a whole, not two loose arcs.
+    let ring = cached_stroke_circle(ctx, r, 1.4)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(amber[0], amber[1], amber[2], alpha * 0.35)),
+    );
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the rhythm "Call" pulse — concentric magenta rings that COLLAPSE inward toward the player,
 /// reading as a summon (pull-in), opposite of the whistle's outward horn-blast. `pulse` is 1..0
 /// (fresh→gone); `reach` is how far out the outermost ring starts. Additive so it glows on the beat.
