@@ -93,19 +93,22 @@ train of caught crabs. Goal: make it more fun and visually impressive.
 Steps:
 1. Read git log: `git -C . log --oneline -8`
 2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
-3. Read ROADMAP.md if it exists — it's maintained by the Game Director agent (cron 6) and
-   reflects both a bird's-eye view of the game and Carl's actual Slack feedback. If it has a
-   "Bugs" section, fix the top item there before anything else — a crash or broken control
-   beats any new feature, no matter how good. Otherwise, pick the single most impactful fun
-   improvement not yet done, preferring a concrete, buildable item from ROADMAP.md when one
-   fits this run. Otherwise fall back to priority order:
-   (a) game feel/juice, (b) visual spectacle, (c) new mechanics, (d) difficulty balance
-4. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
+3. Read INSPIRATION.md (short file) — it's the design compass. Before picking any task, apply
+   its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
+   satisfying drum hit? Does it make stealing more interesting? If a candidate task fails all
+   three, skip it.
+4. Read ROADMAP.md — maintained by the Game Director (cron 6), reflects Carl's Slack feedback.
+   If it has a "Bugs" section, fix the top item there before anything else — a crash or broken
+   control beats any new feature. Otherwise pick the single most impactful improvement from the
+   "Now" section only (not "Later" or "Also on our mind"). Fall back to priority order only if
+   nothing in "Now" is buildable this run:
+   (a) game feel/juice + beat depth, (b) archetype/tool legibility, (c) new mechanics, (d) balance
+5. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
-5. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
-6. Fix any build errors and rebuild until clean
-7. Commit with a short plain-English message — no Co-Authored-By lines
-8. Push: `git -C . push origin main`
+6. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
+7. Fix any build errors and rebuild until clean
+8. Commit with a short plain-English message — no Co-Authored-By lines
+9. Push: `git -C . push origin main`
 ```
 
 ## Cron 2 — Release Manager prompt
@@ -173,14 +176,17 @@ so prefer smaller, safer, easily-reverted improvements over ambitious ones.
 Steps:
 1. Read git log: `git -C . log --oneline -8`
 2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
-3. Read ROADMAP.md — fix Bugs section first if present. Otherwise pick the most impactful
-   buildable item, fall back to: (a) game feel/juice, (b) visual spectacle, (c) new mechanics,
-   (d) difficulty balance
-4. Implement it. Spawn two parallel subagents if touching both graphics.rs and main.rs/etc.
-5. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
-6. Fix any build errors and rebuild until clean
-7. Commit with a short plain-English message — no Co-Authored-By lines
-8. Push: `git -C . push origin main`
+3. Read INSPIRATION.md (short file) — the design compass. Apply its test before picking a task:
+   does this deepen the groove? Does hitting it on the beat feel like a drum hit?
+4. Read ROADMAP.md — fix Bugs section first if present. Otherwise pick the most impactful
+   buildable item from the "Now" section only (not "Later" or "Also on our mind").
+   Fall back to: (a) game feel/juice + beat depth, (b) archetype/tool legibility,
+   (c) new mechanics, (d) difficulty balance
+5. Implement it. Spawn two parallel subagents if touching both graphics.rs and main.rs/etc.
+6. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
+7. Fix any build errors and rebuild until clean
+8. Commit with a short plain-English message — no Co-Authored-By lines
+9. Push: `git -C . push origin main`
 ```
 
 ## Cron 5 — Optimizer prompt
@@ -230,7 +236,8 @@ Steps:
 5. Update ROADMAP.md (sections: Bugs, Now, Later, Also on our mind):
    - Remove/check off shipped items
    - Fold in Carl's feedback
-   - Add 1-2 items to "Now" per run at most — depth before breadth, mechanics freeze in effect
+   - Add 1-2 items to "Now" per run at most — depth before breadth; check ROADMAP's own
+     sequencing note before adding: is the freeze lifted? Is the scrolling world landed?
    - Keep it short and scannable; prune what no longer fits
 6. Commit with a short plain-English message — no Co-Authored-By lines
 7. `git -C . pull --ff-only` then push
