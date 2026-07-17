@@ -76,7 +76,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_dancer_match, draw_tool_roster};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_golden_pull};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -6852,6 +6852,12 @@ impl MainState {
         if !self.lasso_thief_hits_buf.is_empty() {
             draw_lasso_thief_match(ctx, canvas, &self.lasso_thief_hits_buf)?;
         }
+        if !self.stomp_armored_hits_buf.is_empty() {
+            draw_stomp_armored_crack(ctx, canvas, &self.stomp_armored_hits_buf)?;
+        }
+        if !self.whistle_golden_hits_buf.is_empty() {
+            draw_whistle_golden_pull(ctx, canvas, &self.whistle_golden_hits_buf)?;
+        }
 
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
@@ -9743,6 +9749,8 @@ impl EventHandler for MainState {
         self.beam_hermit_hits_buf.clear();
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
+        self.stomp_armored_hits_buf.clear();
+        self.whistle_golden_hits_buf.clear();
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -11306,6 +11314,10 @@ impl EventHandler for MainState {
                     let proximity = 1.0 - (dist / whistle_max_r).clamp(0.0, 1.0);
                     let speed = whistle_pull * pull * (0.5 + proximity * 0.5);
                     crab.vel = toward * speed;
+                    // Golden crab being reeled in by whistle — its highest-pull matchup, show it.
+                    if crab.is_golden() && self.whistle_golden_hits_buf.len() < 12 {
+                        self.whistle_golden_hits_buf.push(crab.pos);
+                    }
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
                     // Note the crabs we actually talked down out of a panic so the "soothed" note
@@ -11432,6 +11444,7 @@ impl EventHandler for MainState {
                         hermit_popped.push(crab.pos);
                     } else {
                         cracked.push(crab.pos);
+                        self.stomp_armored_hits_buf.push(crab.pos);
                     }
                 }
                 // Strong-match: stomp cracking a Dancer's shell (Dancer is a rhythm-native target

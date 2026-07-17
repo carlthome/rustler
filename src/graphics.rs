@@ -8353,3 +8353,65 @@ pub fn draw_tool_roster(
 
     Ok(())
 }
+
+/// Steel-blue shell-crack burst when Stomp instantly cracks an Armored crab's shell.
+pub fn draw_stomp_armored_crack(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Central impact flash
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(26.0))
+            .color(Color::new(0.6, 0.78, 1.0, 0.9)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(46.0))
+            .color(Color::new(0.5, 0.65, 0.92, 0.35)));
+        // 6 crack-spikes at 60° intervals, alternating long/short
+        for i in 0..6u32 {
+            let angle = i as f32 * std::f32::consts::PI / 3.0 + 0.26;
+            let len = if i % 2 == 0 { 36.0_f32 } else { 22.0_f32 };
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * len;
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 2.5))
+                .rotation(angle).offset(Vec2::new(1.0, 0.5))
+                .color(Color::new(0.72, 0.87, 1.0, 0.82)));
+        }
+        // Outer dim halo
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(60.0))
+            .color(Color::new(0.55, 0.7, 0.95, 0.14)));
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
+/// Gold shimmer burst when the Whistle reels in a Golden crab (highest whistle_pull of any type).
+pub fn draw_whistle_golden_pull(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(18.0))
+            .color(Color::new(1.0, 0.88, 0.25, 0.75)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(35.0))
+            .color(Color::new(1.0, 0.82, 0.2, 0.28)));
+        // 8 short glint rays
+        for i in 0..8u32 {
+            let angle = i as f32 * std::f32::consts::PI / 4.0;
+            let len = if i % 2 == 0 { 20.0_f32 } else { 12.0_f32 };
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * len;
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 1.8))
+                .rotation(angle).offset(Vec2::new(1.0, 0.5))
+                .color(Color::new(1.0, 0.92, 0.4, 0.72)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}

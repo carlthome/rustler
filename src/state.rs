@@ -917,6 +917,8 @@ pub struct MainState {
     // Cleared at the start of update() and read (immutably) in draw_game().
     pub(crate) beam_hermit_hits_buf: Vec<(Vec2, f32)>,
     pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
+    pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
+    pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
     pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
@@ -1507,6 +1509,8 @@ impl MainState {
             whistle_soothed_buf: Vec::new(),
             beam_hermit_hits_buf: Vec::new(),
             stomp_dancer_hits_buf: Vec::new(),
+            stomp_armored_hits_buf: Vec::new(),
+            whistle_golden_hits_buf: Vec::new(),
             lasso_thief_hits_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),
