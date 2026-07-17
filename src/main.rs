@@ -9566,6 +9566,31 @@ impl MainState {
             self.npc_trains[0].target_vol = max_vol;
         }
 
+        // --- Continuous overlap separation: prevent player from phasing inside NPC leaders ----
+        // Regardless of cooldown, push the player and NPC apart whenever they overlap so
+        // you can't stand inside a King Crab — the clash is painful but crisp, not a merge.
+        {
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            for npc in self.npc_trains.iter_mut() {
+                let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
+                let dist = npc.leader_pos.distance(player_center);
+                if dist < col_r && dist > 0.1 {
+                    // Positional correction: push both apart so they don't phase through each other
+                    let overlap = col_r - dist;
+                    let dir = (player_center - npc.leader_pos).normalize_or_zero();
+                    self.player_pos += dir * overlap * 0.6;
+                    npc.leader_pos -= dir * overlap * 0.4;
+                    // Velocity damping so they slide off each other instead of jittering
+                    let rel_vel = self.player_vel - npc.leader_vel;
+                    let sep_speed = rel_vel.dot(dir);
+                    if sep_speed < 0.0 {
+                        self.player_vel -= dir * sep_speed * 0.8;
+                        npc.leader_vel += dir * sep_speed * 0.8;
+                    }
+                }
+            }
+        }
+
         // --- Player-vs-NPC-leader collision: painful bounce, both sides take damage ----------
         // Deliberately touching a rival's leader is a desperate counter-attack move — you can
         // stun them and scatter some of their followers, but you take a hit too. Painful enough

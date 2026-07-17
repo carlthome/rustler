@@ -99,69 +99,91 @@ pub fn draw_menu(
             .color(Color::new(0.98, 0.96, 0.86, 1.0)),
     );
 
-    // --- A conga line of crabs marching across the sand ---------------------------------
-    let march_y = height - 66.0;
-    let march_speed = 70.0;
-    let spacing = 74.0;
-    let march_types = [
-        CrabType::Normal,
-        CrabType::Fast,
-        CrabType::Big,
-        CrabType::Sneaky,
-        CrabType::Armored,
-        CrabType::Dancer,
-    ];
-    for (i, ctype) in march_types.iter().enumerate() {
-        let span = width + spacing * march_types.len() as f32;
-        let x = ((t * march_speed + i as f32 * spacing) % span) - spacing;
-        let bob = (t * 6.0 + i as f32 * 0.9).sin() * 5.0;
-        let deco = EnemyCrab {
-            pos: Vec2::new(x, march_y),
-            vel: Vec2::new(march_speed, 0.0),
-            speed: 60.0,
-            caught: true,
-            chain_index: Some(i),
-            scale: 0.5,
-            spawn_time: 10.0,
-            crab_type: *ctype,
-            spooked_timer: 0.0,
-            beat_phase_offset: 0.0,
-            join_pulse: 0.0,
-            fleeing: false,
-            facing_angle: 0.0,
-            in_flashlight: false,
-            startle_timer: 0.0,
-            charm_timer: 0.0,
-            answering_call: 0.0,
-            boss_health: 0.0,
-            boss_max_health: 0.0001,
-            enraged: false,
-            charge_state: BossCharge::Idle,
-            charge_cooldown: 0.0,
-            latch_timer: 0.0,
-            panic_amp: 1.0,
-            magnet_snared: 0.0,
-            magnet_lured: 0.0,
-            thief_lured: 0.0,
-            magnet_charged: 0.0,
-            slingshot_spent: 0.0,
-            stun_timer: 0.0,
-            host_swap_timer: 0.0,
-            surge_timer: 0.0,
-        };
-        let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
-        draw_crab(
-            ctx,
-            canvas,
-            &deco,
-            Vec2::new(x, march_y - bob),
-            beat_phase,
-            0.0,
-            bob.max(0.0),
-            0.0,
-            t,
-        )?;
+    // --- Two rival King Crab conga trains marching across the sand -----------------------
+    // Front train (bottom row): King Crab leads right with a retinue — moody, authoritative.
+    // Back train (slightly higher): rival leads left, smaller and scrappier.
+    // This previews the actual ecology: competing conga leaders, not a generic herd.
+    let make_crab = |crab_type: CrabType, x: f32, y: f32, speed: f32, scale: f32, idx: usize| EnemyCrab {
+        pos: Vec2::new(x, y),
+        vel: Vec2::new(speed, 0.0),
+        speed: speed.abs(),
+        caught: true,
+        chain_index: Some(idx),
+        scale,
+        spawn_time: 10.0,
+        crab_type,
+        spooked_timer: 0.0,
+        beat_phase_offset: idx as f32 * 0.4,
+        join_pulse: 0.0,
+        fleeing: false,
+        facing_angle: if speed < 0.0 { std::f32::consts::PI } else { 0.0 },
+        in_flashlight: false,
+        startle_timer: 0.0,
+        charm_timer: 0.0,
+        answering_call: 0.0,
+        boss_health: 0.0,
+        boss_max_health: 0.0001,
+        enraged: false,
+        charge_state: BossCharge::Idle,
+        charge_cooldown: 0.0,
+        latch_timer: 0.0,
+        panic_amp: 1.0,
+        magnet_snared: 0.0,
+        magnet_lured: 0.0,
+        thief_lured: 0.0,
+        magnet_charged: 0.0,
+        slingshot_spent: 0.0,
+        stun_timer: 0.0,
+        host_swap_timer: 0.0,
+        surge_timer: 0.0,
+    };
+
+    // Train A: marches right at the bottom, led by a large King Crab
+    {
+        let speed = 72.0_f32;
+        let spacing = 68.0_f32;
+        let y_base = height - 60.0;
+        // King Crab leader (Boss type, 1.8× scale)
+        let train_a_types = [
+            (CrabType::Boss, 1.8_f32),
+            (CrabType::Dancer, 0.7_f32),
+            (CrabType::Normal, 0.6_f32),
+            (CrabType::Fast, 0.55_f32),
+            (CrabType::Golden, 0.6_f32),
+            (CrabType::Sneaky, 0.55_f32),
+        ];
+        let span = width + spacing * train_a_types.len() as f32;
+        for (i, &(ctype, scale)) in train_a_types.iter().enumerate() {
+            let x = ((t * speed + i as f32 * spacing) % span) - spacing;
+            let bob = (t * 5.0 + i as f32 * 0.8).sin() * if i == 0 { 7.0 } else { 4.0 };
+            let deco = make_crab(ctype, x, y_base, speed, scale, i);
+            let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
+            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), 0.0, t)?;
+        }
     }
+
+    // Train B: marches left, slightly higher — scrappier rival with fewer followers
+    {
+        let speed = -55.0_f32; // negative = moving left
+        let spacing = 60.0_f32;
+        let y_base = height - 108.0;
+        let train_b_types = [
+            (CrabType::Boss, 1.4_f32),
+            (CrabType::Armored, 0.65_f32),
+            (CrabType::Magnet, 0.6_f32),
+            (CrabType::Big, 0.65_f32),
+        ];
+        let span = width + spacing * train_b_types.len() as f32;
+        for (i, &(ctype, scale)) in train_b_types.iter().enumerate() {
+            // Travel right-to-left: start off right edge, wrap around
+            let x = width - ((t * speed.abs() + i as f32 * spacing) % span) + spacing;
+            let bob = (t * 4.5 + i as f32 * 1.1).sin() * if i == 0 { 5.0 } else { 3.0 };
+            let deco = make_crab(ctype, x, y_base, speed, scale, i);
+            let beat_phase = (t * 3.8 + i as f32 * 0.6).sin().abs();
+            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), std::f32::consts::PI, t)?;
+        }
+    }
+
     flush_crab_legs(ctx, canvas)?;
     flush_crab_bodies(ctx, canvas)?;
 
