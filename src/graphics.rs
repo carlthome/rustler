@@ -8062,3 +8062,104 @@ pub fn draw_lasso_thief_match(
     }
     Ok(())
 }
+
+/// Minimap in the top-right corner showing the full 2× world: player, pen, NPC trains, and crabs.
+pub fn draw_minimap(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    viewport_w: f32,
+    viewport_h: f32,
+    world_w: f32,
+    world_h: f32,
+    camera_origin: Vec2,
+    player_pos: Vec2,
+    pen_pos: Vec2,
+    crabs: &[EnemyCrab],
+    npc_leaders: &[(Vec2, f32)],
+    npc_followers: &[Vec2],
+    time: f32,
+) -> ggez::GameResult {
+    let map_w = 180.0_f32;
+    let map_h = map_w * (world_h / world_w);
+    let map_x = viewport_w - map_w - 10.0;
+    let map_y = 10.0;
+    let sp = |pos: Vec2| Vec2::new(map_x + (pos.x / world_w) * map_w, map_y + (pos.y / world_h) * map_h);
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 2.0, map_y - 2.0)).scale(Vec2::new(map_w + 4.0, map_h + 4.0)).color(Color::from_rgba(0, 0, 0, 150)));
+    for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
+        let [r, g, b] = crab.crab_color();
+        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
+    }
+    for crab in crabs.iter().filter(|c| c.caught) {
+        let [r, g, b] = crab.crab_color();
+        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
+    }
+    for &pos in npc_followers {
+        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
+    }
+    for &(pos, ls) in npc_leaders {
+        let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
+        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
+    }
+    canvas.draw(dot, DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
+    canvas.draw(dot, DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+    let vx = map_x + (camera_origin.x / world_w) * map_w;
+    let vy = map_y + (camera_origin.y / world_h) * map_h;
+    let vw = (viewport_w / world_w) * map_w;
+    let vh = (viewport_h / world_h) * map_h;
+    let vc = Color::new(1.0, 1.0, 1.0, 0.45);
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy)).scale(Vec2::new(vw, 1.0)).color(vc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy + vh)).scale(Vec2::new(vw, 1.0)).color(vc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy)).scale(Vec2::new(1.0, vh)).color(vc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx + vw, vy)).scale(Vec2::new(1.0, vh)).color(vc));
+    let bc = Color::from_rgba(200, 200, 200, 80);
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y - 1.0)).scale(Vec2::new(map_w + 2.0, 1.0)).color(bc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y + map_h)).scale(Vec2::new(map_w + 2.0, 1.0)).color(bc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x + map_w, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
+    let mut lbl = Text::new("MAP");
+    lbl.set_scale(11.0);
+    canvas.draw(&lbl, DrawParam::default().dest(Vec2::new(map_x, map_y - 13.0)).color(Color::from_rgba(200, 200, 200, 110)));
+    Ok(())
+}
+
+/// Day/night cycle progress bar and weather indicator — sits just below the minimap.
+pub fn draw_day_weather_hud(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    viewport_w: f32,
+    map_h: f32,
+    day_phase_t: f32,
+    weather_intensity: f32,
+    time: f32,
+) -> ggez::GameResult {
+    let map_w = 180.0_f32;
+    let x = viewport_w - map_w - 10.0;
+    let y = 10.0 + map_h + 8.0;
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    let night = ((day_phase_t - 0.5) / 0.5).clamp(0.0, 1.0);
+    let day_bright = 1.0 - night;
+    canvas.draw(dot, DrawParam::default().dest(Vec2::new(x + 8.0, y + 8.0)).scale(Vec2::splat(8.0 * day_bright.max(0.2))).color(Color::new(1.0, 0.85 + 0.1 * day_bright, 0.3, day_bright.max(0.15))));
+    if night > 0.1 {
+        canvas.draw(dot, DrawParam::default().dest(Vec2::new(x + 8.0, y + 8.0)).scale(Vec2::splat(7.0 * night)).color(Color::new(0.88, 0.9, 1.0, night * 0.85)));
+    }
+    let phase_label = match (day_phase_t * 4.0) as u32 { 0 => "DAWN", 1 => "DAY", 2 => "DUSK", _ => "NIGHT" };
+    let mut pt = Text::new(phase_label); pt.set_scale(10.0);
+    canvas.draw(&pt, DrawParam::default().dest(Vec2::new(x + 20.0, y + 2.0)).color(Color::new(0.85, 0.85, 0.95, 0.7)));
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w, 3.0)).color(Color::from_rgba(30, 30, 60, 180)));
+    let fc = if night > 0.5 { Color::new(0.5, 0.55, 0.9, 0.8) } else if day_phase_t < 0.15 || (day_phase_t > 0.45 && day_phase_t < 0.6) { Color::new(1.0, 0.6, 0.2, 0.8) } else { Color::new(1.0, 0.92, 0.4, 0.8) };
+    canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w * day_phase_t, 3.0)).color(fc));
+    if weather_intensity > 0.05 {
+        let da = weather_intensity * 0.8;
+        for i in 0..4 {
+            let dx = x + map_w - 30.0 + i as f32 * 7.0;
+            let dy = y + 2.0 + ((time * 3.0 + i as f32 * 0.7).sin() * 3.0).abs();
+            canvas.draw(sq, DrawParam::default().dest(Vec2::new(dx, dy)).scale(Vec2::new(2.0, 6.0)).color(Color::new(0.5, 0.7, 1.0, da)));
+        }
+        let mut rt = Text::new(if weather_intensity > 0.5 { "STORM" } else { "RAIN" }); rt.set_scale(10.0);
+        canvas.draw(&rt, DrawParam::default().dest(Vec2::new(x + map_w - 38.0, y + 12.0)).color(Color::new(0.6, 0.8, 1.0, da)));
+    }
+    Ok(())
+}

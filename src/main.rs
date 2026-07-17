@@ -76,7 +76,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_lasso_thief_match, draw_stomp_dancer_match};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_dancer_match};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -6942,6 +6942,18 @@ impl MainState {
             self.beat_intensity,
             self.lightning_flash,
         )?;
+
+        // Minimap — top-right corner, showing the full scrolling world.
+        {
+            let npc_leaders: Vec<(Vec2, f32)> = self.npc_trains.iter().map(|t| (t.leader_pos, t.leader_scale)).collect();
+            const MINI_STEPS: usize = 14;
+            let npc_followers: Vec<Vec2> = self.npc_trains.iter().flat_map(|npc| {
+                (0..npc.follower_types.len()).filter_map(move |i| npc.path_history.get((i + 1) * MINI_STEPS).copied())
+            }).collect();
+            draw_minimap(ctx, canvas, width, height, self.world_width, self.world_height, self.camera_origin, self.player_pos, self.pen_pos, &self.crabs, &npc_leaders, &npc_followers, self.time_elapsed)?;
+            let map_h = 180.0_f32 * (self.world_height / self.world_width);
+            draw_day_weather_hud(ctx, canvas, width, map_h, self.day_phase_t, self.weather_intensity, self.time_elapsed)?;
+        }
 
         // Screen-edge radar arrows pointing to free crabs — now in the HUD pass so they pin to the
         // viewport border; the camera origin translates each crab's world position into the viewport.
