@@ -10,7 +10,7 @@
 //! wrap it in a canonical 44-byte WAV header. The `Source` is built once at startup from these
 //! bytes and simply replayed (`play_detached`) on each beat — nothing is re-synthesised per frame.
 
-use ggez::audio::{Source, SoundData, SoundSource};
+use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
 
 /// Detect the dominant BPM from a raw OGG file and return the beat interval in seconds.
@@ -91,7 +91,7 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 
     // Autocorrelation over lags corresponding to 60–180 BPM.
     let lag_min = (onset_rate * 60.0 / 180.0).round() as usize; // 180 BPM
-    let lag_max = (onset_rate * 60.0 / 60.0).round() as usize;  // 60 BPM
+    let lag_max = (onset_rate * 60.0 / 60.0).round() as usize; // 60 BPM
     if lag_max >= onset.len() {
         return None;
     }
@@ -272,20 +272,37 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
 
 /// Synthesise a looping low rumble for the NPC King Crab conga train.
 ///
-/// 80 Hz fundamental with 160 Hz and 240 Hz overtones under a slow 1.2 Hz tremolo.
+/// The bed is still a low 80 Hz growl, but instead of a smooth electronic tremolo it uses an
+/// uneven "tippy-tappy" stutter envelope per half-second cycle (two quick pulses, short breath,
+/// then two heavier pulses). A faint high-click layer adds claw-ish texture while keeping the
+/// overall tone ominous.
 /// Wrapped in a WAV so `Source::from_data` / rodio can decode it normally.
 /// The caller sets `repeat(true)` so it loops; volume is driven by distance each frame.
 pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
     let n = (SAMPLE_RATE as f32 * 0.5) as usize;
     let mut pcm: Vec<i16> = Vec::with_capacity(n);
     let dt = 1.0 / SAMPLE_RATE as f32;
+    // Pulse starts within each 0.5s loop: ti-ppy ... ta-ppy
+    let pulse_starts = [0.00_f32, 0.065_f32, 0.225_f32, 0.305_f32];
     for i in 0..n {
         let t = i as f32 * dt;
-        let v = (0.6 * (std::f32::consts::TAU * 80.0 * t).sin()
-               + 0.3 * (std::f32::consts::TAU * 160.0 * t).sin()
-               + 0.1 * (std::f32::consts::TAU * 240.0 * t).sin())
-               * (0.4 + 0.1 * (std::f32::consts::TAU * 1.2 * t).sin());
-        pcm.push((v * 16000.0) as i16);
+        let mut gate = 0.08_f32;
+        for &start in &pulse_starts {
+            let d = t - start;
+            if d >= 0.0 {
+                // Quick attack / short decay per pulse, stronger on the latter pair.
+                let amp = if start < 0.2 { 0.65 } else { 0.95 };
+                gate += amp * (1.0 - (-95.0 * d).exp()) * (-18.0 * d).exp();
+            }
+        }
+
+        let rumble = 0.62 * (std::f32::consts::TAU * 80.0 * t).sin()
+            + 0.26 * (std::f32::consts::TAU * 121.0 * t).sin()
+            + 0.16 * (std::f32::consts::TAU * 173.0 * t).sin();
+        // Subtle, short high component so pulses read as "claw taps" instead of pure hum.
+        let tap = 0.12 * (std::f32::consts::TAU * 420.0 * t).sin();
+        let v = ((rumble + tap) * gate * 0.72).tanh();
+        pcm.push((v * 17000.0) as i16);
     }
     let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav);
