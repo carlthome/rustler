@@ -160,6 +160,101 @@ pub struct NpcCongaTrain {
     /// Target volume for the rumble SFX, computed each frame from distance to player.
     /// Smoothed and applied by the EventHandler::update caller which has ctx access.
     pub target_vol: f32,
+    /// Generated name displayed above the King Crab leader.
+    pub name: String,
+}
+
+/// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
+/// pirate flair, and a smattering of completely vanilla comedy names ("Kevin").
+pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
+    const SOLO_NAMES: &[&str] = &[
+        "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet",
+        "Barry", "Brenda", "Trevor", "Karen",
+    ];
+    // ~15% chance of a standalone comedy name — no title.
+    let solo_roll: f32 = rng.random();
+    if solo_roll < 0.15 {
+        return SOLO_NAMES.choose(rng).unwrap().to_string();
+    }
+
+    const TITLES: &[&str] = &[
+        // Dark Souls grandiosity
+        "Gravelord",
+        "The Undying",
+        "Clawkeeper of the Brackish Deep",
+        "Herald of the Eternal Tide",
+        "Scuttlefiend,",
+        "Devourer of Shores",
+        "Ashen",
+        "Lord of the Sunken Reef",
+        "The Hollow",
+        "Keeper of the Last Shell",
+        "Sovereign of the Abyssal Shallows",
+        "The Forsaken",
+        "Bearer of the Cursed Carapace",
+        "Watcher of the Drowned Coast",
+        // Pirate flair
+        "Cap'n",
+        "First Mate",
+        "Barnacle",
+        "The Scurvy",
+        "Admiral",
+        "Quartermaster",
+        // Crab rave energy
+        "DJ",
+        "Rave King",
+        "The Eternal",
+        "MC",
+        "Sideways Champion",
+        "Drop Lord",
+        "The Eternal Groove of",
+        "Shellmaster",
+        // Bonus crossovers
+        "The Immortal",
+        "Ancient",
+    ];
+
+    const NAMES: &[&str] = &[
+        // Dark Souls
+        "Pinchfeast",
+        "Moltveil",
+        "Chelicerae",
+        "Scuttlegrim",
+        "Brinewraith",
+        "Tidecurse",
+        "Carapace",
+        "Saltborn",
+        "Shellreaper",
+        "Abysswalker",
+        "Duskshell",
+        "Emberclaw",
+        "Grimtide",
+        "Voidmolt",
+        // Pirate
+        "Pete",
+        "Clawbeard",
+        "Snippy",
+        "the Saltbitten",
+        "Ironpincer",
+        "Buccaneers",
+        // Crab rave
+        "Moultzilla",
+        "Snapsalot",
+        "Groove",
+        "Bounceback",
+        "Sidestep",
+        "the Bass Drop",
+        "Shellshaker",
+        "Clawdrop",
+        // Mixed
+        "the Unbroken",
+        "Razorshell",
+    ];
+
+    let title = TITLES.choose(rng).unwrap();
+    let name = NAMES.choose(rng).unwrap();
+    format!("{} {}", title, name)
+>>>>>>> 6f0ea44 (Richer King Crab names: Dark Souls grandiosity + crab rave + pirates + comedy Kevins)
 }
 
 impl NpcCongaTrain {
@@ -175,6 +270,7 @@ impl NpcCongaTrain {
         ];
         let mut history = VecDeque::new();
         history.push_back(start);
+        let mut rng = rand::rng();
         Self {
             leader_pos: start,
             leader_vel: Vec2::ZERO,
@@ -183,6 +279,7 @@ impl NpcCongaTrain {
             path_history: history,
             follower_types: followers,
             target_vol: 0.0,
+            name: gen_king_crab_name(&mut rng),
         }
     }
 }
