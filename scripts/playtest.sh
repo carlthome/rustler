@@ -11,8 +11,8 @@ FAIL=0
 run_script() {
     local name=$1
     echo -n "Running $name ... "
-    if xvfb-run -a --server-args="-screen 0 800x600x24" \
-        nix develop . --command ./target/debug/rustler --bot "$name" 2>/dev/null; then
+    # Bot mode skips all rendering and exits with 0/1 — no display server needed.
+    if nix develop . --command ./target/debug/rustler --bot "$name" 2>/dev/null; then
         echo "PASS"
         PASS=$((PASS+1))
     else

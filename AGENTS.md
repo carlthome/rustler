@@ -92,23 +92,27 @@ train of caught crabs. Goal: make it more fun and visually impressive.
 
 Steps:
 1. Read git log: `git -C . log --oneline -8`
-2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
-3. Read INSPIRATION.md (short file) — it's the design compass. Before picking any task, apply
+2. Run the bot playtests FIRST — they are your regression check before touching anything:
+   `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
+   If any test FAILs, that bug is your task this run — fix it before any feature work.
+3. Skim the tops of src/main.rs and src/graphics.rs to understand current state
+4. Read INSPIRATION.md (short file) — it's the design compass. Before picking any task, apply
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
    satisfying drum hit? Does it make stealing more interesting? If a candidate task fails all
    three, skip it.
-4. Read ROADMAP.md — maintained by the Game Director (cron 6), reflects Carl's Slack feedback.
+5. Read ROADMAP.md — maintained by the Game Director (cron 6), reflects Carl's Slack feedback.
    If it has a "Bugs" section, fix the top item there before anything else — a crash or broken
    control beats any new feature. Otherwise pick the single most impactful improvement from the
    "Now" section only (not "Later" or "Also on our mind"). Fall back to priority order only if
    nothing in "Now" is buildable this run:
    (a) game feel/juice + beat depth, (b) archetype/tool legibility, (c) new mechanics, (d) balance
-5. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
+6. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
-6. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
-7. Fix any build errors and rebuild until clean
-8. Commit with a short plain-English message — no Co-Authored-By lines
-9. Push: `git -C . push origin main`
+7. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
+8. Fix any build errors and rebuild until clean
+9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
+10. Commit with a short plain-English message — no Co-Authored-By lines
+11. Push: `git -C . push origin main`
 ```
 
 ## Cron 2 — Release Manager prompt
