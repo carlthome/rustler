@@ -162,6 +162,12 @@ pub struct NpcCongaTrain {
     pub target_vol: f32,
     /// Procedurally generated name — stable for the session (Shadow of Mordor style individuality).
     pub name: String,
+    /// Visual scale of the King Crab leader — varies by train so rivals are instantly size-readable.
+    pub leader_scale: f32,
+    /// Brief idle pause at destination before picking the next wander target (Rain World agency feel).
+    pub idle_timer: f32,
+    /// Preferred territory centre — each NPC biases its wander targets toward its own quadrant.
+    pub territory_center: Vec2,
 }
 
 /// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
@@ -252,17 +258,25 @@ impl NpcCongaTrain {
     }
 
     pub fn new_at(world_width: f32, world_height: f32, index: usize) -> Self {
-        let (sx, sy, tx, ty) = match index {
-            0 => (0.2, 0.3, 0.8, 0.7),
-            1 => (0.8, 0.2, 0.2, 0.8),
-            _ => (0.5, 0.8, 0.5, 0.2),
+        // Three distinct tiers: small scout, medium wanderer, large elder.
+        // Scale, speed, and follower count all differ so they read instantly at a glance.
+        let (sx, sy, tc_x, tc_y, leader_scale, speed_hint) = match index {
+            0 => (0.2, 0.3, 0.25, 0.3, 1.2_f32, 110.0_f32), // small/fast scout, top-left territory
+            1 => (0.8, 0.2, 0.75, 0.25, 1.8_f32, 80.0_f32),  // medium wanderer, top-right territory
+            _ => (0.5, 0.8, 0.5, 0.75, 2.4_f32, 55.0_f32),   // large elder, bottom territory
         };
+        let _ = speed_hint; // stored per-train would need another field; use leader_scale as proxy in update
         let start = Vec2::new(world_width * sx, world_height * sy);
-        let target = Vec2::new(world_width * tx, world_height * ty);
+        let territory_center = Vec2::new(world_width * tc_x, world_height * tc_y);
+        // Initial target biased toward territory center
+        let target = territory_center + Vec2::new(world_width * 0.1, world_height * 0.05);
         let follower_types = match index {
-            0 => vec![CrabType::Normal, CrabType::Fast, CrabType::Sneaky, CrabType::Big, CrabType::Dancer],
-            1 => vec![CrabType::Armored, CrabType::Normal, CrabType::Fast, CrabType::Magnet],
-            _ => vec![CrabType::Dancer, CrabType::Golden, CrabType::Normal, CrabType::Sneaky, CrabType::Hermit, CrabType::Fast],
+            // Small scout: fast light crabs
+            0 => vec![CrabType::Fast, CrabType::Sneaky, CrabType::Normal],
+            // Medium wanderer: balanced mix
+            1 => vec![CrabType::Armored, CrabType::Normal, CrabType::Fast, CrabType::Magnet, CrabType::Dancer],
+            // Large elder: heavy diverse retinue
+            _ => vec![CrabType::Big, CrabType::Dancer, CrabType::Golden, CrabType::Normal, CrabType::Sneaky, CrabType::Hermit, CrabType::Fast],
         };
         let mut history = VecDeque::new();
         history.push_back(start);
@@ -271,11 +285,14 @@ impl NpcCongaTrain {
             leader_pos: start,
             leader_vel: Vec2::ZERO,
             target,
-            target_timer: 8.0 + index as f32 * 4.0,
+            target_timer: 8.0 + index as f32 * 5.0,
             path_history: history,
             follower_types,
             target_vol: 0.0,
             name,
+            leader_scale,
+            idle_timer: 0.0,
+            territory_center,
         }
     }
 }

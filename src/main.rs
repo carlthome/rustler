@@ -9222,37 +9222,89 @@ impl MainState {
 impl MainState {
     fn update_npc_trains(&mut self, dt: f32) {
         for i in 0..self.npc_trains.len() {
+            // --- Idle pause at destination -------------------------------------------------
+            // When idle_timer > 0 the train has just arrived at a target and is "surveying"
+            // before picking a new one — gives Rain World-style decisiveness, not dumb wandering.
+            if self.npc_trains[i].idle_timer > 0.0 {
+                self.npc_trains[i].idle_timer -= dt;
+                // Decelerate while idling
+                self.npc_trains[i].leader_vel *= (1.0 - 6.0 * dt).max(0.0);
+                // Still sample path so followers catch up during the pause
+                let cur = self.npc_trains[i].leader_pos;
+                let last = self.npc_trains[i].path_history.front().copied().unwrap_or(cur);
+                if cur.distance_squared(last) > 36.0 {
+                    self.npc_trains[i].path_history.push_front(cur);
+                }
+                let dist_to_player = cur.distance(self.player_pos);
+                self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
+                continue;
+            }
+
             let to_target = self.npc_trains[i].target - self.npc_trains[i].leader_pos;
             let dist = to_target.length();
 
-            // Pick a new wander target when the current one is reached or the timer expires.
+            // --- Wander target selection ---------------------------------------------------
+            // Bias targets strongly toward territory center so rivals patrol distinct regions.
+            // Small scouts are fast and range further; large elders are slow and stay local.
             self.npc_trains[i].target_timer -= dt;
-            if dist < 100.0 || self.npc_trains[i].target_timer <= 0.0 {
-                let margin = 160.0;
+            if dist < 80.0 || self.npc_trains[i].target_timer <= 0.0 {
+                // Arrived — enter a brief idle before picking the next target.
                 let rng = &mut rand::rng();
-                self.npc_trains[i].target = Vec2::new(
+                let idle_secs = rng.random_range(1.2_f32..3.5);
+                self.npc_trains[i].idle_timer = idle_secs;
+
+                // Territory-biased target: blend between a random world point and the territory
+                // center. Large elder (scale 2.4) stays very local; small scout (scale 1.2) ranges.
+                let scale = self.npc_trains[i].leader_scale;
+                // territory_bias 0..1: how strongly the next target is pulled toward territory center
+                let territory_bias = ((scale - 1.2) / 1.2).clamp(0.0, 1.0) * 0.65 + 0.2;
+                let margin = 160.0;
+                let rand_pt = Vec2::new(
                     rng.random_range(margin..self.world_width - margin),
                     rng.random_range(margin..self.world_height - margin),
                 );
-                self.npc_trains[i].target_timer = rng.random_range(10.0_f32..22.0);
+                let tc = self.npc_trains[i].territory_center;
+                // Offset from territory center — scouts wander further (larger offset radius)
+                let wander_radius = 380.0 - scale * 80.0; // scout=284, medium=236, elder=188
+                let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+                let territory_pt = tc + Vec2::new(angle.cos(), angle.sin()) * wander_radius;
+                let next_target = rand_pt.lerp(territory_pt, territory_bias);
+                self.npc_trains[i].target = next_target.clamp(
+                    Vec2::splat(margin),
+                    Vec2::new(self.world_width - margin, self.world_height - margin),
+                );
+                // Timer is a fallback; normal flow goes through idle_timer arrival check
+                self.npc_trains[i].target_timer = rng.random_range(18.0_f32..35.0);
             }
 
-            // Smooth steering toward target (leisurely, winding gait).
-            let speed = 88.0;
+            // --- Steering ------------------------------------------------------------------
+            // Speed inversely proportional to leader_scale: scouts zip, elders lumber.
+            let speed = match () {
+                _ if self.npc_trains[i].leader_scale < 1.5 => 105.0, // small scout
+                _ if self.npc_trains[i].leader_scale < 2.0 => 80.0,  // medium wanderer
+                _ => 52.0,                                             // large elder
+            };
+            // Gentle perpendicular wobble so the path curves naturally instead of beelining.
+            let perp = Vec2::new(-to_target.y, to_target.x).normalize_or_zero();
+            let wobble_phase = self.time_elapsed * 0.4 + i as f32 * 2.1;
+            let wobble = perp * wobble_phase.sin() * 18.0;
+
             if dist > 1.0 {
-                let desired = to_target / dist * speed;
-                let steer = (desired - self.npc_trains[i].leader_vel) * (3.5 * dt);
+                let desired = (to_target / dist + wobble / dist.max(1.0)) * speed;
+                let steer_rate = if dist < 200.0 { 4.5 } else { 2.8 }; // tighter turns near target
+                let steer = (desired - self.npc_trains[i].leader_vel) * (steer_rate * dt);
                 self.npc_trains[i].leader_vel += steer;
                 if self.npc_trains[i].leader_vel.length() > speed {
                     self.npc_trains[i].leader_vel = self.npc_trains[i].leader_vel.normalize() * speed;
                 }
             }
+            let margin = 80.0;
             let vel_step = self.npc_trains[i].leader_vel * dt;
             self.npc_trains[i].leader_pos += vel_step;
-            self.npc_trains[i].leader_pos.x = self.npc_trains[i].leader_pos.x.clamp(80.0, self.world_width - 80.0);
-            self.npc_trains[i].leader_pos.y = self.npc_trains[i].leader_pos.y.clamp(80.0, self.world_height - 80.0);
+            self.npc_trains[i].leader_pos.x = self.npc_trains[i].leader_pos.x.clamp(margin, self.world_width - margin);
+            self.npc_trains[i].leader_pos.y = self.npc_trains[i].leader_pos.y.clamp(margin, self.world_height - margin);
 
-            // Sample the path for followers to trail: only push when the leader has moved >6px.
+            // --- Path history for follower trailing ----------------------------------------
             let cur_pos = self.npc_trains[i].leader_pos;
             let last = self.npc_trains[i].path_history.front().copied().unwrap_or(cur_pos);
             if cur_pos.distance_squared(last) > 36.0 {
@@ -9276,12 +9328,13 @@ impl MainState {
 
         // Light danger: touching a King Crab leader scatters the player's conga (Sonic rings).
         if self.chain_count > 0 && self.king_splice_cooldown <= 0.0 {
-            let collision_radius = CRAB_SIZE * 1.8 * 1.5 + PLAYER_SIZE * 0.5;
+            // collision radius scales with each leader's actual size
+            let get_collision_radius = |scale: f32| CRAB_SIZE * scale * 1.5 + PLAYER_SIZE * 0.5;
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             let mut hit_name: Option<String> = None;
             for npc in &self.npc_trains {
                 let dist = npc.leader_pos.distance(player_center);
-                if dist < collision_radius {
+                if dist < get_collision_radius(npc.leader_scale) {
                     hit_name = Some(npc.name.clone());
                     break;
                 }
@@ -9344,7 +9397,7 @@ impl MainState {
                     speed: 0.0,
                     caught: true,
                     chain_index: Some(i),
-                    scale: 0.6,
+                    scale: npc.leader_scale * 0.33, // followers scale with leader tier
                     spawn_time: 999.0,
                     crab_type,
                     spooked_timer: 0.0,
@@ -9399,7 +9452,7 @@ impl MainState {
                 speed: 88.0,
                 caught: false,
                 chain_index: None,
-                scale: 1.8,
+                scale: npc.leader_scale,
                 spawn_time: 999.0,
                 crab_type: CrabType::Boss,
                 spooked_timer: 0.0,
