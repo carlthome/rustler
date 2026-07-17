@@ -6749,34 +6749,29 @@ impl MainState {
         draw_tide_pulses(ctx, canvas, &self.tide_pulses, TIDE_PULSE_RADIUS)?;
 
         // Draw King Crab stolen crabs — magnetically flying toward the boss.
-        // Each is a pulsing crab-colored disc with a magenta tint that fades out as the timer drops.
-        for (pos, timer, color) in &self.king_stolen_crabs {
-            let t = (*timer / 0.9_f32).clamp(0.0, 1.0); // 1=just stolen, 0=absorbed
-            let alpha = t;
-            let size = CRAB_SIZE * (0.6 + 0.4 * t); // shrinks as it's absorbed
-            let draw_pos = *pos - self.camera_origin;
-            let r = color[0] * 0.6 + 0.6 * (1.0 - t); // blend toward magenta
-            let g = color[1] * t * 0.5;
-            let gb = color[2] * t * 0.8 + 0.5 * (1.0 - t);
-            let circle = ggez::graphics::Mesh::new_circle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                draw_pos,
-                size * 0.5,
-                1.0,
-                ggez::graphics::Color::new(r, g, gb, alpha),
-            )?;
-            canvas.draw(&circle, ggez::graphics::DrawParam::default());
-            // Outer magnetic ring.
-            let ring = ggez::graphics::Mesh::new_circle(
-                ctx,
-                ggez::graphics::DrawMode::stroke(1.5),
-                draw_pos,
-                size * 0.7,
-                1.0,
-                ggez::graphics::Color::new(1.0, 0.3, 0.9, alpha * 0.7),
-            )?;
-            canvas.draw(&ring, ggez::graphics::DrawParam::default());
+        // Reuses unit_circle scaled via DrawParam instead of building two Mesh::new_circle GPU
+        // buffers per stolen crab per frame (the previous approach).
+        {
+            let dot = unit_circle(ctx)?;
+            for (pos, timer, color) in &self.king_stolen_crabs {
+                let t = (*timer / 0.9_f32).clamp(0.0, 1.0);
+                let alpha = t;
+                let size = CRAB_SIZE * (0.6 + 0.4 * t);
+                let draw_pos = *pos - self.camera_origin;
+                let r = color[0] * 0.6 + 0.6 * (1.0 - t);
+                let g = color[1] * t * 0.5;
+                let gb = color[2] * t * 0.8 + 0.5 * (1.0 - t);
+                // Fill disc
+                canvas.draw(dot, DrawParam::default()
+                    .dest(draw_pos)
+                    .scale(Vec2::splat(size * 0.5))
+                    .color(Color::new(r, g, gb, alpha)));
+                // Outer magenta ring — use a slightly larger fill at lower alpha to fake a stroke ring
+                canvas.draw(dot, DrawParam::default()
+                    .dest(draw_pos)
+                    .scale(Vec2::splat(size * 0.7))
+                    .color(Color::new(1.0, 0.3, 0.9, alpha * 0.35)));
+            }
         }
 
         // Draw particle effects
@@ -9438,11 +9433,15 @@ impl MainState {
             }
             if let Some(name) = hit_name {
                 self.king_splice_cooldown = 2.5;
-                self.screen_shake = 0.35;
+                // Sonic-rings impact: big screen shake + camera punch so the collision lands
+                self.screen_shake = self.screen_shake.max(14.0);
+                self.zoom_punch = self.zoom_punch.max(0.12);
+                self.hitstop_timer = self.hitstop_timer.max(0.1);
                 let keep = (self.chain_count / 2).max(1);
                 let scatter_count = self.chain_count.saturating_sub(keep);
                 if scatter_count > 0 {
                     let mut released = 0;
+                    let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
                     for crab in self.crabs.iter_mut().rev() {
                         if released >= scatter_count { break; }
                         if crab.caught {
@@ -9451,21 +9450,43 @@ impl MainState {
                                     crab.caught = false;
                                     crab.chain_index = None;
                                     crab.fleeing = true;
-                                    crab.spooked_timer = 2.5;
-                                    let away = (crab.pos - self.player_pos).normalize_or_zero();
-                                    crab.vel = away * 280.0;
+                                    crab.spooked_timer = 3.5;
+                                    // Scatter radially from the player, spread like Sonic rings
+                                    let away = (crab.pos - player_center).normalize_or_zero();
+                                    let speed = 300.0 + released as f32 * 25.0; // outer crabs fly further
+                                    crab.vel = away * speed;
+                                    // Gold ring shockwave at each scattered crab's launch point
+                                    self.catch_shockwaves.push((crab.pos, 0.0, [0.96, 0.72, 0.16]));
                                     released += 1;
                                 }
                             }
                         }
                     }
                     self.chain_count = self.chain_count.saturating_sub(released);
+                    // Big dramatic callout — this is the key threat moment, make it readable
                     self.floating_texts.spawn(
                         format!("SCATTERED by {}!", name),
-                        self.player_pos - Vec2::new(80.0, 40.0),
-                        22.0,
+                        player_center - Vec2::new(120.0, 60.0),
+                        38.0,
                         [1.0, 0.72, 0.16, 1.0],
                     );
+                    if released >= 3 {
+                        self.floating_texts.spawn(
+                            format!("-{} crabs!", released),
+                            player_center - Vec2::new(60.0, 90.0),
+                            24.0,
+                            [1.0, 0.4, 0.2, 1.0],
+                        );
+                    }
+                    // Gold firework burst at the player — the coins-scatter visual
+                    self.particle_system.spawn_milestone_fireworks(
+                        player_center,
+                        released.min(16),
+                        &mut rand::rng(),
+                    );
+                    // Beat the groove back — getting hit should cost something rhythmically
+                    self.groove = (self.groove - 0.25).max(0.0);
+                    self.beat_streak = 0;
                 }
             }
         }
