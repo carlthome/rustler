@@ -10710,8 +10710,21 @@ impl EventHandler for MainState {
             }
         }
 
-        // Music intensity rises with score, and surges while the player is in the groove.
-        let target_intensity = ((self.score as f32 / 30.0) + self.groove * 0.4).min(1.0);
+        // Music intensity rises with chain length (not just score) and surges with groove.
+        // Chain length directly reflects how well the player is doing right now, so it's a
+        // more immediate and readable signal than accumulated score.
+        let chain_intensity = match self.chain_count {
+            0 => 0.0,
+            1..=3 => 0.33,
+            4..=8 => 0.67,
+            _ => 1.0,
+        };
+        let groove_boost = if self.groove > 0.7 {
+            (self.groove - 0.7) / 0.3 * 0.15
+        } else {
+            0.0
+        };
+        let target_intensity = (chain_intensity + groove_boost).min(1.0);
         self.music_intensity += (target_intensity - self.music_intensity) * dt * 0.3;
 
         if self.shake_timer > 0.0 {
@@ -11542,13 +11555,27 @@ impl EventHandler for MainState {
 
         // Scale music volume with intensity
         // (action_music gets louder, layers fade in)
-        // If music is muted, set all music volumes to 0; otherwise use normal intensity curve
+        // If music is muted, set all music volumes to 0; otherwise use normal intensity curve.
+        // Duck the player's music slightly when an NPC King Crab is close — their rumble competes
+        // for sonic space, making proximity feel threatening even before visual contact.
+        let npc_duck = {
+            let nearest_dist = self
+                .npc_trains
+                .iter()
+                .map(|t| t.leader_pos.distance(self.player_pos))
+                .fold(f32::MAX, f32::min);
+            if nearest_dist < 400.0 {
+                1.0 - ((400.0 - nearest_dist) / 400.0) * 0.25
+            } else {
+                1.0
+            }
+        };
         let base_vol = if self.music_muted {
             0.0
         } else {
-            0.25 + self.music_intensity * 0.75
+            (0.25 + self.music_intensity * 0.75) * npc_duck
         };
-        self.sounds.action_music.set_volume(base_vol);
+        self.sounds.action_music.set_volume(base_vol.clamp(0.0, 1.0));
         let layer_count = self.music_layers.len();
         for (i, layer) in self.music_layers.iter_mut().enumerate() {
             let threshold = (i + 1) as f32 / (layer_count + 1) as f32;
