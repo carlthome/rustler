@@ -4892,6 +4892,18 @@ impl MainState {
                     crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
                 }
 
+                // Universal speed cap — clamp vel so no compounding force (bounces, scatter
+                // kicks, lasso drag) can push a crab to visually broken teleport speeds.
+                // vel may carry full speed (crab.speed==1) or be a unit heading (speed in
+                // crab.speed); clamp the effective combined magnitude in both cases.
+                let effective_speed = crab.vel.length() * crab.speed;
+                if effective_speed > MAX_CRAB_SPEED {
+                    let scale = MAX_CRAB_SPEED / effective_speed;
+                    crab.vel *= scale;
+                    // crab.speed is left alone — it's a baseline the AI uses for decisions;
+                    // only the instantaneous vel magnitude is capped.
+                }
+
                 // Smoothly rotate crab to face its movement direction
                 let speed = crab.vel.length();
                 if speed > 5.0 {

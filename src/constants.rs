@@ -23,6 +23,11 @@ pub const LASSO_MIN_RANGE_FRAC: f32 = 0.28; // quick tap reaches 28% of max rang
 pub const LASSO_ONBEAT_BONUS: f32 = 1.35; // 35% extra range+speed when released on-beat
 
 pub const CRAB_SIZE: f32 = 36.0;
+// Universal crab velocity cap — prevents runaway speed from compounding forces (wall
+// bounces, scatter kicks, lasso drag) from producing visually broken teleport-level movement.
+// 600 px/s is well above any intentional top speed (boss charge is 540, scatter kicks ~280–300)
+// so this only fires on genuinely broken compounding, never on normal fast movement.
+pub const MAX_CRAB_SPEED: f32 = 600.0;
 pub const SPEED: f32 = 200.0;
 pub const SPRINT_STAMINA_MAX: f32 = 6.0;
 pub const SPRINT_STAMINA_DRAIN_PER_SEC: f32 = 0.85;
