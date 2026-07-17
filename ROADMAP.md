@@ -25,8 +25,10 @@ show up to steal from you.
 3. **Later — the outer loop.** Separate from the thesis: meta-progression, unlocks, campaign/story —
    sustaining motivation across runs. Held until the inner loop feels done (Carl's call).
 
-**Where we are.** The inner loop is deep and closed: four catching tools (beam/lasso/whistle/stomp) with
-upgrade lanes, a conga train with a chain-snap downside and a delivery-pen jackpot, and rhythm/groove scoring
+**Where we are.** The inner loop is deep and closed: four catching tools (beam/whistle/stomp plus a
+lasso now reworked into a charged skill-shot — hold to wind up, release to throw an arc that snags and
+drags a cluster) with upgrade lanes, a conga train with a chain-snap downside and a delivery-pen jackpot,
+and rhythm/groove scoring
 that **drives real mechanics** (downbeat spawn drops, on-beat PERFECT hits, a beat-stepping train, Groove
 Dash/Call/Gamble/Slam, a charged Drum Roll, a catch bloom). Pacing ramps through named intensity stages.
 **Eight archetypes** form a dense emergent web with visible catch-time crossovers — the signature fun.
@@ -34,15 +36,19 @@ Dash/Call/Gamble/Slam, a charged Drum Roll, a catch bloom). Pacing ramps through
 mid-train **CENTERPIECE** that pays a scaling bonus for a deep same-type run straddling the midpoint.
 The **bank-now-vs-push-luck** axis is closed (live AT RISK readout, escalating snap teeth, superlinear
 `pen_worth = (n·(n+1)/2)·3` bank payoff, BIG/LONG/GRAND HAUL cashout). Biomes each carry a distinct,
-telegraphed terrain hazard, all three bosses fight inside the archetype web, and a four-scenario opt-in
-tutorial doubles as regression tests. A first slice of meta-progression + campaign scaffolding exists but
+telegraphed terrain hazard, and all three bosses fight inside the archetype web. A King Crab *direct hit*
+now scatters your entire conga line into catchable crabs (Sonic-rings burst) — a first taste of the
+steal-and-recover tension the ecology will run on. The four-scenario opt-in tutorials have been folded into
+the first world-map nodes (removed from the main menu) and still double as regression tests. A first slice of meta-progression + campaign scaffolding exists but
 stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
 **Signal (this cycle).** Carl clarified the **thesis** (see top): competing conga lines + BYO-music mashup
 is the *core game*, and the arena is scaffolding toward it. That reframes the whole roadmap — it doesn't
 change the near-term work (still: finish the inner loop, then build the scrolling world that lets rivals
 exist), but it means the ecology/music items in "Also on our mind" are the destination, not breadth to
-maybe-someday get to. His standing **mechanics-freeze** still holds for near-term Now picks: strengthen
+maybe-someday get to. The **core steal rule** is now written down in INSPIRATION (reverse-Snake crossing:
+a rival threading your line splices the back section onto its own train) — the destination's central
+mechanic is specified, waiting on the scrolling world to host rivals. His standing **mechanics-freeze** still holds for near-term Now picks: strengthen
 what exists so the player feels *agency and control*, don't add new arena mechanics. No conflict — the
 freeze governs polish now; the thesis governs where we're headed. Prior playtest asks are all resolved.
 
@@ -100,10 +106,10 @@ item in "Now" below.
   Then the **arcade mode** (leaderboards, scoring pressure, ruthless difficulty) is the real game
   to master for the players who want to go deep. The two modes complement rather than compete:
   campaign funnels players into arcade, arcade is the prestige path.
-  **Tutorials are folded into the first world map nodes — not a separate menu.** The opening
-  nodes are short, hand-crafted mechanic introductions (catch a chain → feel the beat → one tool
-  per node → first rival train). No "How to Play" menu item; the world map IS the tutorial funnel.
-  The existing TutorialKind scenarios become the first world map levels rather than menu sandboxes.
+  **Tutorials are folded into the first world map nodes — not a separate menu (shipped: eb86756).** The
+  opening nodes are short, hand-crafted mechanic introductions (catch a chain → feel the beat → one tool
+  per node → first rival train). The "How to Play" menu item is gone; the world map IS the tutorial funnel,
+  and the TutorialKind scenarios now live as the first world-map levels rather than menu sandboxes.
   Players who want to skip go straight to arcade. Don't start this until the
   inner loop and meta-progression feel done — the arcade mode has to be worth mastering before
   the campaign exists to funnel people toward it. *A skeleton has landed (world-map node list +
