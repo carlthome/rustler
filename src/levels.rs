@@ -82,13 +82,13 @@ pub fn get_levels() -> Vec<Level> {
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::SingleRandom,
-                    count: 3,
+                    count: 6,
                     duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SingleRandom,
-                    count: 2,
+                    count: 4,
                     duration: 11.2,
                     centroid: (0.2, 0.8),
                 },
@@ -110,31 +110,31 @@ pub fn get_levels() -> Vec<Level> {
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::UniformRandom,
-                    count: 5,
+                    count: 10,
                     duration: 11.2,
                     centroid: (0.7, 0.3),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
-                    count: 7,
+                    count: 13,
                     duration: 14.0,
                     centroid: (0.3, 0.7),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Circle,
-                    count: 8,
+                    count: 15,
                     duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
-                    count: 10,
+                    count: 18,
                     duration: 14.0,
                     centroid: (0.8, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
-                    count: 6,
+                    count: 11,
                     duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
@@ -156,31 +156,31 @@ pub fn get_levels() -> Vec<Level> {
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
-                    count: 12,
+                    count: 22,
                     duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
-                    count: 10,
+                    count: 18,
                     duration: 16.8,
                     centroid: (0.8, 0.2),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Circle,
-                    count: 14,
+                    count: 26,
                     duration: 19.6,
                     centroid: (0.2, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
-                    count: 8,
+                    count: 15,
                     duration: 11.2,
                     centroid: (0.8, 0.8),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::SineWave,
-                    count: 6,
+                    count: 11,
                     duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
@@ -202,25 +202,25 @@ pub fn get_levels() -> Vec<Level> {
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
-                    count: 9,
+                    count: 16,
                     duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Spiral,
-                    count: 12,
+                    count: 22,
                     duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
-                    count: 16,
+                    count: 30,
                     duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
                 LevelPattern {
                     pattern: SpawnPattern::Spiral,
-                    count: 20,
+                    count: 38,
                     duration: 22.4,
                     centroid: (0.5, 0.5),
                 },

@@ -11594,7 +11594,7 @@ impl EventHandler for MainState {
 
         // Game over if too many free crabs accumulate (overwhelmed). Reuses the single-pass tally
         // from above (plus the +1 for a boss spawned this frame) instead of a fresh linear scan.
-        if free_crab_count >= 80 {
+        if free_crab_count >= 160 {
             self.game_over = true;
             return Ok(());
         }
