@@ -8454,3 +8454,43 @@ pub fn draw_whistle_dancer_match(
     }
     Ok(())
 }
+
+/// Cyan magnetic-surge burst when the Lasso snags a Magnet — tells the player that dragging
+/// this Magnet through the herd will vacuum up surrounding crabs (the pied-piper power play).
+/// Uses concentric field rings and outward arc-lines to read as "magnetic field energised."
+pub fn draw_lasso_magnet_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Inner cyan core bloom
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(18.0))
+            .color(Color::new(0.3, 0.9, 1.0, 0.90)));
+        // Outer halo ring
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(36.0))
+            .color(Color::new(0.2, 0.75, 1.0, 0.30)));
+        // Second wide halo — field-line suggestion
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(56.0))
+            .color(Color::new(0.1, 0.55, 1.0, 0.12)));
+        // 8 short radial arc-lines — magnetic field lines pulling outward
+        for k in 0..8u32 {
+            let angle = k as f32 * std::f32::consts::TAU / 8.0;
+            let inner = 22.0_f32;
+            let len = 14.0_f32;
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * (inner + len * 0.5);
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 2.0))
+                .rotation(angle).offset(Vec2::new(0.5, 0.5))
+                .color(Color::new(0.4, 1.0, 1.0, 0.85)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}

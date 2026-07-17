@@ -102,7 +102,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -6864,6 +6864,9 @@ impl MainState {
         if !self.lasso_thief_hits_buf.is_empty() {
             draw_lasso_thief_match(ctx, canvas, &self.lasso_thief_hits_buf)?;
         }
+        if !self.lasso_magnet_hits_buf.is_empty() {
+            draw_lasso_magnet_match(ctx, canvas, &self.lasso_magnet_hits_buf)?;
+        }
         if !self.stomp_armored_hits_buf.is_empty() {
             draw_stomp_armored_crack(ctx, canvas, &self.stomp_armored_hits_buf)?;
         }
@@ -9930,6 +9933,7 @@ impl EventHandler for MainState {
         self.beam_hermit_hits_buf.clear();
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
+        self.lasso_magnet_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
         self.whistle_dancer_hits_buf.clear();
@@ -11752,6 +11756,12 @@ impl EventHandler for MainState {
                             // to the Thief — so this hit is the archetype-tool pairing paying off).
                             if self.crabs[i].is_thief() {
                                 self.lasso_thief_hits_buf.push(self.crabs[i].pos);
+                            }
+                            // Strong-match: lasso snagging a Magnet — the loop then drags it through
+                            // the herd, turning the Magnet's pull field into a pied-piper sweep.
+                            // Show a magnetic surge burst so the player reads "lasso + Magnet = cluster pull."
+                            if self.crabs[i].is_magnet() {
+                                self.lasso_magnet_hits_buf.push(self.crabs[i].pos);
                             }
                             self.crabs[i].caught = true;
                             if let Some(t) = self.tutorial.as_mut() {
