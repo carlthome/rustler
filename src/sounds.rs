@@ -126,6 +126,281 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 
 const SAMPLE_RATE: u32 = 44_100;
 
+// ---------------------------------------------------------------------------------------------
+// General-purpose synth engine: oscillators, ADSR, FM voices, and lo-fi retro FX.
+//
+// The kick/snare/hihat/rumble above are bespoke one-off percussion generators. This section adds
+// reusable building blocks for *pitched* sounds — melodies, arpeggios, chimes — so future SFX
+// (and the coin-collect chime below) don't need to hand-roll a phase accumulator every time.
+// Everything here works in plain `f32` sample buffers (-1..1) so effects can be chained before
+// the final 16-bit WAV encode.
+// ---------------------------------------------------------------------------------------------
+
+/// Basic oscillator shapes for the additive synth. Sine is smooth/pure, triangle is a softer
+/// buzz, rectangle (square, with adjustable pulse width) is the classic hard 8-bit chip tone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Waveform {
+    Sine,
+    Triangle,
+    /// Rectangle/pulse wave. The `f32` is pulse width (duty cycle), 0..1; 0.5 = square.
+    Rect(f32),
+}
+
+/// Sample a bandlimited-enough (naive, but fine at these pitches/durations) oscillator at a given
+/// phase, where `phase` is in cycles (0.0..1.0 repeating), not radians.
+fn oscillator_sample(waveform: Waveform, phase: f32) -> f32 {
+    let p = phase.rem_euclid(1.0);
+    match waveform {
+        Waveform::Sine => (std::f32::consts::TAU * p).sin(),
+        // Triangle: linear ramp up 0..0.5, down 0.5..1, mapped to -1..1.
+        Waveform::Triangle => 1.0 - 4.0 * (p - 0.5).abs(),
+        Waveform::Rect(duty) => {
+            if p < duty.clamp(0.01, 0.99) {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+    }
+}
+
+/// Classic four-stage envelope: linear attack up to full amplitude, linear decay down to the
+/// sustain level, hold at sustain, then linear release to silence. Times are in seconds;
+/// `sustain` is a level 0..1, not a duration.
+#[derive(Clone, Copy, Debug)]
+pub struct Adsr {
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
+}
+
+impl Adsr {
+    /// Amplitude (0..1) at time `t` seconds into a note that is held for `note_duration` seconds
+    /// before release begins (so short-held notes still get a full release tail, e.g. `t` may run
+    /// past `note_duration` — callers should render `note_duration + release` samples total).
+    pub fn amplitude(&self, t: f32, note_duration: f32) -> f32 {
+        if t < 0.0 {
+            return 0.0;
+        }
+        if t < self.attack {
+            if self.attack <= 0.0 {
+                return 1.0;
+            }
+            return (t / self.attack).min(1.0);
+        }
+        let t_decay = t - self.attack;
+        if t_decay < self.decay {
+            if self.decay <= 0.0 {
+                return self.sustain;
+            }
+            let frac = (t_decay / self.decay).min(1.0);
+            return 1.0 + (self.sustain - 1.0) * frac;
+        }
+        if t < note_duration {
+            return self.sustain;
+        }
+        // Release: fade from sustain to zero over `release` seconds.
+        let t_release = t - note_duration;
+        if self.release <= 0.0 || t_release >= self.release {
+            return 0.0;
+        }
+        self.sustain * (1.0 - t_release / self.release)
+    }
+
+    /// Total length in seconds needed to render a note of `note_duration` fully to silence.
+    pub fn total_duration(&self, note_duration: f32) -> f32 {
+        note_duration + self.release
+    }
+}
+
+/// Render a single additive-synth note (sine/triangle/rect) with an ADSR envelope into a raw
+/// `-1..1` sample buffer. `freq` is constant across the note (no pitch glide) — this is the
+/// plain melodic building block; layer several calls at different frequencies/waveforms and mix
+/// for richer chords/timbres.
+pub fn synth_note(waveform: Waveform, freq: f32, note_duration: f32, adsr: &Adsr, gain: f32) -> Vec<f32> {
+    let total = adsr.total_duration(note_duration).max(0.0);
+    let n_samples = (SAMPLE_RATE as f32 * total) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut out = Vec::with_capacity(n_samples);
+    let mut phase = 0.0_f32;
+    for i in 0..n_samples {
+        let t = i as f32 * dt;
+        phase += freq * dt;
+        let env = adsr.amplitude(t, note_duration);
+        out.push(oscillator_sample(waveform, phase) * env * gain);
+    }
+    out
+}
+
+/// Render a single two-operator FM voice: a sine carrier phase-modulated by a sine modulator,
+/// classic Chowning FM synthesis. The modulation index (how much the modulator's amplitude
+/// distorts the carrier) decays independently and faster than the overall note envelope, which
+/// is what gives DX7-style electric-piano/bell tones their characteristic bright "pluck" attack
+/// that mellows into a purer tone — perfect for a crisp, high, fast "coin" ping.
+///
+/// * `carrier_hz` — the fundamental pitch.
+/// * `mod_ratio` — modulator frequency as a multiple of the carrier (e.g. 2.0, 3.5, 7.0 all give
+///   different bell/metallic characters; non-integer ratios sound more inharmonic/metallic).
+/// * `mod_index` — peak modulation index (higher = brighter/more overtones at the attack).
+/// * `mod_index_decay` — how fast the modulation index decays (per second, exponential); a large
+///   value makes the "clang" collapse to a near-pure tone quickly, like a plucked string.
+/// * `adsr` — overall amplitude envelope for the note.
+pub fn synth_fm_note(
+    carrier_hz: f32,
+    mod_ratio: f32,
+    mod_index: f32,
+    mod_index_decay: f32,
+    note_duration: f32,
+    adsr: &Adsr,
+    gain: f32,
+) -> Vec<f32> {
+    let total = adsr.total_duration(note_duration).max(0.0);
+    let n_samples = (SAMPLE_RATE as f32 * total) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut out = Vec::with_capacity(n_samples);
+    let mut carrier_phase = 0.0_f32;
+    let mut mod_phase = 0.0_f32;
+    for i in 0..n_samples {
+        let t = i as f32 * dt;
+        mod_phase += carrier_hz * mod_ratio * dt;
+        // Modulation index decays exponentially from its peak so the "clang" settles fast.
+        let idx = mod_index * (-mod_index_decay * t).exp();
+        let modulator = (std::f32::consts::TAU * mod_phase).sin() * idx;
+        carrier_phase += carrier_hz * dt;
+        let env = adsr.amplitude(t, note_duration);
+        let sample = (std::f32::consts::TAU * carrier_phase + modulator).sin();
+        out.push(sample * env * gain);
+    }
+    out
+}
+
+/// Mix a buffer into a destination at a given sample offset, extending `dest` as needed. Used to
+/// layer/overlap notes (e.g. a fast arpeggio where consecutive notes slightly overlap) without
+/// clipping the tail of the previous one.
+fn mix_into(dest: &mut Vec<f32>, src: &[f32], offset_samples: usize) {
+    let needed = offset_samples + src.len();
+    if dest.len() < needed {
+        dest.resize(needed, 0.0);
+    }
+    for (i, &s) in src.iter().enumerate() {
+        dest[offset_samples + i] += s;
+    }
+}
+
+/// Lo-fi "bitcrush" effect, 8/16-bit console style: quantizes amplitude to `bit_depth` bits and
+/// holds each output sample for `sample_hold` input samples (sample-and-hold decimation, i.e. a
+/// crude sample-rate reduction). Both together give that dirty, aliased retro chiptune crunch —
+/// a `bit_depth` of 8 with `sample_hold` of 2-4 reads as distinctly "old console", while
+/// `bit_depth` 16 / `sample_hold` 1 is a no-op (transparent passthrough).
+fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
+    let levels = (1u32 << bit_depth.clamp(2, 16)) as f32;
+    let hold = sample_hold.max(1);
+    let mut held_value = 0.0_f32;
+    for (i, s) in samples.iter_mut().enumerate() {
+        if i % hold == 0 {
+            // Quantize to `levels` steps across -1..1.
+            held_value = (*s * levels * 0.5).round() / (levels * 0.5);
+        }
+        *s = held_value;
+    }
+}
+
+/// Simple feed-forward dynamics compressor with an envelope follower (separate attack/release
+/// smoothing). Above `threshold`, gain is reduced by `ratio` (e.g. 4.0 = 4:1); below it, signal
+/// passes untouched. Squashes the loudest transient peaks so a busy mix of layered notes stays
+/// punchy without clipping, in the "loud but controlled" style of retro console audio (everything
+/// slammed to feel bigger than it is).
+fn compress(samples: &mut [f32], threshold: f32, ratio: f32, attack_s: f32, release_s: f32) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let attack_coeff = (-dt / attack_s.max(0.0001)).exp();
+    let release_coeff = (-dt / release_s.max(0.0001)).exp();
+    let mut envelope = 0.0_f32;
+    for s in samples.iter_mut() {
+        let input_level = s.abs();
+        let coeff = if input_level > envelope {
+            attack_coeff
+        } else {
+            release_coeff
+        };
+        envelope = coeff * envelope + (1.0 - coeff) * input_level;
+
+        if envelope > threshold {
+            let over_db_ratio = envelope / threshold;
+            let reduced_ratio = over_db_ratio.powf(1.0 / ratio - 1.0);
+            *s *= reduced_ratio;
+        }
+    }
+}
+
+/// Normalize a buffer so its peak absolute sample hits `target_peak` (0..1), then soft-clip with
+/// `tanh` for a touch of warm saturation. Run this last, after any compression, so the final
+/// output uses the available headroom without harsh digital clipping.
+fn normalize_and_saturate(samples: &mut [f32], target_peak: f32) {
+    let peak = samples.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    if peak > 0.0001 {
+        let gain = target_peak / peak;
+        for s in samples.iter_mut() {
+            *s = (*s * gain * 1.15).tanh();
+        }
+    }
+}
+
+/// Synthesise a fast, bright arpeggio for "you caught something" feedback — e.g. a coin/crab
+/// collection chime. Three short FM-bell notes climb a major triad in rapid succession (each
+/// note starts before the last fully decays, so they blend into one bright upward flourish
+/// rather than sounding like three separate blips), then the whole thing gets bitcrushed and
+/// gently compressed for that 8/16-bit console "coin get" flavor.
+///
+/// `root_hz` sets the pitch of the first note (the other two are a major third and a fifth
+/// above); `gain` is overall peak loudness 0..1.
+fn synth_coin_arpeggio_wav(root_hz: f32, gain: f32) -> Vec<u8> {
+    // Major triad ratios: root, major third, perfect fifth — an unambiguously "happy" collection
+    // jingle, reused an octave up for a bright topping note.
+    let ratios = [1.0_f32, 5.0 / 4.0, 3.0 / 2.0, 2.0];
+    let note_duration = 0.045; // Each note is short and fast — "coins", not "melody".
+    let note_spacing = 0.032; // Notes overlap slightly (spacing < duration) for a fluid run.
+    let adsr = Adsr {
+        attack: 0.002,
+        decay: 0.05,
+        sustain: 0.15,
+        release: 0.06,
+    };
+
+    let mut mix: Vec<f32> = Vec::new();
+    for (i, &ratio) in ratios.iter().enumerate() {
+        let freq = root_hz * ratio;
+        // A slightly lower modulation index/decay on the topping note keeps it bright but not
+        // harsh — the classic FM "electric piano" gets duller as it climbs into the high range.
+        let bell = synth_fm_note(freq, 3.0, 3.5, 22.0, note_duration, &adsr, gain);
+        // Layer a quiet triangle-wave sub-oscillator, one octave down, under the FM bell using
+        // the plain additive synth — gives the ping a bit of chip-tune "body" beneath the bright
+        // FM overtones, so it doesn't sound like a bare sine/FM blip.
+        let body = synth_note(Waveform::Triangle, freq * 0.5, note_duration, &adsr, gain * 0.35);
+        let offset = (SAMPLE_RATE as f32 * note_spacing * i as f32) as usize;
+        mix_into(&mut mix, &bell, offset);
+        mix_into(&mut mix, &body, offset);
+    }
+
+    // Retro FX chain: mild bitcrush for chip-tune grit, then compress to glue the overlapping
+    // notes together and keep the peak of the run under control, then saturate to full loudness.
+    bitcrush(&mut mix, 10, 2);
+    compress(&mut mix, 0.5, 3.0, 0.002, 0.08);
+    normalize_and_saturate(&mut mix, 0.9);
+
+    let pcm: Vec<i16> = mix.iter().map(|&s| (s * i16::MAX as f32) as i16).collect();
+    encode_wav_mono16(&pcm)
+}
+
+/// Build a playable `Source` for the synthesized coin/collection chime (see
+/// `synth_coin_arpeggio_wav`). Constructed once at startup, like the other percussion voices, and
+/// replayed with `play_detached`/pitch variation on each catch.
+pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
+    let wav = synth_coin_arpeggio_wav(660.0, 0.8); // E5-ish root: high and bright.
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
 /// Synthesise a single kick-drum hit as a mono 16-bit WAV byte buffer.
 ///
 /// A kick is a sine whose pitch drops fast from a punchy attack transient down to a low body,

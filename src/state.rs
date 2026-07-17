@@ -31,6 +31,9 @@ pub struct GameSounds {
     /// Volume is driven each frame by distance to the player.
     pub(crate) king_crab_rumble: Source,
     pub(crate) hihat: Source,
+    /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
+    /// sampled `success`/`success2` catch sounds for extra retro sparkle.
+    pub(crate) coin_chime: Source,
     // Add more sounds here as needed
 }
 
@@ -64,12 +67,21 @@ pub fn play_catch_sound(
     let scale = PENTATONIC[step] * 2.0_f32.powi(octave as i32);
     // Small random detune on top of the scale note so simultaneous catches still don't phase-lock.
     let pitch = scale * rng.random_range(0.98_f32..1.02);
-    if rng.random_range(0..5) == 0 {
-        sounds.success2.set_pitch(pitch);
-        let _ = sounds.success2.play_detached(ctx);
-    } else {
-        sounds.success.set_pitch(pitch);
-        let _ = sounds.success.play_detached(ctx);
+    match rng.random_range(0..10) {
+        0..=6 => {
+            sounds.success.set_pitch(pitch);
+            let _ = sounds.success.play_detached(ctx);
+        }
+        7..=8 => {
+            sounds.success2.set_pitch(pitch);
+            let _ = sounds.success2.play_detached(ctx);
+        }
+        _ => {
+            // Occasional synthesized FM-bell chime for a bit of chiptune sparkle amongst the
+            // sampled catch sounds.
+            sounds.coin_chime.set_pitch(pitch);
+            let _ = sounds.coin_chime.play_detached(ctx);
+        }
     }
 }
 
@@ -1048,6 +1060,7 @@ impl MainState {
             success2: Source::new(ctx, "/success2.ogg")?,
             king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
             hihat: sounds::synth_hihat(ctx)?,
+            coin_chime: sounds::synth_coin_chime(ctx)?,
             // Add more sounds here as needed
         };
 
