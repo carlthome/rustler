@@ -51,22 +51,19 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** Slack stayed quiet — the only posts since last run are auto Dev Diary updates (no human
-replies, no reactions to weigh); the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here")
-is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. So direction is unchanged and
-this is a fold-in-what-shipped run, not a re-steer. What moved on the ground, all pointed at the current Now:
-**scrolling-world density is tuned** (~1.8× spawn counts, 40e2455) — the density Now item is done, checked off below.
-**The archetype-tool soft-RPS system took its first concrete step**: the three flagship matchups now *detect and draw*
-their strong-match moment — beam/Hermit, stomp/Dancer, lasso/Thief (2c6f1f0 → 6712ac2 → e819849). That's the top-
-priority item off the ground but far from finished — three pairs of a much larger web now read; the rest are still
-implied. **The ambient train got more legible as a rival**: three visually distinct tiers (scout/wanderer/elder —
-size/speed/territory/idle, d046ae7) so a small train reads differently from a huge one at a glance — real progress on
-the read-check gate, though the smooth directional music-swell radar and a distinct name banner still need a pass, and
-it hasn't been playtested. Legibility HUD also landed (Zelda tool roster 4dbfd84, minimap+weather 467655a). The
-**core steal rule** stays written in INSPIRATION (reverse-Snake crossing) and parked in "Also on our mind" until the
-ambient train clears that read-check. Carl's mechanics-freeze is **lifted** (his 2026-07-16 direction) but its spirit
-holds: sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now items this run — the three
-open ones are live and unfinished; depth before breadth.
+**Signal (this cycle).** Quiet cycle. Slack has no new human signal — every post since last run is an auto Dev Diary
+update (no replies, no reactions to weigh); the one standing ask (Carl, 2026-07-07: "would be nice to see example
+videos here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. And nothing
+game-facing shipped: the only commit since the last roadmap update (462393a) is a Supervisor pipeline change
+(1d73b46 — git pull + playtests for Overnight Dev), not gameplay. So direction is unchanged and the three open Now
+items carry over untouched. **Where they stand** (from prior cycles, still the live picture): the archetype-tool
+soft-RPS system has its first three flagship tells drawn — beam/Hermit, stomp/Dancer, lasso/Thief (e819849) — but
+the rest of the 8×4 web is still implied. The ambient rival train reads in three visual tiers (scout/wanderer/elder,
+d046ae7) but its **read-check is not cleared**: the smooth directional music-swell radar and a distinct name banner
+still need a pass, and *it has still not been playtested in motion* — that playtest is the cheapest thing anyone could
+do to unblock the steal rule. The **core steal rule** stays parked in "Also on our mind" (reverse-Snake crossing in
+INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds:
+sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now items this run — depth before breadth.
 
 ## Bugs (fix before anything else in Now)
 
