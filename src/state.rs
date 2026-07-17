@@ -34,6 +34,9 @@ pub struct GameSounds {
     /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
     /// sampled `success`/`success2` catch sounds for extra retro sparkle.
     pub(crate) coin_chime: Source,
+    /// Ambient synth pad played on entering the campaign world map — a calm, atmospheric moment
+    /// between levels, long swell/tail with a slow filter sweep, delay and stereo auto-pan.
+    pub(crate) world_map_pad: Source,
     // Add more sounds here as needed
 }
 
@@ -1064,6 +1067,7 @@ impl MainState {
             king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
             hihat: sounds::synth_hihat(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,
+            world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
             // Add more sounds here as needed
         };
 

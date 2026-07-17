@@ -227,6 +227,7 @@ pub fn synth_note(waveform: Waveform, freq: f32, note_duration: f32, adsr: &Adsr
     for i in 0..n_samples {
         let t = i as f32 * dt;
         phase += freq * dt;
+        phase = phase.rem_euclid(1.0); // Keep the accumulator bounded for long (pad-length) notes.
         let env = adsr.amplitude(t, note_duration);
         out.push(oscillator_sample(waveform, phase) * env * gain);
     }
@@ -264,10 +265,12 @@ pub fn synth_fm_note(
     for i in 0..n_samples {
         let t = i as f32 * dt;
         mod_phase += carrier_hz * mod_ratio * dt;
+        mod_phase = mod_phase.rem_euclid(1.0); // Bound the accumulator for long pad-length notes.
         // Modulation index decays exponentially from its peak so the "clang" settles fast.
         let idx = mod_index * (-mod_index_decay * t).exp();
         let modulator = (std::f32::consts::TAU * mod_phase).sin() * idx;
         carrier_phase += carrier_hz * dt;
+        carrier_phase = carrier_phase.rem_euclid(1.0);
         let env = adsr.amplitude(t, note_duration);
         let sample = (std::f32::consts::TAU * carrier_phase + modulator).sin();
         out.push(sample * env * gain);
@@ -295,12 +298,13 @@ fn mix_into(dest: &mut Vec<f32>, src: &[f32], offset_samples: usize) {
 /// `bit_depth` 16 / `sample_hold` 1 is a no-op (transparent passthrough).
 fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
     let levels = (1u32 << bit_depth.clamp(2, 16)) as f32;
+    let half_levels = levels * 0.5;
     let hold = sample_hold.max(1);
     let mut held_value = 0.0_f32;
     for (i, s) in samples.iter_mut().enumerate() {
         if i % hold == 0 {
             // Quantize to `levels` steps across -1..1.
-            held_value = (s.clamp(-1.0, 1.0) * levels * 0.5).round() / (levels * 0.5);
+            held_value = (s.clamp(-1.0, 1.0) * half_levels).round() / half_levels;
         }
         *s = held_value;
     }
@@ -343,9 +347,9 @@ fn normalize_and_saturate(samples: &mut [f32], target_peak: f32) {
     const SATURATION_OVERDRIVE: f32 = 1.15;
     let peak = samples.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
     if peak > 0.0001 {
-        let gain = target_peak / peak;
+        let total_gain = (target_peak / peak) * SATURATION_OVERDRIVE;
         for s in samples.iter_mut() {
-            *s = (*s * gain * SATURATION_OVERDRIVE).tanh();
+            *s = (*s * total_gain).tanh();
         }
     }
 }
@@ -401,6 +405,269 @@ fn synth_coin_arpeggio_wav(root_hz: f32, gain: f32) -> Vec<u8> {
 /// replayed with `play_detached`/pitch variation on each catch.
 pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
     let wav = synth_coin_arpeggio_wav(660.0, 0.8); // E5-ish root: high and bright.
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ambient synth pads: long-swell drones with a sweeping resonant filter, a feedback delay, and
+// slow stereo auto-panning, for a calm/atmospheric moment (e.g. opening the campaign world map)
+// rather than the percussive/melodic voices above. Built from the same oscillator/ADSR/FM
+// primitives, just with much longer envelopes and a stereo FX chain layered on top.
+// ---------------------------------------------------------------------------------------------
+
+/// Sweep a resonant bandpass filter's center frequency slowly back and forth and blend the
+/// filtered "peak" back in on top of the dry signal — like someone slowly working an EQ's
+/// resonance/frequency knobs by hand, adding movement and subtle emphasis without fully carving
+/// away the rest of the tone. Uses a Chamberlin state-variable filter (SVF): cheap, stable, and
+/// (unlike a fixed biquad) safe to modulate every sample since it needs no coefficient recompute.
+fn apply_resonant_sweep(samples: &mut [f32], center_hz: f32, sweep_hz: f32, sweep_rate_hz: f32, resonance: f32) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    // Chamberlin's damping factor: smaller = sharper, more pronounced resonance peak.
+    let q = 1.0 / resonance.max(0.5);
+    let mut low = 0.0_f32;
+    let mut band = 0.0_f32;
+    for (i, s) in samples.iter_mut().enumerate() {
+        let t = i as f32 * dt;
+        let fc = (center_hz + sweep_hz * (std::f32::consts::TAU * sweep_rate_hz * t).sin()).max(20.0);
+        // SVF stability limit: keep the frequency coefficient comfortably below the point where
+        // the filter would start ringing out of control at audio sample rates.
+        let f = (2.0 * (std::f32::consts::PI * fc / SAMPLE_RATE as f32).sin()).min(1.2);
+        let input = *s;
+        let high = input - low - q * band;
+        band += f * high;
+        low += f * band;
+        // Blend the resonant bandpass "peak" back in at a modest level — an emphasis sweep on
+        // top of the dry tone, not a full filter replacing it.
+        *s = input + band * 0.5;
+    }
+}
+
+/// Feedback delay line: `y[n] = x[n] + feedback * y[n - delay_samples]`, then cross-faded against
+/// the dry signal by `mix` (0 = dry only, 1 = fully wet i.e. the delayed signal, which itself
+/// still carries the original hit as its very first "tap"). Extends the buffer with a silent
+/// tail so the echoes ring out fully instead of being cut off at the note's original length.
+fn apply_delay(dry: &[f32], delay_time_s: f32, feedback: f32, mix: f32) -> Vec<f32> {
+    let delay_samples = ((SAMPLE_RATE as f32) * delay_time_s).max(1.0) as usize;
+    // A handful of extra repeats' worth of silence so the feedback trail has room to decay away.
+    let tail_len = delay_samples * 6;
+    let total_len = dry.len() + tail_len;
+
+    let mut wet = vec![0.0_f32; total_len];
+    for i in 0..total_len {
+        let input = if i < dry.len() { dry[i] } else { 0.0 };
+        let echo = if i >= delay_samples {
+            wet[i - delay_samples] * feedback
+        } else {
+            0.0
+        };
+        wet[i] = input + echo;
+    }
+
+    let mut out = Vec::with_capacity(total_len);
+    for i in 0..total_len {
+        let dry_sample = if i < dry.len() { dry[i] } else { 0.0 };
+        out.push(dry_sample * (1.0 - mix) + wet[i] * mix);
+    }
+    out
+}
+
+/// Split a mono signal into left/right channels with a slow auto-pan: the stereo position drifts
+/// sinusoidally between hard left and hard right at `pan_rate_hz` (typically well under 1 Hz, so
+/// it reads as a gentle drift rather than a tremolo). Uses the equal-power panning law (quarter
+/// sine/cosine curve) so perceived loudness stays constant as the sound moves across the stereo
+/// field, instead of dipping in the center like a naive linear crossfade would.
+fn apply_stereo_pan(mono: &[f32], pan_rate_hz: f32) -> (Vec<f32>, Vec<f32>) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut left = Vec::with_capacity(mono.len());
+    let mut right = Vec::with_capacity(mono.len());
+    for (i, &s) in mono.iter().enumerate() {
+        let t = i as f32 * dt;
+        let pan = (std::f32::consts::TAU * pan_rate_hz * t).sin(); // -1 (left) .. +1 (right)
+        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4; // maps -1..1 to 0..pi/2
+        left.push(s * angle.cos());
+        right.push(s * angle.sin());
+    }
+    (left, right)
+}
+
+/// Wrap interleaved stereo `-1..1` sample pairs in a canonical 44-byte WAV header (2-channel,
+/// 16-bit PCM), mirroring `encode_wav_mono16` but for the panned pad output.
+fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
+    let n_frames = left.len().min(right.len());
+    let num_channels: u16 = 2;
+    let bits_per_sample: u16 = 16;
+    let byte_rate = SAMPLE_RATE * num_channels as u32 * (bits_per_sample as u32 / 8);
+    let block_align = num_channels * (bits_per_sample / 8);
+    let data_len = (n_frames * 2 * 2) as u32; // frames * channels * bytes-per-sample
+    let riff_len = 36 + data_len;
+
+    let mut out = Vec::with_capacity(44 + n_frames * 4);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&riff_len.to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&num_channels.to_le_bytes());
+    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&bits_per_sample.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for i in 0..n_frames {
+        let l = (left[i].clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        let r = (right[i].clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        out.extend_from_slice(&l.to_le_bytes());
+        out.extend_from_slice(&r.to_le_bytes());
+    }
+    out
+}
+
+/// Named ambient pad presets. Each is a fixed bundle of oscillator/ADSR/filter/delay/pan
+/// parameters producing a distinct mood — callers just pick a mood and a root pitch.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PadPreset {
+    /// Mellow and warm: detuned triangle layers, a slow low filter sweep, a soft long tail.
+    WarmPad,
+    /// Brighter and glassy: sine + a touch of bell-like FM, a wider/faster filter sweep.
+    CrystalPad,
+}
+
+/// Parameters bundled per `PadPreset`. Not exposed publicly — presets are meant to be picked by
+/// name, not hand-tuned by callers; add a new `PadPreset` variant instead of exposing this.
+struct PadParams {
+    waveform: Waveform,
+    detune_cents: f32,
+    fm_layer: bool,
+    adsr: Adsr,
+    filter_center_hz: f32,
+    filter_sweep_hz: f32,
+    filter_sweep_rate_hz: f32,
+    filter_resonance: f32,
+    delay_time_s: f32,
+    delay_feedback: f32,
+    delay_mix: f32,
+    pan_rate_hz: f32,
+}
+
+impl PadPreset {
+    fn params(self) -> PadParams {
+        match self {
+            PadPreset::WarmPad => PadParams {
+                waveform: Waveform::Triangle,
+                detune_cents: 7.0,
+                fm_layer: false,
+                // Long attack/release — the defining trait of a "pad": a slow swell in, a long
+                // fade out, no percussive transient at all.
+                adsr: Adsr {
+                    attack: 1.2,
+                    decay: 0.6,
+                    sustain: 0.7,
+                    release: 2.5,
+                },
+                filter_center_hz: 700.0,
+                filter_sweep_hz: 350.0,
+                filter_sweep_rate_hz: 0.08,
+                filter_resonance: 6.0,
+                delay_time_s: 0.35,
+                delay_feedback: 0.35,
+                delay_mix: 0.25,
+                pan_rate_hz: 0.06,
+            },
+            PadPreset::CrystalPad => PadParams {
+                waveform: Waveform::Sine,
+                detune_cents: 12.0,
+                fm_layer: true,
+                adsr: Adsr {
+                    attack: 0.6,
+                    decay: 0.8,
+                    sustain: 0.55,
+                    release: 3.2,
+                },
+                filter_center_hz: 1600.0,
+                filter_sweep_hz: 900.0,
+                filter_sweep_rate_hz: 0.15,
+                filter_resonance: 9.0,
+                delay_time_s: 0.28,
+                delay_feedback: 0.4,
+                delay_mix: 0.3,
+                pan_rate_hz: 0.1,
+            },
+        }
+    }
+}
+
+/// Render a full ambient pad through the whole chain: three detuned additive-synth voices (root
+/// + up/down a few cents, the classic "supersaw" width trick) optionally topped with an FM bell
+/// layer, a slow sweeping resonant filter, a feedback delay, gentle compression to glue it all
+/// together, then slow stereo auto-panning — producing a stereo 16-bit WAV byte buffer.
+fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32) -> Vec<u8> {
+    let p = preset.params();
+    let cents_to_ratio = |cents: f32| 2.0_f32.powf(cents / 1200.0);
+
+    let mut mono = synth_note(p.waveform, root_hz, note_duration, &p.adsr, gain * 0.5);
+    let detuned_up = synth_note(
+        p.waveform,
+        root_hz * cents_to_ratio(p.detune_cents),
+        note_duration,
+        &p.adsr,
+        gain * 0.3,
+    );
+    let detuned_down = synth_note(
+        p.waveform,
+        root_hz * cents_to_ratio(-p.detune_cents),
+        note_duration,
+        &p.adsr,
+        gain * 0.3,
+    );
+    for (i, v) in detuned_up.iter().enumerate() {
+        mono[i] += v;
+    }
+    for (i, v) in detuned_down.iter().enumerate() {
+        mono[i] += v;
+    }
+
+    if p.fm_layer {
+        // A quiet, slowly-decaying FM bell an octave up adds glassy overtones to the crystal
+        // preset without overpowering the underlying additive layers.
+        let bell = synth_fm_note(root_hz * 2.0, 2.0, 1.2, 0.6, note_duration, &p.adsr, gain * 0.25);
+        for (i, v) in bell.iter().enumerate() {
+            mono[i] += v;
+        }
+    }
+
+    apply_resonant_sweep(
+        &mut mono,
+        p.filter_center_hz,
+        p.filter_sweep_hz,
+        p.filter_sweep_rate_hz,
+        p.filter_resonance,
+    );
+
+    let mut wet = apply_delay(&mono, p.delay_time_s, p.delay_feedback, p.delay_mix);
+    // Gentle glue compression (long attack/release suits a slow-moving pad, unlike the punchy
+    // settings used for the coin chime) so the layered voices + delay don't get too peaky.
+    compress(&mut wet, 0.6, 2.5, 0.05, 0.3);
+    normalize_and_saturate(&mut wet, 0.75);
+
+    let (left, right) = apply_stereo_pan(&wet, p.pan_rate_hz);
+    encode_wav_stereo16(&left, &right)
+}
+
+/// Build a playable ambient pad `Source` from a preset. `root_hz` sets the pad's fundamental
+/// pitch; `note_duration` is how long the note is held before release begins — the audible tail
+/// runs considerably longer than that once the long release and the delay's echo trail are
+/// included, so this suits a calm, atmospheric moment (e.g. opening the campaign world map)
+/// rather than a rhythm-locked SFX.
+pub fn synth_ambient_pad(
+    ctx: &mut Context,
+    preset: PadPreset,
+    root_hz: f32,
+    note_duration: f32,
+) -> GameResult<Source> {
+    let wav = synth_pad_wav(preset, root_hz, note_duration, 0.7);
     let data = SoundData::from_bytes(&wav);
     Source::from_data(ctx, data)
 }
