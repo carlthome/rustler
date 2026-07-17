@@ -9505,9 +9505,11 @@ impl MainState {
                                 crab.chain_index = None;
                                 crab.fleeing = false;
                                 crab.spooked_timer = 1.0;
-                                // Crabs snap toward the NPC — they've been stolen
+                                // Cartoony startled hop: scale-pop then fly toward the NPC.
+                                crab.join_pulse = 1.0;
                                 let toward = (npc_pos - crab.pos).normalize_or_zero();
                                 crab.vel = toward * 200.0;
+                                crab.vel.y -= 90.0; // brief upward arc before snapping over
                                 stolen_types.push(crab.crab_type);
                                 stolen_count += 1;
                             }
@@ -9627,8 +9629,10 @@ impl MainState {
                                 crab.chain_index = None;
                                 crab.fleeing = true;
                                 crab.spooked_timer = 2.5;
+                                crab.join_pulse = 1.0; // startled pop
                                 let away = (crab.pos - player_center).normalize_or_zero();
                                 crab.vel = away * 250.0;
+                                crab.vel.y -= 70.0; // hop upward before scattering out
                                 if self.catch_shockwaves.len() < 48 {
                                     self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
                                 }
