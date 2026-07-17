@@ -12,6 +12,7 @@ mod spawnings;
 mod state;
 mod tutorial;
 mod upgrade;
+mod matchup_fx;
 mod world_map;
 
 pub use constants::*;
@@ -76,6 +77,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_square,
 };
+use crate::matchup_fx::{draw_beam_hermit_match, draw_lasso_thief_match, draw_stomp_dancer_match};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -4288,6 +4290,16 @@ impl MainState {
                     }
                 }
 
+                // Strong-match: beam shining on a shelled Hermit. The beam can't crack its
+                // borrowed shell (only ecosystem verbs can), but we still collect the hit so
+                // draw_beam_hermit_match can flash amber — a legibility cue telling the player
+                // "beam won't work here; use Stomp, Dancer, or Magnet instead".
+                if crab.is_shelled_hermit() && crab.boss_health > 0.0 && crab_in_light {
+                    let drain_fraction =
+                        1.0 - crab.boss_health / crab.boss_max_health.max(0.001);
+                    self.beam_hermit_hits_buf.push((crab.pos, drain_fraction));
+                }
+
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
                 // Bosses are unshakeable — they lumber on rather than panic-bolting.
                 const FLEE_RADIUS: f32 = 220.0;
@@ -6741,6 +6753,17 @@ impl MainState {
                 self.stomp_radius,
                 self.stomp_max_radius() * self.stomp_beat_bonus,
             )?;
+        }
+
+        // Strong-match archetype-tool visual feedback.
+        if !self.beam_hermit_hits_buf.is_empty() {
+            draw_beam_hermit_match(ctx, canvas, &self.beam_hermit_hits_buf)?;
+        }
+        if !self.stomp_dancer_hits_buf.is_empty() {
+            draw_stomp_dancer_match(ctx, canvas, &self.stomp_dancer_hits_buf)?;
+        }
+        if !self.lasso_thief_hits_buf.is_empty() {
+            draw_lasso_thief_match(ctx, canvas, &self.lasso_thief_hits_buf)?;
         }
 
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
@@ -9440,6 +9463,11 @@ impl EventHandler for MainState {
 
         let mut dt = ctx.time.delta().as_secs_f32() * self.time_scale;
 
+        // Clear strong-match hit buffers so draw_game sees only THIS frame's events.
+        self.beam_hermit_hits_buf.clear();
+        self.stomp_dancer_hits_buf.clear();
+        self.lasso_thief_hits_buf.clear();
+
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
         // guessing from code inspection. Uses the same per-update dt ggez already measured, so
@@ -11104,6 +11132,11 @@ impl EventHandler for MainState {
                         cracked.push(crab.pos);
                     }
                 }
+                // Strong-match: stomp cracking a Dancer's shell (Dancer is a rhythm-native target
+                // for Stomp, so this hit is the archetype-tool pairing working as designed).
+                if crab.is_dancer() && !crab.caught {
+                    self.stomp_dancer_hits_buf.push(crab.pos);
+                }
                 // A Stomp near the tail is the second, close-range Thief counter — and it plays the
                 // same rhythm-native way the whistle does: on-beat rips a latched Thief clean off and
                 // banks it as a bonus catch; off-beat only loosens its grip so it bites again.
@@ -11211,6 +11244,11 @@ impl EventHandler for MainState {
                                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
                             self.spawn_catch_shockwave(pos, crab_color);
                             let was_answering = self.crabs[i].answering_call > 0.0;
+                            // Strong-match: lasso catching a Thief (lasso is the intended counter
+                            // to the Thief — so this hit is the archetype-tool pairing paying off).
+                            if self.crabs[i].is_thief() {
+                                self.lasso_thief_hits_buf.push(self.crabs[i].pos);
+                            }
                             self.crabs[i].caught = true;
                             if let Some(t) = self.tutorial.as_mut() {
                                 if t.kind == TutorialKind::LassoGrab {

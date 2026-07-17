@@ -880,6 +880,11 @@ pub struct MainState {
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
     // per-frame allocation for the whole duration of every whistle/stomp/lasso.
     pub(crate) whistle_soothed_buf: Vec<Vec2>,
+    // Strong-match hit positions collected each frame for archetype-tool visual feedback.
+    // Cleared at the start of update() and read (immutably) in draw_game().
+    pub(crate) beam_hermit_hits_buf: Vec<(Vec2, f32)>,
+    pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
+    pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
     // ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Collected inside the &mut crabs
@@ -1464,6 +1469,9 @@ impl MainState {
             dancer_link_buf: Vec::new(),
             dancer_aura_caught_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
+            beam_hermit_hits_buf: Vec::new(),
+            stomp_dancer_hits_buf: Vec::new(),
+            lasso_thief_hits_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
