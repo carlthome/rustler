@@ -7885,3 +7885,108 @@ pub fn draw_world_map(
 
     Ok(())
 }
+
+pub fn draw_beam_hermit_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, f32)],  // (crab_pos, drain_fraction 0..1)
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    for &(pos, drain) in hits {
+        // Amber shell-weakness glow — gets brighter as drain increases
+        let glow_r = 28.0 + drain * 18.0;
+        let glow_a = 0.15 + drain * 0.35;
+        // Draw with BlendMode::ADD so it stacks with the beam glow
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(glow_r))
+            .color(Color::new(1.0, 0.55 + drain * 0.2, 0.1, glow_a)));
+        // Outer halo ring (bigger, dimmer)
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(glow_r * 1.8))
+            .color(Color::new(1.0, 0.4, 0.05, glow_a * 0.3)));
+        canvas.set_blend_mode(BlendMode::ALPHA);
+
+        // At high drain (>0.6), add 4 short crack-line sparks radiating outward
+        if drain > 0.6 {
+            let crack_len = 8.0 + drain * 12.0;
+            let crack_a = (drain - 0.6) / 0.4;
+            let unit_sq = unit_square(ctx)?;
+            for i in 0..4 {
+                let angle = i as f32 * std::f32::consts::PI / 2.0 + drain * 2.0;
+                let tip = pos + Vec2::new(angle.cos(), angle.sin()) * (glow_r + crack_len * 0.5);
+                canvas.draw(unit_sq, DrawParam::default()
+                    .dest(tip)
+                    .scale(Vec2::new(crack_len, 1.5))
+                    .rotation(angle)
+                    .offset(Vec2::new(0.5, 0.5))
+                    .color(Color::new(1.0, 0.7, 0.2, crack_a * 0.8)));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn draw_stomp_dancer_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let unit_sq = unit_square(ctx)?;
+    for &pos in hits {
+        // Hot pink disruption ring
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(32.0))
+            .color(Color::new(1.0, 0.15, 0.75, 0.5)));
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(20.0))
+            .color(Color::new(1.0, 0.3, 0.85, 0.25)));
+        // 6 short spikes radiating out — "rhythm broken" symbol
+        for i in 0..6 {
+            let angle = i as f32 * std::f32::consts::PI / 3.0;
+            let spike_start = pos + Vec2::new(angle.cos(), angle.sin()) * 18.0;
+            canvas.draw(unit_sq, DrawParam::default()
+                .dest(spike_start)
+                .scale(Vec2::new(14.0, 2.0))
+                .rotation(angle)
+                .offset(Vec2::new(0.0, 0.5))
+                .color(Color::new(1.0, 0.2, 0.8, 0.7)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
+pub fn draw_lasso_thief_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    for &pos in hits {
+        // Bright sly-green central flash
+        canvas.set_blend_mode(BlendMode::ADD);
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(22.0))
+            .color(Color::new(0.25, 1.0, 0.45, 0.85)));
+        // Outer bloom
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(44.0))
+            .color(Color::new(0.2, 0.9, 0.4, 0.3)));
+        // Inner core pop
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(10.0))
+            .color(Color::new(0.8, 1.0, 0.7, 0.95)));
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
