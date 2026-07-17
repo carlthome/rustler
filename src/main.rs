@@ -9455,6 +9455,15 @@ impl MainState {
                 }
             }
 
+            // Scale the King Crab with its conga line: more followers = bigger, scarier leader.
+            // Each follower adds 0.09 scale above the tier floor, capped at 3.8 so even a
+            // maxed-out elder doesn't become comically huge.
+            {
+                let n = self.npc_trains[i].follower_types.len() as f32;
+                let base = self.npc_trains[i].base_scale;
+                self.npc_trains[i].leader_scale = (base + n * 0.09).min(3.8);
+            }
+
             // Compute target rumble volume from distance to player.
             let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
             self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);

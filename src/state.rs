@@ -163,8 +163,10 @@ pub struct NpcCongaTrain {
     pub target_vol: f32,
     /// Procedurally generated name — stable for the session (Shadow of Mordor style individuality).
     pub name: String,
-    /// Visual scale of the King Crab leader — varies by train so rivals are instantly size-readable.
+    /// Visual scale of the King Crab leader — grows with conga length; tier sets the floor.
     pub leader_scale: f32,
+    /// Minimum scale for this tier — leader can only grow above this, never shrink below it.
+    pub base_scale: f32,
     /// Brief idle pause at destination before picking the next wander target (Rain World agency feel).
     pub idle_timer: f32,
     /// Preferred territory centre — each NPC biases its wander targets toward its own quadrant.
@@ -297,6 +299,7 @@ impl NpcCongaTrain {
             target_vol: 0.0,
             name,
             leader_scale,
+            base_scale: leader_scale,
             idle_timer: 0.0,
             territory_center,
             steal_cooldown: 0.0,
