@@ -11,10 +11,10 @@ FAIL=0
 run_script() {
     local name=$1
     echo -n "Running $name ... "
-    # Bot mode skips all rendering and exits with 0/1 — no display server needed.
+    # Bot mode still initializes the window backend, so CI may wrap this script in xvfb-run.
     nix develop . --command ./target/debug/rustler --bot "$name" 2>&1 | tee "/tmp/bot_$name.log"
     local exitcode=${PIPESTATUS[0]}
-    
+
     if [ $exitcode -eq 0 ]; then
         echo "PASS"
         PASS=$((PASS+1))
