@@ -70,25 +70,11 @@ pub fn play_catch_sound(
     let scale = PENTATONIC[step] * 2.0_f32.powi(octave as i32);
     // Small random detune on top of the scale note so simultaneous catches still don't phase-lock.
     let pitch = scale * rng.random_range(0.98_f32..1.02);
-    // Weighted 3-way pick: 70% primary sampled catch chime, 20% brighter sampled variant, 10%
-    // synthesized FM chime — the sampled sounds stay dominant so the game's core catch feedback
-    // is unchanged, with the synth voice as an occasional flourish for variety.
-    match rng.random_range(0..10) {
-        0..=6 => {
-            sounds.success.set_pitch(pitch);
-            let _ = sounds.success.play_detached(ctx);
-        }
-        7..=8 => {
-            sounds.success2.set_pitch(pitch);
-            let _ = sounds.success2.play_detached(ctx);
-        }
-        _ => {
-            // Occasional synthesized FM-bell chime for a bit of chiptune sparkle amongst the
-            // sampled catch sounds.
-            sounds.coin_chime.set_pitch(pitch);
-            let _ = sounds.coin_chime.play_detached(ctx);
-        }
-    }
+    // Pure synthesized FM chime — no OGG samples. The synth voice handles rapid
+    // multi-catch without the crackling/phase artifacts the sampled files produced
+    // when many copies played simultaneously, and fits the retro chiptune direction.
+    sounds.coin_chime.set_pitch(pitch);
+    let _ = sounds.coin_chime.play_detached(ctx);
 }
 
 pub struct Flashlight {

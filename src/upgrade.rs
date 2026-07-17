@@ -93,7 +93,7 @@ impl MainState {
             while self.score >= self.next_upgrade_score {
                 self.next_upgrade_score += UPGRADE_STEP;
             }
-            let _ = self.sounds.upgrade.play_detached(ctx);
+            // upgrade.ogg removed — tiresome and crackly; new sound TBD
             // Roll the three cards ONCE here, at queue time, not in draw — draw runs every frame
             // and would otherwise reshuffle the offer 60×/sec.
             self.roll_upgrade_offer();

@@ -10233,7 +10233,7 @@ impl EventHandler for MainState {
                 self.screen_shake = self.screen_shake.max(8.0);
                 let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
                 self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 8.0 * 60.0;
-                let _ = self.sounds.upgrade.play_detached(ctx);
+                // upgrade.ogg removed — tiresome and crackly; new sound TBD
             }
         }
 
@@ -10437,7 +10437,7 @@ impl EventHandler for MainState {
                     self.screen_shake = self.screen_shake.max(11.0);
                     let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
                     self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 11.0 * 60.0;
-                    let _ = self.sounds.upgrade.play_detached(ctx);
+                    // upgrade.ogg removed — tiresome and crackly; new sound TBD
                 } else {
                     self.beat_intensity = (self.beat_intensity + 0.6).min(2.0);
                     self.on_beat_flash = self.on_beat_flash.max(0.4);
