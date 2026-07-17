@@ -8,6 +8,7 @@ use ggez::{Context, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 
+use crate::bot::BotState;
 use crate::constants::*;
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
@@ -868,6 +869,10 @@ pub struct MainState {
     pub(crate) perf_last_worst_ms: f32,
     #[cfg(debug_assertions)]
     pub(crate) perf_last_fps: f32,
+
+    // Bot playtest harness: scripted inputs + time acceleration.
+    pub(crate) bot: Option<BotState>,
+    pub(crate) time_scale: f32,
 }
 
 impl MainState {
@@ -1364,6 +1369,8 @@ impl MainState {
             perf_last_worst_ms: 0.0,
             #[cfg(debug_assertions)]
             perf_last_fps: 0.0,
+            bot: None,
+            time_scale: 1.0,
         })
     }
 }

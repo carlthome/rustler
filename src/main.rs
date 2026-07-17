@@ -1,3 +1,4 @@
+mod bot;
 mod constants;
 mod controls;
 mod enemies;
@@ -8705,7 +8706,7 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
-        let mut dt = ctx.time.delta().as_secs_f32();
+        let mut dt = ctx.time.delta().as_secs_f32() * self.time_scale;
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -8767,6 +8768,104 @@ impl EventHandler for MainState {
 
         self.time_elapsed += dt;
         self.time_since_catch += dt;
+
+        // Bot playtest harness tick: fire scripted events, check assertions, exit on completion.
+        if self.bot.is_some() {
+            use crate::bot::{BotAction, BotAssert};
+
+            // Release tap keys from previous frame.
+            let taps: Vec<_> = self
+                .bot
+                .as_mut()
+                .unwrap()
+                .tap_release_queue
+                .drain(..)
+                .collect();
+            for k in taps {
+                self.bot.as_mut().unwrap().keys_held.remove(&k);
+            }
+
+            // Fire all events whose timestamp has arrived.
+            loop {
+                let cursor = self.bot.as_ref().unwrap().cursor;
+                let len = self.bot.as_ref().unwrap().script.len();
+                if cursor >= len {
+                    break;
+                }
+                let ev = self.bot.as_ref().unwrap().script[cursor].clone();
+                if ev.at > self.time_elapsed {
+                    break;
+                }
+                self.bot.as_mut().unwrap().cursor += 1;
+                match ev.action {
+                    BotAction::HoldKey(k) => {
+                        self.bot.as_mut().unwrap().keys_held.insert(k);
+                    }
+                    BotAction::ReleaseKey(k) => {
+                        self.bot.as_mut().unwrap().keys_held.remove(&k);
+                    }
+                    BotAction::TapKey(k) => {
+                        self.bot.as_mut().unwrap().keys_held.insert(k);
+                        self.bot.as_mut().unwrap().tap_release_queue.push(k);
+                        // Fire as a synthetic key-down event for menu/dash/campaign actions.
+                        controls::handle_key_down_event(self, ctx, Some(k));
+                    }
+                    BotAction::MouseMove(p) => {
+                        self.bot.as_mut().unwrap().mouse_pos = p;
+                    }
+                    BotAction::Log(msg) => {
+                        println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
+                    }
+                    BotAction::Assert(check) => {
+                        let ok = match &check {
+                            BotAssert::GameNotOver => !self.game_over,
+                            BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
+                            BotAssert::ScoreAtLeast(n) => self.score >= *n,
+                            BotAssert::ShowWorldMap => self.show_world_map,
+                            BotAssert::TutorialActive => self.tutorial.is_some(),
+                            BotAssert::TutorialDone => {
+                                self.tutorial.is_none() && self.show_world_map
+                            }
+                            BotAssert::InGame => {
+                                !self.show_instructions
+                                    && !self.game_over
+                                    && !self.show_world_map
+                            }
+                        };
+                        if !ok {
+                            let msg = format!(
+                                "ASSERT FAILED at t={:.1}: {:?}",
+                                self.time_elapsed, check
+                            );
+                            println!("FAIL: {}", msg);
+                            self.bot.as_mut().unwrap().failed = Some(msg);
+                            self.bot.as_mut().unwrap().done = true;
+                        }
+                    }
+                }
+            }
+
+            // Check completion / time limit.
+            {
+                let bot = self.bot.as_mut().unwrap();
+                if bot.cursor >= bot.script.len() && !bot.done {
+                    println!("PASS: script complete at t={:.1}", self.time_elapsed);
+                    bot.done = true;
+                }
+                if self.time_elapsed >= bot.time_limit && !bot.done {
+                    println!("FAIL: time limit {:.1}s reached", bot.time_limit);
+                    bot.failed = Some("time limit exceeded".into());
+                    bot.done = true;
+                }
+                if bot.done {
+                    if bot.failed.is_some() {
+                        std::process::exit(1);
+                    } else {
+                        std::process::exit(0);
+                    }
+                }
+            }
+        }
 
         // Weather + day/night ambience. Runs on REAL delta (not the slowmo-dilated dt) so the
         // world clock and weather evolve at a steady wall-clock pace regardless of bullet-time.
@@ -10536,6 +10635,13 @@ impl EventHandler for MainState {
 
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        // Bot mode: skip all rendering to run at maximum speed.
+        if self.bot.is_some() {
+            let mut canvas = Canvas::from_frame(ctx, ggez::graphics::Color::BLACK);
+            canvas.finish(ctx)?;
+            return Ok(());
+        }
+
         let width = self.width;
         let height = self.height;
         let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(100, 200, 100));
@@ -10755,10 +10861,31 @@ fn main() -> GameResult {
         path::PathBuf::from("./resources")
     };
 
+    let args: Vec<String> = std::env::args().collect();
+    let bot_script: Option<String> = args
+        .windows(2)
+        .find(|w| w[0] == "--bot")
+        .map(|w| w[1].clone());
+
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
         .window_mode(WindowMode::default())
         .build()?;
-    let state = MainState::new(&mut ctx)?;
+    let mut state = MainState::new(&mut ctx)?;
+
+    if let Some(ref name) = bot_script {
+        use bot::{BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game};
+        state.time_scale = 8.0;
+        state.bot = Some(match name.as_str() {
+            "menu_to_game" => BotState::new(script_menu_to_game(), 20.0),
+            "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 30.0),
+            "groove_dash" => BotState::new(script_groove_dash(), 10.0),
+            other => {
+                eprintln!("Unknown bot script: {}", other);
+                std::process::exit(1);
+            }
+        });
+    }
+
     event::run(ctx, event_loop, state)
 }

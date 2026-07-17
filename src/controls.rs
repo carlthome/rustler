@@ -11,17 +11,24 @@ pub fn handle_player_movement(
     area: (f32, f32),
 ) {
     let (width, height) = area;
+
+    // Overlay bot synthetic key state if a bot script is running.
+    let bot_up    = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Up));
+    let bot_down  = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Down));
+    let bot_left  = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Left));
+    let bot_right = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Right));
+
     let mut dir = Vec2::ZERO;
-    if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) {
+    if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) || bot_up {
         dir.y -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Down) || ctx.keyboard.is_key_pressed(KeyCode::S) {
+    if ctx.keyboard.is_key_pressed(KeyCode::Down) || ctx.keyboard.is_key_pressed(KeyCode::S) || bot_down {
         dir.y += 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Left) || ctx.keyboard.is_key_pressed(KeyCode::A) {
+    if ctx.keyboard.is_key_pressed(KeyCode::Left) || ctx.keyboard.is_key_pressed(KeyCode::A) || bot_left {
         dir.x -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Right) || ctx.keyboard.is_key_pressed(KeyCode::D) {
+    if ctx.keyboard.is_key_pressed(KeyCode::Right) || ctx.keyboard.is_key_pressed(KeyCode::D) || bot_right {
         dir.x += 1.0;
     }
 
