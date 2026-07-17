@@ -366,8 +366,29 @@ fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
     }
 }
 
+/// Lightweight mastering pass: peak-normalize to -1.5 dBFS then apply a tanh soft-knee
+/// limiter so peaks never clip and simultaneous sounds stay controlled when played together.
+/// Works on any f32 slice; stereo callers should pass both channels concatenated so the
+/// gain decision is made on the combined peak (not per-channel, which would alter panning).
+fn master_limiter(samples: &mut [f32]) {
+    let peak = samples.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+    if peak < 1e-6 {
+        return;
+    }
+    // Target -1.5 dBFS ≈ 0.841 — a hair below full-scale so the tanh knee has room.
+    const TARGET: f32 = 0.841;
+    let gain = TARGET / peak;
+    for s in samples.iter_mut() {
+        // Soft-knee via tanh: transparent below ±TARGET, smoothly compresses above.
+        // tanh(gain·x) / tanh(gain) remaps so x=±peak → ±TARGET exactly.
+        let drive = *s * gain;
+        *s = drive.tanh() / gain.tanh() * TARGET;
+    }
+}
+
 fn samples_to_pcm(samples: &mut [f32], bit_depth: u32, sample_hold: usize) -> Vec<i16> {
     bitcrush(samples, bit_depth, sample_hold);
+    master_limiter(samples);
     samples
         .iter()
         .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
@@ -580,11 +601,29 @@ fn apply_stereo_pan(mono: &[f32], pan_rate_hz: f32) -> (Vec<f32>, Vec<f32>) {
 /// 16-bit PCM), mirroring `encode_wav_mono16` but for the panned pad output.
 fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
     let n_frames = left.len().min(right.len());
+    // Normalize both channels together so the gain decision is made on the combined peak,
+    // preserving relative panning while keeping the output at a consistent level.
+    let mut left = left[..n_frames].to_vec();
+    let mut right = right[..n_frames].to_vec();
+    {
+        // Find combined stereo peak so L/R stay in proportion.
+        let peak_l = left.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+        let peak_r = right.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+        let peak = peak_l.max(peak_r);
+        if peak > 1e-6 {
+            const TARGET: f32 = 0.841;
+            let gain = TARGET / peak;
+            for s in left.iter_mut().chain(right.iter_mut()) {
+                let drive = *s * gain;
+                *s = drive.tanh() / gain.tanh() * TARGET;
+            }
+        }
+    }
     let num_channels: u16 = 2;
     let bits_per_sample: u16 = 16;
     let byte_rate = SAMPLE_RATE * num_channels as u32 * (bits_per_sample as u32 / 8);
     let block_align = num_channels * (bits_per_sample / 8);
-    let data_len = (n_frames * 2 * 2) as u32; // frames * channels * bytes-per-sample
+    let data_len = (n_frames * 2 * 2) as u32;
     let riff_len = 36 + data_len;
 
     let mut out = Vec::with_capacity(44 + n_frames * 4);
