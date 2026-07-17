@@ -253,7 +253,10 @@ so that future feature agents spend their token budget on game logic, not on nav
 thousands-of-lines files.
 
 Guidelines:
-- No file should be much more than 500 lines. Flag anything over 800 as a split target.
+- No file should be much more than 500 lines. Files over 800 need splitting. Files over 3000 lines
+  are an **active crisis**: they get top priority every single run until they're under 2000 lines.
+  Right now `src/main.rs` (10k+ lines) and `src/graphics.rs` (7k+ lines) are both in crisis —
+  prioritise them above everything else until they come down.
 - DRY only where it costs you nothing: don't create abstractions that require understanding the
   abstraction before the thing it abstracts. Prefer readable duplication over confusing unification.
 - Never change observable game behaviour. This is pure structural work — same binary, cleaner source.
@@ -262,9 +265,14 @@ Guidelines:
 Steps:
 1. `git -C . pull --ff-only`
 2. Check line counts: `wc -l ./src/*.rs`
-3. Read the top of the largest file(s) to understand structure
-4. Pick ONE refactor: split a file at a clean semantic boundary, or extract a group of related
-   helper functions into a new module. Don't do multiple splits in one run.
+3. For each file over 1000 lines, get a structural map before reading anything:
+   `grep -n "^pub fn \|^fn \|^impl \|^pub struct \|^struct \|^pub enum \|^mod " src/<file>.rs | head -80`
+   This reveals semantic clusters far faster than reading top-to-bottom, and is the only practical
+   discovery method for files over 5000 lines. Look for a cohesive cluster of 300–800 lines
+   (a struct + its impls, a group of related helpers, a distinct subsystem) that belongs in its own module.
+4. Pick ONE extraction: move that cluster into a new `src/<module>.rs` file and wire up the `mod`/`use`
+   declarations. Don't do multiple splits in one run, but make each split count — aim for 300–600 lines
+   extracted, not a trivial 50-line helper.
 5. Implement it. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix errors, rebuild until clean
 7. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
