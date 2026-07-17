@@ -18,7 +18,8 @@ thread_local! {
 
     pub static DEBUG_TEXT_CACHE: RefCell<Option<(&'static str, i32, Text)>> = RefCell::new(None);
 
-    pub static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    pub static DASH_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    pub static SPRINT_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
     pub static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
     pub static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
 

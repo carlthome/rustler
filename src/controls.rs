@@ -1,4 +1,5 @@
 use crate::MainState;
+use crate::{SPRINT_SPEED_MULT, SPRINT_STAMINA_DRAIN_PER_SEC, SPRINT_STAMINA_MAX, SPRINT_STAMINA_REGEN_PER_SEC};
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::input::keyboard::KeyCode;
@@ -32,6 +33,13 @@ pub fn handle_player_movement(
         dir.x += 1.0;
     }
 
+    let sprint_held = ctx.keyboard.is_key_pressed(KeyCode::LShift)
+        || ctx.keyboard.is_key_pressed(KeyCode::RShift);
+    let sprinting = sprint_held
+        && dir != Vec2::ZERO
+        && state.boost_timer <= 0.0
+        && state.sprint_stamina > 0.0;
+
     // Increase player speed and speed boost based on score.
     let base_speed = speed * (1.0 + state.score as f32 * 0.1) * state.speed_mult;
     let speed_boost_multiplier = 30.0 + state.score as f32 * 0.2;
@@ -62,6 +70,11 @@ pub fn handle_player_movement(
         let handling = (1.0 / (1.0 + weight * 0.035)).max(0.55);
         move_speed *= handling;
         acceleration *= handling;
+    }
+
+    if sprinting {
+        move_speed *= SPRINT_SPEED_MULT;
+        acceleration *= 1.2;
     }
 
     // Biome terrain: the same patch geometry means different things per zone (see levels.rs).
@@ -119,6 +132,13 @@ pub fn handle_player_movement(
     // Apply speed limit to player velocity.
     if state.player_vel.length() > move_speed {
         state.player_vel = state.player_vel.normalize() * move_speed;
+    }
+
+    if sprinting {
+        state.sprint_stamina = (state.sprint_stamina - SPRINT_STAMINA_DRAIN_PER_SEC * dt).max(0.0);
+    } else {
+        state.sprint_stamina = (state.sprint_stamina + SPRINT_STAMINA_REGEN_PER_SEC * dt)
+            .min(SPRINT_STAMINA_MAX);
     }
 
     // Update player position with velocity and clamp to screen bounds.
@@ -205,6 +225,10 @@ pub fn handle_key_down_event(
                 }
                 _ => {}
             }
+        } else if key == KeyCode::M {
+            // M toggles music mute (beats stay, music pauses)
+            state.music_muted = !state.music_muted;
+            return true;
         } else if state.show_instructions {
             // Escape: from Loadout go back to Home; from Home do nothing (use Quit button).
             if key == KeyCode::Escape {

@@ -5485,6 +5485,7 @@ impl MainState {
         self.run_is_new_best = false;
         self.boost_timer = 0.0;
         self.boost_cooldown = 0.0;
+        self.sprint_stamina = SPRINT_STAMINA_MAX;
         self.current_level = 0;
         self.current_pattern = 0;
         self.start_current_pattern((width, height));
@@ -6575,7 +6576,7 @@ impl MainState {
             );
         });
 
-        // Draw stamina bar for boost timer/cooldown
+        // Draw dash bar for boost timer/cooldown.
         let bar_x = 10.0;
         let bar_y = 50.0;
         let bar_width = 220.0;
@@ -6627,10 +6628,10 @@ impl MainState {
 
         // Draw label (static text — build once and reuse forever, same pattern as the HUD/level
         // label caches above).
-        STAMINA_LABEL_CACHE.with(|c| {
+        DASH_LABEL_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                *cache = Some(Text::new("Stamina (Space)"));
+                *cache = Some(Text::new("Dash (Space)"));
             }
             canvas.draw(
                 cache.as_ref().unwrap(),
@@ -6640,8 +6641,49 @@ impl MainState {
             );
         });
 
+        // Draw sprint stamina bar for held Shift sprinting.
+        let sprint_y = bar_y + bar_height + 12.0;
+        let sprint_height = 12.0;
+        let sprint_ratio = (self.sprint_stamina / SPRINT_STAMINA_MAX).clamp(0.0, 1.0);
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, sprint_y))
+                .scale(Vec2::new(bar_width, sprint_height))
+                .color(Color::from_rgb(32, 44, 40)),
+        );
+        if sprint_ratio > 0.0 {
+            let sprint_color = Color::from_rgb(70, 220, 150);
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, sprint_y))
+                    .scale(Vec2::new(bar_width * sprint_ratio, sprint_height))
+                    .color(sprint_color),
+            );
+        }
+        let sprint_border = cached_stroke_rect(ctx, bar_width, sprint_height, 2.0)?;
+        canvas.draw(
+            &sprint_border,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, sprint_y))
+                .color(Color::from_rgb(220, 255, 240)),
+        );
+        SPRINT_LABEL_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                *cache = Some(Text::new("Sprint (Shift)"));
+            }
+            canvas.draw(
+                cache.as_ref().unwrap(),
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, sprint_y - 20.0))
+                    .color(Color::from_rgb(220, 255, 240)),
+            );
+        });
+
         // Whistle cooldown bar (E) — fills back up to amber as it recharges, ready when full.
-        let wbar_y = bar_y + bar_height + 26.0;
+        let wbar_y = sprint_y + sprint_height + 18.0;
         let wbar_h = 12.0;
         let ready = self.whistle_cooldown <= 0.0;
         let charge = (1.0 - self.whistle_cooldown / self.whistle_cooldown_dur()).clamp(0.0, 1.0);
@@ -10609,12 +10651,19 @@ impl EventHandler for MainState {
 
         // Scale music volume with intensity
         // (action_music gets louder, layers fade in)
-        let base_vol = 0.25 + self.music_intensity * 0.75;
+        // If music is muted, set all music volumes to 0; otherwise use normal intensity curve
+        let base_vol = if self.music_muted {
+            0.0
+        } else {
+            0.25 + self.music_intensity * 0.75
+        };
         self.sounds.action_music.set_volume(base_vol);
         let layer_count = self.music_layers.len();
         for (i, layer) in self.music_layers.iter_mut().enumerate() {
             let threshold = (i + 1) as f32 / (layer_count + 1) as f32;
-            let vol = if self.music_intensity > threshold {
+            let vol = if self.music_muted {
+                0.0
+            } else if self.music_intensity > threshold {
                 ((self.music_intensity - threshold) * 2.0).min(1.0)
             } else {
                 0.0

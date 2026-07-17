@@ -268,6 +268,7 @@ pub struct MainState {
     pub(crate) time_since_catch: f32,                     // Time since last crab was caught
     pub(crate) boost_timer: f32,                          // Timer for speed boost
     pub(crate) boost_cooldown: f32,                       // Cooldown to prevent holding space
+    pub(crate) sprint_stamina: f32,                       // Shift sprint meter: drains while sprinting, refills after
     pub(crate) levels: Vec<Level>,                        // List of levels with patterns
     pub(crate) current_level: usize,                      // Current level index
     pub(crate) current_pattern: usize,                    // Current pattern index within the level
@@ -365,6 +366,7 @@ pub struct MainState {
     // repeat. `groove_full_flash` is the one-shot celebration timer it lights.
     pub(crate) groove_was_full: bool,
     pub(crate) groove_full_flash: f32,
+    pub(crate) music_muted: bool,                  // Whether music playback is muted (M key toggle)
     pub(crate) music_layers: Vec<Source>,
     pub(crate) catch_radius_upgrade: f32,
     // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
@@ -1149,6 +1151,7 @@ impl MainState {
             time_since_catch: 0.0,
             boost_timer: 0.0,
             boost_cooldown: 0.0,
+            sprint_stamina: SPRINT_STAMINA_MAX,
             levels,
             current_level: 0,
             current_pattern: 0,
@@ -1199,6 +1202,7 @@ impl MainState {
             gamble_bank_pulse: 0.0,
             groove_was_full: false,
             groove_full_flash: 0.0,
+            music_muted: false,
             groove: 0.0,
             beat_streak: 0,
             perfect_streak: 0,
