@@ -300,7 +300,7 @@ fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
     for (i, s) in samples.iter_mut().enumerate() {
         if i % hold == 0 {
             // Quantize to `levels` steps across -1..1.
-            held_value = (*s * levels * 0.5).round() / (levels * 0.5);
+            held_value = (s.clamp(-1.0, 1.0) * levels * 0.5).round() / (levels * 0.5);
         }
         *s = held_value;
     }
@@ -326,8 +326,9 @@ fn compress(samples: &mut [f32], threshold: f32, ratio: f32, attack_s: f32, rele
         envelope = coeff * envelope + (1.0 - coeff) * input_level;
 
         if envelope > threshold {
-            let over_db_ratio = envelope / threshold;
-            let reduced_ratio = over_db_ratio.powf(1.0 / ratio - 1.0);
+            // Linear amplitude ratio (not decibels) of how far the envelope sits above threshold.
+            let over_threshold_ratio = envelope / threshold;
+            let reduced_ratio = over_threshold_ratio.powf(1.0 / ratio - 1.0);
             *s *= reduced_ratio;
         }
     }
@@ -337,11 +338,14 @@ fn compress(samples: &mut [f32], threshold: f32, ratio: f32, attack_s: f32, rele
 /// `tanh` for a touch of warm saturation. Run this last, after any compression, so the final
 /// output uses the available headroom without harsh digital clipping.
 fn normalize_and_saturate(samples: &mut [f32], target_peak: f32) {
+    // Slight overdrive before the tanh soft-clip so the curve's knee rounds off the loudest
+    // peaks a touch (warmth/drive), instead of leaving `tanh` almost linear near the target peak.
+    const SATURATION_OVERDRIVE: f32 = 1.15;
     let peak = samples.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
     if peak > 0.0001 {
         let gain = target_peak / peak;
         for s in samples.iter_mut() {
-            *s = (*s * gain * 1.15).tanh();
+            *s = (*s * gain * SATURATION_OVERDRIVE).tanh();
         }
     }
 }
