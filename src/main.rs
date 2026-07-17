@@ -8809,10 +8809,15 @@ impl EventHandler for MainState {
                 t.pass_glow = (t.pass_glow + real_dt * 2.5).min(1.0);
                 t.exit_timer = (t.exit_timer - real_dt).max(0.0);
                 if t.exit_timer <= 0.0 {
-                    // Opt-in exit: back to the title screen, never through game_over, so this
-                    // teaching run leaves the persistent career untouched.
+                    // Opt-in exit: if we got here from a campaign world-map node, return to the
+                    // map so the player can pick the next node. Otherwise go back to the title
+                    // screen. Either way we never touch game_over, so the career is untouched.
                     self.tutorial = None;
-                    self.show_instructions = true;
+                    if self.in_campaign {
+                        self.return_to_world_map();
+                    } else {
+                        self.show_instructions = true;
+                    }
                 }
             } else if t.passed() {
                 // Latch the win exactly once: celebrate, then start the return countdown.
@@ -10558,6 +10563,9 @@ impl EventHandler for MainState {
         if self.show_world_map {
             if let Some(map) = &self.world_map {
                 self.sounds.action_music.pause();
+                if self.sounds.outro_music.playing() {
+                    self.sounds.outro_music.pause();
+                }
                 if !self.sounds.intro_music.playing() {
                     self.sounds.intro_music.play(ctx)?;
                 }
@@ -10571,6 +10579,9 @@ impl EventHandler for MainState {
             if self.sounds.outro_music.playing() {
                 self.sounds.outro_music.pause();
             }
+            if self.sounds.action_music.playing() {
+                self.sounds.action_music.pause();
+            }
             if !self.sounds.intro_music.playing() {
                 self.sounds.intro_music.play(ctx)?;
             }
@@ -10579,6 +10590,10 @@ impl EventHandler for MainState {
             return Ok(());
         } else if self.pending_upgrade {
             self.sounds.action_music.pause();
+            // Reset to screen space (the canvas may still hold the camera-offset world rect from
+            // the set_screen_coordinates call above). Upgrade cards are laid out in [0, width] x
+            // [0, height] so they need a clean viewport origin.
+            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
             self.draw_upgrade_screen(ctx, &mut canvas)?;
             canvas.finish(ctx)?;
             return Ok(());
