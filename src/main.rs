@@ -31,6 +31,16 @@ thread_local! {
     static CENTERPIECE_OUT_BUF: RefCell<Vec<usize>> = RefCell::new(Vec::new());
 }
 
+pub(crate) fn normalize_player_name(name: &str) -> String {
+    let cleaned: String = name.chars().filter(|ch| !ch.is_control()).take(24).collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "Crabby".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 use ggez::audio::SoundSource;
 use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
@@ -44,6 +54,10 @@ use spawnings::SpawnPattern;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
+use crate::hud_cache::{
+    CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
+    MENU_TITLE_CACHE, MENU_TITLE_CHARS_CACHE, PLAYER_NAME_CACHE,
+};
 use crate::graphics::{
     LassoDrawPhase, cached_stroke_rect, draw_ambient_motes, draw_armor_ring,
     draw_attracted_crab_glow, draw_beat_indicator, draw_beat_wave_ring, draw_boss_fissures,
@@ -5483,7 +5497,7 @@ impl MainState {
         let _ = fs::write(
             "career.txt",
             format!(
-                "{} {} {} {} {} {} {} {}\n{}",
+                "{} {} {} {} {} {} {} {}\n{}\nname {}",
                 self.career_best_score,
                 self.career_total_score,
                 self.career_runs,
@@ -5493,8 +5507,23 @@ impl MainState {
                 self.start_whistle_rank,
                 self.start_stomp_rank,
                 self.player_skin.to_save_line(),
+                crate::normalize_player_name(&self.player_name),
             ),
         );
+    }
+
+    fn push_player_name_char(&mut self, ch: char) {
+        let mut name = self.player_name.clone();
+        name.push(ch);
+        self.player_name = crate::normalize_player_name(&name);
+        self.save_career();
+    }
+
+    fn pop_player_name_char(&mut self) {
+        let mut name = self.player_name.clone();
+        name.pop();
+        self.player_name = crate::normalize_player_name(&name);
+        self.save_career();
     }
 
     /// Title-screen skin picker: step the option in the currently focused cosmetic column
@@ -5753,6 +5782,7 @@ impl MainState {
             self.world_map = Some(WorldMap::new());
         }
         self.show_instructions = false;
+        self.show_how_to_play_text = false;
         self.show_world_map = true;
         self.game_over = false;
         self.in_campaign = false;
@@ -5834,6 +5864,7 @@ impl MainState {
         self.wave_armed = false;
         self.wave_telegraph = 0.0;
         self.show_instructions = false;
+        self.show_how_to_play_text = false;
         self.game_over = false;
         self.tutorial = Some(Tutorial::new(kind));
     }
@@ -5845,6 +5876,42 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> GameResult {
+        if self.show_how_to_play_text {
+            let mut title = Text::new("HOW TO PLAY");
+            title.set_scale(56.0);
+            let title_w = title.measure(ctx)?.x;
+            canvas.draw(
+                &title,
+                DrawParam::default()
+                    .dest(Vec2::new((width - title_w) * 0.5, height * 0.12))
+                    .color(Color::from_rgb(235, 235, 220)),
+            );
+
+            let body = [
+                "1. Move with WASD or arrow keys.",
+                "2. Keep crabs inside your flashlight beam.",
+                "3. Catch crabs on the beat for better rewards.",
+                "4. Bring caught crabs to the pen to bank points.",
+                "5. Avoid losing your train before banking.",
+                "",
+                "Controls:",
+                "- Space: dash",
+                "- Left click hold/release: lasso",
+                "- X: stomp, Z: whistle, C: cycle",
+                "",
+                "Press Enter, Space, or Esc to go back.",
+            ]
+            .join("\n");
+            let mut text = Text::new(body);
+            text.set_scale(28.0);
+            canvas.draw(
+                &text,
+                DrawParam::default()
+                    .dest(Vec2::new(width * 0.16, height * 0.27))
+                    .color(Color::from_rgb(215, 215, 215)),
+            );
+            return Ok(());
+        }
         menu::draw_menu(self, ctx, canvas, width, height)
     }
 
@@ -6492,6 +6559,38 @@ impl MainState {
             self.player_skin,
         )?;
 
+        let player_name = crate::normalize_player_name(&self.player_name);
+        let player_name_w = PLAYER_NAME_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = cache.as_ref().map_or(true, |(name, _, _)| name != &player_name);
+            if needs_rebuild {
+                let mut text = Text::new(player_name.as_str());
+                text.set_scale(16.0);
+                let w = text.measure(ctx)?.x;
+                *cache = Some((player_name.clone(), text, w));
+            }
+            Ok(cache.as_ref().unwrap().2)
+        })?;
+        PLAYER_NAME_CACHE.with(|c| {
+            let cache = c.borrow();
+            if let Some((_, text, _)) = cache.as_ref() {
+                let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+                let name_pos = player_center - Vec2::new(player_name_w / 2.0, 42.0);
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(name_pos + Vec2::splat(1.5))
+                        .color(Color::from_rgba(0, 0, 0, 180)),
+                );
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(name_pos)
+                        .color(Color::new(0.96, 0.82, 0.3, 0.95)),
+                );
+            }
+        });
+
         let sprinting = (ctx.keyboard.is_key_pressed(KeyCode::LShift)
             || ctx.keyboard.is_key_pressed(KeyCode::RShift))
             && self.sprint_stamina > 0.0
@@ -6502,7 +6601,14 @@ impl MainState {
         if sprinting && self.last_dir.length() > 0.01 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             let intensity = (self.sprint_stamina / SPRINT_STAMINA_MAX).clamp(0.25, 1.0);
-            draw_sprint_whoosh(ctx, canvas, center, self.last_dir, intensity)?;
+            draw_sprint_whoosh(
+                ctx,
+                canvas,
+                center,
+                self.last_dir,
+                self.time_elapsed,
+                intensity,
+            )?;
         }
 
         // Speed lines trailing behind player while dashing. Uses the cached unit-line mesh
@@ -9538,6 +9644,7 @@ impl EventHandler for MainState {
                         self.return_to_world_map();
                     } else {
                         self.show_instructions = true;
+                        self.show_how_to_play_text = false;
                     }
                 }
             } else if t.passed() {
@@ -11468,6 +11575,17 @@ impl EventHandler for MainState {
         }
         if handle_key_down_event(self, ctx, input.keycode) {
             return Ok(());
+        }
+        Ok(())
+    }
+
+    fn text_input_event(&mut self, _ctx: &mut Context, character: char) -> GameResult {
+        if self.show_instructions && !self.show_world_map && !self.game_over && !self.pending_upgrade {
+            if self.menu_page == 1 && !character.is_control() {
+                if self.player_name.chars().count() < 24 {
+                    self.push_player_name_char(character);
+                }
+            }
         }
         Ok(())
     }

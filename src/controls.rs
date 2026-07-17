@@ -244,6 +244,7 @@ pub fn handle_key_down_event(
                 KeyCode::Escape => {
                     state.show_world_map = false;
                     state.show_instructions = true;
+                    state.show_how_to_play_text = false;
                     return true;
                 }
                 _ => {}
@@ -253,6 +254,14 @@ pub fn handle_key_down_event(
             state.music_muted = !state.music_muted;
             return true;
         } else if state.show_instructions {
+            // While the plain-text How To Play card is open, any confirm/back key returns to Home.
+            if state.show_how_to_play_text {
+                if matches!(key, KeyCode::Escape | KeyCode::Space | KeyCode::Return) {
+                    state.show_how_to_play_text = false;
+                    state.menu_page = 0;
+                }
+                return true;
+            }
             // Escape: from Loadout go back to Home; from Home do nothing (use Quit button).
             if key == KeyCode::Escape {
                 if state.menu_page == 1 {
@@ -260,14 +269,15 @@ pub fn handle_key_down_event(
                     return true;
                 }
             }
-            // Tab: on Home page, open the Loadout page. On Loadout, cycle the skin slot.
+            // Tab: on Loadout, cycle the skin slot.
             if key == KeyCode::Tab {
-                if state.menu_page == 0 {
-                    state.menu_page = 1;
-                    state.menu_selection = 0;
-                } else {
+                if state.menu_page == 1 {
                     state.skin_slot = (state.skin_slot + 1) % 3;
+                    return true;
                 }
+            }
+            if state.menu_page == 1 && key == KeyCode::Back {
+                state.pop_player_name_char();
                 return true;
             }
             // Home page: Up/Down navigate, Space/Enter activates.
@@ -287,6 +297,7 @@ pub fn handle_key_down_event(
                         match state.menu_selection {
                             0 => {
                                 state.show_instructions = false;
+                                state.show_how_to_play_text = false;
                             } // Play
                             1 => {
                                 state.enter_world_map();
@@ -294,10 +305,12 @@ pub fn handle_key_down_event(
                             2 => {
                                 state.menu_page = 1;
                                 state.menu_selection = 0;
+                                state.show_how_to_play_text = false;
                             } // Loadout
                             3 => {
-                                state.enter_world_map();
-                            } // How to Play (same as Campaign for now)
+                                state.show_how_to_play_text = true;
+                                state.menu_page = 0;
+                            } // How to Play
                             4 => {
                                 ctx.request_quit();
                             } // Quit
@@ -464,6 +477,7 @@ pub fn handle_key_down_event(
                     // quitting the game — and never through game_over, so career stats stay clean.
                     state.tutorial = None;
                     state.show_instructions = true;
+                    state.show_how_to_play_text = false;
                 } else {
                     ctx.request_quit();
                 }
