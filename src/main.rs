@@ -9961,7 +9961,11 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
-        let mut dt = ctx.time.delta().as_secs_f32() * self.time_scale;
+        // Clamp raw delta before scaling to prevent a large first-frame hitch (shader compile,
+        // audio decode, BPM detection) from collapsing the bot script's timed hold/release
+        // sequence — and to guard against the general "spiral of death" when the game falls behind.
+        // update_weather uses its own raw delta below and is deliberately left unclamped.
+        let mut dt = ctx.time.delta().as_secs_f32().min(0.1) * self.time_scale;
 
         // Clear strong-match hit buffers so draw_game sees only THIS frame's events.
         self.beam_hermit_hits_buf.clear();
