@@ -949,6 +949,10 @@ pub struct MainState {
     pub(crate) whistle_dancer_hits_buf: Vec<Vec2>,
     pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
+    // Positions where a lasso throw landed on a still-shelled crab (Armored / shelled Hermit) and
+    // the loop slipped straight off — a WRONG-TOOL tell. Mirrors the beam/Hermit amber "can't-crack"
+    // cue: teaches "crack the shell first (Stomp), then lasso" instead of failing silently.
+    pub(crate) lasso_shell_deflect_hits_buf: Vec<Vec2>,
     pub(crate) magnet_cluster_hits_buf: Vec<Vec2>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
@@ -1546,6 +1550,7 @@ impl MainState {
             whistle_dancer_hits_buf: Vec::new(),
             lasso_thief_hits_buf: Vec::new(),
             lasso_magnet_hits_buf: Vec::new(),
+            lasso_shell_deflect_hits_buf: Vec::new(),
             magnet_cluster_hits_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),

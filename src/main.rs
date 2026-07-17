@@ -107,7 +107,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match, draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -6895,6 +6895,9 @@ impl MainState {
         if !self.lasso_magnet_hits_buf.is_empty() {
             draw_lasso_magnet_match(ctx, canvas, &self.lasso_magnet_hits_buf)?;
         }
+        if !self.lasso_shell_deflect_hits_buf.is_empty() {
+            draw_lasso_shell_deflect(ctx, canvas, &self.lasso_shell_deflect_hits_buf)?;
+        }
         if !self.magnet_cluster_hits_buf.is_empty() {
             draw_magnet_cluster_pull(ctx, canvas, &self.magnet_cluster_hits_buf)?;
         }
@@ -9965,6 +9968,7 @@ impl EventHandler for MainState {
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();
+        self.lasso_shell_deflect_hits_buf.clear();
         self.magnet_cluster_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
@@ -11767,6 +11771,20 @@ impl EventHandler for MainState {
                             self.lasso_pos = Some(self.lasso_target);
                             self.lasso_phase = LassoPhase::Miss;
                             self.lasso_timer = LASSO_MISS_TIME;
+                            // WRONG-TOOL tell: if the loop actually landed *on* a still-shelled crab
+                            // (Armored, or a Hermit with its borrowed shell up), the shell slipped it
+                            // off — that's the "lasso slips off Armored" rule (enemies.rs). Without a
+                            // cue this reads as a plain whiff; flag it so draw_lasso_shell_deflect can
+                            // flash a hard grey-steel ricochet, teaching "crack the shell first (Stomp),
+                            // then lasso." Mirrors the beam/Hermit amber can't-crack cue.
+                            for c in self.crabs.iter() {
+                                if c.boss_health > 0.0
+                                    && (c.is_armored() || c.is_shelled_hermit())
+                                    && tip.distance(c.pos) < grab_r
+                                {
+                                    self.lasso_shell_deflect_hits_buf.push(c.pos);
+                                }
+                            }
                         } else {
                             // Snag: loop tightens/squeezes before dragging.
                             self.lasso_pos = Some(self.lasso_target);

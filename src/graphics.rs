@@ -8220,6 +8220,42 @@ pub fn draw_lasso_magnet_match(
     Ok(())
 }
 
+/// Hard grey-steel ricochet burst when a lasso throw lands on a still-shelled crab (Armored /
+/// shelled Hermit) and the loop slips straight off. This is a WRONG-TOOL "denied" cue — the mirror
+/// of the additive-glow strong-match tells: instead of a warm bloom that says "yes, this pairing
+/// works," it reads as a cold, hard deflection that says "no, crack the shell first (Stomp), then
+/// lasso." Deliberately styled differently — a tight ring plus outward ricochet ticks — so the
+/// player instantly distinguishes "wrong tool" from a plain empty whiff. No scolding "X" mark: like
+/// the amber beam/Hermit cue it says "try another tool," not "WRONG" (teach, don't punish).
+pub fn draw_lasso_shell_deflect(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        // Non-additive so it reads as a hard, matte deflection rather than a glowing "hit."
+        // Tight steel ring — the loop bouncing off the shell.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(30.0))
+            .color(Color::new(0.72, 0.76, 0.82, 0.55)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(22.0))
+            .color(Color::new(0.20, 0.22, 0.26, 0.80)));
+        // 6 short ricochet ticks flying outward — the rope snapping back off the shell.
+        for i in 0..6u32 {
+            let angle = i as f32 * std::f32::consts::PI / 3.0 + 0.5;
+            let inner = 24.0_f32;
+            let len = 12.0_f32;
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * (inner + len * 0.5);
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 2.6))
+                .rotation(angle).offset(Vec2::new(0.5, 0.5))
+                .color(Color::new(0.80, 0.83, 0.88, 0.70)));
+        }
+    }
+    Ok(())
+}
+
 pub fn draw_magnet_cluster_pull(
     ctx: &mut Context,
     canvas: &mut Canvas,
