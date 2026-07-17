@@ -8182,3 +8182,174 @@ pub fn draw_day_weather_hud(
     }
     Ok(())
 }
+
+/// Compact tool roster at the bottom centre — shows each tool's key, name, matchup hint, and
+/// cooldown bar so the player always knows what's ready and what each key does.
+pub fn draw_tool_roster(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    // Cooldowns (0 = ready, >0 = on cooldown)
+    whistle_cd: f32,
+    whistle_max: f32,
+    stomp_cd: f32,
+    stomp_max: f32,
+    boost_cd: f32,       // dash cooldown
+    lasso_busy: bool,    // true when lasso is in flight/dragging
+    // Groove/G state
+    groove: f32,         // 0..1 groove meter level (for V/G readiness hint)
+    time: f32,
+) -> ggez::GameResult {
+    struct ToolSlot {
+        key: &'static str,
+        name: &'static str,
+        hint: &'static str,
+        color: [f32; 3],
+        cooldown_ratio: f32,
+    }
+
+    let whistle_max_safe = if whistle_max <= 0.0 { 1.0 } else { whistle_max };
+    let stomp_max_safe   = if stomp_max   <= 0.0 { 1.0 } else { stomp_max };
+    let groove_clamped   = groove.clamp(0.0, 1.0);
+    let groove_hint: &str = if groove_clamped >= 0.75 { "SLAM ready!" } else { "need groove" };
+
+    let slots = [
+        ToolSlot { key: "click",  name: "LASSO",   hint: "snags Thieves", color: [0.3, 0.85, 0.45], cooldown_ratio: if lasso_busy { 0.6 } else { 0.0 } },
+        ToolSlot { key: "E",      name: "WHISTLE",  hint: "pulls Dancers",  color: [0.4, 0.85, 1.0],  cooldown_ratio: (whistle_cd / whistle_max_safe).clamp(0.0, 1.0) },
+        ToolSlot { key: "R",      name: "STOMP",    hint: "cracks shells",  color: [0.6, 0.7, 1.0],   cooldown_ratio: (stomp_cd   / stomp_max_safe).clamp(0.0, 1.0) },
+        ToolSlot { key: "Space",  name: "DASH",     hint: "on beat = +",    color: [1.0, 0.9, 0.5],   cooldown_ratio: (boost_cd   / 0.08_f32).clamp(0.0, 1.0) },
+        ToolSlot { key: "V · G", name: "GROOVE",   hint: groove_hint,      color: [0.45, 1.0, 0.85], cooldown_ratio: 1.0 - groove_clamped },
+    ];
+
+    let slot_w: f32 = 88.0;
+    let slot_h: f32 = 52.0;
+    let slot_gap: f32 = 6.0;
+    let total_w = 5.0 * slot_w + 4.0 * slot_gap;
+    let x0 = (width - total_w) / 2.0;
+    let y0 = height - slot_h - 10.0;
+
+    let sq = unit_square(ctx)?;
+
+    for (i, slot) in slots.iter().enumerate() {
+        let sx = x0 + i as f32 * (slot_w + slot_gap);
+        let sy = y0;
+        let ready = slot.cooldown_ratio < 0.05;
+
+        // Slot background — dark rounded rect
+        let bg_rect = Rect::new(sx, sy, slot_w, slot_h);
+        let border_color = if ready {
+            Color::from_rgba(
+                (slot.color[0] * 180.0) as u8,
+                (slot.color[1] * 180.0) as u8,
+                (slot.color[2] * 180.0) as u8,
+                200,
+            )
+        } else {
+            Color::from_rgba(60, 65, 90, 160)
+        };
+        let bg_mesh = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::fill(),
+            bg_rect,
+            5.0,
+            Color::from_rgba(10, 14, 30, 180),
+        )?;
+        canvas.draw(&bg_mesh, DrawParam::default());
+        let border_mesh = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::stroke(1.5),
+            bg_rect,
+            5.0,
+            border_color,
+        )?;
+        canvas.draw(&border_mesh, DrawParam::default());
+
+        // Key label — small, top-left
+        let mut key_text = Text::new(slot.key);
+        key_text.set_scale(12.0);
+        canvas.draw(
+            &key_text,
+            DrawParam::default()
+                .dest(Vec2::new(sx + 4.0, sy + 3.0))
+                .color(Color::from_rgba(200, 200, 200, 180)),
+        );
+
+        // Tool name — centred, accent color, slight pulse when ready
+        let pulse = if ready {
+            (time * 4.0).sin() * 0.5 + 0.5
+        } else {
+            0.75
+        };
+        let [r, g, b] = slot.color;
+        let name_color = Color::new(r * pulse, g * pulse, b * pulse, 1.0);
+        let mut name_text = Text::new(slot.name);
+        name_text.set_scale(14.0);
+        let name_x = sx + slot_w / 2.0 - (slot.name.len() as f32 * 4.2);
+        canvas.draw(
+            &name_text,
+            DrawParam::default()
+                .dest(Vec2::new(name_x.max(sx + 2.0), sy + 17.0))
+                .color(name_color),
+        );
+
+        // Hint text — tiny, dim white, below name
+        let mut hint_text = Text::new(slot.hint);
+        hint_text.set_scale(11.0);
+        let hint_x = sx + slot_w / 2.0 - (slot.hint.len() as f32 * 3.2);
+        canvas.draw(
+            &hint_text,
+            DrawParam::default()
+                .dest(Vec2::new(hint_x.max(sx + 2.0), sy + 33.0))
+                .color(Color::from_rgba(200, 200, 200, 140)),
+        );
+
+        // Cooldown / fill bar — 4px tall strip at bottom of slot, inset 4px each side
+        let bar_x = sx + 4.0;
+        let bar_y = sy + slot_h - 8.0;
+        let bar_w = slot_w - 8.0;
+        let bar_h = 4.0;
+
+        // Background track
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(bar_x, bar_y))
+                .scale(Vec2::new(bar_w, bar_h))
+                .color(Color::from_rgba(20, 20, 40, 200)),
+        );
+
+        // Fill — groove slot shows groove level; other slots show readiness
+        let fill_ratio = if slot.name == "GROOVE" {
+            groove_clamped
+        } else {
+            1.0 - slot.cooldown_ratio
+        };
+
+        if fill_ratio > 0.0 {
+            let fill_color = if slot.name == "GROOVE" {
+                if groove_clamped >= 0.75 {
+                    let glow = (time * 6.0).sin() * 0.5 + 0.5;
+                    Color::new(1.0 * (0.7 + glow * 0.3), 0.85 * (0.7 + glow * 0.3), 0.2, 1.0)
+                } else {
+                    Color::new(slot.color[0], slot.color[1], slot.color[2], 0.9)
+                }
+            } else if ready {
+                let glow = (time * 5.0 + i as f32).sin() * 0.5 + 0.5;
+                Color::new(r * (0.8 + glow * 0.2), g * (0.8 + glow * 0.2), b * (0.8 + glow * 0.2), 1.0)
+            } else {
+                Color::new(r * 0.75, g * 0.75, b * 0.75, 0.85)
+            };
+
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, bar_y))
+                    .scale(Vec2::new(bar_w * fill_ratio, bar_h))
+                    .color(fill_color),
+            );
+        }
+    }
+
+    Ok(())
+}
