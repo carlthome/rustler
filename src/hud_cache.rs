@@ -57,6 +57,12 @@ thread_local! {
     /// Cache for the player crab name plate — same shape as the NPC name plate.
     pub static PLAYER_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
 
+    /// Static label caches for the minimap and day/weather HUD — these strings never change
+    /// mid-frame, so building them once and reusing avoids per-frame glyph-shaping passes.
+    pub static MINIMAP_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    pub static WEATHER_PHASE_CACHE: RefCell<Option<(&'static str, Text)>> = RefCell::new(None);
+    pub static WEATHER_STATE_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+
     pub static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2, Option<[f32; 3]>)>> = RefCell::new(Vec::new());
 
     pub static CHAIN_TYPE_BUF: RefCell<Vec<(usize, usize, CrabType, [f32; 3])>> = RefCell::new(Vec::new());

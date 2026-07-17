@@ -8118,9 +8118,15 @@ pub fn draw_minimap(
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y + map_h)).scale(Vec2::new(map_w + 2.0, 1.0)).color(bc));
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x + map_w, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
-    let mut lbl = Text::new("MAP");
-    lbl.set_scale(11.0);
-    canvas.draw(&lbl, DrawParam::default().dest(Vec2::new(map_x, map_y - 13.0)).color(Color::from_rgba(200, 200, 200, 110)));
+    crate::hud_cache::MINIMAP_LABEL_CACHE.with(|c| {
+        let mut slot = c.borrow_mut();
+        if slot.is_none() {
+            let mut t = Text::new("MAP");
+            t.set_scale(11.0);
+            *slot = Some(t);
+        }
+        canvas.draw(slot.as_ref().unwrap(), DrawParam::default().dest(Vec2::new(map_x, map_y - 13.0)).color(Color::from_rgba(200, 200, 200, 110)));
+    });
     Ok(())
 }
 
@@ -8145,9 +8151,15 @@ pub fn draw_day_weather_hud(
     if night > 0.1 {
         canvas.draw(dot, DrawParam::default().dest(Vec2::new(x + 8.0, y + 8.0)).scale(Vec2::splat(7.0 * night)).color(Color::new(0.88, 0.9, 1.0, night * 0.85)));
     }
-    let phase_label = match (day_phase_t * 4.0) as u32 { 0 => "DAWN", 1 => "DAY", 2 => "DUSK", _ => "NIGHT" };
-    let mut pt = Text::new(phase_label); pt.set_scale(10.0);
-    canvas.draw(&pt, DrawParam::default().dest(Vec2::new(x + 20.0, y + 2.0)).color(Color::new(0.85, 0.85, 0.95, 0.7)));
+    let phase_label: &'static str = match (day_phase_t * 4.0) as u32 { 0 => "DAWN", 1 => "DAY", 2 => "DUSK", _ => "NIGHT" };
+    crate::hud_cache::WEATHER_PHASE_CACHE.with(|c| {
+        let mut slot = c.borrow_mut();
+        if slot.as_ref().map_or(true, |(cached, _)| *cached != phase_label) {
+            let mut t = Text::new(phase_label); t.set_scale(10.0);
+            *slot = Some((phase_label, t));
+        }
+        canvas.draw(&slot.as_ref().unwrap().1, DrawParam::default().dest(Vec2::new(x + 20.0, y + 2.0)).color(Color::new(0.85, 0.85, 0.95, 0.7)));
+    });
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w, 3.0)).color(Color::from_rgba(30, 30, 60, 180)));
     let fc = if night > 0.5 { Color::new(0.5, 0.55, 0.9, 0.8) } else if day_phase_t < 0.15 || (day_phase_t > 0.45 && day_phase_t < 0.6) { Color::new(1.0, 0.6, 0.2, 0.8) } else { Color::new(1.0, 0.92, 0.4, 0.8) };
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w * day_phase_t, 3.0)).color(fc));
@@ -8158,8 +8170,15 @@ pub fn draw_day_weather_hud(
             let dy = y + 2.0 + ((time * 3.0 + i as f32 * 0.7).sin() * 3.0).abs();
             canvas.draw(sq, DrawParam::default().dest(Vec2::new(dx, dy)).scale(Vec2::new(2.0, 6.0)).color(Color::new(0.5, 0.7, 1.0, da)));
         }
-        let mut rt = Text::new(if weather_intensity > 0.5 { "STORM" } else { "RAIN" }); rt.set_scale(10.0);
-        canvas.draw(&rt, DrawParam::default().dest(Vec2::new(x + map_w - 38.0, y + 12.0)).color(Color::new(0.6, 0.8, 1.0, da)));
+        let is_storm = weather_intensity > 0.5;
+        crate::hud_cache::WEATHER_STATE_CACHE.with(|c| {
+            let mut slot = c.borrow_mut();
+            if slot.as_ref().map_or(true, |(cached_storm, _)| *cached_storm != is_storm) {
+                let mut t = Text::new(if is_storm { "STORM" } else { "RAIN" }); t.set_scale(10.0);
+                *slot = Some((is_storm, t));
+            }
+            canvas.draw(&slot.as_ref().unwrap().1, DrawParam::default().dest(Vec2::new(x + map_w - 38.0, y + 12.0)).color(Color::new(0.6, 0.8, 1.0, da)));
+        });
     }
     Ok(())
 }

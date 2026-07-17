@@ -374,11 +374,9 @@ pub fn handle_key_down_event(
                     state.dash_flash = 1.0;
                     let center = state.player_pos
                         + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    // On-beat dash → GROOVE DASH: the timed dash isn't just juicier, it *does* more.
-                    // A well-timed dash punches a little farther (longer boost window) and drags a
-                    // gather-wake behind it that sweeps nearby free crabs into your path, so the beat
-                    // becomes a live routing tool in the ordinary stretch between climaxes. Off-beat
-                    // dashes are untouched — still the full-speed escape you fire to shed a charge.
+                    // On-beat dash → GROOVE DASH: punches farther, sweeps nearby crabs into your path.
+                    // Off-beat dash → GROOVE PENALTY: the dash fires, but poor timing bleeds the meter.
+                    // The dash is never blocked (it's still an escape tool) but the rhythm cost is real.
                     let bonus = state.reward_on_beat_tool(center, "GROOVE DASH");
                     if bonus > 1.0 {
                         state.boost_timer = 0.26; // punch a touch farther on the beat
@@ -392,6 +390,17 @@ pub fn handle_key_down_event(
                             state.last_dir.normalize_or_zero()
                         };
                         state.groove_dash_dir = d;
+                    } else {
+                        // Off-beat: bleed groove and reset the beat streak — sloppy rhythm costs something.
+                        state.groove = (state.groove - 0.09).max(0.0);
+                        state.beat_streak = state.beat_streak.saturating_sub(1);
+                        state.shop_denied = state.shop_denied.max(0.35); // red flash so the miss reads
+                        state.floating_texts.spawn(
+                            "off-beat dash".to_string(),
+                            center - Vec2::new(42.0, 60.0),
+                            18.0,
+                            [0.9, 0.4, 0.4, 0.85],
+                        );
                     }
                 }
             }
