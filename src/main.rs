@@ -74,7 +74,7 @@ use crate::graphics::{
     draw_thief_aura, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_wave_telegraph,
     draw_weather, draw_whistle_ring, draw_world_edge, draw_world_map, flush_attracted_crab_glows,
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
-    flush_magnet_auras, unit_circle, unit_square,
+    flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_dancer_match};
 use crate::levels::{TerrainKind, get_levels};
@@ -2051,6 +2051,7 @@ impl MainState {
         // which case prev_tail_type and both head flags all still get set correctly in one pass).
         let tail_ci = self.chain_count.checked_sub(1);
         let mut prev_tail_type: Option<CrabType> = None;
+        let mut prev_tail_pos: Vec2 = Vec2::ZERO;
         let mut head_is_golden = false;
         let mut head_is_dancer = false;
         for c in &self.crabs {
@@ -2069,10 +2070,12 @@ impl MainState {
                     // Could also be the tail if chain_count == 1.
                     if tail_ci == Some(0) {
                         prev_tail_type = Some(c.crab_type);
+                        prev_tail_pos = c.pos;
                     }
                 }
                 Some(ci) if Some(ci) == tail_ci => {
                     prev_tail_type = Some(c.crab_type);
+                    prev_tail_pos = c.pos;
                 }
                 _ => {}
             }
@@ -2123,6 +2126,18 @@ impl MainState {
                 startle_origins.push(shock_pos);
                 any_caught = true;
                 crab.chain_index = Some(self.chain_count);
+                // Bond-forming flash: if this catch links a same-type neighbor, emit a brief
+                // connecting arc so the player sees the bond click into place (legibility of the
+                // arrangement system — makes the chain structure readable in motion).
+                if prev_tail_type == Some(crab.crab_type) && self.chain_count > 0 {
+                    if self.bond_flash_events.len() < 24 {
+                        self.bond_flash_events.push((prev_tail_pos, crab.pos, crab_color, 1.0));
+                    }
+                }
+                // Roll prev_tail forward so the NEXT catch in the same frame (multi-catch) sees
+                // the freshly-linked crab as the tail.
+                prev_tail_type = Some(crab.crab_type);
+                prev_tail_pos = crab.pos;
                 self.chain_count += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
                     || self.beat_timer > self.beat_interval - BEAT_WINDOW;
@@ -3469,14 +3484,15 @@ impl MainState {
         // it tends to escalate, so a run builds from a clear sky toward rain/storm.
         self.weather_step_timer -= dt;
         if self.weather_step_timer <= 0.0 {
-            self.weather_step_timer = rng.random_range(14.0..26.0);
+            // Shorter step interval and stronger escalation so rain/storms appear in playtests.
+            self.weather_step_timer = rng.random_range(8.0..18.0);
             let cur = self.weather_target as i32; // Sunny=0 .. Storm=4
-            // Escalation bias grows through the run: more likely to worsen later on.
-            let escalate_bias = 0.35 + self.day_phase_t * 0.4; // 0.35 → 0.75
+            // Escalation bias starts higher and grows faster — rain is common, storms happen.
+            let escalate_bias = 0.55 + self.day_phase_t * 0.35; // 0.55 → 0.90
             let roll: f32 = rng.random();
             let next = if roll < escalate_bias {
                 cur + 1
-            } else if roll < escalate_bias + 0.30 {
+            } else if roll < escalate_bias + 0.20 {
                 cur - 1
             } else {
                 cur
@@ -5730,10 +5746,11 @@ impl MainState {
         self.downbeat_pull = 0.0;
         self.downbeat_pull_center = Vec2::ZERO;
         self.downbeat_pull_haul = 0.0;
-        // Weather + day/night start calm at the top of every run so nothing bleeds across runs.
-        self.weather_target = WeatherState::Sunny;
+        // Weather starts at a random light state — cloudy or sunny — and escalates from there.
+        // Runs start calm (no heavy rain) but vary each time so weather isn't always invisible.
+        self.weather_target = if rand::rng().random_bool(0.45) { WeatherState::Cloudy } else { WeatherState::Sunny };
         self.weather_intensity = 0.0;
-        self.weather_step_timer = 18.0;
+        self.weather_step_timer = 8.0; // first step soon so weather kicks in early
         self.lightning_flash = 0.0;
         self.lightning_timer = 4.0;
         self.day_phase_t = 0.0;
@@ -6682,6 +6699,49 @@ impl MainState {
             draw_beat_hit_punch(ctx, canvas, pos, color, quality)?;
         }
 
+        // Bond-forming flash arcs: bright connecting flash between newly-bonded same-type neighbors.
+        // Draw the arc using a scaled unit_line between the two positions.
+        {
+            let unit_ln = unit_line(ctx)?;
+            for &(from, to, color, age) in &self.bond_flash_events {
+                let diff = to - from;
+                let len = diff.length();
+                if len < 1.0 { continue; }
+                let angle = diff.y.atan2(diff.x);
+                let alpha = age * 0.85; // fades from 0.85 to 0 as age goes 1→0
+                let thickness = 3.5 * age;
+                // Main arc line
+                canvas.set_blend_mode(BlendMode::ADD);
+                canvas.draw(unit_ln, DrawParam::default()
+                    .dest(from)
+                    .scale(Vec2::new(len, thickness))
+                    .rotation(angle)
+                    .color(Color::new(color[0], color[1], color[2], alpha)));
+                // Bright center spine
+                canvas.draw(unit_ln, DrawParam::default()
+                    .dest(from)
+                    .scale(Vec2::new(len, thickness * 0.4))
+                    .rotation(angle)
+                    .color(Color::new(
+                        (color[0] * 0.5 + 0.5).min(1.0),
+                        (color[1] * 0.5 + 0.5).min(1.0),
+                        (color[2] * 0.5 + 0.5).min(1.0),
+                        alpha * 0.9,
+                    )));
+                // End-caps
+                let dot = unit_circle(ctx)?;
+                canvas.draw(dot, DrawParam::default()
+                    .dest(from)
+                    .scale(Vec2::splat(thickness * 1.8))
+                    .color(Color::new(color[0], color[1], color[2], alpha * 0.8)));
+                canvas.draw(dot, DrawParam::default()
+                    .dest(to)
+                    .scale(Vec2::splat(thickness * 1.8))
+                    .color(Color::new(color[0], color[1], color[2], alpha * 0.8)));
+                canvas.set_blend_mode(BlendMode::ALPHA);
+            }
+        }
+
         // Draw stampede fear rings where catches startled the herd
         draw_fear_rings(ctx, canvas, &self.fear_rings)?;
 
@@ -6944,13 +7004,26 @@ impl MainState {
         )?;
 
         // Minimap — top-right corner, showing the full scrolling world.
+        // Stack-allocate the tiny NPC arrays (≤3 leaders, ≤24 followers) to avoid per-frame heap allocs.
         {
-            let npc_leaders: Vec<(Vec2, f32)> = self.npc_trains.iter().map(|t| (t.leader_pos, t.leader_scale)).collect();
             const MINI_STEPS: usize = 14;
-            let npc_followers: Vec<Vec2> = self.npc_trains.iter().flat_map(|npc| {
-                (0..npc.follower_types.len()).filter_map(move |i| npc.path_history.get((i + 1) * MINI_STEPS).copied())
-            }).collect();
-            draw_minimap(ctx, canvas, width, height, self.world_width, self.world_height, self.camera_origin, self.player_pos, self.pen_pos, &self.crabs, &npc_leaders, &npc_followers, self.time_elapsed)?;
+            let mut leader_buf = [(Vec2::ZERO, 0.0_f32); 8];
+            let leader_n = self.npc_trains.len().min(8);
+            for (i, t) in self.npc_trains.iter().enumerate().take(8) {
+                leader_buf[i] = (t.leader_pos, t.leader_scale);
+            }
+            let mut follower_buf = [Vec2::ZERO; 64];
+            let mut follower_n = 0usize;
+            for npc in &self.npc_trains {
+                for i in 0..npc.follower_types.len() {
+                    if follower_n >= follower_buf.len() { break; }
+                    if let Some(&p) = npc.path_history.get((i + 1) * MINI_STEPS) {
+                        follower_buf[follower_n] = p;
+                        follower_n += 1;
+                    }
+                }
+            }
+            draw_minimap(ctx, canvas, width, height, self.world_width, self.world_height, self.camera_origin, self.player_pos, self.pen_pos, &self.crabs, &leader_buf[..leader_n], &follower_buf[..follower_n], self.time_elapsed)?;
             let map_h = 180.0_f32 * (self.world_height / self.world_width);
             draw_day_weather_hud(ctx, canvas, width, map_h, self.day_phase_t, self.weather_intensity, self.time_elapsed)?;
         }
@@ -11003,6 +11076,12 @@ impl EventHandler for MainState {
         // Beat-hit punch events are single-frame instantaneous flashes — clear at the start of
         // each tick so stale punches from last frame never leak into the draw call.
         self.beat_punch_events.clear();
+
+        // Bond-forming flash arcs: age them out over 0.35 seconds then remove.
+        self.bond_flash_events.retain_mut(|(_, _, _, age)| {
+            *age -= dt * 2.86; // 0.35s lifetime
+            *age > 0.0
+        });
 
         // Advance catch impact shockwaves; a bit faster than ghost rings so they read as a snap
         let shock_speed = 2.6; // age 0..1 in ~0.38 seconds

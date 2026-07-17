@@ -741,6 +741,9 @@ pub struct MainState {
     // Queued beat-hit punch effects — (pos, rgb, beat_quality) — pushed during update when an
     // on-beat catch fires and drained in draw. Cleared at the top of each update tick.
     pub(crate) beat_punch_events: Vec<(Vec2, [f32; 3], f32)>,
+    /// Same-type bond-forming flash: (tail_pos, new_crab_pos, rgb, age 0..1).
+    /// Emitted when a catch links a same-type neighbor; drawn as a brief bright arc between the two.
+    pub(crate) bond_flash_events: Vec<(Vec2, Vec2, [f32; 3], f32)>,
     // A bright whip-streak that arcs from where a crab was caught to the head of the train, so a
     // catch reads as the crab being *yanked* in rather than just blinking onto the tail. Each entry
     // is (from, to, age 0..1, rgb); brighter/thicker when the catch landed on the beat.
@@ -1439,6 +1442,7 @@ impl MainState {
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
             beat_punch_events: Vec::new(),
+            bond_flash_events: Vec::new(),
             catch_trails: Vec::new(),
             call_streaks: Vec::new(),
             fear_rings: Vec::new(),
