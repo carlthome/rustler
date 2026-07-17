@@ -52,7 +52,7 @@ use crate::graphics::{
     draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_lasso_windup, LassoDrawPhase, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_square,
+    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
@@ -7724,6 +7724,9 @@ impl MainState {
                 }
             }
         }
+        // Ambient NPC conga train — drawn into the same deferred leg/body buffers as player crabs.
+        self.draw_npc_conga_train(ctx, canvas)?;
+
         // Every draw_crab() call above deferred its 6 leg draws and 12 body-part (shadow, shell,
         // claws, eyes) draws into shared buffers instead of issuing them individually (up to
         // 18 x 50+ crabs = 900+ draw calls). Flush them both here as two instanced batches — same
@@ -8504,6 +8507,169 @@ impl MainState {
     }
 
     // apply_upgrade now lives in src/upgrade.rs (impl MainState there).
+}
+
+
+impl MainState {
+    fn update_npc_train(&mut self, dt: f32) {
+        let npc = &mut self.npc_train;
+        let to_target = npc.target - npc.leader_pos;
+        let dist = to_target.length();
+
+        // Pick a new wander target when the current one is reached or the timer expires.
+        npc.target_timer -= dt;
+        if dist < 100.0 || npc.target_timer <= 0.0 {
+            let margin = 160.0;
+            let rng = &mut rand::rng();
+            npc.target = Vec2::new(
+                rng.random_range(margin..self.world_width - margin),
+                rng.random_range(margin..self.world_height - margin),
+            );
+            npc.target_timer = rng.random_range(10.0_f32..22.0);
+        }
+
+        // Smooth steering toward target (leisurely, winding gait).
+        let speed = 88.0;
+        if dist > 1.0 {
+            let desired = to_target / dist * speed;
+            let steer = (desired - npc.leader_vel) * (3.5 * dt);
+            npc.leader_vel += steer;
+            if npc.leader_vel.length() > speed {
+                npc.leader_vel = npc.leader_vel.normalize() * speed;
+            }
+        }
+        npc.leader_pos += npc.leader_vel * dt;
+        npc.leader_pos.x = npc.leader_pos.x.clamp(80.0, self.world_width - 80.0);
+        npc.leader_pos.y = npc.leader_pos.y.clamp(80.0, self.world_height - 80.0);
+
+        // Sample the path for followers to trail: only push when the leader has moved >6px
+        // so history entries are roughly equidistant (avoids bunching at slow-turn moments).
+        let last = npc.path_history.front().copied().unwrap_or(npc.leader_pos);
+        if npc.leader_pos.distance_squared(last) > 36.0 {
+            npc.path_history.push_front(npc.leader_pos);
+            let max_len = npc.follower_types.len() * 16 + 20;
+            while npc.path_history.len() > max_len {
+                npc.path_history.pop_back();
+            }
+        }
+    }
+
+    fn draw_npc_conga_train(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
+        let npc = &self.npc_train;
+        let t = self.time_elapsed;
+
+        // Followers trail the leader using path_history. Each follower sits 14 history-steps
+        // behind the previous one (history is sampled ~every 6px, so ~84px spacing between crabs).
+        const STEPS: usize = 14;
+
+        // Draw followers back-to-front so the leader renders on top.
+        for i in (0..npc.follower_types.len()).rev() {
+            let hist_idx = (i + 1) * STEPS;
+            let pos = match npc.path_history.get(hist_idx) {
+                Some(&p) => p,
+                None => continue,
+            };
+            let bob = (t * 5.5 + i as f32 * 0.85).sin() * 3.5;
+            let crab_type = npc.follower_types[i];
+            let fake = EnemyCrab {
+                pos,
+                vel: Vec2::ZERO,
+                speed: 0.0,
+                caught: true,
+                chain_index: Some(i),
+                scale: 0.6,
+                spawn_time: 999.0,
+                crab_type,
+                spooked_timer: 0.0,
+                beat_phase_offset: i as f32 * 0.4,
+                join_pulse: 0.0,
+                fleeing: false,
+                facing_angle: 0.0,
+                in_flashlight: false,
+                startle_timer: 0.0,
+                charm_timer: 0.0,
+                answering_call: 0.0,
+                boss_health: 0.0,
+                boss_max_health: 0.0001,
+                enraged: false,
+                charge_state: BossCharge::Idle,
+                charge_cooldown: 0.0,
+                latch_timer: 0.0,
+                panic_amp: 1.0,
+                magnet_snared: 0.0,
+                magnet_lured: 0.0,
+                thief_lured: 0.0,
+                magnet_charged: 0.0,
+                slingshot_spent: 0.0,
+                stun_timer: 0.0,
+                host_swap_timer: 0.0,
+                surge_timer: 0.0,
+            };
+            let beat = (t * 4.0 + i as f32 * 0.5).sin().abs();
+            draw_crab(ctx, canvas, &fake, pos + Vec2::new(0.0, -bob), beat, 0.0, bob.max(0.0), 0.0, t)?;
+        }
+
+        // King Crab leader — large, golden, unmistakeable.
+        let leader_bob = (t * 4.2).sin() * 6.0;
+        let facing = if npc.leader_vel.length_squared() > 4.0 {
+            npc.leader_vel.y.atan2(npc.leader_vel.x)
+        } else {
+            0.0
+        };
+        let king = EnemyCrab {
+            pos: npc.leader_pos,
+            vel: npc.leader_vel,
+            speed: 88.0,
+            caught: false,
+            chain_index: None,
+            scale: 1.8,
+            spawn_time: 999.0,
+            crab_type: CrabType::Boss,
+            spooked_timer: 0.0,
+            beat_phase_offset: 0.0,
+            join_pulse: 0.0,
+            fleeing: false,
+            facing_angle: facing,
+            in_flashlight: false,
+            startle_timer: 0.0,
+            charm_timer: 0.0,
+            answering_call: 0.0,
+            boss_health: 0.0,
+            boss_max_health: 0.0001,
+            enraged: false,
+            charge_state: BossCharge::Idle,
+            charge_cooldown: 0.0,
+            latch_timer: 0.0,
+            panic_amp: 1.0,
+            magnet_snared: 0.0,
+            magnet_lured: 0.0,
+            thief_lured: 0.0,
+            magnet_charged: 0.0,
+            slingshot_spent: 0.0,
+            stun_timer: 0.0,
+            host_swap_timer: 0.0,
+            surge_timer: 0.0,
+        };
+        let king_beat = (t * 4.0).sin().abs();
+        draw_crab(ctx, canvas, &king, npc.leader_pos + Vec2::new(0.0, -leader_bob), king_beat, 0.0, leader_bob.max(0.0), facing, t)?;
+
+        // A gentle golden halo so the King reads as the leader from across the world.
+        let dot = unit_circle(ctx)?;
+        for ring in (0..3).rev() {
+            let r = 40.0 + ring as f32 * 14.0;
+            let a = 0.06 - ring as f32 * 0.015;
+            canvas.draw(
+                dot,
+                DrawParam::default()
+                    .dest(npc.leader_pos)
+                    .scale(Vec2::splat(r))
+                    .color(Color::new(1.0, 0.82, 0.2, a)),
+            );
+        }
+
+        Ok(())
+    }
+
 }
 
 impl EventHandler for MainState {
@@ -10354,11 +10520,15 @@ impl EventHandler for MainState {
             }
         }
 
+        // Advance the ambient NPC conga train.
+        self.update_npc_train(dt);
+
         // Recompute the camera every frame so both draw() and the mouse handlers (which run outside
         // draw) agree on the screen<->world mapping this frame.
         self.camera_origin = self.compute_camera_origin();
         Ok(())
     }
+
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         let width = self.width;

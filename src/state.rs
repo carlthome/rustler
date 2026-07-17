@@ -143,6 +143,42 @@ pub enum LassoPhase {
     Miss,
 }
 
+/// Ambient wandering NPC conga train — a King Crab leading a few followers across the world.
+/// Visual-only: it does not steal from or react to the player. It's world life, like weather.
+pub struct NpcCongaTrain {
+    pub leader_pos: Vec2,
+    pub leader_vel: Vec2,
+    pub target: Vec2,
+    pub target_timer: f32,
+    /// Sampled leader positions (pushed when leader moves >6px); followers trail by index offset.
+    pub path_history: VecDeque<Vec2>,
+    pub follower_types: Vec<CrabType>,
+}
+
+impl NpcCongaTrain {
+    pub fn new(world_width: f32, world_height: f32) -> Self {
+        let start = Vec2::new(world_width * 0.25, world_height * 0.5);
+        let target = Vec2::new(world_width * 0.75, world_height * 0.3);
+        let followers = vec![
+            CrabType::Normal,
+            CrabType::Fast,
+            CrabType::Sneaky,
+            CrabType::Big,
+            CrabType::Dancer,
+        ];
+        let mut history = VecDeque::new();
+        history.push_back(start);
+        Self {
+            leader_pos: start,
+            leader_vel: Vec2::ZERO,
+            target,
+            target_timer: 12.0,
+            path_history: history,
+            follower_types: followers,
+        }
+    }
+}
+
 pub struct MainState {
     pub(crate) player_pos: Vec2,                          // Player position
     pub(crate) player_vel: Vec2,                          // Player velocity (for smooth movement)
@@ -809,6 +845,9 @@ pub struct MainState {
     pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
     // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
     pub(crate) king_splice_cooldown: f32,
+    // Ambient NPC conga train: a King Crab leading followers that wanders the world.
+    // Visual-only — does not interact with the player's train.
+    pub(crate) npc_train: NpcCongaTrain,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1309,6 +1348,7 @@ impl MainState {
             pulse_snapped_positions_buf: Vec::new(),
             king_stolen_crabs: Vec::new(),
             king_splice_cooldown: 0.0,
+            npc_train: NpcCongaTrain::new(world_width, world_height),
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
