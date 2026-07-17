@@ -219,6 +219,26 @@ fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
 
 /// Wrap 16-bit mono PCM samples in a canonical 44-byte WAV header (PCM format code 1). Must be
 /// byte-exact or rodio's decoder rejects it and the `Source` fails to build.
+/// A crisp hi-hat click — white noise with a very short exponential decay.
+/// Used for the B-key "jam emote" so the player crab can vibe.
+pub fn synth_hihat(ctx: &mut Context) -> GameResult<Source> {
+    use rand::Rng;
+    let n = (SAMPLE_RATE as f32 * 0.08) as usize; // 80ms
+    let mut rng = rand::rng();
+    let mut pcm: Vec<i16> = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f32 / SAMPLE_RATE as f32;
+        let noise: f32 = rng.random_range(-1.0_f32..1.0_f32);
+        // Short sharp decay + high-pass via mixing two noise phases
+        let env = (-80.0 * t).exp();
+        let v = noise * env * 0.55;
+        pcm.push((v * 18000.0) as i16);
+    }
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
 fn encode_wav_mono16(pcm: &[i16]) -> Vec<u8> {
     let num_channels: u16 = 1;
     let bits_per_sample: u16 = 16;

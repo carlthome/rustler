@@ -30,6 +30,7 @@ pub struct GameSounds {
     /// Looping low rumble for the ambient NPC King Crab conga train.
     /// Volume is driven each frame by distance to the player.
     pub(crate) king_crab_rumble: Source,
+    pub(crate) hihat: Source,
     // Add more sounds here as needed
 }
 
@@ -380,6 +381,7 @@ pub struct MainState {
     pub(crate) start_stomp_rank: u32,
     pub(crate) shop_flash: f32, // brief green flash on the last-bought perk (title-screen juice)
     pub(crate) shop_denied: f32, // brief red flash when a purchase is refused (can't afford / maxed)
+    pub(crate) jam_timer: f32,   // B-key jam emote: >0 while the crab is vibing (drives animation)
     pub(crate) width: f32,       // Virtual width of the game (viewport)
     pub(crate) height: f32,      // Virtual height of the game (viewport)
     pub(crate) world_width: f32, // Full playfield width — larger than the viewport; the camera scrolls across it
@@ -1033,6 +1035,7 @@ impl MainState {
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
             king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
+            hihat: sounds::synth_hihat(ctx)?,
             // Add more sounds here as needed
         };
 
@@ -1281,6 +1284,7 @@ impl MainState {
             start_whistle_rank,
             start_stomp_rank,
             shop_flash: 0.0,
+            jam_timer: 0.0,
             shop_denied: 0.0,
             run_recorded: false,
             run_is_new_best: false,

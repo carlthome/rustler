@@ -6596,10 +6596,17 @@ impl MainState {
 
         // Draw player character after crabs so the rustler always renders on top of the conga
         // train rather than being occluded by crabs that overlap its position.
+        // Jam emote (B key): shimmy the player position side-to-side for a fun wiggle.
+        let jam_shimmy = if self.jam_timer > 0.0 {
+            let phase = (self.jam_timer / 0.55) * std::f32::consts::TAU * 4.0;
+            Vec2::new(phase.sin() * 6.0 * self.jam_timer / 0.55, (phase * 0.7).cos() * 3.0)
+        } else {
+            Vec2::ZERO
+        };
         draw_rustler(
             ctx,
             canvas,
-            self.player_pos,
+            self.player_pos + jam_shimmy,
             &self.textures.player,
             self.player_vel,
             self.beat_intensity,
@@ -9126,19 +9133,29 @@ impl MainState {
         if self.groove_call_cooldown > 0.0 {
             return;
         }
+        // Gate: need at least some groove to call at all — it's a rhythm skill, not a free button.
+        if self.groove < 0.20 {
+            self.shop_denied = self.shop_denied.max(0.4);
+            self.floating_texts.spawn(
+                "need more groove!".to_string(),
+                center - Vec2::new(70.0, 70.0),
+                20.0,
+                [0.6, 0.75, 0.85, 0.9],
+            );
+            return;
+        }
         self.groove_call_center = center;
         self.groove_call_echo = 0;
-        // Cooldown spans a few bars so it can't be spammed over the top of its own response.
+        // Cooldown spans a few bars so it can't be spammed.
         self.groove_call_cooldown = 4.0;
         self.groove_call_pulse = 1.0;
-        // Kick the surge immediately so the herd lunges on THIS call, then re-kicked each downbeat.
-        self.groove_call_surge = 1.0;
+        // No immediate surge — the surge fires on the next beat, so the call feels rhythmic not instant.
+        self.groove_call_surge = 0.0;
         if self.on_beat_now() {
-            // Clean call: the whole field answers, hard, for two full bars. Feed the groove meter
-            // and throw the on-beat juice so a well-timed call reads as a PERFECT like the other verbs.
+            // Clean on-beat call: lures nearby crabs for two bars. Costs some groove.
             self.groove_call_bars = 2.0;
             self.groove_call_strength = 1.0;
-            self.groove = (self.groove + 0.12).min(1.0);
+            self.groove = (self.groove - 0.15).max(0.0); // costs groove: rhythm is a resource
             self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
             self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
             self.floating_texts.spawn(
@@ -9148,10 +9165,9 @@ impl MainState {
                 [0.4, 0.9, 1.0, 1.0],
             );
         } else {
-            // Off beat: it still calls, but weakly and briefly — the herd barely leans in. The miss
-            // reads (a red denial flash) so the player learns to hit the bar for the real lure.
+            // Off beat: very weak pull — barely moves nearby crabs, quick decay, clear miss feedback.
             self.groove_call_bars = 1.0;
-            self.groove_call_strength = 0.4;
+            self.groove_call_strength = 0.15; // was 0.4 — enough to see the ring, not flood the field
             self.shop_denied = self.shop_denied.max(0.4);
             self.floating_texts.spawn(
                 "call… (off beat)".to_string(),
@@ -9168,19 +9184,21 @@ impl MainState {
     /// with a meter that isn't topped out, it fizzles with a distinct message so the miss reads.
     fn downbeat_slam(&mut self, ctx: &mut Context) {
         let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-        // Gate 1: the meter must be full. This is what makes the groove meter finally *do* something.
-        if self.groove < 0.999 {
+        // Gate 1: needs high groove (75%+) — earnable without farming to 100%.
+        if self.groove < 0.75 {
             self.shop_denied = self.shop_denied.max(0.5);
             self.floating_texts.spawn(
-                "GROOVE not full".to_string(),
-                center - Vec2::new(70.0, 70.0),
-                24.0,
+                format!("GROOVE {:.0}% (need 75%)", self.groove * 100.0),
+                center - Vec2::new(90.0, 70.0),
+                22.0,
                 [0.8, 0.85, 0.9, 0.9],
             );
             return;
         }
-        // Gate 2: it must land on the beat — the whole point is rhythm mastery.
-        if !self.on_beat_now() {
+        // Gate 2: must land on the beat — use a slightly wider window than normal so it feels fair.
+        let on_beat_for_slam = self.beat_timer < BEAT_WINDOW * 1.8
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW * 1.8;
+        if !on_beat_for_slam {
             self.shop_denied = self.shop_denied.max(0.6);
             self.floating_texts.spawn(
                 "off beat…".to_string(),
@@ -10091,7 +10109,9 @@ impl EventHandler for MainState {
                     }
                     let d = center - crab.pos;
                     let dist = d.length();
-                    if dist < 40.0 || dist > 780.0 {
+                    // Pull radius scales with groove: more groove = wider reach (max 500px).
+                    let call_reach = 280.0 + self.groove * 220.0;
+                    if dist < 40.0 || dist > call_reach {
                         continue; // skip crabs on top of the player or too far to read as answering
                     }
                     // A short streak from the crab pointing at the player — a fixed lead so the tail
@@ -10878,6 +10898,7 @@ impl EventHandler for MainState {
         }
         // Groove Call: cooldown ticks down; the surge/pulse envelopes decay between beats (re-kicked
         // in the beat handler) so the field-wide lure pumps to the bar rather than pulling flatly.
+        self.jam_timer = (self.jam_timer - dt).max(0.0);
         if self.groove_call_cooldown > 0.0 {
             self.groove_call_cooldown = (self.groove_call_cooldown - dt).max(0.0);
         }

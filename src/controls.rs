@@ -470,6 +470,10 @@ pub fn handle_key_down_event(
                 // beat it locks the whole stack; off-beat takes a haircut. Turns the gamble into an
                 // active "when do I bank?" call instead of a passive streak.
                 state.bank_gamble();
+                // Also: jam emote! Your crab vibes. Plays a hi-hat and does a little shimmy.
+                state.jam_timer = 0.55;
+                use ggez::audio::SoundSource;
+                let _ = state.sounds.hihat.play(ctx);
             }
             if key == KeyCode::Escape {
                 if state.tutorial.is_some() {
