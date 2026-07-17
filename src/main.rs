@@ -2,6 +2,7 @@ mod bot;
 mod constants;
 mod controls;
 mod enemies;
+mod floating_text;
 mod graphics;
 mod hud_cache;
 mod levels;
