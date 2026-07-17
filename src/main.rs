@@ -119,6 +119,10 @@ pub(crate) fn pick_pen_pos(width: f32, height: f32, avoid: Vec2, rng: &mut impl 
     let min_dist = 320.0;
     let mut best = Vec2::new(width * 0.5, height * 0.5);
     let mut best_dist = -1.0;
+    // Guard: if world is smaller than 2*margin, fall back to centre immediately
+    if width <= margin * 2.0 || height <= margin * 2.0 {
+        return best;
+    }
     for _ in 0..12 {
         let candidate = Vec2::new(
             rng.random_range(margin..(width - margin)),
@@ -156,6 +160,7 @@ pub(crate) fn pick_tide_pools(
         attempts += 1;
         let radius = rng.random_range(66.0..112.0);
         let margin = radius + 30.0;
+        if width <= margin * 2.0 || height <= margin * 2.0 { break; }
         let c = Vec2::new(
             rng.random_range(margin..(width - margin)),
             rng.random_range(margin..(height - margin)),
@@ -9351,9 +9356,12 @@ impl MainState {
                 // territory_bias 0..1: how strongly the next target is pulled toward territory center
                 let territory_bias = ((scale - 1.2) / 1.2).clamp(0.0, 1.0) * 0.65 + 0.2;
                 let margin = 160.0;
+                // Guard against empty range panic if world is unexpectedly small
+                let ww = (self.world_width - margin).max(margin + 1.0);
+                let wh = (self.world_height - margin).max(margin + 1.0);
                 let rand_pt = Vec2::new(
-                    rng.random_range(margin..self.world_width - margin),
-                    rng.random_range(margin..self.world_height - margin),
+                    rng.random_range(margin..ww),
+                    rng.random_range(margin..wh),
                 );
                 let tc = self.npc_trains[i].territory_center;
                 // Offset from territory center — scouts wander further (larger offset radius)
@@ -9455,8 +9463,10 @@ impl MainState {
                                     let away = (crab.pos - player_center).normalize_or_zero();
                                     let speed = 300.0 + released as f32 * 25.0; // outer crabs fly further
                                     crab.vel = away * speed;
-                                    // Gold ring shockwave at each scattered crab's launch point
-                                    self.catch_shockwaves.push((crab.pos, 0.0, [0.96, 0.72, 0.16]));
+                                    // Gold ring shockwave at each scattered crab's launch point (capped)
+                                    if self.catch_shockwaves.len() < 48 {
+                                        self.catch_shockwaves.push((crab.pos, 0.0, [0.96, 0.72, 0.16]));
+                                    }
                                     released += 1;
                                 }
                             }
