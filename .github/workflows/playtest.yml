@@ -20,7 +20,12 @@ jobs:
             ${{ runner.os }}-cargo-
       - name: Configure headless ALSA
         run: printf '%s\n' 'pcm.!default {' '  type null' '}' > "$HOME/.asoundrc"
+      - name: Install graphics libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgbm-dev libgl1-mesa-glx mesa-utils
       - name: Build
         run: nix develop . --command cargo build
       - name: Run playtests
         run: xvfb-run -a bash scripts/playtest.sh
+        env:
+          LIBGL_ALWAYS_INDIRECT: 1
+          WGPU_BACKEND: vulkan
