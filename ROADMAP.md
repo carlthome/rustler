@@ -41,21 +41,27 @@ now scatters your entire conga line into catchable crabs (Sonic-rings burst) —
 steal-and-recover tension the ecology will run on. The four-scenario opt-in tutorials have been folded into
 the first world-map nodes (removed from the main menu) and still double as regression tests. The beach is now a
 **scrolling world** (2× viewport, player-following camera) carrying a **day/night cycle + weather** (sunny → storm,
-ambient visuals) — the "world feels alive and inhabited" aesthetic layer is in. A first slice of meta-progression + campaign scaffolding exists but
-stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
+ambient visuals) — the "world feels alive and inhabited" aesthetic layer is in. **The first ecology slice has
+landed**: an ambient wandering NPC King Crab conga line (6a17026) that trails followers and roams the world on its
+own, *heard before seen* via a spatial-audio rumble that swells as it nears (2200964, agar.io-style), with
+randomly-generated names (38201e5). Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
+campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
 **Signal (this cycle).** Slack was quiet — no new considered replies or reactions since last run; the one standing
 ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format* request, not a roadmap
-item, and belongs to the diary agent. What moved on the ground: the **scrolling world landed** (7a52152) — the
-architectural gate the whole roadmap has been sequencing toward — and **day/night + weather** shipped alongside it
-(07c4577), so the "beach feels alive" aesthetic layer is done. With the gate cleared, this run promotes the *first,
-visual-only slice* of the ecology into Now: an ambient wandering King Crab conga line (no stealing yet) that both
-fills the sparse new world and plants the ecology seed. Everything past that first slice stays in "Also on our mind."
-The **core steal rule** is written down in INSPIRATION (reverse-Snake crossing: a rival threading your line splices
-the back section onto its own train) — waiting on that ambient NPC train to exist before stealing gets wired.
-Carl's standing **mechanics-freeze** still holds for player-facing arena mechanics: strengthen what exists so the
-player feels *agency and control*, don't bolt on new player verbs. The ambient NPC train respects it — it's world
-life the player watches, like weather, not a new control. Prior playtest asks are all resolved.
+item, and belongs to the diary agent. What moved on the ground: **the ambient wandering King Crab conga line shipped**
+(6a17026) — the exact first-ecology slice this roadmap promoted into Now last cycle — together with its **spatial-audio
+rumble that swells as it approaches** (2200964, the agar.io "heard before seen" radar the thesis calls for) and
+**random King Crab names** (38201e5, Shadow-of-Mordor flavor). So the ecology's step (1) is on the board. Also landed:
+a traditional button-nav menu + how-to-play screen (ddbd811, 6b86708) and a 10× sprint (0715f3f). This run checks off
+the ambient-train item and adds **one** measured follow-up: *validate and sharpen* that train so it reads as a genuine
+rival — legible size from across the field, a clean music-swell radar, a distinct silhouette — because the roadmap's
+own gate is "the ambient train looks and moves right *first*" before stealing gets wired. It just shipped this cycle
+and hasn't been playtested, so that gate isn't cleared yet. The **core steal rule** stays written in INSPIRATION
+(reverse-Snake crossing) and parked in "Also on our mind" until the ambient train passes that read-check. Carl's
+standing **mechanics-freeze** still holds for player-facing arena mechanics: strengthen what exists, don't bolt on new
+player verbs. The ambient train and its sharpening respect it — world life the player watches, like weather, not a new
+control. Prior playtest asks are all resolved.
 
 ## Bugs (fix before anything else in Now)
 
@@ -98,13 +104,15 @@ item in "Now" below.
   feels sparse. Tune crab density, spawn ring radii, and boss positioning for the larger world so the beach
   feels alive rather than empty. Exploration should reward venturing off-center.
 
-- **[ECOLOGY — first slice] Ambient wandering King Crab conga line.** The scrolling world (the gate) has landed, so
-  seed the ★ competing-conga ecology with its smallest safe step: a King Crab that trails a few followers and *wanders
-  the world on its own* — heard before seen (its track/rumble swelling as it nears, agar.io-style), size legible from
-  across the field. **Visual-only this cycle: it does NOT steal from the player, does NOT collide-splice, does NOT
-  react to you.** It's world life you watch, like weather — which also directly fixes the "world feels empty" problem
-  above. This is step (1) of the ecology sequencing in INSPIRATION; stealing (the reverse-Snake crossing rule) stays
-  parked in "Also on our mind" until this ambient train looks and moves right first. Keep the freeze: no new player verb.
+- **[ECOLOGY — validate the first slice] Make the ambient King Crab train read as a genuine rival.** The ambient
+  wandering train shipped this cycle (6a17026 + spatial rumble 2200964 + names 38201e5) — step (1) is on the board, but
+  it hasn't been playtested and the roadmap's own gate is "it looks and moves *right* first" before stealing gets
+  wired. Sharpen it toward that bar, no new player verb: **size legible from across the field** (a small train and a
+  huge one should read instantly at a glance), a **clean music-swell radar** (rumble rises smoothly and directionally
+  as it nears, agar.io-style — audio IS the radar per INSPIRATION), a **distinct silhouette/name banner** so you can
+  tell rivals apart, and **believable wander/regroup motion** (it pursues its own agenda like Rain World creatures, not
+  a scripted lap). Still visual-only: does NOT steal, splice, or react to you. Passing this read-check is what unblocks
+  the steal rule below.
 
 ## Later (outer loop — not yet)
 
@@ -184,10 +192,11 @@ item in "Now" below.
   whole prototype is scaffolding toward (see thesis at top). King Crabs run their own conga trains and
   *steal* crabs from the player's train and each other; the beach is a living ecosystem of rival conga
   leaders. The player starts smallest and must **out-arrange, not just out-catch** — a well-arranged short
-  train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs; (2) train-vs-train
-  stealing; (3) ecology from simple per-creature rules à la Rain World (see INSPIRATION.md); (4) human-vs-human
-  Rustlers competing for the largest, best-arranged train. Gated on the scrolling world (top of Now) — rivals
-  need room to approach. Promote into Now the moment that lands.
+  train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs — **✅ ambient slice shipped
+  (6a17026), now being validated in Now**; (2) train-vs-train stealing (the reverse-Snake crossing rule in INSPIRATION)
+  — **next up, promote to Now once the ambient train passes its read-check**; (3) ecology from simple per-creature rules
+  à la Rain World (see INSPIRATION.md); (4) human-vs-human Rustlers competing for the largest, best-arranged train.
+  The scrolling-world gate has landed; step (2) is now gated only on the ambient train reading right first.
 
 - **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
   the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
