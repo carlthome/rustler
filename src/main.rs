@@ -9209,85 +9209,193 @@ impl MainState {
 }
 
 impl MainState {
-    fn update_npc_train(&mut self, dt: f32) {
-        let npc = &mut self.npc_train;
-        let to_target = npc.target - npc.leader_pos;
-        let dist = to_target.length();
+    fn update_npc_trains(&mut self, dt: f32) {
+        for i in 0..self.npc_trains.len() {
+            let to_target = self.npc_trains[i].target - self.npc_trains[i].leader_pos;
+            let dist = to_target.length();
 
-        // Pick a new wander target when the current one is reached or the timer expires.
-        npc.target_timer -= dt;
-        if dist < 100.0 || npc.target_timer <= 0.0 {
-            let margin = 160.0;
-            let rng = &mut rand::rng();
-            npc.target = Vec2::new(
-                rng.random_range(margin..self.world_width - margin),
-                rng.random_range(margin..self.world_height - margin),
-            );
-            npc.target_timer = rng.random_range(10.0_f32..22.0);
+            // Pick a new wander target when the current one is reached or the timer expires.
+            self.npc_trains[i].target_timer -= dt;
+            if dist < 100.0 || self.npc_trains[i].target_timer <= 0.0 {
+                let margin = 160.0;
+                let rng = &mut rand::rng();
+                self.npc_trains[i].target = Vec2::new(
+                    rng.random_range(margin..self.world_width - margin),
+                    rng.random_range(margin..self.world_height - margin),
+                );
+                self.npc_trains[i].target_timer = rng.random_range(10.0_f32..22.0);
+            }
+
+            // Smooth steering toward target (leisurely, winding gait).
+            let speed = 88.0;
+            if dist > 1.0 {
+                let desired = to_target / dist * speed;
+                let steer = (desired - self.npc_trains[i].leader_vel) * (3.5 * dt);
+                self.npc_trains[i].leader_vel += steer;
+                if self.npc_trains[i].leader_vel.length() > speed {
+                    self.npc_trains[i].leader_vel = self.npc_trains[i].leader_vel.normalize() * speed;
+                }
+            }
+            let vel_step = self.npc_trains[i].leader_vel * dt;
+            self.npc_trains[i].leader_pos += vel_step;
+            self.npc_trains[i].leader_pos.x = self.npc_trains[i].leader_pos.x.clamp(80.0, self.world_width - 80.0);
+            self.npc_trains[i].leader_pos.y = self.npc_trains[i].leader_pos.y.clamp(80.0, self.world_height - 80.0);
+
+            // Sample the path for followers to trail: only push when the leader has moved >6px.
+            let cur_pos = self.npc_trains[i].leader_pos;
+            let last = self.npc_trains[i].path_history.front().copied().unwrap_or(cur_pos);
+            if cur_pos.distance_squared(last) > 36.0 {
+                self.npc_trains[i].path_history.push_front(cur_pos);
+                let max_len = self.npc_trains[i].follower_types.len() * 16 + 20;
+                while self.npc_trains[i].path_history.len() > max_len {
+                    self.npc_trains[i].path_history.pop_back();
+                }
+            }
+
+            // Compute target rumble volume from distance to player.
+            let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
+            self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
         }
 
-        // Smooth steering toward target (leisurely, winding gait).
-        let speed = 88.0;
-        if dist > 1.0 {
-            let desired = to_target / dist * speed;
-            let steer = (desired - npc.leader_vel) * (3.5 * dt);
-            npc.leader_vel += steer;
-            if npc.leader_vel.length() > speed {
-                npc.leader_vel = npc.leader_vel.normalize() * speed;
+        // Audio: use the loudest (nearest) NPC train for the rumble volume — store on [0].
+        let max_vol = self.npc_trains.iter().map(|t| t.target_vol).fold(0.0_f32, f32::max);
+        if !self.npc_trains.is_empty() {
+            self.npc_trains[0].target_vol = max_vol;
+        }
+
+        // Light danger: touching a King Crab leader scatters the player's conga (Sonic rings).
+        if self.chain_count > 0 && self.king_splice_cooldown <= 0.0 {
+            let collision_radius = CRAB_SIZE * 1.8 * 1.5 + PLAYER_SIZE * 0.5;
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let mut hit_name: Option<String> = None;
+            for npc in &self.npc_trains {
+                let dist = npc.leader_pos.distance(player_center);
+                if dist < collision_radius {
+                    hit_name = Some(npc.name.clone());
+                    break;
+                }
+            }
+            if let Some(name) = hit_name {
+                self.king_splice_cooldown = 2.5;
+                self.screen_shake = 0.35;
+                let keep = (self.chain_count / 2).max(1);
+                let scatter_count = self.chain_count.saturating_sub(keep);
+                if scatter_count > 0 {
+                    let mut released = 0;
+                    for crab in self.crabs.iter_mut().rev() {
+                        if released >= scatter_count { break; }
+                        if crab.caught {
+                            if let Some(idx) = crab.chain_index {
+                                if idx >= keep {
+                                    crab.caught = false;
+                                    crab.chain_index = None;
+                                    crab.fleeing = true;
+                                    crab.spooked_timer = 2.5;
+                                    let away = (crab.pos - self.player_pos).normalize_or_zero();
+                                    crab.vel = away * 280.0;
+                                    released += 1;
+                                }
+                            }
+                        }
+                    }
+                    self.chain_count = self.chain_count.saturating_sub(released);
+                    self.floating_texts.spawn(
+                        format!("SCATTERED by {}!", name),
+                        self.player_pos - Vec2::new(80.0, 40.0),
+                        22.0,
+                        [1.0, 0.72, 0.16, 1.0],
+                    );
+                }
             }
         }
-        npc.leader_pos += npc.leader_vel * dt;
-        npc.leader_pos.x = npc.leader_pos.x.clamp(80.0, self.world_width - 80.0);
-        npc.leader_pos.y = npc.leader_pos.y.clamp(80.0, self.world_height - 80.0);
-
-        // Sample the path for followers to trail: only push when the leader has moved >6px
-        // so history entries are roughly equidistant (avoids bunching at slow-turn moments).
-        let last = npc.path_history.front().copied().unwrap_or(npc.leader_pos);
-        if npc.leader_pos.distance_squared(last) > 36.0 {
-            npc.path_history.push_front(npc.leader_pos);
-            let max_len = npc.follower_types.len() * 16 + 20;
-            while npc.path_history.len() > max_len {
-                npc.path_history.pop_back();
-            }
-        }
-
-        // Compute target rumble volume from distance to player. Full volume within 200px,
-        // silent beyond 800px. Applied by the EventHandler::update caller which has ctx.
-        let dist = npc.leader_pos.distance(self.player_pos);
-        npc.target_vol = ((800.0 - dist) / 600.0).clamp(0.0, 1.0);
     }
 
     fn draw_npc_conga_train(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
-        let npc = &self.npc_train;
         let t = self.time_elapsed;
 
         // Followers trail the leader using path_history. Each follower sits 14 history-steps
         // behind the previous one (history is sampled ~every 6px, so ~84px spacing between crabs).
         const STEPS: usize = 14;
 
-        // Draw followers back-to-front so the leader renders on top.
-        for i in (0..npc.follower_types.len()).rev() {
-            let hist_idx = (i + 1) * STEPS;
-            let pos = match npc.path_history.get(hist_idx) {
-                Some(&p) => p,
-                None => continue,
+        for npc in &self.npc_trains {
+            // Draw followers back-to-front so the leader renders on top.
+            for i in (0..npc.follower_types.len()).rev() {
+                let hist_idx = (i + 1) * STEPS;
+                let pos = match npc.path_history.get(hist_idx) {
+                    Some(&p) => p,
+                    None => continue,
+                };
+                let bob = (t * 5.5 + i as f32 * 0.85).sin() * 3.5;
+                let crab_type = npc.follower_types[i];
+                let fake = EnemyCrab {
+                    pos,
+                    vel: Vec2::ZERO,
+                    speed: 0.0,
+                    caught: true,
+                    chain_index: Some(i),
+                    scale: 0.6,
+                    spawn_time: 999.0,
+                    crab_type,
+                    spooked_timer: 0.0,
+                    beat_phase_offset: i as f32 * 0.4,
+                    join_pulse: 0.0,
+                    fleeing: false,
+                    facing_angle: 0.0,
+                    in_flashlight: false,
+                    startle_timer: 0.0,
+                    charm_timer: 0.0,
+                    answering_call: 0.0,
+                    boss_health: 0.0,
+                    boss_max_health: 0.0001,
+                    enraged: false,
+                    charge_state: BossCharge::Idle,
+                    charge_cooldown: 0.0,
+                    latch_timer: 0.0,
+                    panic_amp: 1.0,
+                    magnet_snared: 0.0,
+                    magnet_lured: 0.0,
+                    thief_lured: 0.0,
+                    magnet_charged: 0.0,
+                    slingshot_spent: 0.0,
+                    stun_timer: 0.0,
+                    host_swap_timer: 0.0,
+                    surge_timer: 0.0,
+                };
+                let beat = (t * 4.0 + i as f32 * 0.5).sin().abs();
+                draw_crab(
+                    ctx,
+                    canvas,
+                    &fake,
+                    pos + Vec2::new(0.0, -bob),
+                    beat,
+                    0.0,
+                    bob.max(0.0),
+                    0.0,
+                    t,
+                )?;
+            }
+
+            // King Crab leader — large, golden, unmistakeable.
+            let leader_bob = (t * 4.2).sin() * 6.0;
+            let facing = if npc.leader_vel.length_squared() > 4.0 {
+                npc.leader_vel.y.atan2(npc.leader_vel.x)
+            } else {
+                0.0
             };
-            let bob = (t * 5.5 + i as f32 * 0.85).sin() * 3.5;
-            let crab_type = npc.follower_types[i];
-            let fake = EnemyCrab {
-                pos,
-                vel: Vec2::ZERO,
-                speed: 0.0,
-                caught: true,
-                chain_index: Some(i),
-                scale: 0.6,
+            let king = EnemyCrab {
+                pos: npc.leader_pos,
+                vel: npc.leader_vel,
+                speed: 88.0,
+                caught: false,
+                chain_index: None,
+                scale: 1.8,
                 spawn_time: 999.0,
-                crab_type,
+                crab_type: CrabType::Boss,
                 spooked_timer: 0.0,
-                beat_phase_offset: i as f32 * 0.4,
+                beat_phase_offset: 0.0,
                 join_pulse: 0.0,
                 fleeing: false,
-                facing_angle: 0.0,
+                facing_angle: facing,
                 in_flashlight: false,
                 startle_timer: 0.0,
                 charm_timer: 0.0,
@@ -9308,120 +9416,66 @@ impl MainState {
                 host_swap_timer: 0.0,
                 surge_timer: 0.0,
             };
-            let beat = (t * 4.0 + i as f32 * 0.5).sin().abs();
+            let king_beat = (t * 4.0).sin().abs();
             draw_crab(
                 ctx,
                 canvas,
-                &fake,
-                pos + Vec2::new(0.0, -bob),
-                beat,
+                &king,
+                npc.leader_pos + Vec2::new(0.0, -leader_bob),
+                king_beat,
                 0.0,
-                bob.max(0.0),
-                0.0,
+                leader_bob.max(0.0),
+                facing,
                 t,
             )?;
-        }
 
-        // King Crab leader — large, golden, unmistakeable.
-        let leader_bob = (t * 4.2).sin() * 6.0;
-        let facing = if npc.leader_vel.length_squared() > 4.0 {
-            npc.leader_vel.y.atan2(npc.leader_vel.x)
-        } else {
-            0.0
-        };
-        let king = EnemyCrab {
-            pos: npc.leader_pos,
-            vel: npc.leader_vel,
-            speed: 88.0,
-            caught: false,
-            chain_index: None,
-            scale: 1.8,
-            spawn_time: 999.0,
-            crab_type: CrabType::Boss,
-            spooked_timer: 0.0,
-            beat_phase_offset: 0.0,
-            join_pulse: 0.0,
-            fleeing: false,
-            facing_angle: facing,
-            in_flashlight: false,
-            startle_timer: 0.0,
-            charm_timer: 0.0,
-            answering_call: 0.0,
-            boss_health: 0.0,
-            boss_max_health: 0.0001,
-            enraged: false,
-            charge_state: BossCharge::Idle,
-            charge_cooldown: 0.0,
-            latch_timer: 0.0,
-            panic_amp: 1.0,
-            magnet_snared: 0.0,
-            magnet_lured: 0.0,
-            thief_lured: 0.0,
-            magnet_charged: 0.0,
-            slingshot_spent: 0.0,
-            stun_timer: 0.0,
-            host_swap_timer: 0.0,
-            surge_timer: 0.0,
-        };
-        let king_beat = (t * 4.0).sin().abs();
-        draw_crab(
-            ctx,
-            canvas,
-            &king,
-            npc.leader_pos + Vec2::new(0.0, -leader_bob),
-            king_beat,
-            0.0,
-            leader_bob.max(0.0),
-            facing,
-            t,
-        )?;
-
-        // A gentle golden halo so the King reads as the leader from across the world.
-        let dot = unit_circle(ctx)?;
-        for ring in (0..3).rev() {
-            let r = 40.0 + ring as f32 * 14.0;
-            let a = 0.06 - ring as f32 * 0.015;
-            canvas.draw(
-                dot,
-                DrawParam::default()
-                    .dest(npc.leader_pos)
-                    .scale(Vec2::splat(r))
-                    .color(Color::new(1.0, 0.82, 0.2, a)),
-            );
-        }
-
-        // Name plate floating above the King Crab — cached so glyphs aren't reshaped every frame.
-        let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
-            if needs_rebuild {
-                let mut text = Text::new(npc.name.as_str());
-                text.set_scale(16.0);
-                let w = text.measure(ctx)?.x;
-                *cache = Some((npc.name.clone(), text, w));
-            }
-            Ok(cache.as_ref().unwrap().2)
-        })?;
-        NPC_NAME_CACHE.with(|c| {
-            let cache = c.borrow();
-            if let Some((_, text, _)) = cache.as_ref() {
-                let name_pos = npc.leader_pos - Vec2::new(name_w / 2.0, 55.0 + leader_bob);
-                // Drop shadow
+            // A gentle golden halo so the King reads as the leader from across the world.
+            let dot = unit_circle(ctx)?;
+            for ring in (0..3).rev() {
+                let r = 40.0 + ring as f32 * 14.0;
+                let a = 0.06 - ring as f32 * 0.015;
                 canvas.draw(
-                    text,
+                    dot,
                     DrawParam::default()
-                        .dest(name_pos + Vec2::splat(1.5))
-                        .color(Color::from_rgba(0, 0, 0, 180)),
-                );
-                // Name in regal gold
-                canvas.draw(
-                    text,
-                    DrawParam::default()
-                        .dest(name_pos)
-                        .color(Color::new(0.96, 0.82, 0.3, 0.95)),
+                        .dest(npc.leader_pos)
+                        .scale(Vec2::splat(r))
+                        .color(Color::new(1.0, 0.82, 0.2, a)),
                 );
             }
-        });
+
+            // Name plate floating above the King Crab — cached so glyphs aren't reshaped every frame.
+            let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
+                if needs_rebuild {
+                    let mut text = Text::new(npc.name.as_str());
+                    text.set_scale(16.0);
+                    let w = text.measure(ctx)?.x;
+                    *cache = Some((npc.name.clone(), text, w));
+                }
+                Ok(cache.as_ref().unwrap().2)
+            })?;
+            NPC_NAME_CACHE.with(|c| {
+                let cache = c.borrow();
+                if let Some((_, text, _)) = cache.as_ref() {
+                    let name_pos = npc.leader_pos - Vec2::new(name_w / 2.0, 55.0 + leader_bob);
+                    // Drop shadow
+                    canvas.draw(
+                        text,
+                        DrawParam::default()
+                            .dest(name_pos + Vec2::splat(1.5))
+                            .color(Color::from_rgba(0, 0, 0, 180)),
+                    );
+                    // Name in regal gold
+                    canvas.draw(
+                        text,
+                        DrawParam::default()
+                            .dest(name_pos)
+                            .color(Color::new(0.96, 0.82, 0.3, 0.95)),
+                    );
+                }
+            });
+        }
 
         Ok(())
     }
@@ -11475,7 +11529,7 @@ impl EventHandler for MainState {
         }
 
         // Advance the ambient NPC conga train.
-        self.update_npc_train(dt);
+        self.update_npc_trains(dt);
 
         // Spatial audio: smooth the king crab rumble volume toward the train's computed target.
         // Full volume within 200px, silent beyond 800px; muted on menu/game-over screens.
@@ -11484,7 +11538,7 @@ impl EventHandler for MainState {
             let target = if self.show_instructions || self.game_over || self.show_world_map {
                 0.0
             } else {
-                self.npc_train.target_vol
+                self.npc_trains.first().map_or(0.0, |t| t.target_vol)
             };
             let cur = self.sounds.king_crab_rumble.volume();
             let smoothed = (cur + (target - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0);

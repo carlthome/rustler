@@ -248,15 +248,22 @@ pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
 
 impl NpcCongaTrain {
     pub fn new(world_width: f32, world_height: f32) -> Self {
-        let start = Vec2::new(world_width * 0.25, world_height * 0.5);
-        let target = Vec2::new(world_width * 0.75, world_height * 0.3);
-        let followers = vec![
-            CrabType::Normal,
-            CrabType::Fast,
-            CrabType::Sneaky,
-            CrabType::Big,
-            CrabType::Dancer,
-        ];
+        Self::new_at(world_width, world_height, 0)
+    }
+
+    pub fn new_at(world_width: f32, world_height: f32, index: usize) -> Self {
+        let (sx, sy, tx, ty) = match index {
+            0 => (0.2, 0.3, 0.8, 0.7),
+            1 => (0.8, 0.2, 0.2, 0.8),
+            _ => (0.5, 0.8, 0.5, 0.2),
+        };
+        let start = Vec2::new(world_width * sx, world_height * sy);
+        let target = Vec2::new(world_width * tx, world_height * ty);
+        let follower_types = match index {
+            0 => vec![CrabType::Normal, CrabType::Fast, CrabType::Sneaky, CrabType::Big, CrabType::Dancer],
+            1 => vec![CrabType::Armored, CrabType::Normal, CrabType::Fast, CrabType::Magnet],
+            _ => vec![CrabType::Dancer, CrabType::Golden, CrabType::Normal, CrabType::Sneaky, CrabType::Hermit, CrabType::Fast],
+        };
         let mut history = VecDeque::new();
         history.push_back(start);
         let name = gen_king_crab_name(&mut rand::rng());
@@ -264,9 +271,9 @@ impl NpcCongaTrain {
             leader_pos: start,
             leader_vel: Vec2::ZERO,
             target,
-            target_timer: 12.0,
+            target_timer: 8.0 + index as f32 * 4.0,
             path_history: history,
-            follower_types: followers,
+            follower_types,
             target_vol: 0.0,
             name,
         }
@@ -951,9 +958,8 @@ pub struct MainState {
     pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
     // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
     pub(crate) king_splice_cooldown: f32,
-    // Ambient NPC conga train: a King Crab leading followers that wanders the world.
-    // Visual-only — does not interact with the player's train.
-    pub(crate) npc_train: NpcCongaTrain,
+    // Ambient NPC conga trains: three King Crabs each leading followers that wander the world.
+    pub(crate) npc_trains: Vec<NpcCongaTrain>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1492,7 +1498,11 @@ impl MainState {
             pulse_snapped_positions_buf: Vec::new(),
             king_stolen_crabs: Vec::new(),
             king_splice_cooldown: 0.0,
-            npc_train: NpcCongaTrain::new(world_width, world_height),
+            npc_trains: vec![
+                NpcCongaTrain::new_at(world_width, world_height, 0),
+                NpcCongaTrain::new_at(world_width, world_height, 1),
+                NpcCongaTrain::new_at(world_width, world_height, 2),
+            ],
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
