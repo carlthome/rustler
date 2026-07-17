@@ -1013,6 +1013,7 @@ pub fn draw_sprint_whoosh(
     canvas: &mut Canvas,
     center: Vec2,
     last_dir: Vec2,
+    time: f32,
     intensity: f32,
 ) -> ggez::GameResult {
     if last_dir.length() < 0.01 {
@@ -1029,13 +1030,16 @@ pub fn draw_sprint_whoosh(
         let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
         instances.set((0i32..7).map(|i| {
             let t = (i as f32 - 3.0) / 3.0;
-            let origin = center + perp * (t * 20.0) - wake * 4.0;
-            let length = 34.0 + (3.0 - (i as f32 - 3.0).abs()) * 10.0;
+            let wobble_phase = time * 9.0 + i as f32 * 0.85;
+            let wobble = wobble_phase.sin() * 5.0;
+            let flutter = (time * 14.0 + i as f32 * 1.3).cos() * 0.5 + 0.5;
+            let origin = center + perp * (t * 20.0 + wobble) - wake * (4.0 + flutter * 6.0);
+            let length = 28.0 + (3.0 - (i as f32 - 3.0).abs()) * 11.0 + flutter * 8.0;
             DrawParam::default()
                 .dest(origin)
                 .rotation(angle)
-                .scale(Vec2::new(length, 1.7))
-                .color(col)
+                .scale(Vec2::new(length, 1.7 + flutter * 0.5))
+                .color(Color::from_rgba(140, 255, 200, alpha.saturating_add((flutter * 25.0) as u8)))
         }));
         canvas.draw_instanced_mesh(line, instances, DrawParam::default());
         Ok(())
@@ -1310,7 +1314,7 @@ impl ParticleSystem {
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
             CrabType::RhythmBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge violet disco burst
         };
-        
+
         // Create main particles
         for _ in 0..particle_count {
             let angle = rng.random_range(0.0..std::f32::consts::TAU);
@@ -1318,7 +1322,7 @@ impl ParticleSystem {
             let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
             let life = rng.random_range(0.8..1.8);
             let size = rng.random_range(size_range.clone());
-            
+
             // Add some color variation and make particles brighter
             let color_variation = rng.random_range(-0.2..0.2);
             let brightness_boost = rng.random_range(0.3..0.7);
@@ -1327,7 +1331,7 @@ impl ParticleSystem {
                 (crab_color[1] + color_variation + brightness_boost).clamp(0.0, 1.0),
                 (crab_color[2] + color_variation + brightness_boost).clamp(0.0, 1.0),
             ];
-            
+
             self.push(Particle {
                 pos,
                 vel,
@@ -1337,7 +1341,7 @@ impl ParticleSystem {
                 color: particle_color,
             });
         }
-        
+
         // Add special sparkly particles for Fast and Sneaky crabs
         if special_effect {
             let sparkle_count = match crab_type {
@@ -1349,14 +1353,14 @@ impl ParticleSystem {
                 CrabType::Golden => 20, // a lavish shower of gold sparkles for the treasure catch
                 _ => 0,
             };
-            
+
             for _ in 0..sparkle_count {
                 let angle = rng.random_range(0.0..std::f32::consts::TAU);
                 let speed = rng.random_range(150.0..400.0);
                 let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
                 let life = rng.random_range(0.4..1.0);
                 let size = rng.random_range(1.0..3.0);
-                
+
                 let sparkle_color = match crab_type {
                     CrabType::Fast => [1.0, 0.8, 0.2], // Golden sparkles for fast crabs
                     CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
@@ -1366,7 +1370,7 @@ impl ParticleSystem {
                     CrabType::Golden => [1.0, 0.85, 0.25], // Bright treasure-gold coin sparks
                     _ => [1.0, 1.0, 0.9],
                 };
-                
+
                 self.push(Particle {
                     pos,
                     vel,
@@ -1384,7 +1388,7 @@ impl ParticleSystem {
                 let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
                 let life = rng.random_range(0.4..0.8);
                 let size = rng.random_range(1.5..4.0);
-                
+
                 self.push(Particle {
                     pos,
                     vel,
@@ -1692,14 +1696,14 @@ impl ParticleSystem {
 
             // Add gravity effect
             particle.vel.y += 200.0 * dt;
-            
+
             // Add air resistance
             particle.vel *= 0.96;
-            
+
             // Shrink particles over time
             let life_ratio = particle.life / particle.max_life;
             particle.size = particle.size * (0.95 + 0.05 * life_ratio);
-            
+
             particle.life > 0.0
         });
     }
