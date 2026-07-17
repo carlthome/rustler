@@ -12,9 +12,10 @@ run_script() {
     local name=$1
     echo -n "Running $name ... "
     # Bot mode skips all rendering and exits with 0/1 — no display server needed.
-    local output
+    local output exitcode
     output=$(nix develop . --command ./target/debug/rustler --bot "$name" 2>&1)
-    if [ $? -eq 0 ]; then
+    exitcode=$?
+    if [ $exitcode -eq 0 ]; then
         echo "PASS"
         PASS=$((PASS+1))
     else
