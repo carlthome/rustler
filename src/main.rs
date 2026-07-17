@@ -5873,7 +5873,7 @@ impl MainState {
     /// never pollute the persistent career.
     /// Open the campaign world map. Creates it on first visit; subsequent visits reuse the same
     /// instance so node completion persists across runs.
-    fn enter_world_map(&mut self) {
+    fn enter_world_map(&mut self, ctx: &mut Context) {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
         }
@@ -5882,6 +5882,8 @@ impl MainState {
         self.show_world_map = true;
         self.game_over = false;
         self.in_campaign = false;
+        // A calm ambient pad for the campaign map — a breather moment between levels.
+        let _ = self.sounds.world_map_pad.play_detached(ctx);
     }
 
     /// Start a campaign run (or tutorial) from the currently selected world map node.

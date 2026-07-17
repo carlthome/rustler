@@ -126,6 +126,687 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 
 const SAMPLE_RATE: u32 = 44_100;
 
+// ---------------------------------------------------------------------------------------------
+// General-purpose synth engine: oscillators, ADSR, FM voices, and lo-fi retro FX.
+//
+// The kick/snare/hihat/rumble above are bespoke one-off percussion generators. This section adds
+// reusable building blocks for *pitched* sounds — melodies, arpeggios, chimes — so future SFX
+// (and the coin-collect chime below) don't need to hand-roll a phase accumulator every time.
+// Everything here works in plain `f32` sample buffers (-1..1) so effects can be chained before
+// the final 16-bit WAV encode.
+// ---------------------------------------------------------------------------------------------
+
+/// Basic oscillator shapes for the additive synth. Sine is smooth/pure, triangle is a softer
+/// buzz, rectangle (square, with adjustable pulse width) is the classic hard 8-bit chip tone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Waveform {
+    Sine,
+    Triangle,
+    /// Rectangle/pulse wave. The `f32` is pulse width (duty cycle), 0..1; 0.5 = square.
+    Rect(f32),
+}
+
+/// Sample a bandlimited-enough (naive, but fine at these pitches/durations) oscillator at a given
+/// phase, where `phase` is in cycles (0.0..1.0 repeating), not radians.
+fn oscillator_sample(waveform: Waveform, phase: f32) -> f32 {
+    let p = phase.rem_euclid(1.0);
+    match waveform {
+        Waveform::Sine => (std::f32::consts::TAU * p).sin(),
+        // Triangle: linear ramp up 0..0.5, down 0.5..1, mapped to -1..1.
+        Waveform::Triangle => 1.0 - 4.0 * (p - 0.5).abs(),
+        Waveform::Rect(duty) => {
+            if p < duty.clamp(0.01, 0.99) {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+    }
+}
+
+/// Classic four-stage envelope: linear attack up to full amplitude, linear decay down to the
+/// sustain level, hold at sustain, then linear release to silence. Times are in seconds;
+/// `sustain` is a level 0..1, not a duration.
+#[derive(Clone, Copy, Debug)]
+pub struct Adsr {
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
+}
+
+impl Adsr {
+    /// Amplitude (0..1) at time `t` seconds into a note that is held for `note_duration` seconds
+    /// before release begins (so short-held notes still get a full release tail, e.g. `t` may run
+    /// past `note_duration` — callers should render `note_duration + release` samples total).
+    pub fn amplitude(&self, t: f32, note_duration: f32) -> f32 {
+        if t < 0.0 {
+            return 0.0;
+        }
+        if t < self.attack {
+            if self.attack <= 0.0 {
+                return 1.0;
+            }
+            return (t / self.attack).min(1.0);
+        }
+        let t_decay = t - self.attack;
+        if t_decay < self.decay {
+            if self.decay <= 0.0 {
+                return self.sustain;
+            }
+            let frac = (t_decay / self.decay).min(1.0);
+            return 1.0 + (self.sustain - 1.0) * frac;
+        }
+        if t < note_duration {
+            return self.sustain;
+        }
+        // Release: fade from sustain to zero over `release` seconds.
+        let t_release = t - note_duration;
+        if self.release <= 0.0 || t_release >= self.release {
+            return 0.0;
+        }
+        self.sustain * (1.0 - t_release / self.release)
+    }
+
+    /// Total length in seconds needed to render a note of `note_duration` fully to silence.
+    pub fn total_duration(&self, note_duration: f32) -> f32 {
+        note_duration + self.release
+    }
+}
+
+/// Render a single additive-synth note (sine/triangle/rect) with an ADSR envelope into a raw
+/// `-1..1` sample buffer. `freq` is constant across the note (no pitch glide) — this is the
+/// plain melodic building block; layer several calls at different frequencies/waveforms and mix
+/// for richer chords/timbres.
+pub fn synth_note(
+    waveform: Waveform,
+    freq: f32,
+    note_duration: f32,
+    adsr: &Adsr,
+    gain: f32,
+) -> Vec<f32> {
+    let total = adsr.total_duration(note_duration).max(0.0);
+    let n_samples = (SAMPLE_RATE as f32 * total) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut out = Vec::with_capacity(n_samples);
+    let mut phase = 0.0_f32;
+    for i in 0..n_samples {
+        let t = i as f32 * dt;
+        phase += freq * dt;
+        phase = phase.rem_euclid(1.0); // Keep the accumulator bounded for long (pad-length) notes.
+        let env = adsr.amplitude(t, note_duration);
+        out.push(oscillator_sample(waveform, phase) * env * gain);
+    }
+    out
+}
+
+/// Render a single two-operator FM voice: a sine carrier phase-modulated by a sine modulator,
+/// classic Chowning FM synthesis. The modulation index (how much the modulator's amplitude
+/// distorts the carrier) decays independently and faster than the overall note envelope, which
+/// is what gives DX7-style electric-piano/bell tones their characteristic bright "pluck" attack
+/// that mellows into a purer tone — perfect for a crisp, high, fast "coin" ping.
+///
+/// * `carrier_hz` — the fundamental pitch.
+/// * `mod_ratio` — modulator frequency as a multiple of the carrier (e.g. 2.0, 3.5, 7.0 all give
+///   different bell/metallic characters; non-integer ratios sound more inharmonic/metallic).
+/// * `mod_index` — peak modulation index (higher = brighter/more overtones at the attack).
+/// * `mod_index_decay` — how fast the modulation index decays (per second, exponential); a large
+///   value makes the "clang" collapse to a near-pure tone quickly, like a plucked string.
+/// * `adsr` — overall amplitude envelope for the note.
+pub fn synth_fm_note(
+    carrier_hz: f32,
+    mod_ratio: f32,
+    mod_index: f32,
+    mod_index_decay: f32,
+    note_duration: f32,
+    adsr: &Adsr,
+    gain: f32,
+) -> Vec<f32> {
+    synth_fm_note_inner(
+        carrier_hz,
+        mod_ratio,
+        mod_index,
+        mod_index_decay,
+        note_duration,
+        adsr,
+        gain,
+        false,
+    )
+}
+
+/// FM note variant with the short upward pitch bend used by NES-style hit-confirm sounds.
+fn synth_fm_note_pitch_attack(
+    carrier_hz: f32,
+    mod_ratio: f32,
+    mod_index: f32,
+    mod_index_decay: f32,
+    note_duration: f32,
+    adsr: &Adsr,
+    gain: f32,
+) -> Vec<f32> {
+    synth_fm_note_inner(
+        carrier_hz,
+        mod_ratio,
+        mod_index,
+        mod_index_decay,
+        note_duration,
+        adsr,
+        gain,
+        true,
+    )
+}
+
+fn synth_fm_note_inner(
+    carrier_hz: f32,
+    mod_ratio: f32,
+    mod_index: f32,
+    mod_index_decay: f32,
+    note_duration: f32,
+    adsr: &Adsr,
+    gain: f32,
+    pitch_attack: bool,
+) -> Vec<f32> {
+    let total = adsr.total_duration(note_duration).max(0.0);
+    let n_samples = (SAMPLE_RATE as f32 * total) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut out = Vec::with_capacity(n_samples);
+    let mut carrier_phase = 0.0_f32;
+    let mut mod_phase = 0.0_f32;
+    for i in 0..n_samples {
+        let t = i as f32 * dt;
+        // Start a catch-confirm note 10% sharp, settling to pitch in 30 ms.
+        let pitch = if pitch_attack {
+            1.0 + 0.1 * (1.0 - (t / 0.03).min(1.0))
+        } else {
+            1.0
+        };
+        mod_phase += carrier_hz * pitch * mod_ratio * dt;
+        mod_phase = mod_phase.rem_euclid(1.0); // Bound the accumulator for long pad-length notes.
+                                               // Modulation index decays exponentially from its peak so the "clang" settles fast.
+        let idx = mod_index * (-mod_index_decay * t).exp();
+        let modulator = (std::f32::consts::TAU * mod_phase).sin() * idx;
+        carrier_phase += carrier_hz * pitch * dt;
+        carrier_phase = carrier_phase.rem_euclid(1.0);
+        let env = adsr.amplitude(t, note_duration);
+        let sample = (std::f32::consts::TAU * carrier_phase + modulator).sin();
+        out.push(sample * env * gain);
+    }
+    out
+}
+
+/// Mix a buffer into a destination at a given sample offset, extending `dest` as needed. Used to
+/// layer/overlap notes (e.g. a fast arpeggio where consecutive notes slightly overlap) without
+/// clipping the tail of the previous one.
+fn mix_into(dest: &mut Vec<f32>, src: &[f32], offset_samples: usize) {
+    let needed = offset_samples + src.len();
+    if dest.len() < needed {
+        dest.resize(needed, 0.0);
+    }
+    for (i, &s) in src.iter().enumerate() {
+        dest[offset_samples + i] += s;
+    }
+}
+
+/// Lo-fi "bitcrush" effect, 8/16-bit console style: quantizes amplitude to `bit_depth` bits and
+/// holds each output sample for `sample_hold` input samples (sample-and-hold decimation, i.e. a
+/// crude sample-rate reduction). Both together give that dirty, aliased retro chiptune crunch —
+/// a `bit_depth` of 8 with `sample_hold` of 2-4 reads as distinctly "old console", while
+/// `bit_depth` 16 / `sample_hold` 1 is a no-op (transparent passthrough).
+fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
+    let levels = (1u32 << bit_depth.clamp(2, 16)) as f32;
+    let half_levels = levels * 0.5;
+    let hold = sample_hold.max(1);
+    let mut held_value = 0.0_f32;
+    for (i, s) in samples.iter_mut().enumerate() {
+        if i % hold == 0 {
+            // Quantize to `levels` steps across -1..1.
+            held_value = (s.clamp(-1.0, 1.0) * half_levels).round() / half_levels;
+        }
+        *s = held_value;
+    }
+}
+
+fn samples_to_pcm(samples: &mut [f32], bit_depth: u32, sample_hold: usize) -> Vec<i16> {
+    bitcrush(samples, bit_depth, sample_hold);
+    samples
+        .iter()
+        .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect()
+}
+
+/// Deterministic 16-bit linear-feedback shift-register noise, suitable for a console noise
+/// channel. The maximal-length taps make the sequence read as noise without allocating a buffer.
+fn lfsr_noise(state: &mut u32) -> f32 {
+    let bit = (*state ^ (*state >> 1)) & 1;
+    *state = (*state >> 1) | (bit << 15);
+    ((*state & 0xffff) as f32 / 32767.5) - 1.0
+}
+
+/// Simple feed-forward dynamics compressor with an envelope follower (separate attack/release
+/// smoothing). Above `threshold`, gain is reduced by `ratio` (e.g. 4.0 = 4:1); below it, signal
+/// passes untouched. Squashes the loudest transient peaks so a busy mix of layered notes stays
+/// punchy without clipping, in the "loud but controlled" style of retro console audio (everything
+/// slammed to feel bigger than it is).
+fn compress(samples: &mut [f32], threshold: f32, ratio: f32, attack_s: f32, release_s: f32) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let attack_coeff = (-dt / attack_s.max(0.0001)).exp();
+    let release_coeff = (-dt / release_s.max(0.0001)).exp();
+    let mut envelope = 0.0_f32;
+    for s in samples.iter_mut() {
+        let input_level = s.abs();
+        let coeff = if input_level > envelope {
+            attack_coeff
+        } else {
+            release_coeff
+        };
+        envelope = coeff * envelope + (1.0 - coeff) * input_level;
+
+        if envelope > threshold {
+            // Linear amplitude ratio (not decibels) of how far the envelope sits above threshold.
+            let over_threshold_ratio = envelope / threshold;
+            let reduced_ratio = over_threshold_ratio.powf(1.0 / ratio - 1.0);
+            *s *= reduced_ratio;
+        }
+    }
+}
+
+/// Normalize a buffer so its peak absolute sample hits `target_peak` (0..1), then soft-clip with
+/// `tanh` for a touch of warm saturation. Run this last, after any compression, so the final
+/// output uses the available headroom without harsh digital clipping.
+fn normalize_and_saturate(samples: &mut [f32], target_peak: f32) {
+    // Slight overdrive before the tanh soft-clip so the curve's knee rounds off the loudest
+    // peaks a touch (warmth/drive), instead of leaving `tanh` almost linear near the target peak.
+    const SATURATION_OVERDRIVE: f32 = 1.15;
+    let peak = samples.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    if peak > 0.0001 {
+        let total_gain = (target_peak / peak) * SATURATION_OVERDRIVE;
+        for s in samples.iter_mut() {
+            *s = (*s * total_gain).tanh();
+        }
+    }
+}
+
+/// Synthesise a fast, bright arpeggio for "you caught something" feedback — e.g. a coin/crab
+/// collection chime. Three short FM-bell notes climb a major triad in rapid succession (each
+/// note starts before the last fully decays, so they blend into one bright upward flourish
+/// rather than sounding like three separate blips), then the whole thing gets bitcrushed and
+/// gently compressed for that 8/16-bit console "coin get" flavor.
+///
+/// `root_hz` sets the pitch of the first note (the other two are a major third and a fifth
+/// above); `gain` is overall peak loudness 0..1.
+fn synth_coin_arpeggio_wav(root_hz: f32, gain: f32) -> Vec<u8> {
+    // Major triad ratios: root, major third, perfect fifth — an unambiguously "happy" collection
+    // jingle, reused an octave up for a bright topping note.
+    let ratios = [1.0_f32, 5.0 / 4.0, 3.0 / 2.0, 2.0];
+    let note_duration = 0.045; // Each note is short and fast — "coins", not "melody".
+    let note_spacing = 0.032; // Notes overlap slightly (spacing < duration) for a fluid run.
+    let adsr = Adsr {
+        attack: 0.002,
+        decay: 0.05,
+        sustain: 0.15,
+        release: 0.06,
+    };
+
+    let mut mix: Vec<f32> = Vec::new();
+    for (i, &ratio) in ratios.iter().enumerate() {
+        let freq = root_hz * ratio;
+        // A slightly lower modulation index/decay on the topping note keeps it bright but not
+        // harsh — the classic FM "electric piano" gets duller as it climbs into the high range.
+        let bell = synth_fm_note_pitch_attack(freq, 3.0, 3.5, 22.0, note_duration, &adsr, gain);
+        // Layer a quiet triangle-wave sub-oscillator, one octave down, under the FM bell using
+        // the plain additive synth — gives the ping a bit of chip-tune "body" beneath the bright
+        // FM overtones, so it doesn't sound like a bare sine/FM blip.
+        let body = synth_note(
+            Waveform::Triangle,
+            freq * 0.5,
+            note_duration,
+            &adsr,
+            gain * 0.35,
+        );
+        let offset = (SAMPLE_RATE as f32 * note_spacing * i as f32) as usize;
+        mix_into(&mut mix, &bell, offset);
+        mix_into(&mut mix, &body, offset);
+    }
+
+    // Retro FX chain: mild bitcrush for chip-tune grit, then compress to glue the overlapping
+    // notes together and keep the peak of the run under control, then saturate to full loudness.
+    bitcrush(&mut mix, 10, 2);
+    compress(&mut mix, 0.5, 3.0, 0.002, 0.08);
+    normalize_and_saturate(&mut mix, 0.9);
+
+    let pcm = samples_to_pcm(&mut mix, 6, 2);
+    encode_wav_mono16(&pcm)
+}
+
+/// Build a playable `Source` for the synthesized coin/collection chime (see
+/// `synth_coin_arpeggio_wav`). Constructed once at startup, like the other percussion voices, and
+/// replayed with `play_detached`/pitch variation on each catch.
+pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
+    let wav = synth_coin_arpeggio_wav(660.0, 0.8); // E5-ish root: high and bright.
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ambient synth pads: long-swell drones with a sweeping resonant filter, a feedback delay, and
+// slow stereo auto-panning, for a calm/atmospheric moment (e.g. opening the campaign world map)
+// rather than the percussive/melodic voices above. Built from the same oscillator/ADSR/FM
+// primitives, just with much longer envelopes and a stereo FX chain layered on top.
+// ---------------------------------------------------------------------------------------------
+
+/// Sweep a resonant bandpass filter's center frequency slowly back and forth and blend the
+/// filtered "peak" back in on top of the dry signal — like someone slowly working an EQ's
+/// resonance/frequency knobs by hand, adding movement and subtle emphasis without fully carving
+/// away the rest of the tone. Uses a Chamberlin state-variable filter (SVF): cheap, stable, and
+/// (unlike a fixed biquad) safe to modulate every sample since it needs no coefficient recompute.
+fn apply_resonant_sweep(
+    samples: &mut [f32],
+    center_hz: f32,
+    sweep_hz: f32,
+    sweep_rate_hz: f32,
+    resonance: f32,
+) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    // Chamberlin's damping factor: smaller = sharper, more pronounced resonance peak.
+    let q = 1.0 / resonance.max(0.5);
+    let mut low = 0.0_f32;
+    let mut band = 0.0_f32;
+    for (i, s) in samples.iter_mut().enumerate() {
+        let t = i as f32 * dt;
+        let fc =
+            (center_hz + sweep_hz * (std::f32::consts::TAU * sweep_rate_hz * t).sin()).max(20.0);
+        // SVF stability limit: keep the frequency coefficient comfortably below the point where
+        // the filter would start ringing out of control at audio sample rates.
+        let f = (2.0 * (std::f32::consts::PI * fc / SAMPLE_RATE as f32).sin()).min(1.2);
+        let input = *s;
+        let high = input - low - q * band;
+        band += f * high;
+        low += f * band;
+        // Blend the resonant bandpass "peak" back in at a modest level — an emphasis sweep on
+        // top of the dry tone, not a full filter replacing it.
+        *s = input + band * 0.5;
+    }
+}
+
+/// Feedback delay line: `y[n] = x[n] + feedback * y[n - delay_samples]`, then cross-faded against
+/// the dry signal by `mix` (0 = dry only, 1 = fully wet i.e. the delayed signal, which itself
+/// still carries the original hit as its very first "tap"). Extends the buffer with a silent
+/// tail so the echoes ring out fully instead of being cut off at the note's original length.
+fn apply_delay(dry: &[f32], delay_time_s: f32, feedback: f32, mix: f32) -> Vec<f32> {
+    let delay_samples = ((SAMPLE_RATE as f32) * delay_time_s).max(1.0) as usize;
+    // A handful of extra repeats' worth of silence so the feedback trail has room to decay away.
+    let tail_len = delay_samples * 6;
+    let total_len = dry.len() + tail_len;
+
+    let mut wet = vec![0.0_f32; total_len];
+    for i in 0..total_len {
+        let input = if i < dry.len() { dry[i] } else { 0.0 };
+        let echo = if i >= delay_samples {
+            wet[i - delay_samples] * feedback
+        } else {
+            0.0
+        };
+        wet[i] = input + echo;
+    }
+
+    let mut out = Vec::with_capacity(total_len);
+    for i in 0..total_len {
+        let dry_sample = if i < dry.len() { dry[i] } else { 0.0 };
+        out.push(dry_sample * (1.0 - mix) + wet[i] * mix);
+    }
+    out
+}
+
+/// Split a mono signal into left/right channels with a slow auto-pan: the stereo position drifts
+/// sinusoidally between hard left and hard right at `pan_rate_hz` (typically well under 1 Hz, so
+/// it reads as a gentle drift rather than a tremolo). Uses the equal-power panning law (quarter
+/// sine/cosine curve) so perceived loudness stays constant as the sound moves across the stereo
+/// field, instead of dipping in the center like a naive linear crossfade would.
+fn apply_stereo_pan(mono: &[f32], pan_rate_hz: f32) -> (Vec<f32>, Vec<f32>) {
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut left = Vec::with_capacity(mono.len());
+    let mut right = Vec::with_capacity(mono.len());
+    for (i, &s) in mono.iter().enumerate() {
+        let t = i as f32 * dt;
+        let pan = (std::f32::consts::TAU * pan_rate_hz * t).sin(); // -1 (left) .. +1 (right)
+        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4; // maps -1..1 to 0..pi/2
+        left.push(s * angle.cos());
+        right.push(s * angle.sin());
+    }
+    (left, right)
+}
+
+/// Wrap interleaved stereo `-1..1` sample pairs in a canonical 44-byte WAV header (2-channel,
+/// 16-bit PCM), mirroring `encode_wav_mono16` but for the panned pad output.
+fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
+    let n_frames = left.len().min(right.len());
+    let num_channels: u16 = 2;
+    let bits_per_sample: u16 = 16;
+    let byte_rate = SAMPLE_RATE * num_channels as u32 * (bits_per_sample as u32 / 8);
+    let block_align = num_channels * (bits_per_sample / 8);
+    let data_len = (n_frames * 2 * 2) as u32; // frames * channels * bytes-per-sample
+    let riff_len = 36 + data_len;
+
+    let mut out = Vec::with_capacity(44 + n_frames * 4);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&riff_len.to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&num_channels.to_le_bytes());
+    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&bits_per_sample.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for i in 0..n_frames {
+        let l = (left[i].clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        let r = (right[i].clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        out.extend_from_slice(&l.to_le_bytes());
+        out.extend_from_slice(&r.to_le_bytes());
+    }
+    out
+}
+
+/// Named ambient pad presets. Each is a fixed bundle of oscillator/ADSR/filter/delay/pan
+/// parameters producing a distinct mood — callers just pick a mood and a root pitch.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PadPreset {
+    /// Mellow and warm: detuned triangle layers, a slow low filter sweep, a soft long tail.
+    WarmPad,
+    /// Brighter and glassy: sine + a touch of bell-like FM, a wider/faster filter sweep.
+    CrystalPad,
+}
+
+/// Parameters bundled per `PadPreset`. Not exposed publicly — presets are meant to be picked by
+/// name, not hand-tuned by callers; add a new `PadPreset` variant instead of exposing this.
+struct PadParams {
+    waveform: Waveform,
+    detune_cents: f32,
+    fm_layer: bool,
+    adsr: Adsr,
+    filter_center_hz: f32,
+    filter_sweep_hz: f32,
+    filter_sweep_rate_hz: f32,
+    filter_resonance: f32,
+    delay_time_s: f32,
+    delay_feedback: f32,
+    delay_mix: f32,
+    pan_rate_hz: f32,
+}
+
+impl PadPreset {
+    fn params(self) -> PadParams {
+        match self {
+            PadPreset::WarmPad => PadParams {
+                waveform: Waveform::Triangle,
+                detune_cents: 7.0,
+                fm_layer: false,
+                // Long attack/release — the defining trait of a "pad": a slow swell in, a long
+                // fade out, no percussive transient at all.
+                adsr: Adsr {
+                    attack: 1.2,
+                    decay: 0.6,
+                    sustain: 0.7,
+                    release: 2.5,
+                },
+                filter_center_hz: 700.0,
+                filter_sweep_hz: 350.0,
+                filter_sweep_rate_hz: 0.08,
+                filter_resonance: 6.0,
+                delay_time_s: 0.35,
+                delay_feedback: 0.35,
+                delay_mix: 0.25,
+                pan_rate_hz: 0.06,
+            },
+            PadPreset::CrystalPad => PadParams {
+                waveform: Waveform::Sine,
+                detune_cents: 12.0,
+                fm_layer: true,
+                adsr: Adsr {
+                    attack: 0.6,
+                    decay: 0.8,
+                    sustain: 0.55,
+                    release: 3.2,
+                },
+                filter_center_hz: 1600.0,
+                filter_sweep_hz: 900.0,
+                filter_sweep_rate_hz: 0.15,
+                filter_resonance: 9.0,
+                delay_time_s: 0.28,
+                delay_feedback: 0.4,
+                delay_mix: 0.3,
+                pan_rate_hz: 0.1,
+            },
+        }
+    }
+}
+
+/// Render a full ambient pad through the whole chain: three detuned additive-synth voices (root
+/// + up/down a few cents, the classic "supersaw" width trick) optionally topped with an FM bell
+/// layer, a slow sweeping resonant filter, a feedback delay, gentle compression to glue it all
+/// together, then slow stereo auto-panning — producing a stereo 16-bit WAV byte buffer.
+fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32) -> Vec<u8> {
+    let p = preset.params();
+    let cents_to_ratio = |cents: f32| 2.0_f32.powf(cents / 1200.0);
+
+    let mut mono = synth_note(p.waveform, root_hz, note_duration, &p.adsr, gain * 0.5);
+    let detuned_up = synth_note(
+        p.waveform,
+        root_hz * cents_to_ratio(p.detune_cents),
+        note_duration,
+        &p.adsr,
+        gain * 0.3,
+    );
+    let detuned_down = synth_note(
+        p.waveform,
+        root_hz * cents_to_ratio(-p.detune_cents),
+        note_duration,
+        &p.adsr,
+        gain * 0.3,
+    );
+    for (i, v) in detuned_up.iter().enumerate() {
+        mono[i] += v;
+    }
+    for (i, v) in detuned_down.iter().enumerate() {
+        mono[i] += v;
+    }
+
+    if p.fm_layer {
+        // A quiet, slowly-decaying FM bell an octave up adds glassy overtones to the crystal
+        // preset without overpowering the underlying additive layers.
+        let bell = synth_fm_note(
+            root_hz * 2.0,
+            2.0,
+            1.2,
+            0.6,
+            note_duration,
+            &p.adsr,
+            gain * 0.25,
+        );
+        for (i, v) in bell.iter().enumerate() {
+            mono[i] += v;
+        }
+    }
+
+    // A deliberately stark 16-step minor tracker line gives the map pad a darker, Deus Ex-era
+    // industrial pulse: clipped square notes, a low repeating bass ostinato, and a couple of
+    // strategically empty steps. It is a musical pattern rather than a modern sustained chord,
+    // so the ambience still has a machine-like groove underneath the long pad.
+    let tracker_adsr = Adsr {
+        attack: 0.001,
+        decay: 0.035,
+        sustain: 0.0,
+        release: 0.045,
+    };
+    let tracker_pattern = [0, 3, 7, 10, 7, 3, 0, -2, 0, 3, 7, 12, 10, 7, 3, -2];
+    let step_duration = 0.125;
+    for (step, semitone) in tracker_pattern.iter().enumerate() {
+        // Leave two off-beats empty, as a tracker pattern would, instead of filling every slot.
+        if step == 5 || step == 13 {
+            continue;
+        }
+        let ratio = 2.0_f32.powf(*semitone as f32 / 12.0);
+        let voice = synth_note(
+            Waveform::Rect(0.125),
+            root_hz * ratio,
+            0.075,
+            &tracker_adsr,
+            gain * 0.16,
+        );
+        mix_into(
+            &mut mono,
+            &voice,
+            (SAMPLE_RATE as f32 * step_duration * step as f32) as usize,
+        );
+    }
+    // A quieter sub-bass line pins the motif to the root, like a second tracker channel.
+    let bass = synth_note(
+        Waveform::Rect(0.5),
+        root_hz * 0.5,
+        note_duration,
+        &tracker_adsr,
+        gain * 0.12,
+    );
+    mix_into(&mut mono, &bass, 0);
+
+    apply_resonant_sweep(
+        &mut mono,
+        p.filter_center_hz,
+        p.filter_sweep_hz,
+        p.filter_sweep_rate_hz,
+        p.filter_resonance,
+    );
+
+    let mut wet = apply_delay(&mono, p.delay_time_s, p.delay_feedback, p.delay_mix);
+    // Gentle glue compression (long attack/release suits a slow-moving pad, unlike the punchy
+    // settings used for the coin chime) so the layered voices + delay don't get too peaky.
+    compress(&mut wet, 0.6, 2.5, 0.05, 0.3);
+    bitcrush(&mut wet, 8, 2);
+    normalize_and_saturate(&mut wet, 0.75);
+
+    let (left, right) = apply_stereo_pan(&wet, p.pan_rate_hz);
+    encode_wav_stereo16(&left, &right)
+}
+
+/// Build a playable ambient pad `Source` from a preset. `root_hz` sets the pad's fundamental
+/// pitch; `note_duration` is how long the note is held before release begins — the audible tail
+/// runs considerably longer than that once the long release and the delay's echo trail are
+/// included, so this suits a calm, atmospheric moment (e.g. opening the campaign world map)
+/// rather than a rhythm-locked SFX.
+pub fn synth_ambient_pad(
+    ctx: &mut Context,
+    preset: PadPreset,
+    root_hz: f32,
+    note_duration: f32,
+) -> GameResult<Source> {
+    let wav = synth_pad_wav(preset, root_hz, note_duration, 0.7);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
 /// Synthesise a single kick-drum hit as a mono 16-bit WAV byte buffer.
 ///
 /// A kick is a sine whose pitch drops fast from a punchy attack transient down to a low body,
@@ -137,7 +818,7 @@ const SAMPLE_RATE: u32 = 44_100;
 /// * `gain` — peak amplitude 0..1; the downbeat gets a touch more so the "1" lands hardest.
 fn synth_kick_wav(start_hz: f32, end_hz: f32, duration: f32, gain: f32) -> Vec<u8> {
     let n_samples = (SAMPLE_RATE as f32 * duration) as usize;
-    let mut pcm: Vec<i16> = Vec::with_capacity(n_samples);
+    let mut samples = Vec::with_capacity(n_samples);
 
     // Integrate the (falling) instantaneous frequency into a continuous phase so there's no click
     // from a discontinuity when the pitch slides. Phase in radians, advanced each sample.
@@ -149,19 +830,23 @@ fn synth_kick_wav(start_hz: f32, end_hz: f32, duration: f32, gain: f32) -> Vec<u
 
         // Pitch drop: exponential glide from start_hz to end_hz feels punchier than linear.
         let freq = end_hz + (start_hz - end_hz) * (-6.0 * progress).exp();
-        phase += std::f32::consts::TAU * freq * dt;
+        phase += freq * dt;
+        phase = phase.rem_euclid(1.0);
 
         // Amplitude: fast exponential decay so the hit is percussive, plus a very short attack
         // ramp (first ~2ms) to avoid a hard click at sample 0.
         let attack = (t / 0.002).min(1.0);
         let env = attack * (-5.0 * progress).exp();
 
-        let sample = phase.sin() * env * gain;
-        // Soft clip for a hair of drive/warmth, then to 16-bit range.
-        let driven = (sample * 1.4).tanh();
-        pcm.push((driven * i16::MAX as f32) as i16);
+        // Triangle body plus a narrow pulse click gives the kick a distinctly synthetic console
+        // attack instead of a smooth sine boom.
+        let body = oscillator_sample(Waveform::Triangle, phase);
+        let click = oscillator_sample(Waveform::Rect(0.125), phase * 2.0);
+        let sample = (body * 0.82 + click * 0.18) * env * gain;
+        samples.push((sample * 1.4).tanh());
     }
 
+    let pcm = samples_to_pcm(&mut samples, 6, 2);
     encode_wav_mono16(&pcm)
 }
 
@@ -172,15 +857,9 @@ fn synth_kick_wav(start_hz: f32, end_hz: f32, duration: f32, gain: f32) -> Vec<u
 /// * `gain` — peak amplitude 0..1.
 fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
     let n_samples = (SAMPLE_RATE as f32 * duration) as usize;
-    let mut pcm: Vec<i16> = Vec::with_capacity(n_samples);
+    let mut samples = Vec::with_capacity(n_samples);
 
-    // Simple LCG for deterministic noise without pulling in rand here.
-    let mut rng_state: u32 = 0xdeadbeef;
-    let mut white_noise = || -> f32 {
-        rng_state = rng_state.wrapping_mul(1664525).wrapping_add(1013904223);
-        // Map u32 to -1..1
-        (rng_state as i32 as f32) / i32::MAX as f32
-    };
+    let mut noise_state: u32 = 0xace1;
 
     let dt = 1.0 / SAMPLE_RATE as f32;
     let mut tone_phase = 0.0_f32;
@@ -203,7 +882,7 @@ fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
         let tone = tone_phase.sin() * (-30.0 * progress).exp(); // dies fast
 
         // Noise component: highpass-filtered to remove the muddy low end.
-        let noise_in = white_noise();
+        let noise_in = lfsr_noise(&mut noise_state);
         let hp = rc * (hp_prev_out + noise_in - hp_prev_in);
         hp_prev_in = noise_in;
         hp_prev_out = hp;
@@ -211,9 +890,10 @@ fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
         // Mix: 30% tone crack + 70% sizzle noise, under the shared envelope.
         let sample = (0.3 * tone + 0.7 * hp) * env * gain;
         let driven = (sample * 1.2).tanh();
-        pcm.push((driven * i16::MAX as f32) as i16);
+        samples.push(driven);
     }
 
+    let pcm = samples_to_pcm(&mut samples, 4, 2);
     encode_wav_mono16(&pcm)
 }
 
@@ -222,18 +902,18 @@ fn synth_snare_wav(duration: f32, gain: f32) -> Vec<u8> {
 /// A crisp hi-hat click — white noise with a very short exponential decay.
 /// Used for the B-key "jam emote" so the player crab can vibe.
 pub fn synth_hihat(ctx: &mut Context) -> GameResult<Source> {
-    use rand::Rng;
     let n = (SAMPLE_RATE as f32 * 0.08) as usize; // 80ms
-    let mut rng = rand::rng();
-    let mut pcm: Vec<i16> = Vec::with_capacity(n);
+    let mut noise_state: u32 = 0x5eed;
+    let mut samples = Vec::with_capacity(n);
     for i in 0..n {
         let t = i as f32 / SAMPLE_RATE as f32;
-        let noise: f32 = rng.random_range(-1.0_f32..1.0_f32);
+        let noise = lfsr_noise(&mut noise_state);
         // Short sharp decay + high-pass via mixing two noise phases
         let env = (-80.0 * t).exp();
         let v = noise * env * 0.55;
-        pcm.push((v * 18000.0) as i16);
+        samples.push(v);
     }
+    let pcm = samples_to_pcm(&mut samples, 4, 2);
     let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav);
     Source::from_data(ctx, data)
@@ -300,7 +980,7 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
 /// The caller sets `repeat(true)` so it loops; volume is driven by distance each frame.
 pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
     let n = (SAMPLE_RATE as f32 * 0.5) as usize;
-    let mut pcm: Vec<i16> = Vec::with_capacity(n);
+    let mut samples = Vec::with_capacity(n);
     let dt = 1.0 / SAMPLE_RATE as f32;
     // Pulse starts within each 0.5s loop: ti-ppy ... ta-ppy
     let pulse_starts = [0.00_f32, 0.065_f32, 0.225_f32, 0.305_f32];
@@ -316,14 +996,15 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
             }
         }
 
-        let rumble = 0.62 * (std::f32::consts::TAU * 80.0 * t).sin()
-            + 0.26 * (std::f32::consts::TAU * 121.0 * t).sin()
-            + 0.16 * (std::f32::consts::TAU * 173.0 * t).sin();
+        let rumble = 0.62 * oscillator_sample(Waveform::Triangle, 80.0 * t)
+            + 0.26 * oscillator_sample(Waveform::Rect(0.5), 121.0 * t)
+            + 0.16 * oscillator_sample(Waveform::Triangle, 173.0 * t);
         // Subtle, short high component so pulses read as "claw taps" instead of pure hum.
-        let tap = 0.12 * (std::f32::consts::TAU * 420.0 * t).sin();
+        let tap = 0.12 * oscillator_sample(Waveform::Rect(0.125), 420.0 * t);
         let v = ((rumble + tap) * gate * 0.72).tanh();
-        pcm.push((v * 17000.0) as i16);
+        samples.push(v * 17000.0 / i16::MAX as f32);
     }
+    let pcm = samples_to_pcm(&mut samples, 6, 2);
     let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav);
     let mut src = Source::from_data(ctx, data)?;
