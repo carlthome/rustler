@@ -32,13 +32,17 @@ thread_local! {
 }
 
 pub(crate) fn normalize_player_name(name: &str) -> String {
-    let cleaned: String = name.chars().filter(|ch| !ch.is_control()).take(24).collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
+    let cleaned = sanitize_player_name(name);
+    if cleaned.is_empty() {
         "Crabby".to_string()
     } else {
-        trimmed.to_string()
+        cleaned
     }
+}
+
+pub(crate) fn sanitize_player_name(name: &str) -> String {
+    let cleaned: String = name.chars().filter(|ch| !ch.is_control()).take(24).collect();
+    cleaned.trim().to_string()
 }
 
 /// Returns the instructions shown on the "How to Play" menu card.
@@ -5610,14 +5614,14 @@ impl MainState {
     fn push_player_name_char(&mut self, ch: char) {
         let mut name = self.player_name.clone();
         name.push(ch);
-        self.player_name = crate::normalize_player_name(&name);
+        self.player_name = crate::sanitize_player_name(&name);
         self.save_career();
     }
 
     fn pop_player_name_char(&mut self) {
         let mut name = self.player_name.clone();
         name.pop();
-        self.player_name = crate::normalize_player_name(&name);
+        self.player_name = crate::sanitize_player_name(&name);
         self.save_career();
     }
 
@@ -12348,5 +12352,22 @@ mod how_to_play_tests {
         }
         assert!(!text.contains("Z: whistle"));
         assert!(!text.contains("C: cycle"));
+    }
+}
+
+#[cfg(test)]
+mod player_name_tests {
+    use super::{normalize_player_name, sanitize_player_name};
+
+    #[test]
+    fn editing_name_can_be_empty() {
+        assert_eq!(sanitize_player_name("Crabby"), "Crabby");
+        assert_eq!(sanitize_player_name(""), "");
+        assert_eq!(sanitize_player_name("   "), "");
+    }
+
+    #[test]
+    fn empty_name_gets_default_when_used_as_a_display_name() {
+        assert_eq!(normalize_player_name(""), "Crabby");
     }
 }
