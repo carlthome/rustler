@@ -12,8 +12,9 @@ run_script() {
     local name=$1
     echo -n "Running $name ... "
     # Bot mode skips all rendering and exits with 0/1 — no display server needed.
-    local output exitcode
-    output=$(nix develop . --command ./target/debug/rustler --bot "$name" 2>&1)
+    local tempfile exitcode
+    tempfile=$(mktemp)
+    nix develop . --command ./target/debug/rustler --bot "$name" > "$tempfile" 2>&1
     exitcode=$?
     if [ $exitcode -eq 0 ]; then
         echo "PASS"
@@ -21,8 +22,9 @@ run_script() {
     else
         echo "FAIL"
         FAIL=$((FAIL+1))
-        echo "$output"
+        cat "$tempfile"
     fi
+    rm -f "$tempfile"
 }
 
 run_script menu_to_game
