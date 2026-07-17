@@ -130,7 +130,7 @@ Steps:
 5. If 5 or more non-chore commits:
    - If ANY commit is a new feature or mechanic → MINOR bump (e.g. v0.11.0 → v0.12.0)
    - If ALL are bug fixes or perf only → PATCH bump (e.g. v0.11.0 → v0.11.1)
-   - Update Cargo.toml: `sed -i '' 's/^version = ".*"/version = "<new>"/' ./Cargo.toml`
+   - Update Cargo.toml: `sed -i 's/^version = ".*"/version = "<new>"/' ./Cargo.toml`
    - Write release notes to `CHANGELOG.md` (append a new `## v<new> — <date>` section with bullet
      points summarising the non-chore commits in plain English — one line per commit, grouped as
      Features / Performance / Fixes / Refactoring). This file is picked up by the GitHub Release workflow.
@@ -178,19 +178,24 @@ Be MORE conservative than cron 1: nobody's around to catch a bad build until mor
 so prefer smaller, safer, easily-reverted improvements over ambitious ones.
 
 Steps:
-1. Read git log: `git -C . log --oneline -8`
-2. Skim the tops of src/main.rs and src/graphics.rs to understand current state
-3. Read INSPIRATION.md (short file) — the design compass. Apply its test before picking a task:
+1. `git -C . pull --ff-only`
+2. Run the bot playtests FIRST — they are your regression check before touching anything:
+   `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
+   If any test FAILs, that bug is your task this run — fix it before anything else.
+3. Read git log: `git -C . log --oneline -8`
+4. Skim the tops of src/main.rs and src/graphics.rs to understand current state
+5. Read INSPIRATION.md (short file) — the design compass. Apply its test before picking a task:
    does this deepen the groove? Does hitting it on the beat feel like a drum hit?
-4. Read ROADMAP.md — fix Bugs section first if present. Otherwise pick the most impactful
+6. Read ROADMAP.md — fix Bugs section first if present. Otherwise pick the most impactful
    buildable item from the "Now" section only (not "Later" or "Also on our mind").
    Fall back to: (a) game feel/juice + beat depth, (b) archetype/tool legibility,
    (c) new mechanics, (d) difficulty balance
-5. Implement it. Spawn two parallel subagents if touching both graphics.rs and main.rs/etc.
-6. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
-7. Fix any build errors and rebuild until clean
-8. Commit with a short plain-English message — no Co-Authored-By lines
-9. Push: `git -C . push origin main`
+7. Implement it. Spawn two parallel subagents if touching both graphics.rs and main.rs/etc.
+8. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
+9. Fix any build errors and rebuild until clean
+10. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
+11. Commit with a short plain-English message — no Co-Authored-By lines
+12. Push: `git -C . push origin main`
 ```
 
 ## Cron 5 — Optimizer prompt
