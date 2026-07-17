@@ -731,6 +731,47 @@ fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32)
         }
     }
 
+    // A deliberately stark 16-step minor tracker line gives the map pad a darker, Deus Ex-era
+    // industrial pulse: clipped square notes, a low repeating bass ostinato, and a couple of
+    // strategically empty steps. It is a musical pattern rather than a modern sustained chord,
+    // so the ambience still has a machine-like groove underneath the long pad.
+    let tracker_adsr = Adsr {
+        attack: 0.001,
+        decay: 0.035,
+        sustain: 0.0,
+        release: 0.045,
+    };
+    let tracker_pattern = [0, 3, 7, 10, 7, 3, 0, -2, 0, 3, 7, 12, 10, 7, 3, -2];
+    let step_duration = 0.125;
+    for (step, semitone) in tracker_pattern.iter().enumerate() {
+        // Leave two off-beats empty, as a tracker pattern would, instead of filling every slot.
+        if step == 5 || step == 13 {
+            continue;
+        }
+        let ratio = 2.0_f32.powf(*semitone as f32 / 12.0);
+        let voice = synth_note(
+            Waveform::Rect(0.125),
+            root_hz * ratio,
+            0.075,
+            &tracker_adsr,
+            gain * 0.16,
+        );
+        mix_into(
+            &mut mono,
+            &voice,
+            (SAMPLE_RATE as f32 * step_duration * step as f32) as usize,
+        );
+    }
+    // A quieter sub-bass line pins the motif to the root, like a second tracker channel.
+    let bass = synth_note(
+        Waveform::Rect(0.5),
+        root_hz * 0.5,
+        note_duration,
+        &tracker_adsr,
+        gain * 0.12,
+    );
+    mix_into(&mut mono, &bass, 0);
+
     apply_resonant_sweep(
         &mut mono,
         p.filter_center_hz,
@@ -743,6 +784,7 @@ fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32)
     // Gentle glue compression (long attack/release suits a slow-moving pad, unlike the punchy
     // settings used for the coin chime) so the layered voices + delay don't get too peaky.
     compress(&mut wet, 0.6, 2.5, 0.05, 0.3);
+    bitcrush(&mut wet, 8, 2);
     normalize_and_saturate(&mut wet, 0.75);
 
     let (left, right) = apply_stereo_pan(&wet, p.pan_rate_hz);
