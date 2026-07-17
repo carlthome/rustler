@@ -196,6 +196,7 @@ pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
         "The Forsaken",
         "Bearer of the Cursed Carapace",
         "Watcher of the Drowned Coast",
+        "Misterhult",
         "Cap'n",
         "First Mate",
         "Barnacle",
