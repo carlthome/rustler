@@ -1086,6 +1086,10 @@ pub fn draw_groove_vignette(
     // reach, more opacity, and a color push toward orange/red fire — so the game's most watchable
     // rhythm-escalation moment visibly sets the screen edges ablaze instead of only spawning text.
     heat: f32,
+    // Phase across the current beat, 0..1 (0 = on the beat). Used at full groove (>0.8) to add a
+    // warm golden spotlight glow that pulses ON the beat — literally flashing in time with the music
+    // so a flow-state player sees the whole screen respond to each hit.
+    beat_phase: f32,
 ) -> ggez::GameResult {
     let heat = heat.clamp(0.0, 1.0);
     // Nothing until the player is meaningfully in the groove — keeps it a reward, not clutter,
@@ -1168,7 +1172,75 @@ pub fn draw_groove_vignette(
             })?;
         }
         Ok(())
-    })
+    })?;
+
+    // Flow-state golden spotlight: at high groove (>0.8) add a warm additive glow around the
+    // screen edges that pulses ON the beat — brighter at beat_phase=0 (the hit), fading across
+    // the bar. At full groove the whole screen feels like a lit stage, not just the dark-vignette
+    // danger-zone look of ordinary play. This is a reward for staying in the pocket.
+    if groove > 0.8 {
+        let flow = ((groove - 0.8) / 0.2).clamp(0.0, 1.0);
+        // beat_phase=0 is the downbeat; remap so glow peaks at 0 and fades by ~0.5 of the beat
+        let on_beat = (1.0 - beat_phase.clamp(0.0, 1.0)).powf(1.5);
+        let glow_a = flow * (0.10 + 0.12 * on_beat);
+        let sq = unit_square(ctx)?.clone();
+        let glow_col = Color::new(1.0, 0.85, 0.3, glow_a);
+        let band = height * 0.20;
+        canvas.set_blend_mode(BlendMode::ADD);
+        // top edge
+        canvas.draw(&sq, DrawParam::default()
+            .dest(Vec2::ZERO)
+            .scale(Vec2::new(width, band))
+            .color(glow_col));
+        // bottom edge
+        canvas.draw(&sq, DrawParam::default()
+            .dest(Vec2::new(0.0, height - band))
+            .scale(Vec2::new(width, band))
+            .color(glow_col));
+        // left edge
+        canvas.draw(&sq, DrawParam::default()
+            .dest(Vec2::ZERO)
+            .scale(Vec2::new(band, height))
+            .color(glow_col));
+        // right edge
+        canvas.draw(&sq, DrawParam::default()
+            .dest(Vec2::new(width - band, 0.0))
+            .scale(Vec2::new(band, height))
+            .color(glow_col));
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
+/// On-beat catch impact punch: a sharp additive flash + expanding ring at the catch position.
+/// `beat_quality` is 0.5 for an ordinary on-beat catch and 1.0 for a PERFECT downbeat hit —
+/// controls radius and opacity so perfect hits read louder. Called from draw_game for each
+/// queued beat_punch_event.
+pub fn draw_beat_hit_punch(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pos: Vec2,
+    crab_color: [f32; 3],
+    beat_quality: f32,
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?.clone();
+    let [r, g, b] = crab_color;
+    let scale = 18.0 + beat_quality * 28.0;
+    canvas.set_blend_mode(BlendMode::ADD);
+    // Sharp inner flash — the "hit" impulse
+    canvas.draw(&dot, DrawParam::default()
+        .dest(pos)
+        .offset(Vec2::new(0.5, 0.5))
+        .scale(Vec2::splat(scale))
+        .color(Color::new(r, g, b, 0.7 * beat_quality)));
+    // Expanding outer ring — the "resonance"
+    canvas.draw(&dot, DrawParam::default()
+        .dest(pos)
+        .offset(Vec2::new(0.5, 0.5))
+        .scale(Vec2::splat(scale * 2.2))
+        .color(Color::new(r * 0.7 + 0.3, g * 0.7 + 0.3, b * 0.7 + 0.3, 0.25 * beat_quality)));
+    canvas.set_blend_mode(BlendMode::ALPHA);
+    Ok(())
 }
 
 /// Fetch a cached stroke-rectangle mesh for the given size/thickness (built once per rounded

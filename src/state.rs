@@ -720,6 +720,9 @@ pub struct MainState {
     pub(crate) boss_flood_pools: usize, // count of extra pools a Tide Boss flooded in on enrage
     pub(crate) chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     pub(crate) catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
+    // Queued beat-hit punch effects — (pos, rgb, beat_quality) — pushed during update when an
+    // on-beat catch fires and drained in draw. Cleared at the top of each update tick.
+    pub(crate) beat_punch_events: Vec<(Vec2, [f32; 3], f32)>,
     // A bright whip-streak that arcs from where a crab was caught to the head of the train, so a
     // catch reads as the crab being *yanked* in rather than just blinking onto the tail. Each entry
     // is (from, to, age 0..1, rgb); brighter/thicker when the catch landed on the beat.
@@ -1417,6 +1420,7 @@ impl MainState {
             boss_flood_pools: 0,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
+            beat_punch_events: Vec::new(),
             catch_trails: Vec::new(),
             call_streaks: Vec::new(),
             fear_rings: Vec::new(),

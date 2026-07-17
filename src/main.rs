@@ -65,7 +65,7 @@ use crate::graphics::{
     draw_catch_shockwaves, draw_catch_trails, draw_centerpiece_ring, draw_chain_rings,
     draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_crab,
     draw_crab_radar, draw_cycle_preview_ring, draw_deliver_beam, draw_delivery_pen,
-    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_flashlight,
+    draw_beat_hit_punch, draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_flashlight,
     draw_floating_texts, draw_golden_sparkle, draw_grass, draw_groove_call_ring,
     draw_groove_vignette, draw_haul_worth, draw_hermit_shell, draw_kelp_snag_warning, draw_lasso,
     draw_lasso_windup, draw_magnet_aura, draw_particles, draw_pen_guide, draw_penned_marchers,
@@ -2160,6 +2160,10 @@ impl MainState {
                     self.groove = (self.groove + groove_fill).min(1.0);
                     bonus = self.beat_streak.min(5) as usize;
                     self.on_beat_flash = (0.25 + self.beat_streak as f32 * 0.06).min(0.6);
+                    // Beat-hit punch: additive impact flash at the catch site. Quality 1.0 on a
+                    // PERFECT downbeat hit, 0.5 on an ordinary on-beat catch.
+                    let beat_quality = if perfect { 1.0_f32 } else { 0.5_f32 };
+                    self.beat_punch_events.push((shock_pos, crab_color, beat_quality));
                     // Groove Gamble: the streak compounds a live global score multiplier. Each
                     // on-beat catch bumps it +0.25x (capped at 5x), so the deeper you ride the beat
                     // the more every point — catches AND deliveries — is worth. The catch mid-streak
@@ -6661,6 +6665,11 @@ impl MainState {
         // Draw catch impact shockwaves (over the crabs, under score text)
         draw_catch_shockwaves(ctx, canvas, &self.catch_shockwaves)?;
 
+        // Beat-hit punch flashes — additive impact + resonance ring at each on-beat catch position
+        for &(pos, color, quality) in &self.beat_punch_events {
+            draw_beat_hit_punch(ctx, canvas, pos, color, quality)?;
+        }
+
         // Draw stampede fear rings where catches startled the herd
         draw_fear_rings(ctx, canvas, &self.fear_rings)?;
 
@@ -7354,6 +7363,7 @@ impl MainState {
         } else {
             0.0
         };
+        let beat_phase = self.beat_timer / self.beat_interval;
         draw_groove_vignette(
             ctx,
             canvas,
@@ -7362,6 +7372,7 @@ impl MainState {
             self.groove,
             self.beat_intensity,
             streak_heat,
+            beat_phase,
         )?;
 
         // Beat indicator (top right)
@@ -10898,6 +10909,10 @@ impl EventHandler for MainState {
             *age += dt * ring_speed;
             *age < 1.0
         });
+
+        // Beat-hit punch events are single-frame instantaneous flashes — clear at the start of
+        // each tick so stale punches from last frame never leak into the draw call.
+        self.beat_punch_events.clear();
 
         // Advance catch impact shockwaves; a bit faster than ghost rings so they read as a snap
         let shock_speed = 2.6; // age 0..1 in ~0.38 seconds
