@@ -49,6 +49,10 @@ thread_local! {
 
     pub static BANK_NOW_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
+    /// Cache for the NPC King Crab name plate — (name_string, shaped_Text, measured_width).
+    /// Rebuilt only when the name changes (i.e. never mid-session); avoids glyph shaping every frame.
+    pub static NPC_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+
     pub static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2, Option<[f32; 3]>)>> = RefCell::new(Vec::new());
 
     pub static CHAIN_TYPE_BUF: RefCell<Vec<(usize, usize, CrabType, [f32; 3])>> = RefCell::new(Vec::new());

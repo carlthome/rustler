@@ -8679,6 +8679,39 @@ impl MainState {
             );
         }
 
+        // Name plate floating above the King Crab — cached so glyphs aren't reshaped every frame.
+        let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
+            if needs_rebuild {
+                let mut text = Text::new(npc.name.as_str());
+                text.set_scale(16.0);
+                let w = text.measure(ctx)?.x;
+                *cache = Some((npc.name.clone(), text, w));
+            }
+            Ok(cache.as_ref().unwrap().2)
+        })?;
+        NPC_NAME_CACHE.with(|c| {
+            let cache = c.borrow();
+            if let Some((_, text, _)) = cache.as_ref() {
+                let name_pos = npc.leader_pos - Vec2::new(name_w / 2.0, 55.0 + leader_bob);
+                // Drop shadow
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(name_pos + Vec2::splat(1.5))
+                        .color(Color::from_rgba(0, 0, 0, 180)),
+                );
+                // Name in regal gold
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(name_pos)
+                        .color(Color::new(0.96, 0.82, 0.3, 0.95)),
+                );
+            }
+        });
+
         Ok(())
     }
 
