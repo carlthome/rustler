@@ -169,6 +169,10 @@ pub struct NpcCongaTrain {
     pub idle_timer: f32,
     /// Preferred territory centre — each NPC biases its wander targets toward its own quadrant.
     pub territory_center: Vec2,
+    /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
+    pub steal_cooldown: f32,
+    /// Time since this NPC last caught a free crab (throttles free-crab collection).
+    pub catch_cooldown: f32,
 }
 
 /// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
@@ -295,6 +299,8 @@ impl NpcCongaTrain {
             leader_scale,
             idle_timer: 0.0,
             territory_center,
+            steal_cooldown: 0.0,
+            catch_cooldown: 0.0,
         }
     }
 }

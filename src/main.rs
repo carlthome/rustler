@@ -9455,6 +9455,104 @@ impl MainState {
             // Compute target rumble volume from distance to player.
             let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
             self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
+
+            // --- Pursuit: when the player has a train, bias steering toward their tail --------
+            // The NPC behaves like a rival player: it wants to get BEHIND the player's chain to
+            // thread through it for a steal, not charge the head where the player is watching.
+            const PURSUIT_RANGE: f32 = 550.0;
+            if self.chain_count >= 2 && dist_to_player < PURSUIT_RANGE
+                && self.npc_trains[i].idle_timer <= 0.0
+            {
+                if let Some(tail) = self.crabs.iter()
+                    .filter(|c| c.caught)
+                    .max_by_key(|c| c.chain_index.unwrap_or(0))
+                {
+                    let tail_pos = tail.pos;
+                    // Blend the wander target toward the tail — NPC steers into range naturally
+                    let pursuit_blend = ((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE).clamp(0.0, 0.8);
+                    self.npc_trains[i].target = self.npc_trains[i].target
+                        .lerp(tail_pos, pursuit_blend * dt * 3.0);
+                }
+            }
+
+            // --- Reverse-Snake chain splice steal --------------------------------------------
+            // When the NPC leader draws close to a player chain link it splices the chain:
+            // everything from that link to the tail detaches from the player and joins the NPC.
+            // This is the core conga-ecology mechanic — rivals deliberately thread behind you.
+            self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
+            if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
+                const STEAL_RANGE: f32 = 58.0;
+                let npc_pos = self.npc_trains[i].leader_pos;
+                // Find the earliest (closest-to-head) link the NPC is within range of.
+                // We splice there so a threading pass takes the maximum tail section.
+                let splice_at = self.crabs.iter()
+                    .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
+                    .filter(|c| npc_pos.distance(c.pos) < STEAL_RANGE)
+                    .map(|c| c.chain_index.unwrap())
+                    .min();
+
+                if let Some(splice_idx) = splice_at {
+                    // Collect the stolen types before mutating crabs
+                    let mut stolen_types: Vec<CrabType> = Vec::new();
+                    let mut stolen_count = 0usize;
+                    for crab in self.crabs.iter_mut() {
+                        if crab.caught {
+                            if crab.chain_index.map_or(false, |idx| idx >= splice_idx) {
+                                crab.caught = false;
+                                crab.chain_index = None;
+                                crab.fleeing = false;
+                                crab.spooked_timer = 1.0;
+                                // Crabs snap toward the NPC — they've been stolen
+                                let toward = (npc_pos - crab.pos).normalize_or_zero();
+                                crab.vel = toward * 200.0;
+                                stolen_types.push(crab.crab_type);
+                                stolen_count += 1;
+                            }
+                        }
+                    }
+                    if stolen_count > 0 {
+                        self.chain_count = self.chain_count.saturating_sub(stolen_count);
+                        self.npc_trains[i].follower_types.extend(stolen_types);
+                        self.npc_trains[i].steal_cooldown = 2.2;
+                        // Visual + audio feedback — this is the key threat moment
+                        let npc_name = self.npc_trains[i].name.clone();
+                        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                        self.floating_texts.spawn(
+                            format!("{} stole {} crabs!", npc_name, stolen_count),
+                            player_center - Vec2::new(110.0, 55.0),
+                            30.0,
+                            [0.96, 0.72, 0.16, 1.0],
+                        );
+                        self.screen_shake = self.screen_shake.max(10.0);
+                        self.zoom_punch = self.zoom_punch.max(0.08);
+                        self.groove = (self.groove - 0.15).max(0.0);
+                        self.beat_streak = self.beat_streak.saturating_sub(2);
+                        // Shockwave at the splice point so the cut reads on screen
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((npc_pos, 0.0, [0.96, 0.72, 0.16]));
+                        }
+                    }
+                }
+            }
+
+            // --- Free crab collection --------------------------------------------------------
+            // NPCs act like players: they pick up free crabs they wander past.
+            self.npc_trains[i].catch_cooldown = (self.npc_trains[i].catch_cooldown - dt).max(0.0);
+            if self.npc_trains[i].catch_cooldown <= 0.0 {
+                const CATCH_RANGE: f32 = 52.0;
+                let npc_pos = self.npc_trains[i].leader_pos;
+                let caught = self.crabs.iter_mut()
+                    .find(|c| !c.caught && !c.is_boss() && c.is_catchable()
+                        && npc_pos.distance(c.pos) < CATCH_RANGE);
+                if let Some(crab) = caught {
+                    let ct = crab.crab_type;
+                    // Remove from play — mark as caught but no chain_index (NPC's train)
+                    crab.caught = true;
+                    crab.chain_index = None;
+                    self.npc_trains[i].follower_types.push(ct);
+                    self.npc_trains[i].catch_cooldown = 0.7;
+                }
+            }
         }
 
         // Audio: use the loudest (nearest) NPC train for the rumble volume — store on [0].
@@ -9463,77 +9561,96 @@ impl MainState {
             self.npc_trains[0].target_vol = max_vol;
         }
 
-        // Light danger: touching a King Crab leader scatters the player's conga (Sonic rings).
-        if self.chain_count > 0 && self.king_splice_cooldown <= 0.0 {
-            // collision radius scales with each leader's actual size
-            let get_collision_radius = |scale: f32| CRAB_SIZE * scale * 1.5 + PLAYER_SIZE * 0.5;
+        // --- Player-vs-NPC-leader collision: painful bounce, both sides take damage ----------
+        // Deliberately touching a rival's leader is a desperate counter-attack move — you can
+        // stun them and scatter some of their followers, but you take a hit too. Painful enough
+        // to avoid unless intentional, spectacular enough to feel like a real clash.
+        if self.king_splice_cooldown <= 0.0 {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-            let mut hit_name: Option<String> = None;
-            for npc in &self.npc_trains {
-                let dist = npc.leader_pos.distance(player_center);
-                if dist < get_collision_radius(npc.leader_scale) {
-                    hit_name = Some(npc.name.clone());
+            let mut clash_npc: Option<usize> = None;
+            for (ni, npc) in self.npc_trains.iter().enumerate() {
+                let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
+                if npc.leader_pos.distance(player_center) < col_r {
+                    clash_npc = Some(ni);
                     break;
                 }
             }
-            if let Some(name) = hit_name {
-                self.king_splice_cooldown = 2.5;
-                // Sonic-rings impact: big screen shake + camera punch so the collision lands
-                self.screen_shake = self.screen_shake.max(14.0);
-                self.zoom_punch = self.zoom_punch.max(0.12);
-                self.hitstop_timer = self.hitstop_timer.max(0.1);
-                let keep = (self.chain_count / 2).max(1);
-                let scatter_count = self.chain_count.saturating_sub(keep);
-                if scatter_count > 0 {
-                    let mut released = 0;
-                    let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-                    for crab in self.crabs.iter_mut().rev() {
-                        if released >= scatter_count { break; }
-                        if crab.caught {
-                            if let Some(idx) = crab.chain_index {
-                                if idx >= keep {
-                                    crab.caught = false;
-                                    crab.chain_index = None;
-                                    crab.fleeing = true;
-                                    crab.spooked_timer = 3.5;
-                                    // Scatter radially from the player, spread like Sonic rings
-                                    let away = (crab.pos - player_center).normalize_or_zero();
-                                    let speed = 300.0 + released as f32 * 25.0; // outer crabs fly further
-                                    crab.vel = away * speed;
-                                    // Gold ring shockwave at each scattered crab's launch point (capped)
-                                    if self.catch_shockwaves.len() < 48 {
-                                        self.catch_shockwaves.push((crab.pos, 0.0, [0.96, 0.72, 0.16]));
-                                    }
-                                    released += 1;
+            if let Some(ni) = clash_npc {
+                self.king_splice_cooldown = 2.0;
+                // Both sides bounce apart — physics punch
+                let away_from_npc = (player_center - self.npc_trains[ni].leader_pos).normalize_or_zero();
+                self.player_vel += away_from_npc * 380.0;
+                self.npc_trains[ni].leader_vel += -away_from_npc * 280.0;
+                // Camera + screen feedback — this should feel painful
+                self.screen_shake = self.screen_shake.max(16.0);
+                self.zoom_punch = self.zoom_punch.max(0.10);
+                self.hitstop_timer = self.hitstop_timer.max(0.12);
+                // Player loses tail crabs (1–2), NPC loses some followers — mutual damage
+                let player_lose = 2.min(self.chain_count.saturating_sub(1));
+                let mut released = 0;
+                for crab in self.crabs.iter_mut().rev() {
+                    if released >= player_lose { break; }
+                    if crab.caught {
+                        if let Some(idx) = crab.chain_index {
+                            if idx > 0 {
+                                crab.caught = false;
+                                crab.chain_index = None;
+                                crab.fleeing = true;
+                                crab.spooked_timer = 2.5;
+                                let away = (crab.pos - player_center).normalize_or_zero();
+                                crab.vel = away * 250.0;
+                                if self.catch_shockwaves.len() < 48 {
+                                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
                                 }
+                                released += 1;
                             }
                         }
                     }
-                    self.chain_count = self.chain_count.saturating_sub(released);
-                    // Big dramatic callout — this is the key threat moment, make it readable
-                    self.floating_texts.spawn(
-                        format!("SCATTERED by {}!", name),
-                        player_center - Vec2::new(120.0, 60.0),
-                        38.0,
-                        [1.0, 0.72, 0.16, 1.0],
-                    );
-                    if released >= 3 {
-                        self.floating_texts.spawn(
-                            format!("-{} crabs!", released),
-                            player_center - Vec2::new(60.0, 90.0),
-                            24.0,
-                            [1.0, 0.4, 0.2, 1.0],
-                        );
+                }
+                self.chain_count = self.chain_count.saturating_sub(released);
+                // NPC loses its last 1–2 followers — they scatter as free crabs (Sonic rings)
+                let npc_pos = self.npc_trains[ni].leader_pos;
+                let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
+                for k in 0..npc_lose {
+                    self.npc_trains[ni].follower_types.pop();
+                    // Spawn a fleeing crab from around the NPC leader position
+                    let scatter_angle = k as f32 * std::f32::consts::PI + away_from_npc.y.atan2(away_from_npc.x);
+                    let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
+                    // Find a free slot in crabs if any normal crab can represent the ejected follower
+                    // (simplified: just spawn a particle burst at the NPC position)
+                    if self.catch_shockwaves.len() < 48 {
+                        self.catch_shockwaves.push((npc_pos + scatter_dir * 30.0, 0.0, [0.96, 0.72, 0.16]));
                     }
-                    // Gold firework burst at the player — the coins-scatter visual
-                    self.particle_system.spawn_milestone_fireworks(
-                        player_center,
-                        released.min(16),
-                        &mut rand::rng(),
-                    );
-                    // Beat the groove back — getting hit should cost something rhythmically
-                    self.groove = (self.groove - 0.25).max(0.0);
-                    self.beat_streak = 0;
+                }
+                // Groove penalty for taking a head-on hit — you should have dodged
+                self.groove = (self.groove - 0.20).max(0.0);
+                self.beat_streak = self.beat_streak.saturating_sub(1);
+                let npc_name = self.npc_trains[ni].name.clone();
+                self.floating_texts.spawn(
+                    format!("CLASH with {}!", npc_name),
+                    player_center - Vec2::new(80.0, 65.0),
+                    32.0,
+                    [1.0, 0.5, 0.15, 1.0],
+                );
+                self.particle_system.spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
+            }
+        }
+
+        // --- NPC-vs-NPC leader collisions: they bounce off each other too --------------------
+        for i in 0..self.npc_trains.len() {
+            for j in (i + 1)..self.npc_trains.len() {
+                let pi = self.npc_trains[i].leader_pos;
+                let pj = self.npc_trains[j].leader_pos;
+                let si = self.npc_trains[i].leader_scale;
+                let sj = self.npc_trains[j].leader_scale;
+                let col_r = CRAB_SIZE * (si + sj) * 0.8;
+                if pi.distance(pj) < col_r {
+                    let dir = (pi - pj).normalize_or_zero();
+                    self.npc_trains[i].leader_vel += dir * 200.0;
+                    self.npc_trains[j].leader_vel -= dir * 200.0;
+                    // Each loses one follower
+                    self.npc_trains[i].follower_types.pop();
+                    self.npc_trains[j].follower_types.pop();
                 }
             }
         }
