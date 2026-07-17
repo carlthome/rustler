@@ -8494,3 +8494,42 @@ pub fn draw_lasso_magnet_match(
     }
     Ok(())
 }
+
+pub fn draw_magnet_cluster_pull(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Inner core — brighter than the lasso/Magnet burst to read as "active pull"
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(20.0))
+            .color(Color::new(0.2, 0.85, 1.0, 0.80)));
+        // Outer field boundary ring
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(44.0))
+            .color(Color::new(0.15, 0.65, 1.0, 0.22)));
+        // Wide soft halo
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos).scale(Vec2::splat(70.0))
+            .color(Color::new(0.1, 0.5, 1.0, 0.08)));
+        // 8 inward-pointing dashes — start at radius 40, point toward center
+        for k in 0..8u32 {
+            let angle = k as f32 * std::f32::consts::TAU / 8.0;
+            // The dash sits at radius 40 and points inward (rotation = angle + PI)
+            let outer = 40.0_f32;
+            let len = 16.0_f32;
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * outer;
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 2.2))
+                .rotation(angle + std::f32::consts::PI)  // point toward center
+                .offset(Vec2::new(0.0, 0.5))  // start from outer radius, extend inward
+                .color(Color::new(0.3, 0.95, 1.0, 0.90)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}

@@ -102,7 +102,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -3903,6 +3903,27 @@ impl MainState {
                 charged_magnet_positions.push(c.pos);
             }
         }
+        // Magnet cluster detection: on-beat only (rhythmic flash), check each free Magnet
+        // for ≥3 nearby free crabs — the "pied-piper vacuum" tell. Fires on the beat so it
+        // pulses with the music rather than strobing every frame.
+        let cluster_on_beat = self.beat_timer < BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        if cluster_on_beat {
+            for &mp in &magnet_positions {
+                let nearby = self.crabs.iter()
+                    .filter(|c| {
+                        !c.caught
+                            && !c.is_magnet()
+                            && !c.is_boss()
+                            && c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ
+                    })
+                    .count();
+                if nearby >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
+                    self.magnet_cluster_hits_buf.push(mp);
+                }
+            }
+        }
+
         // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
         const CHARGED_MAGNET_RADIUS: f32 = MAGNET_RADIUS * 1.4;
         const CHARGED_MAGNET_RADIUS_SQ: f32 = CHARGED_MAGNET_RADIUS * CHARGED_MAGNET_RADIUS;
@@ -6866,6 +6887,9 @@ impl MainState {
         }
         if !self.lasso_magnet_hits_buf.is_empty() {
             draw_lasso_magnet_match(ctx, canvas, &self.lasso_magnet_hits_buf)?;
+        }
+        if !self.magnet_cluster_hits_buf.is_empty() {
+            draw_magnet_cluster_pull(ctx, canvas, &self.magnet_cluster_hits_buf)?;
         }
         if !self.stomp_armored_hits_buf.is_empty() {
             draw_stomp_armored_crack(ctx, canvas, &self.stomp_armored_hits_buf)?;
@@ -9934,6 +9958,7 @@ impl EventHandler for MainState {
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();
+        self.magnet_cluster_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
         self.whistle_dancer_hits_buf.clear();
