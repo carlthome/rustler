@@ -254,7 +254,6 @@ pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
     let title = TITLES.choose(rng).unwrap();
     let name = NAMES.choose(rng).unwrap();
     format!("{} {}", title, name)
->>>>>>> 6f0ea44 (Richer King Crab names: Dark Souls grandiosity + crab rave + pirates + comedy Kevins)
 }
 
 impl NpcCongaTrain {
