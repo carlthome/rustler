@@ -2874,10 +2874,18 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3));
     let claw_r = draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3));
 
-    // Eyes
-    let eye_radius = size * 0.13;
+    // Eyes — now sit on the tips of short stalks that spread outward from the top of the shell.
+    let eye_radius = size * 0.16;
     let eye_x = size * 0.22;
     let eye_y = -size * 0.18;
+    let stalk_len = size * 0.28;
+    let stalk_l_root = draw_pos + rotate_offset(-eye_x * 0.6, eye_y * 0.6);
+    let stalk_r_root = draw_pos + rotate_offset(eye_x * 0.6, eye_y * 0.6);
+    // Stalks point "up" in body space (toward -Y, i.e. rotation - PI/2) and spread apart by 0.4 rad.
+    let stalk_angle_l = rotation - std::f32::consts::FRAC_PI_2 - 0.4;
+    let stalk_angle_r = rotation - std::f32::consts::FRAC_PI_2 + 0.4;
+    let eye_pos_l = stalk_l_root + Vec2::new(stalk_angle_l.cos(), stalk_angle_l.sin()) * stalk_len;
+    let eye_pos_r = stalk_r_root + Vec2::new(stalk_angle_r.cos(), stalk_angle_r.sin()) * stalk_len;
     let pupil_r = eye_radius * (0.50 + beat_phase * 0.15);
     let (pdx, pdy) = if !crab.caught {
         let vl = crab.vel.length();
@@ -2907,19 +2915,39 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 ))
                 .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
         );
-        // Crab body (rotation-invariant, so no need to rotate the draw)
+        // Crab body — elliptical (wider than tall) for real crab proportions.
         params.push(
             DrawParam::default()
                 .dest(draw_pos)
-                .scale(Vec2::splat(size / 2.0))
+                .scale(Vec2::new(size * 0.62, size * 0.48))
+                .rotation(rotation)
                 .color(crab_color),
         );
+        // Domed highlight, matching the body's elliptical proportions.
         params.push(
             DrawParam::default()
                 .dest(draw_pos + light_dir * size * 0.15)
-                .scale(Vec2::splat(size / 2.0 * 0.62))
+                .scale(Vec2::new(size * 0.62 * 0.62, size * 0.48 * 0.62))
+                .rotation(rotation)
                 .color(dome_color),
         );
+        // Carapace ridge marks — two flattened dashes across the shell for shell texture.
+        let ridge_color = Color::new(
+            (crab_color.r * 0.72).min(1.0),
+            (crab_color.g * 0.72).min(1.0),
+            (crab_color.b * 0.72).min(1.0),
+            0.75,
+        );
+        for ridge_y in [-0.08_f32, 0.15_f32] {
+            let rp = draw_pos + rotate_offset(0.0, ridge_y * size);
+            params.push(
+                DrawParam::default()
+                    .dest(rp)
+                    .scale(Vec2::new(size * 0.42, size * 0.06))
+                    .rotation(rotation)
+                    .color(ridge_color),
+            );
+        }
         params.push(
             DrawParam::default()
                 .dest(draw_pos + light_dir * size * 0.26)
@@ -2953,25 +2981,25 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         );
         params.push(
             DrawParam::default()
-                .dest(draw_pos + rotate_offset(-eye_x, eye_y))
+                .dest(eye_pos_l)
                 .scale(Vec2::splat(eye_radius))
                 .color(Color::WHITE),
         );
         params.push(
             DrawParam::default()
-                .dest(draw_pos + rotate_offset(eye_x, eye_y))
+                .dest(eye_pos_r)
                 .scale(Vec2::splat(eye_radius))
                 .color(Color::WHITE),
         );
         params.push(
             DrawParam::default()
-                .dest(draw_pos + rotate_offset(-eye_x + pdx, eye_y + pdy))
+                .dest(eye_pos_l + rotate_offset(pdx, pdy))
                 .scale(Vec2::splat(pupil_r))
                 .color(Color::BLACK),
         );
         params.push(
             DrawParam::default()
-                .dest(draw_pos + rotate_offset(eye_x + pdx, eye_y + pdy))
+                .dest(eye_pos_r + rotate_offset(pdx, pdy))
                 .scale(Vec2::splat(pupil_r))
                 .color(Color::BLACK),
         );
@@ -2980,33 +3008,100 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // Crab legs (6 lines): the leg root sits on the body's radius at `angle`, so rotating
     // the whole leg (root + direction) by the crab's facing is the same as just adding
     // `rotation` to `angle` before computing everything in world space directly.
-    let leg_len = size * 0.7;
-    let leg_color = Color::from_rgb(200, 50, 50);
+    // Leg colour is derived from the crab's archetype colour so each type reads distinctly,
+    // darkened so legs sit visually behind the shell.
+    let [lr, lg, lb] = crab.crab_color();
+    let leg_color = Color::new(lr * 0.75, lg * 0.65, lb * 0.65, 1.0);
+    let tibia_color = Color::new(
+        (leg_color.r * 0.80).min(1.0),
+        (leg_color.g * 0.80).min(1.0),
+        (leg_color.b * 0.80).min(1.0),
+        1.0,
+    );
     // `time` is passed in by the caller (self.time_elapsed) rather than reading the system clock
     // here. Previously draw_crab called ctx.time.time_since_start() (an Instant::now() syscall)
     // once per crab for the leg wiggle — on a 50-crab train that's 50 syscalls/frame for a value
     // that's effectively identical across all crabs in the same frame. Now callers supply it once.
-    // Single thread-local borrow for all 6 legs, same reasoning as CRAB_BODY_PARAMS above.
+    // Single thread-local borrow for all leg/arm/stalk lines, same reasoning as CRAB_BODY_PARAMS above.
     CRAB_LEG_PARAMS.with(|params| {
         let mut params = params.borrow_mut();
+        // Jointed legs — 6 legs, each a femur (from body edge) + a bent tibia at the knee.
         for i in 0..6 {
             let base_angle = std::f32::consts::PI * (0.25 + i as f32 / 6.0);
             let phase = (crab.pos.x + crab.pos.y) * 0.05;
             let wiggle_speed = 2.0 + crab.speed * 0.08; // scale with crab speed
-            let wiggle_amp = 0.18 + beat_phase * 0.12;
+            let wiggle_amp = 0.14 + beat_phase * 0.10;
             let wiggle = (time * wiggle_speed * (1.0 + beat_phase * 0.5) + phase + i as f32).sin() * wiggle_amp;
-            let angle = base_angle + wiggle + rotation;
-            let root = draw_pos + Vec2::new(angle.cos(), angle.sin()) * (size / 2.0);
-            // Deferred: collected here and drawn as one instanced batch by flush_crab_legs() instead
-            // of an individual canvas.draw() per leg per crab (see CRAB_LEG_PARAMS above).
+            let femur_angle = base_angle + wiggle + rotation;
+
+            let femur_len = size * 0.45;
+            let femur_root = draw_pos + Vec2::new(femur_angle.cos(), femur_angle.sin()) * (size * 0.40);
+            let femur_tip = femur_root + Vec2::new(femur_angle.cos(), femur_angle.sin()) * femur_len;
+
+            // Knee bends opposite ways on the two sides for a classic crab walking posture,
+            // plus a small walking animation on the knee itself.
+            let knee_bend = if i < 3 { -0.55_f32 } else { 0.55_f32 };
+            let knee_anim = (time * wiggle_speed + i as f32 * 1.1).sin() * 0.15;
+            let tibia_angle = femur_angle + knee_bend + knee_anim;
+            let tibia_len = size * 0.50;
+
+            // Femur (thicker). Deferred and drawn as one instanced batch by flush_crab_legs().
             params.push(
                 DrawParam::default()
-                    .dest(root)
-                    .rotation(angle)
-                    .scale(Vec2::new(leg_len, 2.0))
+                    .dest(femur_root)
+                    .rotation(femur_angle)
+                    .scale(Vec2::new(femur_len, 2.5))
                     .color(leg_color),
             );
+            // Tibia (thinner, slightly darker).
+            params.push(
+                DrawParam::default()
+                    .dest(femur_tip)
+                    .rotation(tibia_angle)
+                    .scale(Vec2::new(tibia_len, 1.8))
+                    .color(tibia_color),
+            );
         }
+
+        // Claw arms — a segment connecting the body edge to each claw circle.
+        let claw_arm_root_l = draw_pos + rotate_offset(-size * 0.45, -size * 0.20);
+        let claw_arm_root_r = draw_pos + rotate_offset(size * 0.45, -size * 0.20);
+        let arm_dir_l = claw_l - claw_arm_root_l;
+        let arm_dir_r = claw_r - claw_arm_root_r;
+        let arm_len_l = arm_dir_l.length();
+        let arm_len_r = arm_dir_r.length();
+        let arm_angle_l = arm_dir_l.y.atan2(arm_dir_l.x);
+        let arm_angle_r = arm_dir_r.y.atan2(arm_dir_r.x);
+        params.push(
+            DrawParam::default()
+                .dest(claw_arm_root_l)
+                .rotation(arm_angle_l)
+                .scale(Vec2::new(arm_len_l, 3.0))
+                .color(leg_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(claw_arm_root_r)
+                .rotation(arm_angle_r)
+                .scale(Vec2::new(arm_len_r, 3.0))
+                .color(leg_color),
+        );
+
+        // Eye stalks — short lines from the shell to each eye circle.
+        params.push(
+            DrawParam::default()
+                .dest(stalk_l_root)
+                .rotation(stalk_angle_l)
+                .scale(Vec2::new(stalk_len, 2.0))
+                .color(leg_color),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(stalk_r_root)
+                .rotation(stalk_angle_r)
+                .scale(Vec2::new(stalk_len, 2.0))
+                .color(leg_color),
+        );
     });
 
     // Beat corona: caught crabs in the conga train get a color-matched additive glow halo that
