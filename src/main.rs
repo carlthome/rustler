@@ -9936,9 +9936,11 @@ impl EventHandler for MainState {
                 let worst_ms = self.perf_worst_frame * 1000.0;
                 // Crab count alongside the timing so a future optimizer pass can correlate a
                 // frame-time regression with herd/train size instead of guessing — cheap: reuses
-                // self.crabs.len() and self.chain_count, no extra scan.
+                // self.crabs.len() and self.chain_count, no extra scan. NPC follower total added
+                // since train follower count drives both path_history size and draw_npc_conga_train cost.
+                let npc_followers: usize = self.npc_trains.iter().map(|n| n.follower_types.len()).sum();
                 println!(
-                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained)",
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained, {} npc followers)",
                     self.perf_frame_count,
                     self.perf_time_accum,
                     avg_ms,
@@ -9946,6 +9948,7 @@ impl EventHandler for MainState {
                     worst_ms,
                     self.crabs.len(),
                     self.chain_count,
+                    npc_followers,
                 );
                 // Stash for the on-screen overlay (see draw()) so the number is visible during
                 // play too, not just in a terminal that may not be in view.
