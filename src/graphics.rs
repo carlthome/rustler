@@ -8415,3 +8415,41 @@ pub fn draw_whistle_golden_pull(
     }
     Ok(())
 }
+
+/// Hot-pink spiral burst when the Whistle reels in a Dancer — rhythm tool meets rhythm crab.
+/// Distinct from stomp/Dancer (radial spikes) and whistle/Golden (star glints):
+/// uses orbiting arcs to suggest the Dancer's spinning, beat-native movement.
+pub fn draw_whistle_dancer_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Hot pink inner bloom
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(16.0))
+            .color(Color::new(1.0, 0.25, 0.80, 0.85)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(32.0))
+            .color(Color::new(1.0, 0.35, 0.85, 0.30)));
+        // 3 arc-pairs orbiting at 120° — looks like musical note beams spinning outward
+        for k in 0..3u32 {
+            let base_angle = k as f32 * std::f32::consts::TAU / 3.0;
+            // Two short dashes per arm: inner and outer, slightly offset for the arc feel
+            for (offset, radius, len) in [
+                (0.18_f32, 20.0_f32, 12.0_f32),
+                (-0.18_f32, 28.0_f32, 9.0_f32),
+            ] {
+                let angle = base_angle + offset;
+                let tip = pos + Vec2::new(angle.cos(), angle.sin()) * radius;
+                canvas.draw(sq, DrawParam::default()
+                    .dest(tip).scale(Vec2::new(len, 2.2))
+                    .rotation(angle).offset(Vec2::new(0.5, 0.5))
+                    .color(Color::new(1.0, 0.4, 0.9, 0.80)));
+            }
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}

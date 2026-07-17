@@ -76,7 +76,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_golden_pull};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match, draw_whistle_golden_pull};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -6858,6 +6858,9 @@ impl MainState {
         if !self.whistle_golden_hits_buf.is_empty() {
             draw_whistle_golden_pull(ctx, canvas, &self.whistle_golden_hits_buf)?;
         }
+        if !self.whistle_dancer_hits_buf.is_empty() {
+            draw_whistle_dancer_match(ctx, canvas, &self.whistle_dancer_hits_buf)?;
+        }
 
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
@@ -9546,9 +9549,11 @@ impl MainState {
                         && npc_pos.distance(c.pos) < CATCH_RANGE);
                 if let Some(crab) = caught {
                     let ct = crab.crab_type;
-                    // Remove from play — mark as caught but no chain_index (NPC's train)
-                    crab.caught = true;
-                    crab.chain_index = None;
+                    // Teleport the crab far off-screen rather than marking it caught=true with
+                    // no chain_index — that would corrupt rendering InstanceArray capacity checks.
+                    crab.pos = Vec2::new(-9999.0, -9999.0);
+                    crab.vel = Vec2::ZERO;
+                    crab.fleeing = false;
                     self.npc_trains[i].follower_types.push(ct);
                     self.npc_trains[i].catch_cooldown = 0.7;
                 }
@@ -9648,9 +9653,9 @@ impl MainState {
                     let dir = (pi - pj).normalize_or_zero();
                     self.npc_trains[i].leader_vel += dir * 200.0;
                     self.npc_trains[j].leader_vel -= dir * 200.0;
-                    // Each loses one follower
-                    self.npc_trains[i].follower_types.pop();
-                    self.npc_trains[j].follower_types.pop();
+                    // Each loses one follower (if they have any)
+                    if !self.npc_trains[i].follower_types.is_empty() { self.npc_trains[i].follower_types.pop(); }
+                    if !self.npc_trains[j].follower_types.is_empty() { self.npc_trains[j].follower_types.pop(); }
                 }
             }
         }
@@ -9868,6 +9873,7 @@ impl EventHandler for MainState {
         self.lasso_thief_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
+        self.whistle_dancer_hits_buf.clear();
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -11434,6 +11440,10 @@ impl EventHandler for MainState {
                     // Golden crab being reeled in by whistle — its highest-pull matchup, show it.
                     if crab.is_golden() && self.whistle_golden_hits_buf.len() < 12 {
                         self.whistle_golden_hits_buf.push(crab.pos);
+                    }
+                    // Dancer pulled by whistle — rhythm tool meets rhythm crab, show the harmony.
+                    if crab.is_dancer() && self.whistle_dancer_hits_buf.len() < 10 {
+                        self.whistle_dancer_hits_buf.push(crab.pos);
                     }
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
