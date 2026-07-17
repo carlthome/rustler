@@ -76,7 +76,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
-use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_dancer_match};
+use crate::graphics::{draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_thief_match, draw_minimap, draw_stomp_dancer_match, draw_tool_roster};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
@@ -7033,6 +7033,19 @@ impl MainState {
             draw_minimap(ctx, canvas, width, height, self.world_width, self.world_height, self.camera_origin, self.player_pos, self.pen_pos, &self.crabs, &leader_buf[..leader_n], &follower_buf[..follower_n], self.time_elapsed)?;
             let map_h = 180.0_f32 * (self.world_height / self.world_width);
             draw_day_weather_hud(ctx, canvas, width, map_h, self.day_phase_t, self.weather_intensity, self.time_elapsed)?;
+        }
+
+        // Tool roster — Zelda-style 5-slot bar at the bottom centre.
+        if !self.show_instructions && !self.game_over && !self.show_world_map {
+            draw_tool_roster(
+                ctx, canvas, width, height,
+                self.whistle_cooldown, crate::WHISTLE_COOLDOWN,
+                self.stomp_cooldown, crate::STOMP_COOLDOWN,
+                self.boost_cooldown,
+                !matches!(self.lasso_phase, LassoPhase::Idle),
+                self.groove,
+                self.time_elapsed,
+            )?;
         }
 
         // Screen-edge radar arrows pointing to free crabs — now in the HUD pass so they pin to the
