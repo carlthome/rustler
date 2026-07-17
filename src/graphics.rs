@@ -2159,6 +2159,9 @@ thread_local! {
     // One reusable instance array for the world-edge fade band, so the whole four-sided border
     // is a single batched GPU submission per frame instead of dozens of individual quads.
     static WORLD_EDGE_INSTANCES: RefCell<Option<InstanceArray>> = const { RefCell::new(None) };
+    // Reusable DrawParam staging buffer for world-edge — avoids a Vec::with_capacity heap
+    // allocation every frame (32 entries at 60 fps = ~1920 allocs/s on a modest machine).
+    static WORLD_EDGE_PARAMS_BUF: RefCell<Vec<DrawParam>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Draw a soft, darkening border that fades inward from the true edges of the (larger-than-
@@ -2186,49 +2189,52 @@ pub fn draw_world_edge(
     let sq = unit_square(ctx)?.clone();
 
     WORLD_EDGE_INSTANCES.with(|cell| -> ggez::GameResult {
-        let mut slot = cell.borrow_mut();
-        let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        let mut params: Vec<DrawParam> = Vec::with_capacity(steps * 4);
-        for i in 0..steps {
-            // f: 0 at the outermost slice (full strength), →1 at the innermost (transparent).
-            let f = i as f32 / steps as f32;
-            let inset = band * f;
-            let seg = band / steps as f32;
-            // Quadratic falloff so the darkening hugs the true edge and feathers gently inward.
-            let a = peak_a * (1.0 - f) * (1.0 - f);
-            let col = Color::new(tint.r * 0.45, tint.g * 0.45, tint.b * 0.55, a);
-            // Top band
-            params.push(
-                DrawParam::default()
-                    .dest([0.0, inset])
-                    .scale(Vec2::new(world_w, seg))
-                    .color(col),
-            );
-            // Bottom band
-            params.push(
-                DrawParam::default()
-                    .dest([0.0, world_h - inset - seg])
-                    .scale(Vec2::new(world_w, seg))
-                    .color(col),
-            );
-            // Left band
-            params.push(
-                DrawParam::default()
-                    .dest([inset, 0.0])
-                    .scale(Vec2::new(seg, world_h))
-                    .color(col),
-            );
-            // Right band
-            params.push(
-                DrawParam::default()
-                    .dest([world_w - inset - seg, 0.0])
-                    .scale(Vec2::new(seg, world_h))
-                    .color(col),
-            );
-        }
-        arr.set(params.iter().copied());
-        canvas.draw_instanced_mesh(sq, arr, DrawParam::default());
-        Ok(())
+        WORLD_EDGE_PARAMS_BUF.with(|pbuf| -> ggez::GameResult {
+            let mut slot = cell.borrow_mut();
+            let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            let mut params = pbuf.borrow_mut();
+            params.clear();
+            for i in 0..steps {
+                // f: 0 at the outermost slice (full strength), →1 at the innermost (transparent).
+                let f = i as f32 / steps as f32;
+                let inset = band * f;
+                let seg = band / steps as f32;
+                // Quadratic falloff so the darkening hugs the true edge and feathers gently inward.
+                let a = peak_a * (1.0 - f) * (1.0 - f);
+                let col = Color::new(tint.r * 0.45, tint.g * 0.45, tint.b * 0.55, a);
+                // Top band
+                params.push(
+                    DrawParam::default()
+                        .dest([0.0, inset])
+                        .scale(Vec2::new(world_w, seg))
+                        .color(col),
+                );
+                // Bottom band
+                params.push(
+                    DrawParam::default()
+                        .dest([0.0, world_h - inset - seg])
+                        .scale(Vec2::new(world_w, seg))
+                        .color(col),
+                );
+                // Left band
+                params.push(
+                    DrawParam::default()
+                        .dest([inset, 0.0])
+                        .scale(Vec2::new(seg, world_h))
+                        .color(col),
+                );
+                // Right band
+                params.push(
+                    DrawParam::default()
+                        .dest([world_w - inset - seg, 0.0])
+                        .scale(Vec2::new(seg, world_h))
+                        .color(col),
+                );
+            }
+            arr.set(params.iter().copied());
+            canvas.draw_instanced_mesh(sq, arr, DrawParam::default());
+            Ok(())
+        })
     })
 }
 
