@@ -27,6 +27,9 @@ pub struct GameSounds {
     pub(crate) upgrade: Source,
     pub(crate) success: Source,
     pub(crate) success2: Source,
+    /// Looping low rumble for the ambient NPC King Crab conga train.
+    /// Volume is driven each frame by distance to the player.
+    pub(crate) king_crab_rumble: Source,
     // Add more sounds here as needed
 }
 
@@ -154,6 +157,9 @@ pub struct NpcCongaTrain {
     /// Sampled leader positions (pushed when leader moves >6px); followers trail by index offset.
     pub path_history: VecDeque<Vec2>,
     pub follower_types: Vec<CrabType>,
+    /// Target volume for the rumble SFX, computed each frame from distance to player.
+    /// Smoothed and applied by the EventHandler::update caller which has ctx access.
+    pub target_vol: f32,
 }
 
 impl NpcCongaTrain {
@@ -176,6 +182,7 @@ impl NpcCongaTrain {
             target_timer: 12.0,
             path_history: history,
             follower_types: followers,
+            target_vol: 0.0,
         }
     }
 }
@@ -899,6 +906,7 @@ impl MainState {
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
+            king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
             // Add more sounds here as needed
         };
 

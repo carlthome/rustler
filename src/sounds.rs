@@ -10,7 +10,7 @@
 //! wrap it in a canonical 44-byte WAV header. The `Source` is built once at startup from these
 //! bytes and simply replayed (`play_detached`) on each beat — nothing is re-synthesised per frame.
 
-use ggez::audio::{Source, SoundData};
+use ggez::audio::{Source, SoundData, SoundSource};
 use ggez::{Context, GameResult};
 
 /// Detect the dominant BPM from a raw OGG file and return the beat interval in seconds.
@@ -268,6 +268,30 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
     let bytes = synth_snare_wav(duration, gain);
     let data = SoundData::from_bytes(&bytes);
     Source::from_data(ctx, data)
+}
+
+/// Synthesise a looping low rumble for the NPC King Crab conga train.
+///
+/// 80 Hz fundamental with 160 Hz and 240 Hz overtones under a slow 1.2 Hz tremolo.
+/// Wrapped in a WAV so `Source::from_data` / rodio can decode it normally.
+/// The caller sets `repeat(true)` so it loops; volume is driven by distance each frame.
+pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
+    let n = (SAMPLE_RATE as f32 * 0.5) as usize;
+    let mut pcm: Vec<i16> = Vec::with_capacity(n);
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let v = (0.6 * (std::f32::consts::TAU * 80.0 * t).sin()
+               + 0.3 * (std::f32::consts::TAU * 160.0 * t).sin()
+               + 0.1 * (std::f32::consts::TAU * 240.0 * t).sin())
+               * (0.4 + 0.1 * (std::f32::consts::TAU * 1.2 * t).sin());
+        pcm.push((v * 16000.0) as i16);
+    }
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    let mut src = Source::from_data(ctx, data)?;
+    src.set_repeat(true);
+    Ok(src)
 }
 
 /// The synthesised percussion voices, built once and replayed on the beat.
