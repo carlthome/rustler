@@ -37,7 +37,12 @@ pub struct GameSounds {
     /// Ambient synth pad played on entering the campaign world map — a calm, atmospheric moment
     /// between levels, long swell/tail with a slow filter sweep, delay and stereo auto-pan.
     pub(crate) world_map_pad: Source,
-    // Add more sounds here as needed
+    /// Synthesised finger-whistle for the Whistle tool.
+    pub(crate) whistle_sfx: Source,
+    /// Synthesised stomp thud (kick + noise crack) for the Stomp tool.
+    pub(crate) stomp_sfx: Source,
+    /// Synthesised whoosh for the Lasso throw release.
+    pub(crate) lasso_sfx: Source,
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -1060,7 +1065,9 @@ impl MainState {
             hihat: sounds::synth_hihat(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,
             world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
-            // Add more sounds here as needed
+            whistle_sfx: sounds::synth_whistle(ctx)?,
+            stomp_sfx: sounds::synth_stomp(ctx)?,
+            lasso_sfx: sounds::synth_lasso_throw(ctx)?,
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather

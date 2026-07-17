@@ -424,6 +424,10 @@ pub fn handle_key_down_event(
                     // On-beat whistle reaches farther and pulls harder this cast.
                     state.whistle_beat_bonus =
                         state.reward_on_beat_tool(state.whistle_center, "WHISTLE");
+                    {
+                        use ggez::audio::SoundSource;
+                        let _ = state.sounds.whistle_sfx.play_detached(ctx);
+                    }
                     state.floating_texts.spawn(
                         "WHISTLE!".to_string(),
                         state.whistle_center - Vec2::new(48.0, 60.0),
@@ -446,6 +450,10 @@ pub fn handle_key_down_event(
                     state.zoom_punch = state.zoom_punch.max(0.08);
                     // On-beat stomp slams wider this cast.
                     state.stomp_beat_bonus = state.reward_on_beat_tool(center, "STOMP");
+                    {
+                        use ggez::audio::SoundSource;
+                        let _ = state.sounds.stomp_sfx.play_detached(ctx);
+                    }
                     state.floating_texts.spawn(
                         "STOMP!".to_string(),
                         center - Vec2::new(40.0, 60.0),

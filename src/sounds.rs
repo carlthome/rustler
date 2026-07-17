@@ -1114,3 +1114,128 @@ impl BeatSynth {
         let _ = self.snare.play_detached(ctx);
     }
 }
+
+/// Synthesise a sharp finger-whistle: a pure sine wave with vibrato that slides from a lower
+/// note up to the target pitch in the first ~30 ms (the "blow-in" attack), holds with light
+/// vibrato for the sustain, then fades via an exponential decay.  Bit-crushed lightly so it
+/// sits in the retro chiptune palette without sounding too clean.
+pub fn synth_whistle(ctx: &mut Context) -> GameResult<Source> {
+    let duration = 0.38_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let mut samples = Vec::with_capacity(n);
+
+    let target_hz = 1600.0_f32; // piercing high whistle
+    let start_hz  =  900.0_f32; // slide-in from a lower note
+
+    let attack   = 0.03_f32; // pitch-slide / volume attack
+    let decay    = 0.10_f32; // amplitude decay begins here
+    let vibrato_rate = 6.5_f32;
+    let vibrato_depth = 0.012_f32; // fraction of freq
+
+    let mut phase = 0.0_f32;
+    for i in 0..n {
+        let t = i as f32 / SAMPLE_RATE as f32;
+
+        // Pitch: slide from start_hz to target_hz in the first `attack` seconds.
+        let slide = (t / attack).min(1.0);
+        let vibrato = 1.0 + vibrato_depth * (vibrato_rate * t * std::f32::consts::TAU).sin();
+        let freq = (start_hz + (target_hz - start_hz) * slide) * vibrato;
+
+        // Amplitude envelope: quick linear attack then exponential decay.
+        let amp = if t < attack {
+            t / attack
+        } else {
+            let t_decay = t - attack;
+            let decay_len = duration - attack;
+            1.0 - (t_decay / decay_len).powi(2)
+        }.max(0.0);
+
+        phase += freq / SAMPLE_RATE as f32;
+        samples.push((phase * std::f32::consts::TAU).sin() * amp * 0.7);
+    }
+
+    let pcm = samples_to_pcm(&mut samples, 12, 1); // mild bit-crush, no sample-hold
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
+/// Synthesise a deep stomp thud: a pitched kick (80→30 Hz pitch sweep) layered with a short
+/// burst of LFSR noise for the "crack" transient, then fast exponential decay.
+pub fn synth_stomp(ctx: &mut Context) -> GameResult<Source> {
+    let duration = 0.28_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let mut samples = Vec::with_capacity(n);
+
+    let mut lfsr: u32 = 0xACE1;
+    let mut phase = 0.0_f32;
+
+    for i in 0..n {
+        let t = i as f32 / SAMPLE_RATE as f32;
+
+        // Pitch sweep: 120 Hz → 30 Hz over ~60 ms
+        let sweep_len = 0.06_f32;
+        let freq = if t < sweep_len {
+            120.0 - 90.0 * (t / sweep_len)
+        } else {
+            30.0
+        };
+        phase += freq / SAMPLE_RATE as f32;
+        let kick = (phase * std::f32::consts::TAU).sin();
+
+        // LFSR noise burst in first 12 ms for the crack transient
+        let noise = if t < 0.012 {
+            lfsr ^= lfsr << 13;
+            lfsr ^= lfsr >> 17;
+            lfsr ^= lfsr << 5;
+            let n = ((lfsr & 0xFF) as f32 / 128.0) - 1.0;
+            n * (1.0 - t / 0.012) // fade noise quickly
+        } else {
+            0.0
+        };
+
+        // Amplitude: very fast decay
+        let amp = (-t * 18.0_f32).exp();
+        samples.push((kick * 0.8 + noise * 0.35) * amp);
+    }
+
+    let pcm = samples_to_pcm(&mut samples, 6, 2);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
+/// Synthesise a lasso whoosh: band-passed noise swept from low to high frequency,
+/// short (120 ms), giving the impression of something spinning then releasing.
+pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {
+    let duration = 0.14_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let mut samples = Vec::with_capacity(n);
+
+    let mut lfsr: u32 = 0xDEAD;
+
+    for i in 0..n {
+        let t = i as f32 / SAMPLE_RATE as f32;
+
+        // White noise from LFSR
+        lfsr ^= lfsr << 13;
+        lfsr ^= lfsr >> 17;
+        lfsr ^= lfsr << 5;
+        let noise = ((lfsr & 0xFF) as f32 / 128.0) - 1.0;
+
+        // Amplitude envelope: sharp attack (0-10 ms) then exponential decay
+        let amp = if t < 0.01 { t / 0.01 } else { (-t * 22.0_f32).exp() };
+
+        // Very simple "tone" sweep: mix in a sine swept from 400→2000 Hz
+        // to give the "whipping" sense of pitch-rise on release
+        let freq = 400.0 + 1600.0 * (t / duration);
+        let sine_phase = (freq * t * std::f32::consts::TAU).sin();
+
+        samples.push((noise * 0.55 + sine_phase * 0.45) * amp * 0.75);
+    }
+
+    let pcm = samples_to_pcm(&mut samples, 8, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}

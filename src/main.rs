@@ -12268,13 +12268,17 @@ impl EventHandler for MainState {
 
     fn mouse_button_up_event(
         &mut self,
-        _ctx: &mut Context,
+        ctx: &mut Context,
         button: MouseButton,
         _x: f32,
         _y: f32,
     ) -> GameResult {
         if button == MouseButton::Left && self.lasso_phase == LassoPhase::Winding {
             self.lasso_mouse_down = false;
+            {
+                use ggez::audio::SoundSource;
+                let _ = self.sounds.lasso_sfx.play_detached(ctx);
+            }
             // Compute scaled range from charge: tap = MIN_RANGE_FRAC × MAX_RANGE, full = MAX_RANGE.
             let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
             let range_frac = LASSO_MIN_RANGE_FRAC + (1.0 - LASSO_MIN_RANGE_FRAC) * charge_frac;
