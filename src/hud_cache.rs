@@ -54,6 +54,9 @@ thread_local! {
     /// Rebuilt only when the name changes (i.e. never mid-session); avoids glyph shaping every frame.
     pub static NPC_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
 
+    /// Cache for the player crab name plate — same shape as the NPC name plate.
+    pub static PLAYER_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+
     pub static CHAIN_SORT_BUF: RefCell<Vec<(usize, Vec2, Option<[f32; 3]>)>> = RefCell::new(Vec::new());
 
     pub static CHAIN_TYPE_BUF: RefCell<Vec<(usize, usize, CrabType, [f32; 3])>> = RefCell::new(Vec::new());

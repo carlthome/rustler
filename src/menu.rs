@@ -166,17 +166,18 @@ pub fn draw_menu(
     flush_crab_bodies(ctx, canvas)?;
 
     // --- Title: "Crab Rustler" with an animated colour wave -----------------------------
-    let (main_title_width, main_title_height) = MENU_TITLE_CACHE.with(|c| -> GameResult<(f32, f32)> {
-        let mut cache = c.borrow_mut();
-        if cache.is_none() {
-            let mut main_title = Text::new("Crab Rustler");
-            main_title.set_scale(112.0);
-            let dims = main_title.measure(ctx)?;
-            *cache = Some((main_title, dims.x, dims.y));
-        }
-        let (_, w, h) = cache.as_ref().unwrap();
-        Ok((*w, *h))
-    })?;
+    let (main_title_width, main_title_height) =
+        MENU_TITLE_CACHE.with(|c| -> GameResult<(f32, f32)> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut main_title = Text::new("Crab Rustler");
+                main_title.set_scale(112.0);
+                let dims = main_title.measure(ctx)?;
+                *cache = Some((main_title, dims.x, dims.y));
+            }
+            let (_, w, h) = cache.as_ref().unwrap();
+            Ok((*w, *h))
+        })?;
     let title_top = height * 0.13;
 
     // Drop shadow.
@@ -248,45 +249,60 @@ pub fn draw_menu(
         );
     });
 
-    // --- Tab bar: Home / Loadout page switcher ------------------------------------------
-    {
-        let tab_y = title_top + main_title_height + 42.0;
-        let tab_labels = ["  HOME  ", "  LOADOUT  "];
-        let mut tab_x = width / 2.0 - 120.0;
-        for (i, label) in tab_labels.iter().enumerate() {
-            let active = state.menu_page == i;
-            let color = if active {
-                Color::from_rgb(80, 220, 200)
-            } else {
-                Color::from_rgba(180, 180, 200, 100)
-            };
-            let mut t_text = Text::new(*label);
-            t_text.set_scale(20.0);
-            let tw = t_text.measure(ctx)?.x;
-            let bg_rect = Rect::new(tab_x - 4.0, tab_y - 4.0, tw + 8.0, 28.0);
-            let bg_color = if active {
-                Color::from_rgba(30, 80, 80, 160)
-            } else {
-                Color::from_rgba(10, 14, 30, 80)
-            };
-            let bg = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), bg_rect, 6.0, bg_color)?;
-            canvas.draw(&bg, DrawParam::default());
-            canvas.draw(&t_text, DrawParam::default().dest(Vec2::new(tab_x, tab_y)).color(color));
-            tab_x += tw + 20.0;
-        }
-        let hint = if state.menu_page == 0 {
-            "Tab — open Loadout"
-        } else {
-            "Esc — back to Home    Tab — next slot    \u{25C4}/\u{25BA} — change"
-        };
-        let mut hint_text = Text::new(hint);
-        hint_text.set_scale(16.0);
-        let hw = hint_text.measure(ctx)?.x;
+    if state.menu_page == 0 {
+        let skin = state.player_skin;
+        let preview_top = title_top + main_title_height + 36.0;
+        let preview_w = 458.0;
+        let preview_h = 88.0;
+        let preview_x = (width - preview_w) / 2.0;
+        let preview_rect = Rect::new(preview_x, preview_top, preview_w, preview_h);
+        let preview_bg = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::fill(),
+            preview_rect,
+            16.0,
+            Color::from_rgba(10, 14, 30, 120),
+        )?;
+        canvas.draw(&preview_bg, DrawParam::default());
+
+        let mut preview_label = Text::new("CURRENT CRAB");
+        preview_label.set_scale(15.0);
         canvas.draw(
-            &hint_text,
+            &preview_label,
             DrawParam::default()
-                .dest(Vec2::new((width - hw) / 2.0, tab_y + 32.0))
-                .color(Color::from_rgba(180, 180, 200, 120)),
+                .dest(Vec2::new(preview_x + 20.0, preview_top + 10.0))
+                .color(Color::from_rgb(140, 220, 210)),
+        );
+
+        let mut preview_tagline = Text::new(skin.tagline());
+        preview_tagline.set_scale(19.0);
+        let tagline_y = preview_top + 34.0;
+        canvas.draw(
+            &preview_tagline,
+            DrawParam::default()
+                .dest(Vec2::new(preview_x + 108.0, tagline_y))
+                .color(Color::from_rgb(255, 235, 190)),
+        );
+
+        draw_rustler(
+            ctx,
+            canvas,
+            Vec2::new(preview_x + 26.0, preview_top + 16.0),
+            &state.textures.player,
+            Vec2::ZERO,
+            0.2 + 0.2 * (t * 3.0).sin().abs(),
+            t,
+            false,
+            skin,
+        )?;
+
+        let mut preview_name = Text::new(state.player_name.as_str());
+        preview_name.set_scale(18.0);
+        canvas.draw(
+            &preview_name,
+            DrawParam::default()
+                .dest(Vec2::new(preview_x + 108.0, preview_top + 56.0))
+                .color(Color::from_rgb(240, 224, 180)),
         );
     }
 
@@ -428,35 +444,43 @@ pub fn draw_menu(
         let picker_y = (height * 0.38).min(parade_top - 200.0);
         let col_gap = (width * 0.20).min(300.0);
         let cols_center = width * 0.62;
-        let col_x = [
-            cols_center - col_gap,
-            cols_center,
-            cols_center + col_gap,
-        ];
+        let col_x = [cols_center - col_gap, cols_center, cols_center + col_gap];
         let labels = ["HAT", "FACIAL HAIR", "ACCESSORY"];
-        let names = [skin.hat.name(), skin.facial_hair.name(), skin.accessory.name()];
-        let flavours = [skin.hat.flavour(), skin.facial_hair.flavour(), skin.accessory.flavour()];
+        let names = [
+            skin.hat.name(),
+            skin.facial_hair.name(),
+            skin.accessory.name(),
+        ];
+        let flavours = [
+            skin.hat.flavour(),
+            skin.facial_hair.flavour(),
+            skin.accessory.flavour(),
+        ];
 
         let panel_w = col_gap * 2.0 + 300.0;
-        let panel_rect = Rect::new(
-            cols_center - panel_w / 2.0,
-            picker_y - 6.0,
-            panel_w,
-            122.0,
-        );
+        let panel_rect = Rect::new(cols_center - panel_w / 2.0, picker_y - 6.0, panel_w, 122.0);
 
-        let cache_key = (skin.hat, skin.facial_hair, skin.accessory, state.skin_slot,
-                         width.to_bits(), height.to_bits());
+        let cache_key = (
+            skin.hat,
+            skin.facial_hair,
+            skin.accessory,
+            state.skin_slot,
+            width.to_bits(),
+            height.to_bits(),
+        );
         LOADOUT_PAGE_CACHE.with(|cell| -> GameResult {
             let mut slot = cell.borrow_mut();
             if slot.as_ref().map_or(true, |(k, _, _, _)| *k != cache_key) {
                 let picker_panel = Mesh::new_rounded_rectangle(
-                    ctx, DrawMode::fill(), panel_rect, 14.0,
+                    ctx,
+                    DrawMode::fill(),
+                    panel_rect,
+                    14.0,
                     Color::from_rgba(10, 14, 30, 150),
                 )?;
                 let mut tagline = Text::new(skin.tagline());
                 tagline.set_scale(15.0);
-                let mut build_col = |i: usize| -> GameResult<(Text, f32, Text, f32, Text, f32)> {
+                let build_col = |i: usize| -> GameResult<(Text, f32, Text, f32, Text, f32)> {
                     let focused = state.skin_slot == i;
                     let mut lbl = Text::new(labels[i]);
                     lbl.set_scale(17.0);
@@ -535,6 +559,52 @@ pub fn draw_menu(
             false,
             skin,
         )?;
+
+        let name_field_top = picker_y - 74.0;
+        let name_field_rect = Rect::new(cols_center - 176.0, name_field_top, 352.0, 48.0);
+        let name_field = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::fill(),
+            name_field_rect,
+            12.0,
+            Color::from_rgba(10, 14, 30, 155),
+        )?;
+        canvas.draw(&name_field, DrawParam::default());
+        let outline = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::stroke(2.0),
+            name_field_rect,
+            12.0,
+            Color::from_rgba(120, 255, 220, 170),
+        )?;
+        canvas.draw(&outline, DrawParam::default());
+
+        let mut name_label = Text::new("CRAB NAME");
+        name_label.set_scale(15.0);
+        canvas.draw(
+            &name_label,
+            DrawParam::default()
+                .dest(Vec2::new(name_field_rect.x + 18.0, name_field_top + 8.0))
+                .color(Color::from_rgb(140, 220, 210)),
+        );
+
+        let mut name_value_text = Text::new(format!("{}_", state.player_name));
+        name_value_text.set_scale(20.0);
+        canvas.draw(
+            &name_value_text,
+            DrawParam::default()
+                .dest(Vec2::new(name_field_rect.x + 18.0, name_field_top + 20.0))
+                .color(Color::from_rgb(255, 235, 190)),
+        );
+
+        let mut name_hint = Text::new("Type to rename    Backspace to erase");
+        name_hint.set_scale(14.0);
+        canvas.draw(
+            &name_hint,
+            DrawParam::default()
+                .dest(Vec2::new(name_field_rect.x + 18.0, name_field_top + 52.0))
+                .color(Color::from_rgba(180, 180, 200, 120)),
+        );
     } // end menu_page == 1 (Loadout)
 
     Ok(())
