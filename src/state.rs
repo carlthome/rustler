@@ -147,26 +147,6 @@ pub enum LassoPhase {
     Miss,
 }
 
-fn gen_king_crab_name(rng: &mut impl Rng) -> String {
-    const TITLES: &[&str] = &[
-        "Baron", "Captain", "Old", "Crusty", "Grand", "The Magnificent",
-        "Scuttles", "Admiral", "The Ancient", "Sir", "Griselda",
-        "Count", "Warlord", "The Sideways", "Commodore", "Duchess",
-        "Mighty", "The Relentless", "Professor", "Doctor",
-    ];
-    const NAMES: &[&str] = &[
-        "von Clawsworth", "McGinty", "Pinchy", "Snaps", "Reginald",
-        "the Third", "Crabsworth", "McTidalpool", "Shellsworth",
-        "the Relentless", "von Bubblethorpe", "Clawfoot", "Brine",
-        "Moulting", "Sidewinder", "the Inevitable", "Deepwater",
-        "Tenpins", "of the Deep", "Crustacean", "Beachmaster",
-        "Saltwhisker", "Chelicerae", "Scuttlesby",
-    ];
-    let title = TITLES.choose(rng).unwrap();
-    let name = NAMES.choose(rng).unwrap();
-    format!("{} {}", title, name)
-}
-
 /// Ambient wandering NPC conga train — a King Crab leading a few followers across the world.
 /// Visual-only: it does not steal from or react to the player. It's world life, like weather.
 pub struct NpcCongaTrain {
