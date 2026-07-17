@@ -41,6 +41,32 @@ pub(crate) fn normalize_player_name(name: &str) -> String {
     }
 }
 
+/// Returns the instructions shown on the "How to Play" menu card.
+fn how_to_play_body_text() -> String {
+    [
+        "1. Move with WASD or arrow keys (hold Shift to sprint).",
+        "2. Keep crabs inside your flashlight beam.",
+        "3. Catch crabs on the beat for better rewards.",
+        "4. Bring caught crabs to the pen to bank points.",
+        "5. Avoid losing your train before banking.",
+        "",
+        "Controls:",
+        "- Left click hold/release: lasso",
+        "- Space: dash",
+        "- Q: wave",
+        "- E: whistle",
+        "- R: stomp",
+        "- F: call",
+        "- X: cycle",
+        "- V: groove call",
+        "- G: downbeat slam",
+        "- B: bank (+ jam)",
+        "",
+        "Press Enter, Space, or Esc to go back.",
+    ]
+    .join("\n")
+}
+
 use ggez::audio::SoundSource;
 use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
@@ -5936,21 +5962,7 @@ impl MainState {
                     .color(Color::from_rgb(235, 235, 220)),
             );
 
-            let body = [
-                "1. Move with WASD or arrow keys.",
-                "2. Keep crabs inside your flashlight beam.",
-                "3. Catch crabs on the beat for better rewards.",
-                "4. Bring caught crabs to the pen to bank points.",
-                "5. Avoid losing your train before banking.",
-                "",
-                "Controls:",
-                "- Space: dash",
-                "- Left click hold/release: lasso",
-                "- X: stomp, Z: whistle, C: cycle",
-                "",
-                "Press Enter, Space, or Esc to go back.",
-            ]
-            .join("\n");
+            let body = how_to_play_body_text();
             let mut text = Text::new(body);
             text.set_scale(28.0);
             canvas.draw(
@@ -12253,4 +12265,30 @@ fn main() -> GameResult {
     }
 
     event::run(ctx, event_loop, state)
+}
+
+#[cfg(test)]
+mod how_to_play_tests {
+    use super::how_to_play_body_text;
+
+    #[test]
+    fn how_to_play_text_matches_current_controls() {
+        let text = how_to_play_body_text();
+        for expected in [
+            "Shift",
+            "Space: dash",
+            "Q: wave",
+            "E: whistle",
+            "R: stomp",
+            "F: call",
+            "X: cycle",
+            "V: groove call",
+            "G: downbeat slam",
+            "B: bank",
+        ] {
+            assert!(text.contains(expected), "missing expected control text: {expected}");
+        }
+        assert!(!text.contains("Z: whistle"));
+        assert!(!text.contains("C: cycle"));
+    }
 }
