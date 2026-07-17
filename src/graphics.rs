@@ -404,6 +404,13 @@ thread_local! {
     static GOLDEN_SPARKLE_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
     static GOLDEN_SPARKLE_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Beat corona glow buffer: each caught crab with beat_phase > 0.3 pushes one DrawParam here
+    // (a color-matched soft circle in ADD blend). Flushed once per frame by flush_beat_coronas()
+    // in the same ADD-blend pass as the other crab auras — one GPU submission for every corona
+    // regardless of conga train length.
+    static BEAT_CORONA_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static BEAT_CORONA_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Reusable instance buffer for the coil dots inside draw_hermit_shell. Each shelled Hermit
     // draws up to 5 unit-circle dots (the borrowed-shell whorl) — all using the same UNIT_CIRCLE
     // mesh. With multiple Hermits on screen (they spawn in clusters, ~7% of crabs, and can
@@ -556,6 +563,35 @@ pub fn flush_golden_sparkles(ctx: &mut Context, canvas: &mut Canvas) -> ggez::Ga
             }
         };
         GOLDEN_SPARKLE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            Ok(())
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Flush all beat-corona DrawParams deferred by draw_crab() for caught crabs during a strong beat.
+/// Each corona is a large soft circle in the crab's own color, blended additively for a glow halo
+/// that pulses with the music. Call this once per frame inside the ADD blend pass, alongside the
+/// other crab-aura flushes (flush_golden_sparkles / flush_hermit_coil_dots / etc.).
+pub fn flush_beat_coronas(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    BEAT_CORONA_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_circle = match UNIT_CIRCLE.get() {
+            Some(mesh) => mesh.clone(),
+            None => {
+                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                UNIT_CIRCLE.get_or_init(|| mesh).clone()
+            }
+        };
+        BEAT_CORONA_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
@@ -2163,10 +2199,25 @@ pub fn draw_weather(
     // Lightning flash: a full-screen white brighten that decays with lightning_flash (1→0). Uses ADD
     // so it floods light in rather than washing to grey. Thunder (screen shake) is fired from the
     // sim off the same event, so the flash and the shake land together.
+    // At peak intensity (> 0.5) an additional INVERT pass inverts the scene colors for a single
+    // brief window — the photographic "negative" of a real lightning strike. The ADD layer then
+    // re-brightens on top, so the final read is: invert → flood white → fade, rather than just fade.
     let lf = lightning_flash.clamp(0.0, 1.0);
     if lf > 0.001 {
         let square = unit_square(ctx)?.clone();
         let original_blend = canvas.blend_mode();
+        // Invert layer: only at peak (lf > 0.5) and ramps up quickly toward the spike so it reads
+        // as a stark photographic flash rather than a long color-shifted linger.
+        if lf > 0.5 {
+            let invert_alpha = ((lf - 0.5) * 2.0).min(1.0);
+            canvas.set_blend_mode(BlendMode::INVERT);
+            canvas.draw(
+                &square,
+                DrawParam::default()
+                    .scale(Vec2::new(width, height))
+                    .color(Color::new(1.0, 1.0, 1.0, invert_alpha)),
+            );
+        }
         canvas.set_blend_mode(BlendMode::ADD);
         canvas.draw(
             &square,
@@ -2852,6 +2903,23 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
             );
         }
     });
+
+    // Beat corona: caught crabs in the conga train get a color-matched additive glow halo that
+    // pulses with the music — the brighter the beat, the wider and more vivid the corona, so the
+    // train visibly radiates light on every downbeat. Deferred into BEAT_CORONA_PARAMS and flushed
+    // once per frame by flush_beat_coronas() in the same ADD blend pass as the other crab auras.
+    if crab.caught && beat_phase > 0.3 {
+        let glow_a = (beat_phase - 0.3) / 0.7 * 0.18;
+        let [r, g, b] = crab.crab_color();
+        BEAT_CORONA_PARAMS.with(|params| {
+            params.borrow_mut().push(
+                DrawParam::default()
+                    .dest(draw_pos)
+                    .scale(Vec2::splat(CRAB_SIZE * crab.scale * 2.8))
+                    .color(Color::new(r, g, b, glow_a)),
+            );
+        });
+    }
 
     Ok(())
 }

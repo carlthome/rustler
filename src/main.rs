@@ -53,7 +53,7 @@ use crate::graphics::{
     draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_lasso_windup, LassoDrawPhase, draw_pen_guide,
     draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
     draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
+    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
 };
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
@@ -6170,7 +6170,28 @@ impl MainState {
             )?;
         }
 
-        // Draw player character.
+        // Calculate flashlight direction from player to mouse.
+        if self.flashlight.on {
+            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
+            draw_flashlight(
+                ctx,
+                canvas,
+                self.player_pos,
+                flashlight_dir,
+                self.time_since_catch,
+                &self.flashlight,
+                &self.flashlight_shader,
+                self.width,
+                self.height,
+                self.camera_origin,
+            )?;
+        }
+
+        // Draw all crabs.
+        self.draw_crabs_with_shake(ctx, canvas)?;
+
+        // Draw player character after crabs so the rustler always renders on top of the conga
+        // train rather than being occluded by crabs that overlap its position.
         draw_rustler(
             ctx,
             canvas,
@@ -6191,26 +6212,6 @@ impl MainState {
             let intensity = self.boost_timer / 0.18;
             draw_speed_lines(ctx, canvas, center, self.last_dir, intensity)?;
         }
-
-        // Calculate flashlight direction from player to mouse.
-        if self.flashlight.on {
-            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
-            draw_flashlight(
-                ctx,
-                canvas,
-                self.player_pos,
-                flashlight_dir,
-                self.time_since_catch,
-                &self.flashlight,
-                &self.flashlight_shader,
-                self.width,
-                self.height,
-                self.camera_origin,
-            )?;
-        }
-
-        // Draw all crabs.
-        self.draw_crabs_with_shake(ctx, canvas)?;
 
         // (Radar arrows are screen-edge indicators — drawn in the HUD pass below, after the switch
         // to screen space, so they pin to the viewport border rather than scrolling with the world.)
@@ -7634,6 +7635,11 @@ impl MainState {
         // radius bucket. With ~10-30 crabs in beam range this trims 20-60 individual GPU submissions
         // down to ~2-4 batched ones. Same blend mode (caller already in ADD), same pixels.
         flush_attracted_crab_glows(ctx, canvas)?;
+        // Flush beat-corona halos deferred by draw_crab() for caught (conga-train) crabs during
+        // a strong beat pulse. Each corona is one soft circle in the crab's own color, drawn here
+        // while the canvas is still in ADD blend so they addively light up the train on every
+        // downbeat — one GPU submission for the entire conga train's glow regardless of length.
+        flush_beat_coronas(ctx, canvas)?;
         canvas.set_blend_mode(original_blend);
         // Which seated links are part of a paying CENTERPIECE run right now, so we can ring them
         // live (see draw_centerpiece_ring). Computed once per frame from the same predicate the pen
