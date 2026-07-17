@@ -39,18 +39,23 @@ The **bank-now-vs-push-luck** axis is closed (live AT RISK readout, escalating s
 telegraphed terrain hazard, and all three bosses fight inside the archetype web. A King Crab *direct hit*
 now scatters your entire conga line into catchable crabs (Sonic-rings burst) — a first taste of the
 steal-and-recover tension the ecology will run on. The four-scenario opt-in tutorials have been folded into
-the first world-map nodes (removed from the main menu) and still double as regression tests. A first slice of meta-progression + campaign scaffolding exists but
+the first world-map nodes (removed from the main menu) and still double as regression tests. The beach is now a
+**scrolling world** (2× viewport, player-following camera) carrying a **day/night cycle + weather** (sunny → storm,
+ambient visuals) — the "world feels alive and inhabited" aesthetic layer is in. A first slice of meta-progression + campaign scaffolding exists but
 stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** Carl clarified the **thesis** (see top): competing conga lines + BYO-music mashup
-is the *core game*, and the arena is scaffolding toward it. That reframes the whole roadmap — it doesn't
-change the near-term work (still: finish the inner loop, then build the scrolling world that lets rivals
-exist), but it means the ecology/music items in "Also on our mind" are the destination, not breadth to
-maybe-someday get to. The **core steal rule** is now written down in INSPIRATION (reverse-Snake crossing:
-a rival threading your line splices the back section onto its own train) — the destination's central
-mechanic is specified, waiting on the scrolling world to host rivals. His standing **mechanics-freeze** still holds for near-term Now picks: strengthen
-what exists so the player feels *agency and control*, don't add new arena mechanics. No conflict — the
-freeze governs polish now; the thesis governs where we're headed. Prior playtest asks are all resolved.
+**Signal (this cycle).** Slack was quiet — no new considered replies or reactions since last run; the one standing
+ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format* request, not a roadmap
+item, and belongs to the diary agent. What moved on the ground: the **scrolling world landed** (7a52152) — the
+architectural gate the whole roadmap has been sequencing toward — and **day/night + weather** shipped alongside it
+(07c4577), so the "beach feels alive" aesthetic layer is done. With the gate cleared, this run promotes the *first,
+visual-only slice* of the ecology into Now: an ambient wandering King Crab conga line (no stealing yet) that both
+fills the sparse new world and plants the ecology seed. Everything past that first slice stays in "Also on our mind."
+The **core steal rule** is written down in INSPIRATION (reverse-Snake crossing: a rival threading your line splices
+the back section onto its own train) — waiting on that ambient NPC train to exist before stealing gets wired.
+Carl's standing **mechanics-freeze** still holds for player-facing arena mechanics: strengthen what exists so the
+player feels *agency and control*, don't bolt on new player verbs. The ambient NPC train respects it — it's world
+life the player watches, like weather, not a new control. Prior playtest asks are all resolved.
 
 ## Bugs (fix before anything else in Now)
 
@@ -92,6 +97,14 @@ item in "Now" below.
 - **Scrolling world density tuning.** World is now 2× viewport (7a52152) but spawn counts unchanged — field
   feels sparse. Tune crab density, spawn ring radii, and boss positioning for the larger world so the beach
   feels alive rather than empty. Exploration should reward venturing off-center.
+
+- **[ECOLOGY — first slice] Ambient wandering King Crab conga line.** The scrolling world (the gate) has landed, so
+  seed the ★ competing-conga ecology with its smallest safe step: a King Crab that trails a few followers and *wanders
+  the world on its own* — heard before seen (its track/rumble swelling as it nears, agar.io-style), size legible from
+  across the field. **Visual-only this cycle: it does NOT steal from the player, does NOT collide-splice, does NOT
+  react to you.** It's world life you watch, like weather — which also directly fixes the "world feels empty" problem
+  above. This is step (1) of the ecology sequencing in INSPIRATION; stealing (the reverse-Snake crossing rule) stays
+  parked in "Also on our mind" until this ambient train looks and moves right first. Keep the freeze: no new player verb.
 
 ## Later (outer loop — not yet)
 
@@ -183,11 +196,3 @@ item in "Now" below.
   the mashup is a natural consequence of the fight — the winner's song overwhelms, the losers' fade to silence.
   King Crab NPCs carry tracks too for solo play / practice. BPM detection already exists. Defer wiring until
   the NPC ecology is fun against bots first; but this is the whole point of the game, not a stretch goal.
-
-- **Environmental ambience — day/night cycles and weather.** Pure visual storytelling, no gameplay
-  impact: time of day shifts sky/lighting (dawn → noon → dusk → night over ~5-10 min per run);
-  weather layers add atmosphere (occasional rain, fog, clear skies, rare storms). The beach feels
-  alive and inhabited rather than a static arena, matching the Control-inspired sense of arrival.
-  No mechanical effects — rain doesn't slow you, fog doesn't hide enemies. This is aesthetic
-  layering on top of the existing game, the way HYPER DEMON layers delirium visuals on top of core
-  mechanics. Deferred until core loop feels complete and visual polish is the focus.
