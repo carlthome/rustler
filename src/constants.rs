@@ -20,18 +20,18 @@ pub const LASSO_MISS_TIME: f32 = 0.18;
 // on the beat — releasing in the pocket gives extra reach, deepening the rhythm layer.
 pub const LASSO_MAX_CHARGE_TIME: f32 = 1.2;
 pub const LASSO_MIN_RANGE_FRAC: f32 = 0.28; // quick tap reaches 28% of max range
-pub const LASSO_ONBEAT_BONUS: f32 = 1.35;   // 35% extra range+speed when released on-beat
+pub const LASSO_ONBEAT_BONUS: f32 = 1.35; // 35% extra range+speed when released on-beat
 
 pub const CRAB_SIZE: f32 = 36.0;
 pub const SPEED: f32 = 200.0;
 pub const SPRINT_STAMINA_MAX: f32 = 6.0;
 pub const SPRINT_STAMINA_DRAIN_PER_SEC: f32 = 0.85;
 pub const SPRINT_STAMINA_REGEN_PER_SEC: f32 = 0.55;
-pub const SPRINT_SPEED_MULT: f32 = 1.6;
+pub const SPRINT_SPEED_MULT: f32 = 3.0;
 
 pub const CHAIN_LINK_FRAMES: usize = 12;
 pub const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
-pub const BEAT_WINDOW: f32 = 0.08;  // seconds around a beat that count as "on beat"
+pub const BEAT_WINDOW: f32 = 0.08; // seconds around a beat that count as "on beat"
 pub const PERFECT_WINDOW: f32 = 0.032; // seconds around a beat that count as a PERFECT hit (tighter than BEAT_WINDOW)
 
 pub const DRUM_ROLL_MAX: u32 = 4;

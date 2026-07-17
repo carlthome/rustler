@@ -1,7 +1,7 @@
-use std::{cell::RefCell, collections::HashMap};
+use crate::enemies::CrabType;
 use ggez::glam::Vec2;
 use ggez::graphics::{Mesh, Text};
-use crate::enemies::CrabType;
+use std::{cell::RefCell, collections::HashMap};
 
 thread_local! {
     pub static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());

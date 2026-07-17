@@ -1005,6 +1005,43 @@ pub fn draw_speed_lines(
     })
 }
 
+/// Draw the longer, greener whoosh used while sprinting. Same batched unit-line wake as the dash
+/// effect, but stretched wider and tinted more like wind than impact so it reads as a held speed
+/// state instead of a short burst.
+pub fn draw_sprint_whoosh(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    last_dir: Vec2,
+    intensity: f32,
+) -> ggez::GameResult {
+    if last_dir.length() < 0.01 {
+        return Ok(());
+    }
+    let line = unit_line(ctx)?.clone();
+    let wake = -last_dir.normalize();
+    let angle = wake.y.atan2(wake.x);
+    let perp = Vec2::new(-wake.y, wake.x);
+    let alpha = (intensity.clamp(0.0, 1.0) * 90.0) as u8;
+    let col = Color::from_rgba(140, 255, 200, alpha);
+    SPEED_LINE_INSTANCES.with(|cell| -> ggez::GameResult {
+        let mut slot = cell.borrow_mut();
+        let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+        instances.set((0i32..7).map(|i| {
+            let t = (i as f32 - 3.0) / 3.0;
+            let origin = center + perp * (t * 20.0) - wake * 4.0;
+            let length = 34.0 + (3.0 - (i as f32 - 3.0).abs()) * 10.0;
+            DrawParam::default()
+                .dest(origin)
+                .rotation(angle)
+                .scale(Vec2::new(length, 1.7))
+                .color(col)
+        }));
+        canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+        Ok(())
+    })
+}
+
 /// Draw the beat-wave's expanding ring outline. Reuses `cached_stroke_circle` instead of
 /// building a fresh `Mesh::new_circle` GPU buffer every frame the wave is expanding.
 pub fn draw_beat_wave_ring(

@@ -1,5 +1,8 @@
 use crate::MainState;
-use crate::{SPRINT_SPEED_MULT, SPRINT_STAMINA_DRAIN_PER_SEC, SPRINT_STAMINA_MAX, SPRINT_STAMINA_REGEN_PER_SEC};
+use crate::{
+    SPRINT_SPEED_MULT, SPRINT_STAMINA_DRAIN_PER_SEC, SPRINT_STAMINA_MAX,
+    SPRINT_STAMINA_REGEN_PER_SEC,
+};
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::input::keyboard::KeyCode;
@@ -14,31 +17,51 @@ pub fn handle_player_movement(
     let (width, height) = area;
 
     // Overlay bot synthetic key state if a bot script is running.
-    let bot_up    = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Up));
-    let bot_down  = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Down));
-    let bot_left  = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Left));
-    let bot_right = state.bot.as_ref().map_or(false, |b| b.keys_held.contains(&KeyCode::Right));
+    let bot_up = state
+        .bot
+        .as_ref()
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::Up));
+    let bot_down = state
+        .bot
+        .as_ref()
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::Down));
+    let bot_left = state
+        .bot
+        .as_ref()
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::Left));
+    let bot_right = state
+        .bot
+        .as_ref()
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::Right));
 
     let mut dir = Vec2::ZERO;
-    if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) || bot_up {
+    if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) || bot_up
+    {
         dir.y -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Down) || ctx.keyboard.is_key_pressed(KeyCode::S) || bot_down {
+    if ctx.keyboard.is_key_pressed(KeyCode::Down)
+        || ctx.keyboard.is_key_pressed(KeyCode::S)
+        || bot_down
+    {
         dir.y += 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Left) || ctx.keyboard.is_key_pressed(KeyCode::A) || bot_left {
+    if ctx.keyboard.is_key_pressed(KeyCode::Left)
+        || ctx.keyboard.is_key_pressed(KeyCode::A)
+        || bot_left
+    {
         dir.x -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Right) || ctx.keyboard.is_key_pressed(KeyCode::D) || bot_right {
+    if ctx.keyboard.is_key_pressed(KeyCode::Right)
+        || ctx.keyboard.is_key_pressed(KeyCode::D)
+        || bot_right
+    {
         dir.x += 1.0;
     }
 
     let sprint_held = ctx.keyboard.is_key_pressed(KeyCode::LShift)
         || ctx.keyboard.is_key_pressed(KeyCode::RShift);
-    let sprinting = sprint_held
-        && dir != Vec2::ZERO
-        && state.boost_timer <= 0.0
-        && state.sprint_stamina > 0.0;
+    let sprinting =
+        sprint_held && dir != Vec2::ZERO && state.boost_timer <= 0.0 && state.sprint_stamina > 0.0;
 
     // Increase player speed and speed boost based on score.
     let base_speed = speed * (1.0 + state.score as f32 * 0.1) * state.speed_mult;
@@ -74,7 +97,7 @@ pub fn handle_player_movement(
 
     if sprinting {
         move_speed *= SPRINT_SPEED_MULT;
-        acceleration *= 1.2;
+        acceleration *= 1.3;
     }
 
     // Biome terrain: the same patch geometry means different things per zone (see levels.rs).
@@ -137,8 +160,8 @@ pub fn handle_player_movement(
     if sprinting {
         state.sprint_stamina = (state.sprint_stamina - SPRINT_STAMINA_DRAIN_PER_SEC * dt).max(0.0);
     } else {
-        state.sprint_stamina = (state.sprint_stamina + SPRINT_STAMINA_REGEN_PER_SEC * dt)
-            .min(SPRINT_STAMINA_MAX);
+        state.sprint_stamina =
+            (state.sprint_stamina + SPRINT_STAMINA_REGEN_PER_SEC * dt).min(SPRINT_STAMINA_MAX);
     }
 
     // Update player position with velocity and clamp to screen bounds.
@@ -262,11 +285,22 @@ pub fn handle_key_down_event(
                     }
                     KeyCode::Space | KeyCode::Return => {
                         match state.menu_selection {
-                            0 => { state.show_instructions = false; }  // Play
-                            1 => { state.enter_world_map(); }           // Campaign
-                            2 => { state.menu_page = 1; state.menu_selection = 0; } // Loadout
-                            3 => { state.enter_world_map(); }           // How to Play (same as Campaign for now)
-                            4 => { ctx.request_quit(); }               // Quit
+                            0 => {
+                                state.show_instructions = false;
+                            } // Play
+                            1 => {
+                                state.enter_world_map();
+                            } // Campaign
+                            2 => {
+                                state.menu_page = 1;
+                                state.menu_selection = 0;
+                            } // Loadout
+                            3 => {
+                                state.enter_world_map();
+                            } // How to Play (same as Campaign for now)
+                            4 => {
+                                ctx.request_quit();
+                            } // Quit
                             _ => {}
                         }
                         return true;
@@ -290,10 +324,22 @@ pub fn handle_key_down_event(
                     return true;
                 }
                 match key {
-                    KeyCode::Key1 => { state.buy_start_perk(1); return true; }
-                    KeyCode::Key2 => { state.buy_start_perk(2); return true; }
-                    KeyCode::Key3 => { state.buy_start_perk(3); return true; }
-                    KeyCode::Key4 => { state.buy_start_perk(4); return true; }
+                    KeyCode::Key1 => {
+                        state.buy_start_perk(1);
+                        return true;
+                    }
+                    KeyCode::Key2 => {
+                        state.buy_start_perk(2);
+                        return true;
+                    }
+                    KeyCode::Key3 => {
+                        state.buy_start_perk(3);
+                        return true;
+                    }
+                    KeyCode::Key4 => {
+                        state.buy_start_perk(4);
+                        return true;
+                    }
                     _ => {}
                 }
             }
@@ -348,8 +394,8 @@ pub fn handle_key_down_event(
             if key == KeyCode::E {
                 // Whistle: yank nearby crabs toward the player. Great for skittish Sneaky crabs.
                 if state.whistle_cooldown <= 0.0 {
-                    state.whistle_center =
-                        state.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    state.whistle_center = state.player_pos
+                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
                     state.whistle_radius = 0.0;
                     state.whistle_active = 0.4;
                     state.whistle_cooldown = state.whistle_cooldown_dur();
@@ -367,8 +413,8 @@ pub fn handle_key_down_event(
             if key == KeyCode::R {
                 // Stomp: a close-range ground-pound that cracks armored crab shells wide open.
                 if state.stomp_cooldown <= 0.0 {
-                    let center =
-                        state.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+                    let center = state.player_pos
+                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
                     state.stomp_center = center;
                     state.stomp_radius = 0.0;
                     state.stomp_active = 0.32;
