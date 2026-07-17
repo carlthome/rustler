@@ -201,6 +201,8 @@ pub struct MainState {
     pub(crate) skin_slot: usize,
     // Which menu page is active on the title screen: 0=Home, 1=Loadout.
     pub(crate) menu_page: usize,
+    // Which button is highlighted in the Home page button list (0..NUM_MENU_BUTTONS).
+    pub(crate) menu_selection: usize,
     // Campaign world map — `Some` once the player has entered campaign mode from the title.
     // Persists across runs so node completion carries over. `show_world_map` gates whether the
     // map screen is currently visible; `in_campaign` is true during an active campaign run.
@@ -1083,6 +1085,7 @@ impl MainState {
             player_skin,
             skin_slot: 0,
             menu_page: 0,
+            menu_selection: 0,
             world_map: None,
             show_world_map: false,
             in_campaign: false,

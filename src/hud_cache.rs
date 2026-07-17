@@ -38,6 +38,9 @@ thread_local! {
 
     pub static MENU_TUTORIAL_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
+    // Cache for the Home-page menu button label texts: Vec of (Text, measured_width) per button.
+    pub static MENU_BUTTONS_CACHE: RefCell<Option<Vec<(Text, f32)>>> = RefCell::new(None);
+
     pub static CAREER_LABEL_CACHE: RefCell<Option<(usize, usize, usize, Text, f32)>> = RefCell::new(None);
 
     #[allow(clippy::type_complexity)]

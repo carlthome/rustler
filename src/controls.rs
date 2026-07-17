@@ -199,11 +199,7 @@ pub fn handle_key_down_event(
                 _ => {}
             }
         } else if state.show_instructions {
-            if key == KeyCode::Space || key == KeyCode::Return {
-                state.show_instructions = false;
-                return true;
-            }
-            // Escape from the Loadout page goes back to Home.
+            // Escape: from Loadout go back to Home; from Home do nothing (use Quit button).
             if key == KeyCode::Escape {
                 if state.menu_page == 1 {
                     state.menu_page = 0;
@@ -214,17 +210,42 @@ pub fn handle_key_down_event(
             if key == KeyCode::Tab {
                 if state.menu_page == 0 {
                     state.menu_page = 1;
+                    state.menu_selection = 0;
                 } else {
                     state.skin_slot = (state.skin_slot + 1) % 3;
                 }
                 return true;
             }
-            // Home-page-only keys: campaign world map.
+            // Home page: Up/Down navigate, Space/Enter activates.
             if state.menu_page == 0 {
-                // "C" opens the campaign world map (tutorials are the first nodes there).
-                if key == KeyCode::C {
-                    state.enter_world_map();
-                    return true;
+                const NUM_BUTTONS: usize = 5;
+                match key {
+                    KeyCode::Up => {
+                        state.menu_selection =
+                            (state.menu_selection + NUM_BUTTONS - 1) % NUM_BUTTONS;
+                        return true;
+                    }
+                    KeyCode::Down => {
+                        state.menu_selection = (state.menu_selection + 1) % NUM_BUTTONS;
+                        return true;
+                    }
+                    KeyCode::Space | KeyCode::Return => {
+                        match state.menu_selection {
+                            0 => { state.show_instructions = false; }  // Play
+                            1 => { state.enter_world_map(); }           // Campaign
+                            2 => { state.menu_page = 1; state.menu_selection = 0; } // Loadout
+                            3 => { state.enter_world_map(); }           // How to Play (same as Campaign for now)
+                            4 => { ctx.request_quit(); }               // Quit
+                            _ => {}
+                        }
+                        return true;
+                    }
+                    // Legacy shortcut: C still opens campaign.
+                    KeyCode::C => {
+                        state.enter_world_map();
+                        return true;
+                    }
+                    _ => {}
                 }
             }
             // Loadout-page-only keys: skin picker and perk shop.

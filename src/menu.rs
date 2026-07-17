@@ -2,25 +2,15 @@ use ggez::glam::Vec2;
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Text};
 use ggez::{Context, GameResult};
 
-use crate::constants::{MAX_START_RANK, PERK_COST_STEP};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
     draw_crab, draw_rustler, flush_crab_bodies, flush_crab_legs, unit_circle, unit_square,
 };
 use crate::hud_cache::{
-    CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_INSTRUCTIONS_CACHE, MENU_PANEL_CACHE,
-    MENU_PROMPT_CACHE, MENU_SUBTITLE_CACHE, MENU_TITLE_CACHE, MENU_TITLE_CHARS_CACHE,
-    MENU_TUTORIAL_CACHE, SHOP_CACHE,
+    CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
+    MENU_TITLE_CACHE, MENU_TITLE_CHARS_CACHE,
 };
 use crate::state::MainState;
-
-fn perk_cost(rank: u32) -> Option<usize> {
-    if rank >= MAX_START_RANK {
-        None
-    } else {
-        Some((rank as usize + 1) * PERK_COST_STEP)
-    }
-}
 
 pub fn draw_menu(
     state: &MainState,
@@ -300,117 +290,97 @@ pub fn draw_menu(
         );
     }
 
-    // --- Instructions on a translucent rounded panel for readability -------------------
-    let (text_width, text_height) = MENU_INSTRUCTIONS_CACHE.with(|c| -> GameResult<(f32, f32)> {
-        let mut cache = c.borrow_mut();
-        if cache.is_none() {
-            let text = Text::new(
-                "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V — tap V again ON each beat to ECHO the call, extending and amplifying the herd flood\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T\nCycle the train on the beat (X): aim the flashlight at an interior crab to BUBBLE it one slot toward the centre and build a centerpiece; aim at nothing to rotate the whole train one slot",
-            );
-            let dims = text.measure(ctx)?;
-            *cache = Some((text, dims.x, dims.y));
-        }
-        let (_, w, h) = cache.as_ref().unwrap();
-        Ok((*w, *h))
-    })?;
-    let text_x = (width - text_width) / 2.0;
-    let text_y = height * 0.44;
-    let pad = 26.0;
-
+    // --- Home page: traditional centered menu buttons ----------------------------------
     if state.menu_page == 0 {
-        let panel_key = (width.to_bits(), height.to_bits());
-        let cached_panel = MENU_PANEL_CACHE.with(|c| {
-            c.borrow().as_ref().and_then(|(w, h, mesh)| {
-                (*w == panel_key.0 && *h == panel_key.1).then(|| mesh.clone())
-            })
-        });
-        let panel = match cached_panel {
-            Some(mesh) => mesh,
-            None => {
-                let mesh = Mesh::new_rounded_rectangle(
+        const BUTTON_LABELS: [&str; 5] = ["PLAY", "CAMPAIGN", "LOADOUT", "HOW TO PLAY", "QUIT"];
+        let btn_w = 320.0_f32;
+        let btn_h = 54.0_f32;
+        let btn_gap = 18.0_f32;
+        let total_h = BUTTON_LABELS.len() as f32 * (btn_h + btn_gap) - btn_gap;
+        let btn_start_y = height * 0.42;
+        let btn_x = (width - btn_w) / 2.0;
+        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
+
+        // Build button text cache once.
+        MENU_BUTTONS_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut buttons = Vec::new();
+                for label in BUTTON_LABELS.iter() {
+                    let mut txt = Text::new(*label);
+                    txt.set_scale(30.0);
+                    let w = txt.measure(ctx)?.x;
+                    buttons.push((txt, w));
+                }
+                *cache = Some(buttons);
+            }
+            Ok(())
+        })?;
+
+        MENU_BUTTONS_CACHE.with(|c| -> GameResult {
+            let cache = c.borrow();
+            let buttons = cache.as_ref().unwrap();
+            for (i, (txt, tw)) in buttons.iter().enumerate() {
+                let by = btn_start_y + i as f32 * (btn_h + btn_gap);
+                let selected = state.menu_selection == i;
+                let bg_color = if selected {
+                    Color::from_rgba(60, 180, 160, 200)
+                } else {
+                    Color::from_rgba(10, 20, 40, 160)
+                };
+                let border_color = if selected {
+                    Color::from_rgba(120, 255, 230, 220)
+                } else {
+                    Color::from_rgba(80, 100, 130, 120)
+                };
+                let bg = Mesh::new_rounded_rectangle(
                     ctx,
                     DrawMode::fill(),
-                    Rect::new(
-                        text_x - pad,
-                        text_y - pad,
-                        text_width + pad * 2.0,
-                        text_height + pad * 2.0,
-                    ),
-                    14.0,
-                    Color::from_rgba(10, 14, 30, 170),
+                    Rect::new(btn_x, by, btn_w, btn_h),
+                    10.0,
+                    bg_color,
                 )?;
-                MENU_PANEL_CACHE.with(|c| {
-                    *c.borrow_mut() = Some((panel_key.0, panel_key.1, mesh.clone()))
-                });
-                mesh
+                canvas.draw(&bg, DrawParam::default());
+                let border = Mesh::new_rounded_rectangle(
+                    ctx,
+                    DrawMode::stroke(2.0),
+                    Rect::new(btn_x, by, btn_w, btn_h),
+                    10.0,
+                    border_color,
+                )?;
+                canvas.draw(&border, DrawParam::default());
+                let label_x = btn_x + (btn_w - tw) / 2.0;
+                let label_y = by + (btn_h - 30.0) / 2.0;
+                let text_color = if selected {
+                    Color::new(1.0, 1.0, 0.9, pulse.max(0.85))
+                } else {
+                    Color::from_rgba(200, 210, 230, 200)
+                };
+                canvas.draw(
+                    txt,
+                    DrawParam::default()
+                        .dest(Vec2::new(label_x, label_y))
+                        .color(text_color),
+                );
             }
-        };
-        canvas.draw(&panel, DrawParam::default());
-        MENU_INSTRUCTIONS_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (text, _, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                text,
-                DrawParam::default()
-                    .dest(Vec2::new(text_x, text_y))
-                    .color(Color::from_rgb(255, 246, 210)),
-            );
-        });
-
-        // --- Pulsing "Press Space or Enter to start" prompt --------------------------------
-        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
-        let prompt_width = MENU_PROMPT_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut prompt = Text::new("Press Space or Enter to start");
-                prompt.set_scale(30.0);
-                let w = prompt.measure(ctx)?.x;
-                *cache = Some((prompt, w));
-            }
-            Ok(cache.as_ref().unwrap().1)
+            Ok(())
         })?;
-        MENU_PROMPT_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (prompt, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                prompt,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - prompt_width) / 2.0,
-                        text_y + text_height + pad * 2.0 + 22.0,
-                    ))
-                    .color(Color::new(1.0, 0.9, 0.25, pulse)),
-            );
-        });
 
-        // --- "Press C — Campaign" hint -------------------------------------------------------
-        let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut prompt = Text::new("Press  C  — Campaign  (tutorials are the first stops)");
-                prompt.set_scale(22.0);
-                let w = prompt.measure(ctx)?.x;
-                *cache = Some((prompt, w));
-            }
-            Ok(cache.as_ref().unwrap().1)
-        })?;
-        MENU_TUTORIAL_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (prompt, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                prompt,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - tut_width) / 2.0,
-                        text_y + text_height + pad * 2.0 + 58.0,
-                    ))
-                    .color(Color::new(0.6, 0.85, 1.0, 0.55 + 0.35 * pulse)),
-            );
-        });
+        // Navigation hint below the buttons.
+        let hint_y = btn_start_y + total_h + 28.0;
+        let mut hint_txt = Text::new("\u{25B2}/\u{25BC} navigate    Space/Enter select");
+        hint_txt.set_scale(16.0);
+        let hw = hint_txt.measure(ctx)?.x;
+        canvas.draw(
+            &hint_txt,
+            DrawParam::default()
+                .dest(Vec2::new((width - hw) / 2.0, hint_y))
+                .color(Color::from_rgba(160, 170, 200, 130)),
+        );
 
-        // --- Career line ------------------------------------------------------------------
+        // Career stats — only shown once there is a career to show.
         if state.career_runs > 0 {
-            let career_base = text_y + text_height + pad * 2.0 + 90.0;
+            let career_y = hint_y + 32.0;
             let cw = CAREER_LABEL_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
                 let needs_rebuild = match cache.as_ref() {
@@ -423,10 +393,10 @@ pub fn draw_menu(
                 };
                 if needs_rebuild {
                     let mut career = Text::new(format!(
-                        "Career best {}   ·   {} crabs banked over {} runs",
+                        "Career best {}   \u{00B7}   {} crabs over {} runs",
                         state.career_best_score, state.career_total_score, state.career_runs
                     ));
-                    career.set_scale(22.0);
+                    career.set_scale(20.0);
                     let cw = career.measure(ctx)?.x;
                     *cache = Some((
                         state.career_best_score,
@@ -444,72 +414,8 @@ pub fn draw_menu(
                 canvas.draw(
                     career,
                     DrawParam::default()
-                        .dest(Vec2::new((width - cw) / 2.0, career_base))
-                        .color(Color::from_rgb(200, 190, 230)),
-                );
-            });
-
-            // --- Perk shop ----------------------------------------------------------------
-            let available = state.career_available();
-            let ranks = (
-                available,
-                state.start_beam_rank,
-                state.start_lasso_rank,
-                state.start_whistle_rank,
-                state.start_stomp_rank,
-            );
-            let (header_w, list_w) = SHOP_CACHE.with(|c| -> GameResult<(f32, f32)> {
-                let mut cache = c.borrow_mut();
-                let needs_rebuild = !matches!(cache.as_ref(), Some((k, ..)) if *k == ranks);
-                if needs_rebuild {
-                    let mut header = Text::new(format!(
-                        "SPEND {} banked crabs on permanent gear:",
-                        available
-                    ));
-                    header.set_scale(21.0);
-                    let hw = header.measure(ctx)?.x;
-                    let perk = |name: &str, key: char, rank: u32| -> String {
-                        match perk_cost(rank) {
-                            Some(cost) => format!("[{}] {} Lv{} → {}crabs", key, name, rank, cost),
-                            None => format!("[{}] {} MAX", key, name),
-                        }
-                    };
-                    let mut list = Text::new(format!(
-                        "{}    {}    {}    {}",
-                        perk("Beam", '1', state.start_beam_rank),
-                        perk("Lasso", '2', state.start_lasso_rank),
-                        perk("Whistle", '3', state.start_whistle_rank),
-                        perk("Stomp", '4', state.start_stomp_rank),
-                    ));
-                    list.set_scale(19.0);
-                    let lw = list.measure(ctx)?.x;
-                    *cache = Some((ranks, header, hw, list, lw));
-                }
-                let cr = cache.as_ref().unwrap();
-                Ok((cr.2, cr.4))
-            })?;
-            let list_color = if state.shop_flash > 0.0 {
-                Color::new(0.5 + 0.5 * state.shop_flash, 1.0, 0.5, 1.0)
-            } else if state.shop_denied > 0.0 {
-                Color::new(1.0, 0.5 - 0.3 * state.shop_denied, 0.5 - 0.3 * state.shop_denied, 1.0)
-            } else {
-                Color::from_rgb(150, 220, 210)
-            };
-            let shop_y = career_base + 30.0;
-            SHOP_CACHE.with(|c| {
-                let cache = c.borrow();
-                let (_, header, _, list, _) = cache.as_ref().unwrap();
-                canvas.draw(
-                    header,
-                    DrawParam::default()
-                        .dest(Vec2::new((width - header_w) / 2.0, shop_y))
-                        .color(Color::from_rgb(180, 175, 205)),
-                );
-                canvas.draw(
-                    list,
-                    DrawParam::default()
-                        .dest(Vec2::new((width - list_w) / 2.0, shop_y + 28.0))
-                        .color(list_color),
+                        .dest(Vec2::new((width - cw) / 2.0, career_y))
+                        .color(Color::from_rgb(180, 170, 210)),
                 );
             });
         }
