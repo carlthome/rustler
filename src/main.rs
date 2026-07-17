@@ -12,7 +12,6 @@ mod spawnings;
 mod state;
 mod tutorial;
 mod upgrade;
-mod matchup_fx;
 mod world_map;
 
 pub use constants::*;
@@ -77,7 +76,7 @@ use crate::graphics::{
     flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
     flush_magnet_auras, unit_circle, unit_square,
 };
-use crate::matchup_fx::{draw_beam_hermit_match, draw_lasso_thief_match, draw_stomp_dancer_match};
+use crate::graphics::{draw_beam_hermit_match, draw_lasso_thief_match, draw_stomp_dancer_match};
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
