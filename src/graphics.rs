@@ -1839,10 +1839,11 @@ pub fn draw_particles(
                     .color(glow_color)
             }));
 
-            canvas.draw_instanced_mesh(unit_circle.clone(), main, DrawParam::default());
-            // The glow pass only takes larger particles (size > 4.0); if none qualify this frame
-            // it's an empty array, and ggez's instanced flush asserts capacity > 0 on draw. Skip
-            // it when empty. (main always has ≥1 here — we returned early on no particles above.)
+            // Both passes guarded: ggez's flush_wgpu asserts capacity > 0 if called on an
+            // InstanceArray that was set() with 0 items. Always skip the draw when empty.
+            if !main.instances().is_empty() {
+                canvas.draw_instanced_mesh(unit_circle.clone(), main, DrawParam::default());
+            }
             if !glow.instances().is_empty() {
                 canvas.draw_instanced_mesh(unit_circle, glow, DrawParam::default());
             }
@@ -2256,7 +2257,7 @@ pub fn draw_weather(
         // How many of the precomputed drops are active, scaled with intensity (calm rain is sparse,
         // heavy rain/storm fills the screen).
         let active = ((wi - 0.35) / 0.65).clamp(0.0, 1.0);
-        let drop_count = ((RAIN_DROP_COUNT as f32) * active) as usize;
+        let drop_count = (((RAIN_DROP_COUNT as f32) * active) as usize).max(1);
         // On-beat opacity pulse so the rain breathes with the music like everything else.
         let beat_pulse = 1.0 + beat.clamp(0.0, 1.0) * 0.25;
         let base_alpha = (0.18 + 0.35 * active) * beat_pulse;
