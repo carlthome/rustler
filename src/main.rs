@@ -9475,11 +9475,9 @@ impl MainState {
             if self.chain_count >= 2 && dist_to_player < PURSUIT_RANGE
                 && self.npc_trains[i].idle_timer <= 0.0
             {
-                if let Some(tail) = self.crabs.iter()
-                    .filter(|c| c.caught)
-                    .max_by_key(|c| c.chain_index.unwrap_or(0))
-                {
-                    let tail_pos = tail.pos;
+                // Use cached tail pos (updated once per frame in update_crabs) instead of
+                // an O(n_crabs) scan here — saves ~160 iterations × 3 NPCs every frame.
+                if let Some(tail_pos) = self.cached_tail_pos {
                     // Blend the wander target toward the tail — NPC steers into range naturally
                     let pursuit_blend = ((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE).clamp(0.0, 0.8);
                     self.npc_trains[i].target = self.npc_trains[i].target
@@ -9495,6 +9493,17 @@ impl MainState {
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
                 let npc_pos = self.npc_trains[i].leader_pos;
+                // Early-out: if the NPC is far from the player and the chain tail, no chain crab
+                // can be within STEAL_RANGE. Use cached_tail_pos (the farthest link, already
+                // computed by update_crabs) as a lower-bound proxy to avoid the O(n_crabs) scan.
+                // The chain spans between player_pos and cached_tail_pos; if the NPC is more than
+                // STEAL_RANGE beyond the tail it definitely can't reach any link.
+                let chain_span = self.cached_tail_pos
+                    .map_or(0.0_f32, |t| t.distance(self.player_pos));
+                let dist_to_chain = dist_to_player - chain_span;
+                if dist_to_chain > STEAL_RANGE {
+                    continue; // skip inner per-crab scan entirely this frame for this NPC
+                }
                 // Find the earliest (closest-to-head) link the NPC is within range of.
                 // We splice there so a threading pass takes the maximum tail section.
                 let splice_at = self.crabs.iter()
