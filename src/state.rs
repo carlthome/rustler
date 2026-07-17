@@ -1,12 +1,21 @@
 use std::{collections::VecDeque, fs};
 
+use crevice::std140::AsStd140;
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
 use ggez::glam::Vec2;
-use ggez::graphics::{Image, ShaderBuilder};
+use ggez::graphics::{Image, ShaderBuilder, ShaderParams, ShaderParamsBuilder};
 use ggez::{Context, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
+
+#[derive(Copy, Clone, Debug, AsStd140)]
+pub struct PostProcessUniform {
+    pub groove: f32,
+    pub time: f32,
+    pub screen_width: f32,
+    pub screen_height: f32,
+}
 
 use crate::bot::BotState;
 use crate::constants::*;
@@ -407,6 +416,9 @@ pub struct MainState {
     pub(crate) camera_origin: Vec2, // Top-left world coord of the visible viewport this frame (player-following, clamped to world bounds). Read by draw() and the mouse handlers to map screen<->world.
     pub(crate) shader: ggez::graphics::Shader, // Shader for grass rendering
     pub(crate) flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
+    pub(crate) scene_image: ggez::graphics::Image, // Offscreen render target for post-processing
+    pub(crate) postprocess_shader: ggez::graphics::Shader, // Screen-space post-process shader
+    pub(crate) postprocess_params: ShaderParams<PostProcessUniform>, // Params for post-process shader
     pub(crate) particle_system: ParticleSystem, // Particle effects system
     pub(crate) level_title: String, // Title of the current level
     pub(crate) level_title_timer: f32, // Timer for displaying level title
@@ -1241,6 +1253,25 @@ impl MainState {
             .fragment_path("/flashlight.wgsl")
             .build(&ctx.gfx)?;
 
+        let scene_image = ggez::graphics::Image::new_canvas_image(
+            ctx,
+            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
+            width as u32,
+            height as u32,
+            1,
+        );
+        let postprocess_shader = ShaderBuilder::new()
+            .vertex_path("/postprocess.wgsl")
+            .fragment_path("/postprocess.wgsl")
+            .build(&ctx.gfx)?;
+        let initial_pp_uniform = PostProcessUniform {
+            groove: 0.0,
+            time: 0.0,
+            screen_width: width,
+            screen_height: height,
+        };
+        let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
+
         let flashlight = Flashlight {
             on: true,
             cone_upgrade: 0.0,
@@ -1326,6 +1357,9 @@ impl MainState {
             camera_origin: Vec2::ZERO,
             shader,
             flashlight_shader,
+            scene_image,
+            postprocess_shader,
+            postprocess_params,
             particle_system: ParticleSystem::new(),
             level_title: String::new(),
             level_title_timer: 0.0,

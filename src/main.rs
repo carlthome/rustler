@@ -9926,6 +9926,90 @@ impl MainState {
 
         Ok(())
     }
+
+    fn draw_scene(&mut self, ctx: &mut Context) -> GameResult {
+        let width = self.width;
+        let height = self.height;
+        let mut canvas =
+            Canvas::from_image(ctx, self.scene_image.clone(), Color::from_rgb(100, 200, 100));
+        let shake_ox = self.screen_shake_offset.x;
+        let shake_oy = self.screen_shake_offset.y;
+        // Zoom punch: shrink the visible world rect (magnify) around the player so they stay
+        // pixel-locked while the world snaps in on a catch. z == 0 leaves the view untouched.
+        let z = self.zoom_punch.clamp(0.0, 0.2);
+        let focus = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+        // Camera scrolls across the larger-than-viewport world, following the player (clamped to
+        // world bounds so no void edge shows). The zoom punch magnifies toward the focus point:
+        // origin = camera + z·(focus − camera). At camera == 0 this collapses to the old focus·z.
+        let cam = self.camera_origin;
+        let vw = width * (1.0 - z);
+        let vh = height * (1.0 - z);
+        canvas.set_screen_coordinates(Rect::new(
+            cam.x + z * (focus.x - cam.x) + shake_ox,
+            cam.y + z * (focus.y - cam.y) + shake_oy,
+            vw,
+            vh,
+        ));
+        canvas.set_blend_mode(BlendMode::ALPHA);
+        canvas.set_sampler(Sampler::nearest_clamp());
+
+        if self.show_world_map {
+            if let Some(map) = &self.world_map {
+                self.sounds.action_music.pause();
+                if self.sounds.outro_music.playing() {
+                    self.sounds.outro_music.pause();
+                }
+                if !self.sounds.intro_music.playing() {
+                    self.sounds.intro_music.play(ctx)?;
+                }
+                draw_world_map(ctx, &mut canvas, map, width, height, self.menu_time)?;
+                canvas.finish(ctx)?;
+                return Ok(());
+            }
+        }
+
+        if self.show_instructions {
+            if self.sounds.outro_music.playing() {
+                self.sounds.outro_music.pause();
+            }
+            if self.sounds.action_music.playing() {
+                self.sounds.action_music.pause();
+            }
+            if !self.sounds.intro_music.playing() {
+                self.sounds.intro_music.play(ctx)?;
+            }
+            self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
+            canvas.finish(ctx)?;
+            return Ok(());
+        } else if self.pending_upgrade {
+            self.sounds.action_music.pause();
+            // Reset to screen space (the canvas may still hold the camera-offset world rect from
+            // the set_screen_coordinates call above). Upgrade cards are laid out in [0, width] x
+            // [0, height] so they need a clean viewport origin.
+            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
+            self.draw_upgrade_screen(ctx, &mut canvas)?;
+            canvas.finish(ctx)?;
+            return Ok(());
+        } else if self.game_over {
+            self.sounds.action_music.pause();
+            if !self.sounds.outro_music.playing() {
+                self.sounds.outro_music.play(ctx)?;
+            }
+            self.draw_game_over_screen(ctx, &mut canvas)?;
+        } else {
+            if self.sounds.intro_music.playing() {
+                self.sounds.intro_music.pause();
+            }
+            if !self.sounds.action_music.playing() {
+                self.sounds.action_music.play(ctx)?;
+            } else {
+                self.sounds.action_music.resume();
+            }
+            self.draw_game(ctx, &mut canvas, width, height)?;
+        }
+        canvas.finish(ctx)?;
+        Ok(())
+    }
 }
 
 impl EventHandler for MainState {
@@ -12093,85 +12177,29 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
-        let width = self.width;
-        let height = self.height;
-        let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(100, 200, 100));
-        let shake_ox = self.screen_shake_offset.x;
-        let shake_oy = self.screen_shake_offset.y;
-        // Zoom punch: shrink the visible world rect (magnify) around the player so they stay
-        // pixel-locked while the world snaps in on a catch. z == 0 leaves the view untouched.
-        let z = self.zoom_punch.clamp(0.0, 0.2);
-        let focus = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-        // Camera scrolls across the larger-than-viewport world, following the player (clamped to
-        // world bounds so no void edge shows). The zoom punch magnifies toward the focus point:
-        // origin = camera + z·(focus − camera). At camera == 0 this collapses to the old focus·z.
-        let cam = self.camera_origin;
-        let vw = width * (1.0 - z);
-        let vh = height * (1.0 - z);
-        canvas.set_screen_coordinates(Rect::new(
-            cam.x + z * (focus.x - cam.x) + shake_ox,
-            cam.y + z * (focus.y - cam.y) + shake_oy,
-            vw,
-            vh,
-        ));
-        canvas.set_blend_mode(BlendMode::ALPHA);
-        canvas.set_sampler(Sampler::nearest_clamp());
+        // --- Pass 1: render the game scene to an offscreen image ---
+        self.draw_scene(ctx)?;
 
-        if self.show_world_map {
-            if let Some(map) = &self.world_map {
-                self.sounds.action_music.pause();
-                if self.sounds.outro_music.playing() {
-                    self.sounds.outro_music.pause();
-                }
-                if !self.sounds.intro_music.playing() {
-                    self.sounds.intro_music.play(ctx)?;
-                }
-                draw_world_map(ctx, &mut canvas, map, width, height, self.menu_time)?;
-                canvas.finish(ctx)?;
-                return Ok(());
-            }
+        // --- Pass 2: blit the scene image to screen with post-processing ---
+        {
+            let uniform = PostProcessUniform {
+                groove: self.groove,
+                time: self.time_elapsed,
+                screen_width: self.width,
+                screen_height: self.height,
+            };
+            self.postprocess_params.set_uniforms(ctx, &uniform);
+            let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
+            screen_canvas.set_shader(&self.postprocess_shader);
+            screen_canvas.set_shader_params(&self.postprocess_params);
+            screen_canvas.draw(
+                &self.scene_image,
+                DrawParam::default().dest(Vec2::ZERO).scale(Vec2::ONE),
+            );
+            screen_canvas.set_default_shader();
+            screen_canvas.finish(ctx)?;
         }
 
-        if self.show_instructions {
-            if self.sounds.outro_music.playing() {
-                self.sounds.outro_music.pause();
-            }
-            if self.sounds.action_music.playing() {
-                self.sounds.action_music.pause();
-            }
-            if !self.sounds.intro_music.playing() {
-                self.sounds.intro_music.play(ctx)?;
-            }
-            self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
-            canvas.finish(ctx)?;
-            return Ok(());
-        } else if self.pending_upgrade {
-            self.sounds.action_music.pause();
-            // Reset to screen space (the canvas may still hold the camera-offset world rect from
-            // the set_screen_coordinates call above). Upgrade cards are laid out in [0, width] x
-            // [0, height] so they need a clean viewport origin.
-            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
-            self.draw_upgrade_screen(ctx, &mut canvas)?;
-            canvas.finish(ctx)?;
-            return Ok(());
-        } else if self.game_over {
-            self.sounds.action_music.pause();
-            if !self.sounds.outro_music.playing() {
-                self.sounds.outro_music.play(ctx)?;
-            }
-            self.draw_game_over_screen(ctx, &mut canvas)?;
-        } else {
-            if self.sounds.intro_music.playing() {
-                self.sounds.intro_music.pause();
-            }
-            if !self.sounds.action_music.playing() {
-                self.sounds.action_music.play(ctx)?;
-            } else {
-                self.sounds.action_music.resume();
-            }
-            self.draw_game(ctx, &mut canvas, width, height)?;
-        }
-        canvas.finish(ctx)?;
         Ok(())
     }
 
