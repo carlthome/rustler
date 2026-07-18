@@ -10853,3 +10853,49 @@ fn main() -> GameResult {
     let state = MainState::new(&mut ctx)?;
     event::run(ctx, event_loop, state)
 }
+
+#[cfg(test)]
+mod how_to_play_tests {
+    use super::how_to_play_body_text;
+
+    #[test]
+    fn how_to_play_text_matches_current_controls() {
+        let text = how_to_play_body_text();
+        for expected in [
+            "Shift",
+            "Space: dash",
+            "Q: wave",
+            "E: whistle",
+            "R: stomp",
+            "F: call",
+            "X: cycle",
+            "V: groove call",
+            "G: downbeat slam",
+            "B: bank",
+        ] {
+            assert!(
+                text.contains(expected),
+                "missing expected control text: {expected}"
+            );
+        }
+        assert!(!text.contains("Z: whistle"));
+        assert!(!text.contains("C: cycle"));
+    }
+}
+
+#[cfg(test)]
+mod player_name_tests {
+    use super::{normalize_player_name, sanitize_player_name};
+
+    #[test]
+    fn editing_name_can_be_empty() {
+        assert_eq!(sanitize_player_name("Crabby"), "Crabby");
+        assert_eq!(sanitize_player_name(""), "");
+        assert_eq!(sanitize_player_name("   "), "");
+    }
+
+    #[test]
+    fn empty_name_gets_default_when_used_as_a_display_name() {
+        assert_eq!(normalize_player_name(""), "Crabby");
+    }
+}
