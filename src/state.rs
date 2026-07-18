@@ -1277,14 +1277,13 @@ impl MainState {
             .fragment_path("/flashlight.wgsl")
             .build(&ctx.gfx)?;
 
-        // Use the drawable (physical pixel) size so the image covers the full canvas on
-        // HiDPI/Retina displays where the drawable size is 2× the logical window size.
-        let (draw_w, draw_h) = ctx.gfx.drawable_size();
+        // Use logical size (1280x960) for the offscreen render target, consistent with the viewport.
+        // The postprocess pass will handle any HiDPI scaling when blitting to screen.
         let scene_image = ggez::graphics::Image::new_canvas_image(
             ctx,
             ggez::graphics::ImageFormat::Rgba8UnormSrgb,
-            draw_w as u32,
-            draw_h as u32,
+            width as u32,
+            height as u32,
             1,
         );
         let postprocess_shader = ShaderBuilder::new()

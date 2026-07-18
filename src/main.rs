@@ -12379,9 +12379,9 @@ impl EventHandler for MainState {
 
         // --- Pass 2: blit the scene image to screen with post-processing ---
         {
-            // Use drawable (physical pixel) size for the shader uniform so UV→pixel math is correct
-            // on HiDPI displays, and scale the image to cover the full canvas.
             let (draw_w, draw_h) = ctx.gfx.drawable_size();
+            let scale_x = draw_w / self.width;
+            let scale_y = draw_h / self.height;
             let uniform = PostProcessUniform {
                 groove: self.groove,
                 time: self.time_elapsed,
@@ -12391,12 +12391,11 @@ impl EventHandler for MainState {
             self.postprocess_params.set_uniforms(ctx, &uniform);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             //screen_canvas.set_shader(&self.postprocess_shader);
-            screen_canvas.set_shader_params(&self.postprocess_params);
-            // Draw the image covering the full drawable area; scale(1,1) is correct because the
-            // image was created at drawable size in state.rs.
+            //screen_canvas.set_shader_params(&self.postprocess_params);
+            // Draw the image covering the full drawable area; scale to drawable size for HiDPI.
             screen_canvas.draw(
                 &self.scene_image,
-                DrawParam::default().dest(Vec2::ZERO).scale(Vec2::ONE),
+                DrawParam::default().dest(Vec2::ZERO).scale(Vec2::new(scale_x, scale_y)),
             );
             screen_canvas.set_default_shader();
             screen_canvas.finish(ctx)?;
