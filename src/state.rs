@@ -109,6 +109,10 @@ pub struct Flashlight {
     pub(crate) cone_upgrade: f32,
     pub(crate) range_upgrade: f32,
     pub(crate) laser_level: u32,
+    /// 0..=1 charge level. Drains while on, recharges when off (faster on-beat).
+    pub(crate) charge: f32,
+    /// Smoothed aim direction toward the auto-targeted King Crab (or last dir if no target).
+    pub(crate) aim_dir: ggez::glam::Vec2,
 }
 
 #[derive(Clone)]
@@ -1331,10 +1335,12 @@ impl MainState {
         let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
 
         let flashlight = Flashlight {
-            on: true,
+            on: false,
             cone_upgrade: 0.0,
             range_upgrade: 0.0,
             laser_level: 0,
+            charge: 1.0,
+            aim_dir: ggez::glam::Vec2::new(1.0, 0.0),
         };
 
         // Select a random subtitle for instructions screen

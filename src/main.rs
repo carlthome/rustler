@@ -3699,8 +3699,8 @@ impl MainState {
     }
 
     fn update_crabs(&mut self, dt: f32, area: (f32, f32)) {
-        // Calculate flashlight direction.
-        let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
+        // Flashlight auto-aims at the nearest King Crab (set each frame before update_crabs).
+        let flashlight_dir = self.flashlight.aim_dir;
 
         let base_cone_angle = std::f32::consts::FRAC_PI_3;
         let base_range = 320.0;
@@ -7482,6 +7482,57 @@ impl MainState {
             );
         });
 
+        // Flashlight charge bar (F) — amber/orange when charged, dim when depleted.
+        if self.flashlight.laser_level > 0 || self.flashlight.charge < 1.0 || self.flashlight.on {
+            let fbar_y = sbar_y + sbar_h + 20.0;
+            let fbar_h = 12.0;
+            let fcharge = self.flashlight.charge;
+            let fready = fcharge > 0.15;
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, fbar_y))
+                    .scale(Vec2::new(bar_width, fbar_h))
+                    .color(Color::from_rgb(40, 40, 40)),
+            );
+            let (fr, fg, fb) = if self.flashlight.on {
+                (255, 200, 80)  // bright amber while active
+            } else if fready {
+                (180, 140, 50)  // dim amber when charged but off
+            } else {
+                (80, 60, 20)    // dark when drained
+            };
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, fbar_y))
+                    .scale(Vec2::new(bar_width * fcharge, fbar_h))
+                    .color(Color::from_rgb(fr, fg, fb)),
+            );
+            let fborder = cached_stroke_rect(ctx, bar_width, fbar_h, 2.0)?;
+            canvas.draw(
+                &fborder,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, fbar_y))
+                    .color(Color::from_rgb(255, 255, 255)),
+            );
+            let flabel = if self.flashlight.on {
+                "Flashlight (F) ON"
+            } else if fready {
+                "Flashlight (F)"
+            } else {
+                "Flashlight (F) recharging..."
+            };
+            let mut ft = Text::new(flabel);
+            ft.set_scale(16.0);
+            canvas.draw(
+                &ft,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x + bar_width + 8.0, fbar_y - 2.0))
+                    .color(Color::from_rgb(255, 200, 100)),
+            );
+        }
+
         // Show current level at the bottom center. Text/layout is cached per level index (see
         // LEVEL_LABEL_CACHE) since it's static for the whole level but this branch runs every
         // frame — only the very first frame after a level change pays for building/measuring it.
@@ -7872,12 +7923,11 @@ impl MainState {
         // shader uses center_view (world pos minus camera origin) so it renders correctly in
         // screen-space coordinates.
         if self.flashlight.on {
-            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
             draw_flashlight(
                 ctx,
                 canvas,
                 self.player_pos,
-                flashlight_dir,
+                self.flashlight.aim_dir,
                 self.time_since_catch,
                 &self.flashlight,
                 &self.flashlight_shader,
@@ -11205,6 +11255,13 @@ impl EventHandler for MainState {
                 self.dancer_aura_caught_buf = aura_caught;
             }
             self.dancer_link_buf = dancer_links; // hand the buffer back for reuse next beat
+
+            // Flashlight on-beat recharge bonus: each on-beat action already boosts groove,
+            // so tie a small extra charge tick to the beat so playing rhythmically keeps the
+            // flashlight topped up longer than passive recharge alone.
+            if self.flashlight.charge < 1.0 && !self.flashlight.on {
+                self.flashlight.charge = (self.flashlight.charge + 0.08).min(1.0);
+            }
         }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
         // Bar downbeat accent decays over roughly one beat, so its influence on the train's stomp
@@ -11492,6 +11549,36 @@ impl EventHandler for MainState {
                     .spawn_dash_burst(center, self.groove_dash_dir, rng);
                 self.particle_system
                     .spawn_beat_pulse(&[center], 2.0, self.chain_count, rng);
+            }
+        }
+
+        // Flashlight auto-targeting: aim at the nearest uncaught King Crab (boss), smoothly
+        // interpolating the aim direction so the beam sweeps rather than snapping.
+        {
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let target = self.crabs.iter()
+                .filter(|c| !c.caught && c.is_boss())
+                .min_by_key(|c| (c.pos.distance(player_center) * 100.0) as i32)
+                .map(|c| c.pos + Vec2::splat(PLAYER_SIZE / 2.0));
+            if let Some(t) = target {
+                let desired = (t - player_center).normalize_or_zero();
+                if desired.length() > 0.1 {
+                    // Smooth lerp toward target — ~8 degrees per frame at 60fps feels like a turret.
+                    let speed = 6.0 * dt;
+                    self.flashlight.aim_dir = (self.flashlight.aim_dir + (desired - self.flashlight.aim_dir) * speed).normalize_or_zero();
+                }
+            }
+
+            // Charge drain while on, passive regen while off.
+            const DRAIN_PER_SEC: f32 = 0.18;   // ~5.5s full charge
+            const REGEN_PER_SEC: f32 = 0.055;  // ~18s passive regen (on-beat adds on top)
+            if self.flashlight.on {
+                self.flashlight.charge = (self.flashlight.charge - DRAIN_PER_SEC * dt).max(0.0);
+                if self.flashlight.charge <= 0.0 {
+                    self.flashlight.on = false; // auto-off when drained
+                }
+            } else {
+                self.flashlight.charge = (self.flashlight.charge + REGEN_PER_SEC * dt).min(1.0);
             }
         }
 
