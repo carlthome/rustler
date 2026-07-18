@@ -6,6 +6,7 @@ mod floating_text;
 mod graphics;
 mod hud_cache;
 mod levels;
+mod menu;
 mod sounds;
 mod spawnings;
 mod state;
@@ -30,6 +31,52 @@ thread_local! {
     // grown-but-not-shrunk pattern: reaches steady state at max train length and stays there.
     static CENTERPIECE_OUT_BUF: RefCell<Vec<usize>> = RefCell::new(Vec::new());
     static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
+    // Name text cached per-NPC-train so glyph layout isn't re-run every frame.
+    static NPC_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+}
+
+pub(crate) fn normalize_player_name(name: &str) -> String {
+    let cleaned = sanitize_player_name(name);
+    if cleaned.is_empty() {
+        "Crabby".to_string()
+    } else {
+        cleaned
+    }
+}
+
+pub(crate) fn sanitize_player_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(24)
+        .collect();
+    cleaned.trim().to_string()
+}
+
+/// Returns the instructions shown on the "How to Play" menu card.
+fn how_to_play_body_text() -> String {
+    [
+        "1. Move with WASD or arrow keys (hold Shift to sprint).",
+        "2. Keep crabs inside your flashlight beam.",
+        "3. Catch crabs on the beat for better rewards.",
+        "4. Bring caught crabs to the pen to bank points.",
+        "5. Avoid losing your train before banking.",
+        "",
+        "Controls:",
+        "- Left click hold/release: lasso",
+        "- Space: dash",
+        "- Q: wave",
+        "- E: whistle",
+        "- R: stomp",
+        "- F: call",
+        "- X: cycle",
+        "- V: groove call",
+        "- G: downbeat slam",
+        "- B: bank (+ jam)",
+        "",
+        "Press Enter, Space, or Esc to go back.",
+    ]
+    .join("\n")
 }
 
 use ggez::audio::SoundSource;
@@ -696,6 +743,96 @@ impl MainState {
         self.screen_shake = self.screen_shake.max(9.0);
         let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
+    }
+
+    /// King Crab splice: when a charging boss CROSSES the player's conga line, it splices the chain
+    /// at that point. Everything behind the crossing detaches and flies toward the boss — stolen.
+    fn check_king_crab_splice(&mut self) {
+        const SPLICE_COLLIDE_DIST: f32 = CRAB_SIZE * 1.4;
+        const SPLICE_COOLDOWN: f32 = 2.0;
+        const MAGNET_DURATION: f32 = 0.9;
+
+        if self.king_splice_cooldown > 0.0 || self.chain_count < 2 {
+            return;
+        }
+
+        let boss_pos: Option<Vec2> = self.crabs.iter().find_map(|c| {
+            if c.is_boss() && !c.caught && !c.is_tide_boss() && !c.is_rhythm_boss() {
+                if matches!(c.charge_state, crate::enemies::BossCharge::Charging(_)) {
+                    Some(c.pos)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        let Some(boss_pos) = boss_pos else { return };
+
+        let splice_at: Option<usize> = {
+            let mut best: Option<usize> = None;
+            let d2_thresh = SPLICE_COLLIDE_DIST * SPLICE_COLLIDE_DIST;
+            for c in &self.crabs {
+                let Some(ci) = c.chain_index else { continue };
+                if boss_pos.distance_squared(c.pos) < d2_thresh {
+                    if best.map_or(true, |b| ci < b) {
+                        best = Some(ci);
+                    }
+                }
+            }
+            best
+        };
+        let Some(cut_ci) = splice_at else { return };
+
+        let mut stolen: Vec<(Vec2, [f32; 4])> = Vec::new();
+        for c in &self.crabs {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= cut_ci) {
+                let [r, g, b] = c.crab_color();
+                stolen.push((c.pos, [r, g, b, 1.0]));
+            }
+        }
+        if stolen.is_empty() {
+            return;
+        }
+        let stolen_count = stolen.len();
+
+        for c in &mut self.crabs {
+            if c.caught && c.chain_index.map_or(false, |ci| ci >= cut_ci) {
+                c.caught = false;
+                c.chain_index = None;
+                c.vel = Vec2::ZERO;
+            }
+        }
+        self.chain_count = cut_ci;
+        self.recompute_tail_run();
+        self.king_splice_cooldown = SPLICE_COOLDOWN;
+
+        for (pos, color) in &stolen {
+            self.king_stolen_crabs.push((*pos, MAGNET_DURATION, *color));
+        }
+
+        let cut_pos = stolen.first().map(|(p, _)| *p).unwrap_or(boss_pos);
+        self.spawn_catch_shockwave(cut_pos, [1.0, 0.2, 0.8]);
+        self.screen_shake = self.screen_shake.max(10.0);
+        let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 10.0 * 60.0;
+        self.floating_texts.spawn(
+            format!("STOLEN! -{}", stolen_count),
+            cut_pos - Vec2::new(40.0, 40.0),
+            36.0,
+            [1.0, 0.3, 0.9, 1.0],
+        );
+        for (pos, _) in &stolen {
+            if self.fear_rings.len() < 48 {
+                self.fear_rings.push((*pos, 0.0));
+            }
+            self.floating_texts.spawn(
+                "!".to_string(),
+                *pos - Vec2::new(0.0, 20.0),
+                20.0,
+                [1.0, 0.4, 0.9, 1.0],
+            );
+        }
     }
 
     /// Rebuild `tail_run_len` — the length of the unbroken run of same-type links at the tail — by
@@ -3511,6 +3648,25 @@ impl MainState {
         const MAGNET_RADIUS: f32 = 240.0; // how far a Magnet's pull reaches
         const MAGNET_RADIUS_SQ: f32 = MAGNET_RADIUS * MAGNET_RADIUS; // avoids a sqrt per candidate below
 
+        // Magnet/cluster strong-match tell: on-beat only (pulses with the music), show a burst
+        // when a Magnet has 3+ free crabs clustered around it — the pied-piper power play is live.
+        let cluster_on_beat = self.beat_timer < BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        if cluster_on_beat {
+            self.magnet_cluster_hits_buf.clear();
+            for &mp in &magnet_positions {
+                let nearby = self.crabs.iter()
+                    .filter(|c| {
+                        !c.caught && !c.is_magnet() && !c.is_boss()
+                            && c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ
+                    })
+                    .count();
+                if nearby >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
+                    self.magnet_cluster_hits_buf.push(mp);
+                }
+            }
+        }
+
         // Emergent crossover — a snared Golden supercharges its captor Magnet. The Magnet-snares-
         // Golden pass already traps a straying shiny in a lodestone's field; here that trapped prize
         // feeds back into the field. While a Magnet is pinning a snared Golden, the Golden's shine
@@ -3982,6 +4138,14 @@ impl MainState {
                             armor_broke.push(crab.pos);
                         }
                     }
+                }
+                // Beam/Hermit wrong-tool tell: amber flash when the beam shines on a shelled Hermit
+                // but can't drain it — teaches "use Stomp/Dancer/Magnet instead."
+                if crab.is_shelled_hermit() && crab.boss_health > 0.0 && crab_in_light
+                    && self.beam_hermit_hits_buf.len() < 8
+                {
+                    let drain_frac = 1.0 - crab.boss_health / crab.boss_max_health.max(0.001);
+                    self.beam_hermit_hits_buf.push((crab.pos, drain_frac));
                 }
 
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
@@ -5406,11 +5570,12 @@ impl MainState {
         self.player_name.pop();
     }
 
-    fn enter_world_map(&mut self) {
+    fn enter_world_map(&mut self, ctx: &mut Context) {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
         }
         self.show_instructions = false;
+        self.show_how_to_play_text = false;
         self.show_world_map = true;
         self.game_over = false;
         self.in_campaign = false;
@@ -5488,661 +5653,30 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> GameResult {
-        use ggez::graphics::DrawMode;
-        let t = self.menu_time;
-
-        // --- Moonlit-beach gradient backdrop ------------------------------------------------
-        // Stacked horizontal strips fade deep night-navy at the top through a dusky plum into a
-        // warm strip of sand at the bottom, so the menu reads as the same seaside world the game
-        // is played in rather than a flat black card. ~28 strips is plenty smooth and cheap.
-        let strips = 28;
-        let top = Color::from_rgb(9, 12, 34); // deep night sky
-        let mid = Color::from_rgb(48, 26, 66); // dusky plum horizon
-        let sand = Color::from_rgb(74, 58, 78); // muted moonlit sand
-        let lerp = |a: Color, b: Color, k: f32| {
-            Color::new(
-                a.r + (b.r - a.r) * k,
-                a.g + (b.g - a.g) * k,
-                a.b + (b.b - a.b) * k,
-                1.0,
-            )
-        };
-        // Every strip is the same (width x strip_h+1) rectangle, just moved down and recolored,
-        // so — same trick as the rest of the codebase's UNIT_SQUARE usage — draw the single
-        // cached unit-square mesh 28 times with a per-strip dest/scale/color instead of building
-        // 28 fresh `Mesh::new_rectangle` GPU buffers every single frame this screen is up.
-        let strip_h = height / strips as f32;
-        let strip_square = unit_square(ctx)?;
-        for i in 0..strips {
-            let k = i as f32 / (strips - 1) as f32;
-            // Two-segment gradient: sky->horizon over the top 65%, horizon->sand below it.
-            let c = if k < 0.65 {
-                lerp(top, mid, k / 0.65)
-            } else {
-                lerp(mid, sand, (k - 0.65) / 0.35)
-            };
+        if self.show_how_to_play_text {
+            let mut title = Text::new("HOW TO PLAY");
+            title.set_scale(56.0);
+            let title_w = title.measure(ctx)?.x;
             canvas.draw(
-                strip_square,
+                &title,
                 DrawParam::default()
-                    .dest(Vec2::new(0.0, i as f32 * strip_h))
-                    .scale(Vec2::new(width, strip_h + 1.0))
-                    .color(c),
+                    .dest(Vec2::new((width - title_w) * 0.5, height * 0.12))
+                    .color(Color::from_rgb(235, 235, 220)),
             );
+            let body = how_to_play_body_text();
+            let mut text = Text::new(body);
+            text.set_scale(28.0);
+            canvas.draw(
+                &text,
+                DrawParam::default()
+                    .dest(Vec2::new(width * 0.16, height * 0.27))
+                    .color(Color::from_rgb(215, 215, 215)),
+            );
+            return Ok(());
         }
-
-        // Reusable dot mesh for stars and the moon halo — the same cached unit circle the rest
-        // of graphics.rs's particle/ring drawing uses, instead of a fresh `Mesh::new_circle` GPU
-        // buffer every frame this screen is up.
-        let dot = unit_circle(ctx)?;
-
-        // --- Twinkling stars ----------------------------------------------------------------
-        // Deterministic positions from a cheap integer hash so the field is stable frame to
-        // frame; each star breathes on its own phase/speed for a lively night sky.
-        let hash = |n: u32| {
-            let mut x = n.wrapping_mul(2654435761);
-            x ^= x >> 15;
-            x = x.wrapping_mul(2246822519);
-            x ^= x >> 13;
-            x
-        };
-        for i in 0..70u32 {
-            let sx = (hash(i) % 1000) as f32 / 1000.0 * width;
-            let sy = (hash(i * 7 + 1) % 1000) as f32 / 1000.0 * height * 0.6;
-            let phase = (hash(i * 13 + 3) % 628) as f32 / 100.0;
-            let speed = 1.2 + (hash(i * 17 + 5) % 200) as f32 / 100.0;
-            let twinkle = 0.25 + 0.75 * (t * speed + phase).sin().abs();
-            let r = 0.7 + (hash(i * 19 + 7) % 100) as f32 / 100.0 * 1.6;
-            canvas.draw(
-                dot,
-                DrawParam::default()
-                    .dest(Vec2::new(sx, sy))
-                    .scale(Vec2::splat(r))
-                    .color(Color::new(1.0, 1.0, 0.92, twinkle)),
-            );
-        }
-
-        // --- Soft moon with a glowing halo --------------------------------------------------
-        let moon_pos = Vec2::new(width * 0.82, height * 0.2);
-        for ring in (0..6).rev() {
-            let rr = 34.0 + ring as f32 * 16.0;
-            let a = 0.05 + (5 - ring) as f32 * 0.03;
-            canvas.draw(
-                dot,
-                DrawParam::default()
-                    .dest(moon_pos)
-                    .scale(Vec2::splat(rr))
-                    .color(Color::new(0.95, 0.93, 0.8, a)),
-            );
-        }
-        canvas.draw(
-            dot,
-            DrawParam::default()
-                .dest(moon_pos)
-                .scale(Vec2::splat(30.0))
-                .color(Color::new(0.98, 0.96, 0.86, 1.0)),
-        );
-
-        // --- A conga line of crabs marching across the sand ---------------------------------
-        // Reuses the in-game crab renderer so the menu previews exactly what you play, forming a
-        // little train that scuttles across the bottom and wraps around — the game's whole hook in
-        // one glance. Positions/bob/facing are all driven by menu_time so it moves while paused.
-        let march_y = height - 66.0;
-        let march_speed = 70.0;
-        let spacing = 74.0;
-        let march_types = [
-            CrabType::Normal,
-            CrabType::Fast,
-            CrabType::Big,
-            CrabType::Sneaky,
-            CrabType::Armored,
-            CrabType::Dancer,
-        ];
-        for (i, ctype) in march_types.iter().enumerate() {
-            // Lead crab walks the parade; each follower trails by `spacing`, all wrapping across
-            // a span a bit wider than the screen so they enter/exit smoothly.
-            let span = width + spacing * march_types.len() as f32;
-            let x = ((t * march_speed + i as f32 * spacing) % span) - spacing;
-            let bob = (t * 6.0 + i as f32 * 0.9).sin() * 5.0;
-            let deco = EnemyCrab {
-                pos: Vec2::new(x, march_y),
-                vel: Vec2::new(march_speed, 0.0),
-                speed: 60.0,
-                caught: true,
-                chain_index: Some(i),
-                scale: 0.5,
-                spawn_time: 10.0,
-                crab_type: *ctype,
-                spooked_timer: 0.0,
-                beat_phase_offset: 0.0,
-                join_pulse: 0.0,
-                fleeing: false,
-                facing_angle: 0.0,
-                in_flashlight: false,
-                startle_timer: 0.0,
-                charm_timer: 0.0,
-                answering_call: 0.0,
-                boss_health: 0.0,
-                boss_max_health: 0.0001,
-                enraged: false,
-                charge_state: BossCharge::Idle,
-                charge_cooldown: 0.0,
-                latch_timer: 0.0,
-                panic_amp: 1.0,
-                magnet_snared: 0.0,
-                magnet_lured: 0.0,
-                thief_lured: 0.0,
-                magnet_charged: 0.0,
-                slingshot_spent: 0.0,
-                stun_timer: 0.0,
-                host_swap_timer: 0.0,
-                surge_timer: 0.0,
-            };
-            let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
-            draw_crab(
-                ctx,
-                canvas,
-                &deco,
-                Vec2::new(x, march_y - bob),
-                beat_phase,
-                0.0,
-                bob.max(0.0),
-                0.0,
-                t,
-            )?;
-        }
-        // Flush the batched leg/body draws for the march crabs above (see flush_crab_legs and
-        // flush_crab_bodies doc comments).
-        crate::graphics::flush_crab_legs(ctx, canvas)?;
-        crate::graphics::flush_crab_bodies(ctx, canvas)?;
-
-        // --- Title: "Crab Rustler" with an animated colour wave -----------------------------
-        let (main_title_width, main_title_height) = MENU_TITLE_CACHE.with(|c| -> GameResult<(f32, f32)> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut main_title = Text::new("Crab Rustler");
-                main_title.set_scale(112.0);
-                let dims = main_title.measure(ctx)?;
-                *cache = Some((main_title, dims.x, dims.y));
-            }
-            let (_, w, h) = cache.as_ref().unwrap();
-            Ok((*w, *h))
-        })?;
-        let title_top = height * 0.13;
-
-        // Drop shadow.
-        MENU_TITLE_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (main_title, _, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                main_title,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - main_title_width) / 2.0 + 8.0,
-                        title_top + 8.0,
-                    ))
-                    .color(Color::from_rgba(0, 0, 0, 180))
-                    .rotation(0.03),
-            );
-        });
-
-        // Per-character wave that now rolls over time instead of sitting still. The glyphs
-        // themselves never change — only position/color/rotation do, all via DrawParam — so
-        // build the 12 per-character Text objects once and reuse them forever instead of
-        // shaping fresh glyphs every frame.
-        MENU_TITLE_CHARS_CACHE.with(|c| {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let chars: Vec<Text> = "Crab Rustler"
-                    .chars()
-                    .map(|ch| Text::new(ggez::graphics::TextFragment::new(ch).scale(112.0)))
-                    .collect();
-                *cache = Some(chars);
-            }
-            for (i, ch_text) in cache.as_ref().unwrap().iter().enumerate() {
-                let x = (width - main_title_width) / 2.0 + i as f32 * 60.0;
-                let y = title_top + (t * 2.2 + i as f32 * 0.5).sin() * 14.0;
-                let hue = t * 0.6 + i as f32 * 0.55;
-                let color = Color::from_rgb(
-                    (200.0 + hue.sin() * 55.0) as u8,
-                    (120.0 + (hue + 2.0).sin() * 110.0) as u8,
-                    (200.0 + (hue + 4.0).sin() * 55.0) as u8,
-                );
-                canvas.draw(
-                    ch_text,
-                    DrawParam::default()
-                        .dest(Vec2::new(x, y))
-                        .color(color)
-                        .rotation((t * 1.5 + i as f32 * 0.4).sin() * 0.07),
-                );
-            }
-        });
-
-        // Subtitle centred below the title. Rebuilt only when the underlying string changes
-        // (it's static for the life of a menu visit, just occasionally different across runs).
-        let subtitle_width = MENU_SUBTITLE_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            let needs_rebuild = !matches!(&*cache, Some((s, _, _)) if s == &self.subtitle);
-            if needs_rebuild {
-                let mut subtitle = Text::new(&self.subtitle);
-                subtitle.set_scale(22.0);
-                let w = subtitle.measure(ctx)?.x;
-                *cache = Some((self.subtitle.clone(), subtitle, w));
-            }
-            Ok(cache.as_ref().unwrap().2)
-        })?;
-        MENU_SUBTITLE_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (_, subtitle, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                subtitle,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - subtitle_width) / 2.0,
-                        title_top + main_title_height + 14.0,
-                    ))
-                    .color(Color::from_rgb(255, 235, 190)),
-            );
-        });
-
-        // --- Tab bar: Home / Loadout page switcher ------------------------------------------
-        // Sits just below the subtitle so it's always visible regardless of which page is up.
-        // Tab navigates forward (Home→Loadout); Escape goes back (Loadout→Home).
-        {
-            let tab_y = title_top + main_title_height + 42.0;
-            let tab_labels = ["  HOME  ", "  LOADOUT  "];
-            let mut tab_x = width / 2.0 - 120.0;
-            for (i, label) in tab_labels.iter().enumerate() {
-                let active = self.menu_page == i;
-                let color = if active {
-                    Color::from_rgb(80, 220, 200)
-                } else {
-                    Color::from_rgba(180, 180, 200, 100)
-                };
-                let mut t_text = Text::new(*label);
-                t_text.set_scale(20.0);
-                let tw = t_text.measure(ctx)?.x;
-                let bg_rect = Rect::new(tab_x - 4.0, tab_y - 4.0, tw + 8.0, 28.0);
-                let bg_color = if active {
-                    Color::from_rgba(30, 80, 80, 160)
-                } else {
-                    Color::from_rgba(10, 14, 30, 80)
-                };
-                let bg = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), bg_rect, 6.0, bg_color)?;
-                canvas.draw(&bg, DrawParam::default());
-                canvas.draw(&t_text, DrawParam::default().dest(Vec2::new(tab_x, tab_y)).color(color));
-                tab_x += tw + 20.0;
-            }
-            // Navigation hint below the tabs.
-            let hint = if self.menu_page == 0 {
-                "Tab — open Loadout"
-            } else {
-                "Esc — back to Home    Tab — next slot    \u{25C4}/\u{25BA} — change"
-            };
-            let mut hint_text = Text::new(hint);
-            hint_text.set_scale(16.0);
-            let hw = hint_text.measure(ctx)?.x;
-            canvas.draw(
-                &hint_text,
-                DrawParam::default()
-                    .dest(Vec2::new((width - hw) / 2.0, tab_y + 32.0))
-                    .color(Color::from_rgba(180, 180, 200, 120)),
-            );
-        }
-
-        // --- Instructions on a translucent rounded panel for readability -------------------
-        let (text_width, text_height) = MENU_INSTRUCTIONS_CACHE.with(|c| -> GameResult<(f32, f32)> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let text = Text::new(
-                    "Catch all the crabs!\n\nMove: Arrow keys / WASD\nAim flashlight: Mouse\nDash: Space (dash ON the beat for a GROOVE DASH that sweeps nearby crabs into your path)\nThrow lasso: Left click\nBeat wave burst: Q\nWhistle (pulls crabs in): E\nStomp (cracks armored crabs): R\nCall on the beat (Dancers answer): F\nGroove Call on the beat (whole herd streams in over the bar): V — tap V again ON each beat to ECHO the call, extending and amplifying the herd flood\nDownbeat Slam (full Groove, on beat): G\nDrum Roll (hold T on the beat, release to fire a beam blast): T\nCycle the train on the beat (X): aim the flashlight at an interior crab to BUBBLE it one slot toward the centre and build a centerpiece; aim at nothing to rotate the whole train one slot",
-                );
-                let dims = text.measure(ctx)?;
-                *cache = Some((text, dims.x, dims.y));
-            }
-            let (_, w, h) = cache.as_ref().unwrap();
-            Ok((*w, *h))
-        })?;
-        let text_x = (width - text_width) / 2.0;
-        let text_y = height * 0.44;
-        let pad = 26.0;
-
-        if self.menu_page == 0 {
-        let panel_key = (width.to_bits(), height.to_bits());
-        let cached_panel = MENU_PANEL_CACHE.with(|c| {
-            c.borrow().as_ref().and_then(|(w, h, mesh)| {
-                (*w == panel_key.0 && *h == panel_key.1).then(|| mesh.clone())
-            })
-        });
-        let panel = match cached_panel {
-            Some(mesh) => mesh,
-            None => {
-                let mesh = Mesh::new_rounded_rectangle(
-                    ctx,
-                    DrawMode::fill(),
-                    Rect::new(
-                        text_x - pad,
-                        text_y - pad,
-                        text_width + pad * 2.0,
-                        text_height + pad * 2.0,
-                    ),
-                    14.0,
-                    Color::from_rgba(10, 14, 30, 170),
-                )?;
-                MENU_PANEL_CACHE.with(|c| {
-                    *c.borrow_mut() = Some((panel_key.0, panel_key.1, mesh.clone()))
-                });
-                mesh
-            }
-        };
-        canvas.draw(&panel, DrawParam::default());
-        MENU_INSTRUCTIONS_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (text, _, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                text,
-                DrawParam::default()
-                    .dest(Vec2::new(text_x, text_y))
-                    .color(Color::from_rgb(255, 246, 210)),
-            );
-        });
-
-        // --- Pulsing "Press Space or Enter to start" prompt --------------------------------
-        let pulse = 0.55 + 0.45 * (t * 3.0).sin().abs();
-        let prompt_width = MENU_PROMPT_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut prompt = Text::new("Press Space or Enter to start");
-                prompt.set_scale(30.0);
-                let w = prompt.measure(ctx)?.x;
-                *cache = Some((prompt, w));
-            }
-            Ok(cache.as_ref().unwrap().1)
-        })?;
-        MENU_PROMPT_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (prompt, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                prompt,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - prompt_width) / 2.0,
-                        text_y + text_height + pad * 2.0 + 22.0,
-                    ))
-                    .color(Color::new(1.0, 0.9, 0.25, pulse)),
-            );
-        });
-
-        // --- "Press H — How to Play" tutorial prompt, sitting just under the start prompt --------
-        let tut_width = MENU_TUTORIAL_CACHE.with(|c| -> GameResult<f32> {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut prompt = Text::new("Press  H  — Beat Timing    J  — Chain & Deliver    K  — Crack Shells    L  — Lasso    C  — Campaign");
-                prompt.set_scale(22.0);
-                let w = prompt.measure(ctx)?.x;
-                *cache = Some((prompt, w));
-            }
-            Ok(cache.as_ref().unwrap().1)
-        })?;
-        MENU_TUTORIAL_CACHE.with(|c| {
-            let cache = c.borrow();
-            let (prompt, _) = cache.as_ref().unwrap();
-            canvas.draw(
-                prompt,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - tut_width) / 2.0,
-                        text_y + text_height + pad * 2.0 + 58.0,
-                    ))
-                    .color(Color::new(0.6, 0.85, 1.0, 0.55 + 0.35 * pulse)),
-            );
-        });
-
-        // --- Career line: the persistent thread across runs -------------------------------
-        // Only surfaces once there's a career to show, so a brand-new player sees a clean title.
-        // Reminds returning players what they're building toward before they hit start.
-        // Anchored 30px below the tutorial hint row (itself at +58) to avoid overlap.
-        if self.career_runs > 0 {
-            let career_base = text_y + text_height + pad * 2.0 + 90.0;
-            let cw = CAREER_LABEL_CACHE.with(|c| -> GameResult<f32> {
-                let mut cache = c.borrow_mut();
-                let needs_rebuild = match cache.as_ref() {
-                    Some((best, total, runs, _, _)) => {
-                        *best != self.career_best_score
-                            || *total != self.career_total_score
-                            || *runs != self.career_runs
-                    }
-                    None => true,
-                };
-                if needs_rebuild {
-                    let mut career = Text::new(format!(
-                        "Career best {}   ·   {} crabs banked over {} runs",
-                        self.career_best_score, self.career_total_score, self.career_runs
-                    ));
-                    career.set_scale(22.0);
-                    let cw = career.measure(ctx)?.x;
-                    *cache = Some((
-                        self.career_best_score,
-                        self.career_total_score,
-                        self.career_runs,
-                        career,
-                        cw,
-                    ));
-                }
-                Ok(cache.as_ref().unwrap().4)
-            })?;
-            CAREER_LABEL_CACHE.with(|c| {
-                let cache = c.borrow();
-                let (_, _, _, career, _) = cache.as_ref().unwrap();
-                canvas.draw(
-                    career,
-                    DrawParam::default()
-                        .dest(Vec2::new(
-                            (width - cw) / 2.0,
-                            career_base,
-                        ))
-                        .color(Color::from_rgb(200, 190, 230)),
-                );
-            });
-
-            // --- Perk shop: spend the banked crabs on permanent starting ranks -----------------
-            // The spend side of meta-progression. Turns the career total from a passive counter
-            // into a currency, so even a losing run buys you closer to a permanent head-start.
-            let available = self.career_available();
-            let ranks = (
-                available,
-                self.start_beam_rank,
-                self.start_lasso_rank,
-                self.start_whistle_rank,
-                self.start_stomp_rank,
-            );
-            let (header_w, list_w) = SHOP_CACHE.with(|c| -> GameResult<(f32, f32)> {
-                let mut cache = c.borrow_mut();
-                let needs_rebuild = !matches!(cache.as_ref(), Some((k, ..)) if *k == ranks);
-                if needs_rebuild {
-                    let mut header = Text::new(format!(
-                        "SPEND {} banked crabs on permanent gear:",
-                        available
-                    ));
-                    header.set_scale(21.0);
-                    let hw = header.measure(ctx)?.x;
-                    let perk = |name: &str, key: char, rank: u32| -> String {
-                        match Self::perk_cost(rank) {
-                            Some(cost) => format!("[{}] {} Lv{} → {}crabs", key, name, rank, cost),
-                            None => format!("[{}] {} MAX", key, name),
-                        }
-                    };
-                    let mut list = Text::new(format!(
-                        "{}    {}    {}    {}",
-                        perk("Beam", '1', self.start_beam_rank),
-                        perk("Lasso", '2', self.start_lasso_rank),
-                        perk("Whistle", '3', self.start_whistle_rank),
-                        perk("Stomp", '4', self.start_stomp_rank),
-                    ));
-                    list.set_scale(19.0);
-                    let lw = list.measure(ctx)?.x;
-                    *cache = Some((ranks, header, hw, list, lw));
-                }
-                let cr = cache.as_ref().unwrap();
-                Ok((cr.2, cr.4))
-            })?;
-            // Green when a buy just landed, red when one was refused, otherwise a calm teal.
-            let list_color = if self.shop_flash > 0.0 {
-                Color::new(0.5 + 0.5 * self.shop_flash, 1.0, 0.5, 1.0)
-            } else if self.shop_denied > 0.0 {
-                Color::new(1.0, 0.5 - 0.3 * self.shop_denied, 0.5 - 0.3 * self.shop_denied, 1.0)
-            } else {
-                Color::from_rgb(150, 220, 210)
-            };
-            // Perk shop sits 30px below the career line (itself at career_base).
-            let shop_y = career_base + 30.0;
-            SHOP_CACHE.with(|c| {
-                let cache = c.borrow();
-                let (_, header, _, list, _) = cache.as_ref().unwrap();
-                canvas.draw(
-                    header,
-                    DrawParam::default()
-                        .dest(Vec2::new((width - header_w) / 2.0, shop_y))
-                        .color(Color::from_rgb(180, 175, 205)),
-                );
-                canvas.draw(
-                    list,
-                    DrawParam::default()
-                        .dest(Vec2::new((width - list_w) / 2.0, shop_y + 28.0))
-                        .color(list_color),
-                );
-            });
-        }
-
-        } // end menu_page == 0 (Home)
-
-        // --- Loadout page: skin picker + perk shop -----------------------------------------
-        if self.menu_page == 1 {
-        {
-            let skin = self.player_skin;
-            // On the Loadout page there's no controls panel, so anchor the picker with more
-            // vertical room — well below the tab bar, centered in the available space.
-            let parade_top = height - 66.0 - 40.0;
-            let picker_y = (height * 0.38).min(parade_top - 200.0);
-            let col_gap = (width * 0.20).min(300.0);
-            let cols_center = width * 0.62;
-            let col_x = [
-                cols_center - col_gap,
-                cols_center,
-                cols_center + col_gap,
-            ];
-            let labels = ["HAT", "FACIAL HAIR", "ACCESSORY"];
-            let names = [skin.hat.name(), skin.facial_hair.name(), skin.accessory.name()];
-            let flavours = [skin.hat.flavour(), skin.facial_hair.flavour(), skin.accessory.flavour()];
-
-            // A soft rounded backdrop so the picker reads as its own panel over the beach.
-            let panel_w = col_gap * 2.0 + 300.0;
-            let panel_rect = Rect::new(
-                cols_center - panel_w / 2.0,
-                picker_y - 6.0,
-                panel_w,
-                122.0,
-            );
-
-            // Build and cache the panel mesh + all text objects. They only change when the
-            // player switches a cosmetic slot (skin_slot, hat, facial_hair, accessory) or the
-            // window is resized. Previously rebuilt every frame: 1 GPU mesh upload +
-            // 7 glyph-shaping passes per frame the Loadout page sat open.
-            let cache_key = (skin.hat, skin.facial_hair, skin.accessory, self.skin_slot,
-                             width.to_bits(), height.to_bits());
-            LOADOUT_PAGE_CACHE.with(|cell| -> GameResult {
-                let mut slot = cell.borrow_mut();
-                if slot.as_ref().map_or(true, |(k, _, _, _)| *k != cache_key) {
-                    let picker_panel = Mesh::new_rounded_rectangle(
-                        ctx, DrawMode::fill(), panel_rect, 14.0,
-                        Color::from_rgba(10, 14, 30, 150),
-                    )?;
-                    let mut tagline = Text::new(skin.tagline());
-                    tagline.set_scale(15.0);
-                    let mut build_col = |i: usize| -> GameResult<(Text, f32, Text, f32, Text, f32)> {
-                        let focused = self.skin_slot == i;
-                        let mut lbl = Text::new(labels[i]);
-                        lbl.set_scale(17.0);
-                        let lw = lbl.measure(ctx)?.x;
-                        let name_str = if focused {
-                            format!("\u{25C4} {} \u{25BA}", names[i])
-                        } else {
-                            names[i].to_string()
-                        };
-                        let mut nm = Text::new(name_str);
-                        nm.set_scale(22.0);
-                        let nw = nm.measure(ctx)?.x;
-                        let mut fl = Text::new(flavours[i]);
-                        fl.set_scale(13.0);
-                        let fw = fl.measure(ctx)?.x;
-                        Ok((lbl, lw, nm, nw, fl, fw))
-                    };
-                    let cols: [(Text, f32, Text, f32, Text, f32); 3] =
-                        [build_col(0)?, build_col(1)?, build_col(2)?];
-                    *slot = Some((cache_key, picker_panel, tagline, cols));
-                }
-                let (_, panel_mesh, tagline, cols) = slot.as_ref().unwrap();
-                canvas.draw(panel_mesh, DrawParam::default());
-                canvas.draw(
-                    tagline,
-                    DrawParam::default()
-                        .dest(Vec2::new(panel_rect.x + 108.0, picker_y + 4.0))
-                        .color(Color::from_rgb(255, 220, 140)),
-                );
-                for (i, (lbl, lw, nm, nw, fl, fw)) in cols.iter().enumerate() {
-                    let focused = self.skin_slot == i;
-                    let label_color = if focused {
-                        Color::from_rgb(120, 255, 220)
-                    } else {
-                        Color::from_rgb(150, 150, 175)
-                    };
-                    let name_color = if focused {
-                        Color::new(1.0, 1.0, 0.6, 0.85 + 0.15 * (t * 4.0).sin().abs())
-                    } else {
-                        Color::from_rgb(220, 220, 235)
-                    };
-                    let fl_alpha = if focused { 0.95 } else { 0.5 };
-                    canvas.draw(
-                        lbl,
-                        DrawParam::default()
-                            .dest(Vec2::new(col_x[i] - lw / 2.0, picker_y + 2.0))
-                            .color(label_color),
-                    );
-                    canvas.draw(
-                        nm,
-                        DrawParam::default()
-                            .dest(Vec2::new(col_x[i] - nw / 2.0, picker_y + 26.0))
-                            .color(name_color),
-                    );
-                    canvas.draw(
-                        fl,
-                        DrawParam::default()
-                            .dest(Vec2::new(col_x[i] - fw / 2.0, picker_y + 56.0))
-                            .color(Color::new(0.85, 0.85, 0.95, fl_alpha)),
-                    );
-                }
-                Ok(())
-            })?;
-
-            // Live crab preview — bob/beat are per-frame animated, drawn after the cached panel.
-            let preview_center = Vec2::new(panel_rect.x + 70.0, picker_y + 46.0);
-            let bob = (t * 3.0).sin() * 3.0;
-            draw_rustler(
-                ctx,
-                canvas,
-                preview_center - Vec2::new(15.0, 15.0) + Vec2::new(0.0, bob),
-                &self.textures.player,
-                Vec2::ZERO,
-                0.4 + 0.4 * (t * 3.0).sin().abs(),
-                t,
-                false,
-                skin,
-            )?;
-
-        }
-        } // end menu_page == 1 (Loadout)
-
-        Ok(())
+        menu::draw_menu(self, ctx, canvas, width, height)
     }
+
 
     /// Top-left world coordinate of the visible viewport: centre the player, then clamp so the
     /// camera never shows past the world's edges (no void beyond the playfield). When the world is
@@ -6909,6 +6443,37 @@ impl MainState {
                 let reach = 60.0 + 120.0 * self.drum_roll_charge;
                 draw_call_ring(ctx, canvas, center, self.drum_roll_charge.min(1.0), reach)?;
             }
+        }
+
+        // Soft-RPS strong-match and wrong-tool tells. Each fires for one frame only — the buffers
+        // are filled during update() and cleared at the start of the next update, so they're
+        // non-empty for exactly the one draw frame following the event.
+        if !self.beam_hermit_hits_buf.is_empty() {
+            draw_beam_hermit_match(ctx, canvas, &self.beam_hermit_hits_buf)?;
+        }
+        if !self.stomp_dancer_hits_buf.is_empty() {
+            draw_stomp_dancer_match(ctx, canvas, &self.stomp_dancer_hits_buf)?;
+        }
+        if !self.stomp_armored_hits_buf.is_empty() {
+            draw_stomp_armored_crack(ctx, canvas, &self.stomp_armored_hits_buf)?;
+        }
+        if !self.lasso_thief_hits_buf.is_empty() {
+            draw_lasso_thief_match(ctx, canvas, &self.lasso_thief_hits_buf)?;
+        }
+        if !self.lasso_magnet_hits_buf.is_empty() {
+            draw_lasso_magnet_match(ctx, canvas, &self.lasso_magnet_hits_buf)?;
+        }
+        if !self.magnet_cluster_hits_buf.is_empty() {
+            draw_magnet_cluster_pull(ctx, canvas, &self.magnet_cluster_hits_buf)?;
+        }
+        if !self.lasso_shell_deflect_hits_buf.is_empty() {
+            draw_lasso_shell_deflect(ctx, canvas, &self.lasso_shell_deflect_hits_buf)?;
+        }
+        if !self.whistle_dancer_hits_buf.is_empty() {
+            draw_whistle_dancer_match(ctx, canvas, &self.whistle_dancer_hits_buf)?;
+        }
+        if !self.whistle_golden_hits_buf.is_empty() {
+            draw_whistle_golden_pull(ctx, canvas, &self.whistle_golden_hits_buf)?;
         }
 
         // Draw lasso line and tip
@@ -8511,6 +8076,16 @@ impl MainState {
 
         if to_catch.is_empty() {
             // Empty throw: the loop lands, kicks up sand, and retracts. A legible, honest miss.
+            // Wrong-tool tell: if a shelled crab was in range, the loop slipped off its shell.
+            // Flash grey-steel to teach "crack the shell first (Stomp), THEN lasso."
+            for c in self.crabs.iter() {
+                if c.boss_health > 0.0 && (c.is_armored() || c.is_shelled_hermit())
+                    && tip.distance(c.pos) < grab_r
+                    && self.lasso_shell_deflect_hits_buf.len() < 8
+                {
+                    self.lasso_shell_deflect_hits_buf.push(c.pos);
+                }
+            }
             let mut rng = rand::rng();
             self.particle_system.spawn_lasso_dust(tip, &mut rng);
             self.lasso_phase = LassoPhase::Miss;
@@ -8536,6 +8111,14 @@ impl MainState {
             self.spawn_catch_shockwave(pos, crab_color);
             let was_answering = self.crabs[i].answering_call > 0.0;
             self.crabs[i].caught = true;
+            // Lasso strong-match tells: Thief is the lasso's natural prey (fast, evasive);
+            // Magnet is the pied-piper play (drag it through the herd to vacuum up followers).
+            if self.crabs[i].is_thief() && self.lasso_thief_hits_buf.len() < 8 {
+                self.lasso_thief_hits_buf.push(pos);
+            }
+            if self.crabs[i].is_magnet() && self.lasso_magnet_hits_buf.len() < 8 {
+                self.lasso_magnet_hits_buf.push(pos);
+            }
             // Tutorial pass tracking: count real lasso grabs for the lasso learn-session.
             // Bumped only here (the rope-catch branch), guarded by the tutorial being
             // active and its kind, so a headless run of the same scenario reaches the same
@@ -9084,6 +8667,428 @@ impl MainState {
     }
 
     // apply_upgrade now lives in src/upgrade.rs (impl MainState there).
+
+    fn update_npc_trains(&mut self, dt: f32) {
+        for i in 0..self.npc_trains.len() {
+            if self.npc_trains[i].idle_timer > 0.0 {
+                self.npc_trains[i].idle_timer -= dt;
+                self.npc_trains[i].leader_vel *= (1.0 - 6.0 * dt).max(0.0);
+                let cur = self.npc_trains[i].leader_pos;
+                let last = self.npc_trains[i].path_history.front().copied().unwrap_or(cur);
+                if cur.distance_squared(last) > 36.0 {
+                    self.npc_trains[i].path_history.push_front(cur);
+                }
+                let dist_to_player = cur.distance(self.player_pos);
+                self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
+                continue;
+            }
+
+            let to_target = self.npc_trains[i].target - self.npc_trains[i].leader_pos;
+            let dist = to_target.length();
+
+            self.npc_trains[i].target_timer -= dt;
+            if dist < 80.0 || self.npc_trains[i].target_timer <= 0.0 {
+                let rng = &mut rand::rng();
+                let idle_secs = rng.random_range(1.2_f32..3.5);
+                self.npc_trains[i].idle_timer = idle_secs;
+                let scale = self.npc_trains[i].leader_scale;
+                let territory_bias = ((scale - 1.2) / 1.2).clamp(0.0, 1.0) * 0.65 + 0.2;
+                let margin = 160.0;
+                let ww = (self.world_width - margin).max(margin + 1.0);
+                let wh = (self.world_height - margin).max(margin + 1.0);
+                let rand_pt = Vec2::new(rng.random_range(margin..ww), rng.random_range(margin..wh));
+                let tc = self.npc_trains[i].territory_center;
+                let wander_radius = 380.0 - scale * 80.0;
+                let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+                let territory_pt = tc + Vec2::new(angle.cos(), angle.sin()) * wander_radius;
+                let next_target = rand_pt.lerp(territory_pt, territory_bias);
+                self.npc_trains[i].target = next_target.clamp(
+                    Vec2::splat(margin),
+                    Vec2::new(self.world_width - margin, self.world_height - margin),
+                );
+                self.npc_trains[i].target_timer = rng.random_range(18.0_f32..35.0);
+            }
+
+            let speed = match () {
+                _ if self.npc_trains[i].leader_scale < 1.5 => 105.0,
+                _ if self.npc_trains[i].leader_scale < 2.0 => 80.0,
+                _ => 52.0,
+            };
+            let perp = Vec2::new(-to_target.y, to_target.x).normalize_or_zero();
+            let wobble_phase = self.time_elapsed * 0.4 + i as f32 * 2.1;
+            let wobble = perp * wobble_phase.sin() * 18.0;
+
+            if dist > 1.0 {
+                let desired = (to_target / dist + wobble / dist.max(1.0)) * speed;
+                let steer_rate = if dist < 200.0 { 4.5 } else { 2.8 };
+                let steer = (desired - self.npc_trains[i].leader_vel) * (steer_rate * dt);
+                self.npc_trains[i].leader_vel += steer;
+                if self.npc_trains[i].leader_vel.length() > speed {
+                    self.npc_trains[i].leader_vel = self.npc_trains[i].leader_vel.normalize() * speed;
+                }
+            }
+            let margin = 80.0;
+            let vel_step = self.npc_trains[i].leader_vel * dt;
+            self.npc_trains[i].leader_pos += vel_step;
+            self.npc_trains[i].leader_pos.x = self.npc_trains[i].leader_pos.x
+                .clamp(margin, self.world_width - margin);
+            self.npc_trains[i].leader_pos.y = self.npc_trains[i].leader_pos.y
+                .clamp(margin, self.world_height - margin);
+
+            let cur_pos = self.npc_trains[i].leader_pos;
+            let last = self.npc_trains[i].path_history.front().copied().unwrap_or(cur_pos);
+            if cur_pos.distance_squared(last) > 36.0 {
+                self.npc_trains[i].path_history.push_front(cur_pos);
+                let max_len = self.npc_trains[i].follower_types.len() * 16 + 20;
+                while self.npc_trains[i].path_history.len() > max_len {
+                    self.npc_trains[i].path_history.pop_back();
+                }
+            }
+
+            {
+                let n = self.npc_trains[i].follower_types.len() as f32;
+                let base = self.npc_trains[i].base_scale;
+                self.npc_trains[i].leader_scale = (base + n * 0.09).min(3.8);
+            }
+
+            let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
+            self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
+
+            const PURSUIT_RANGE: f32 = 550.0;
+            if self.chain_count >= 2
+                && dist_to_player < PURSUIT_RANGE
+                && self.npc_trains[i].idle_timer <= 0.0
+            {
+                if let Some(tail_pos) = self.cached_tail_pos {
+                    let pursuit_blend =
+                        ((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE).clamp(0.0, 0.8);
+                    self.npc_trains[i].target = self.npc_trains[i]
+                        .target
+                        .lerp(tail_pos, pursuit_blend * dt * 3.0);
+                }
+            }
+
+            self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
+            if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
+                const STEAL_RANGE: f32 = 58.0;
+                let npc_pos = self.npc_trains[i].leader_pos;
+                let chain_span = self.cached_tail_pos.map_or(0.0_f32, |t| t.distance(self.player_pos));
+                let dist_to_chain = dist_to_player - chain_span;
+                if dist_to_chain > STEAL_RANGE {
+                    continue;
+                }
+                let splice_at = self.crabs.iter()
+                    .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
+                    .filter(|c| npc_pos.distance(c.pos) < STEAL_RANGE)
+                    .map(|c| c.chain_index.unwrap())
+                    .min();
+
+                if let Some(splice_idx) = splice_at {
+                    let mut stolen_types: Vec<CrabType> = Vec::new();
+                    let mut stolen_count = 0usize;
+                    for crab in self.crabs.iter_mut() {
+                        if crab.caught && crab.chain_index.map_or(false, |idx| idx >= splice_idx) {
+                            crab.caught = false;
+                            crab.chain_index = None;
+                            crab.fleeing = false;
+                            crab.spooked_timer = 1.0;
+                            crab.join_pulse = 1.0;
+                            let toward = (npc_pos - crab.pos).normalize_or_zero();
+                            crab.vel = toward * 200.0;
+                            crab.vel.y -= 90.0;
+                            stolen_types.push(crab.crab_type);
+                            stolen_count += 1;
+                        }
+                    }
+                    if stolen_count > 0 {
+                        self.chain_count = self.chain_count.saturating_sub(stolen_count);
+                        self.npc_trains[i].follower_types.extend(stolen_types);
+                        self.npc_trains[i].steal_cooldown = 2.2;
+                        let npc_name = self.npc_trains[i].name.clone();
+                        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                        self.floating_texts.spawn(
+                            format!("{} stole {} crabs!", npc_name, stolen_count),
+                            player_center - Vec2::new(110.0, 55.0),
+                            30.0,
+                            [0.96, 0.72, 0.16, 1.0],
+                        );
+                        self.screen_shake = self.screen_shake.max(10.0);
+                        self.zoom_punch = self.zoom_punch.max(0.08);
+                        self.groove = (self.groove - 0.15).max(0.0);
+                        self.beat_streak = self.beat_streak.saturating_sub(2);
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((npc_pos, 0.0, [0.96, 0.72, 0.16]));
+                        }
+                    }
+                }
+            }
+
+            self.npc_trains[i].catch_cooldown = (self.npc_trains[i].catch_cooldown - dt).max(0.0);
+            if self.npc_trains[i].catch_cooldown <= 0.0 {
+                const CATCH_RANGE: f32 = 52.0;
+                let npc_pos = self.npc_trains[i].leader_pos;
+                let caught = self.crabs.iter_mut().find(|c| {
+                    !c.caught && !c.is_boss() && c.is_catchable() && npc_pos.distance(c.pos) < CATCH_RANGE
+                });
+                if let Some(crab) = caught {
+                    let ct = crab.crab_type;
+                    crab.pos = Vec2::new(-9999.0, -9999.0);
+                    crab.vel = Vec2::ZERO;
+                    crab.fleeing = false;
+                    self.npc_trains[i].follower_types.push(ct);
+                    self.npc_trains[i].catch_cooldown = 0.7;
+                }
+            }
+        }
+
+        let max_vol = self.npc_trains.iter().map(|t| t.target_vol).fold(0.0_f32, f32::max);
+        if !self.npc_trains.is_empty() {
+            self.npc_trains[0].target_vol = max_vol;
+        }
+
+        {
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            for npc in self.npc_trains.iter_mut() {
+                let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
+                let dist = npc.leader_pos.distance(player_center);
+                if dist < col_r && dist > 0.1 {
+                    let overlap = col_r - dist;
+                    let dir = (player_center - npc.leader_pos).normalize_or_zero();
+                    self.player_pos += dir * overlap * 0.6;
+                    npc.leader_pos -= dir * overlap * 0.4;
+                    let rel_vel = self.player_vel - npc.leader_vel;
+                    let sep_speed = rel_vel.dot(dir);
+                    if sep_speed < 0.0 {
+                        self.player_vel -= dir * sep_speed * 0.8;
+                        npc.leader_vel += dir * sep_speed * 0.8;
+                    }
+                }
+            }
+        }
+
+        if self.king_splice_cooldown <= 0.0 {
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let mut clash_npc: Option<usize> = None;
+            for (ni, npc) in self.npc_trains.iter().enumerate() {
+                let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
+                if npc.leader_pos.distance(player_center) < col_r {
+                    clash_npc = Some(ni);
+                    break;
+                }
+            }
+            if let Some(ni) = clash_npc {
+                self.king_splice_cooldown = 2.0;
+                let away_from_npc = (player_center - self.npc_trains[ni].leader_pos).normalize_or_zero();
+                self.player_vel += away_from_npc * 380.0;
+                self.npc_trains[ni].leader_vel += -away_from_npc * 280.0;
+                self.screen_shake = self.screen_shake.max(16.0);
+                self.zoom_punch = self.zoom_punch.max(0.10);
+                self.hitstop_timer = self.hitstop_timer.max(0.12);
+                let player_lose = 2.min(self.chain_count.saturating_sub(1));
+                let mut released = 0;
+                for crab in self.crabs.iter_mut().rev() {
+                    if released >= player_lose { break; }
+                    if crab.caught {
+                        if let Some(idx) = crab.chain_index {
+                            if idx > 0 {
+                                crab.caught = false;
+                                crab.chain_index = None;
+                                crab.fleeing = true;
+                                crab.spooked_timer = 2.5;
+                                crab.join_pulse = 1.0;
+                                let away = (crab.pos - player_center).normalize_or_zero();
+                                crab.vel = away * 250.0;
+                                crab.vel.y -= 70.0;
+                                if self.catch_shockwaves.len() < 48 {
+                                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
+                                }
+                                released += 1;
+                            }
+                        }
+                    }
+                }
+                self.chain_count = self.chain_count.saturating_sub(released);
+                let npc_pos = self.npc_trains[ni].leader_pos;
+                let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
+                for k in 0..npc_lose {
+                    self.npc_trains[ni].follower_types.pop();
+                    let scatter_angle = k as f32 * std::f32::consts::PI + away_from_npc.y.atan2(away_from_npc.x);
+                    let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
+                    if self.catch_shockwaves.len() < 48 {
+                        self.catch_shockwaves.push((npc_pos + scatter_dir * 30.0, 0.0, [0.96, 0.72, 0.16]));
+                    }
+                }
+                self.groove = (self.groove - 0.20).max(0.0);
+                self.beat_streak = self.beat_streak.saturating_sub(1);
+                let npc_name = self.npc_trains[ni].name.clone();
+                self.floating_texts.spawn(
+                    format!("CLASH with {}!", npc_name),
+                    player_center - Vec2::new(80.0, 65.0),
+                    32.0,
+                    [1.0, 0.5, 0.15, 1.0],
+                );
+                self.particle_system.spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
+            }
+        }
+
+        for i in 0..self.npc_trains.len() {
+            for j in (i + 1)..self.npc_trains.len() {
+                let pi = self.npc_trains[i].leader_pos;
+                let pj = self.npc_trains[j].leader_pos;
+                let si = self.npc_trains[i].leader_scale;
+                let sj = self.npc_trains[j].leader_scale;
+                let col_r = CRAB_SIZE * (si + sj) * 0.8;
+                if pi.distance(pj) < col_r {
+                    let dir = (pi - pj).normalize_or_zero();
+                    self.npc_trains[i].leader_vel += dir * 200.0;
+                    self.npc_trains[j].leader_vel -= dir * 200.0;
+                    if !self.npc_trains[i].follower_types.is_empty() {
+                        self.npc_trains[i].follower_types.pop();
+                    }
+                    if !self.npc_trains[j].follower_types.is_empty() {
+                        self.npc_trains[j].follower_types.pop();
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw_npc_conga_train(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
+        let t = self.time_elapsed;
+        const STEPS: usize = 14;
+
+        for npc in &self.npc_trains {
+            for i in (0..npc.follower_types.len()).rev() {
+                let hist_idx = (i + 1) * STEPS;
+                let pos = match npc.path_history.get(hist_idx) {
+                    Some(&p) => p,
+                    None => continue,
+                };
+                let bob = (t * 5.5 + i as f32 * 0.85).sin() * 3.5;
+                let crab_type = npc.follower_types[i];
+                let fake = EnemyCrab {
+                    pos,
+                    vel: Vec2::ZERO,
+                    speed: 0.0,
+                    caught: true,
+                    chain_index: Some(i),
+                    scale: npc.leader_scale * 0.33,
+                    spawn_time: 999.0,
+                    crab_type,
+                    spooked_timer: 0.0,
+                    beat_phase_offset: i as f32 * 0.4,
+                    join_pulse: 0.0,
+                    fleeing: false,
+                    facing_angle: 0.0,
+                    in_flashlight: false,
+                    startle_timer: 0.0,
+                    charm_timer: 0.0,
+                    answering_call: 0.0,
+                    boss_health: 0.0,
+                    boss_max_health: 0.0001,
+                    enraged: false,
+                    charge_state: BossCharge::Idle,
+                    charge_cooldown: 0.0,
+                    latch_timer: 0.0,
+                    panic_amp: 1.0,
+                    magnet_snared: 0.0,
+                    magnet_lured: 0.0,
+                    thief_lured: 0.0,
+                    magnet_charged: 0.0,
+                    slingshot_spent: 0.0,
+                    stun_timer: 0.0,
+                    host_swap_timer: 0.0,
+                    surge_timer: 0.0,
+                };
+                let beat = (t * 4.0 + i as f32 * 0.5).sin().abs();
+                draw_crab(ctx, canvas, &fake, pos + Vec2::new(0.0, -bob), beat, 0.0, bob.max(0.0), 0.0, t)?;
+            }
+
+            let leader_bob = (t * 4.2).sin() * 6.0;
+            let facing = if npc.leader_vel.length_squared() > 4.0 {
+                npc.leader_vel.y.atan2(npc.leader_vel.x)
+            } else {
+                0.0
+            };
+            let king = EnemyCrab {
+                pos: npc.leader_pos,
+                vel: npc.leader_vel,
+                speed: 88.0,
+                caught: false,
+                chain_index: None,
+                scale: npc.leader_scale,
+                spawn_time: 999.0,
+                crab_type: CrabType::Boss,
+                spooked_timer: 0.0,
+                beat_phase_offset: 0.0,
+                join_pulse: 0.0,
+                fleeing: false,
+                facing_angle: facing,
+                in_flashlight: false,
+                startle_timer: 0.0,
+                charm_timer: 0.0,
+                answering_call: 0.0,
+                boss_health: 0.0,
+                boss_max_health: 0.0001,
+                enraged: false,
+                charge_state: BossCharge::Idle,
+                charge_cooldown: 0.0,
+                latch_timer: 0.0,
+                panic_amp: 1.0,
+                magnet_snared: 0.0,
+                magnet_lured: 0.0,
+                thief_lured: 0.0,
+                magnet_charged: 0.0,
+                slingshot_spent: 0.0,
+                stun_timer: 0.0,
+                host_swap_timer: 0.0,
+                surge_timer: 0.0,
+            };
+            let king_beat = (t * 4.0).sin().abs();
+            draw_crab(
+                ctx, canvas, &king,
+                npc.leader_pos + Vec2::new(0.0, -leader_bob),
+                king_beat, 0.0, leader_bob.max(0.0), facing, t,
+            )?;
+
+            // Golden halo so the King reads as leader from across the world.
+            let dot = unit_circle(ctx)?;
+            for ring in (0..3).rev() {
+                let r = 40.0 + ring as f32 * 14.0;
+                let a = 0.06 - ring as f32 * 0.015;
+                canvas.draw(dot, DrawParam::default()
+                    .dest(npc.leader_pos)
+                    .scale(Vec2::splat(r))
+                    .color(Color::new(1.0, 0.82, 0.2, a)));
+            }
+
+            // Name plate floating above the King Crab — cached so glyphs aren't reshaped every frame.
+            let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
+                if needs_rebuild {
+                    let mut text = Text::new(npc.name.as_str());
+                    text.set_scale(16.0);
+                    let w = text.measure(ctx)?.x;
+                    *cache = Some((npc.name.clone(), text, w));
+                }
+                Ok(cache.as_ref().unwrap().2)
+            })?;
+            NPC_NAME_CACHE.with(|c| {
+                let cache = c.borrow();
+                if let Some((_, text, _)) = cache.as_ref() {
+                    let name_pos = npc.leader_pos - Vec2::new(name_w / 2.0, 55.0 + leader_bob);
+                    canvas.draw(text, DrawParam::default()
+                        .dest(name_pos + Vec2::splat(1.5))
+                        .color(Color::from_rgba(0, 0, 0, 180)));
+                    canvas.draw(text, DrawParam::default()
+                        .dest(name_pos)
+                        .color(Color::new(0.96, 0.82, 0.3, 0.95)));
+                }
+            });
+        }
+        Ok(())
+    }
 }
 
 impl EventHandler for MainState {
@@ -9120,6 +9125,18 @@ impl EventHandler for MainState {
         }
 
         let mut dt = ctx.time.delta().as_secs_f32();
+
+        // Clear soft-RPS tell buffers from the previous frame so each frame sees only this
+        // frame's events. These are filled by gameplay logic below and read in draw_game.
+        self.beam_hermit_hits_buf.clear();
+        self.stomp_dancer_hits_buf.clear();
+        self.stomp_armored_hits_buf.clear();
+        self.lasso_thief_hits_buf.clear();
+        self.lasso_magnet_hits_buf.clear();
+        self.lasso_shell_deflect_hits_buf.clear();
+        self.whistle_dancer_hits_buf.clear();
+        self.whistle_golden_hits_buf.clear();
+        // magnet_cluster_hits_buf cleared on-beat in update_crabs (not every frame).
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -10210,6 +10227,9 @@ impl EventHandler for MainState {
         // Chain-as-risk: a spooked wild crab barreling into the exposed tail can snap links loose.
         self.snap_chain_on_panic();
 
+        // King Crab splice: a charging boss that crosses ANY chain segment steals the back section.
+        self.check_king_crab_splice();
+
         // Biome wrinkle (Neon Kelp Forest): clinging fronds can snag and strip the tail if you
         // route a long train through the weeds instead of around them.
         self.snag_chain_on_kelp(dt);
@@ -10469,6 +10489,14 @@ impl EventHandler for MainState {
                     crab.fleeing = false;
                     crab.startle_timer = 0.0;
                     crab.charm_timer = crab.charm_timer.max(charm_dur);
+                    // Whistle/Dancer strong-match tell: hot-pink spiral burst (rhythm meets rhythm).
+                    if crab.is_dancer() && self.whistle_dancer_hits_buf.len() < 8 {
+                        self.whistle_dancer_hits_buf.push(crab.pos);
+                    }
+                    // Whistle/Golden tell: gold shimmer burst when the whistle reels in the shiny prize.
+                    if crab.is_golden() && self.whistle_golden_hits_buf.len() < 8 {
+                        self.whistle_golden_hits_buf.push(crab.pos);
+                    }
                     // Rhythm-native Thief counterplay: shaking off a latched Thief now *plays* like
                     // the rest of the game rather than being a flat toggle.
                     //   - ON BEAT: the whistle rips it clean off AND flings it into the train as a
@@ -10585,7 +10613,16 @@ impl EventHandler for MainState {
                         hermit_popped.push(crab.pos);
                     } else {
                         cracked.push(crab.pos);
+                        // Stomp/Armored strong-match tell: crack-spike burst at the shell.
+                        if self.stomp_armored_hits_buf.len() < 8 {
+                            self.stomp_armored_hits_buf.push(crab.pos);
+                        }
                     }
+                }
+                // Stomp/Dancer strong-match tell: a Dancer caught in the stomp wave reads as
+                // the rhythm tool connecting with the rhythm crab — spinning arc burst.
+                if crab.is_dancer() && self.stomp_dancer_hits_buf.len() < 8 {
+                    self.stomp_dancer_hits_buf.push(crab.pos);
                 }
                 // A Stomp near the tail is the second, close-range Thief counter — and it plays the
                 // same rhythm-native way the whistle does: on-beat rips a latched Thief clean off and
@@ -10691,6 +10728,10 @@ impl EventHandler for MainState {
                     }
                 }
                 LassoPhase::Idle => {}
+                LassoPhase::Winding => {
+                    // Charging: grow spin and charge until released (handled in mouse_button_up).
+                    self.lasso_pos = Some(self.lasso_origin);
+                }
             }
         }
 

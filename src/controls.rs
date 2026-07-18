@@ -300,7 +300,7 @@ pub fn handle_key_down_event(
                                 state.show_how_to_play_text = false;
                             } // Play
                             1 => {
-                                state.enter_world_map();
+                                state.enter_world_map(ctx);
                             } // Campaign
                             2 => {
                                 state.menu_page = 1;
@@ -320,7 +320,7 @@ pub fn handle_key_down_event(
                     }
                     // Legacy shortcut: C still opens campaign.
                     KeyCode::C => {
-                        state.enter_world_map();
+                        state.enter_world_map(ctx);
                         return true;
                     }
                     _ => {}

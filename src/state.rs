@@ -141,10 +141,114 @@ pub enum DayPhase {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LassoPhase {
     Idle,
+    /// Mouse is held down: the rope swirls above the player, growing with charge. Fires on release.
+    Winding,
     Throwing,
     Snag,
     Dragging,
     Miss,
+}
+
+/// Ambient wandering NPC conga train — a King Crab leading a few followers across the world.
+pub struct NpcCongaTrain {
+    pub leader_pos: Vec2,
+    pub leader_vel: Vec2,
+    pub target: Vec2,
+    pub target_timer: f32,
+    /// Sampled leader positions (pushed when leader moves >6px); followers trail by index offset.
+    pub path_history: VecDeque<Vec2>,
+    pub follower_types: Vec<CrabType>,
+    /// Target volume for the rumble SFX, computed each frame from distance to player.
+    pub target_vol: f32,
+    /// Procedurally generated name — stable for the session.
+    pub name: String,
+    /// Visual scale of the King Crab leader — grows with conga length.
+    pub leader_scale: f32,
+    /// Minimum scale for this tier — leader can only grow above this, never shrink below it.
+    pub base_scale: f32,
+    /// Brief idle pause at destination before picking the next wander target.
+    pub idle_timer: f32,
+    /// Preferred territory centre — each NPC biases its wander targets toward its own quadrant.
+    pub territory_center: Vec2,
+    /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
+    pub steal_cooldown: f32,
+    /// Time since this NPC last caught a free crab (throttles free-crab collection).
+    pub catch_cooldown: f32,
+}
+
+/// Generate a King Crab name.
+pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
+    const SOLO_NAMES: &[&str] = &[
+        "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet", "Barry", "Brenda", "Trevor", "Karen",
+    ];
+    let solo_roll: f32 = rng.random();
+    if solo_roll < 0.15 {
+        return SOLO_NAMES.choose(rng).unwrap().to_string();
+    }
+
+    const TITLES: &[&str] = &[
+        "Gravelord", "The Undying", "Clawkeeper of the Brackish Deep",
+        "Herald of the Eternal Tide", "Scuttlefiend,", "Devourer of Shores",
+        "Ashen", "Lord of the Sunken Reef", "The Hollow", "Keeper of the Last Shell",
+        "Sovereign of the Abyssal Shallows", "The Forsaken", "Bearer of the Cursed Carapace",
+        "Watcher of the Drowned Coast", "Misterhult", "Cap'n", "First Mate", "Barnacle",
+        "The Scurvy", "Admiral", "Quartermaster", "DJ", "Rave King", "The Eternal", "MC",
+        "Sideways Champion", "Drop Lord", "The Eternal Groove of", "Shellmaster",
+        "The Immortal", "Ancient",
+    ];
+    const NAMES: &[&str] = &[
+        "Pinchfeast", "Moltveil", "Chelicerae", "Scuttlegrim", "Brinewraith", "Tidecurse",
+        "Carapace", "Saltborn", "Shellreaper", "Abysswalker", "Duskshell", "Emberclaw",
+        "Grimtide", "Voidmolt", "Pete", "Clawbeard", "Snippy", "the Saltbitten",
+        "Ironpincer", "Buccaneers", "Moultzilla", "Snapsalot", "Groove", "Bounceback",
+        "Sidestep", "the Bass Drop", "Shellshaker", "Clawdrop", "the Unbroken", "Razorshell",
+    ];
+    let title = TITLES.choose(rng).unwrap();
+    let name = NAMES.choose(rng).unwrap();
+    format!("{} {}", title, name)
+}
+
+impl NpcCongaTrain {
+    pub fn new_at(world_width: f32, world_height: f32, index: usize) -> Self {
+        let (sx, sy, tc_x, tc_y, leader_scale) = match index {
+            0 => (0.2, 0.3, 0.25, 0.3, 1.2_f32),
+            1 => (0.8, 0.2, 0.75, 0.25, 1.8_f32),
+            _ => (0.5, 0.8, 0.5, 0.75, 2.4_f32),
+        };
+        let start = Vec2::new(world_width * sx, world_height * sy);
+        let territory_center = Vec2::new(world_width * tc_x, world_height * tc_y);
+        let target = territory_center + Vec2::new(world_width * 0.1, world_height * 0.05);
+        let follower_types = match index {
+            0 => vec![CrabType::Fast, CrabType::Sneaky, CrabType::Normal],
+            1 => vec![
+                CrabType::Armored, CrabType::Normal, CrabType::Fast,
+                CrabType::Magnet, CrabType::Dancer,
+            ],
+            _ => vec![
+                CrabType::Big, CrabType::Dancer, CrabType::Golden,
+                CrabType::Normal, CrabType::Sneaky, CrabType::Hermit, CrabType::Fast,
+            ],
+        };
+        let mut history = VecDeque::new();
+        history.push_back(start);
+        let name = gen_king_crab_name(&mut rand::rng());
+        Self {
+            leader_pos: start,
+            leader_vel: Vec2::ZERO,
+            target,
+            target_timer: 8.0 + index as f32 * 5.0,
+            path_history: history,
+            follower_types,
+            target_vol: 0.0,
+            name,
+            leader_scale,
+            base_scale: leader_scale,
+            idle_timer: 0.0,
+            territory_center,
+            steal_cooldown: 0.0,
+            catch_cooldown: 0.0,
+        }
+    }
 }
 
 pub struct MainState {
@@ -382,6 +486,11 @@ pub struct MainState {
     pub(crate) lasso_target: Vec2,                        // Aim point the loop flies toward
     pub(crate) lasso_origin: Vec2,                        // Player center captured at throw time (arc anchor)
     pub(crate) lasso_phase: LassoPhase,                   // Throw state machine (see LassoPhase)
+    // Charge-throw fields: the player holds the mouse to wind up, releasing fires the throw.
+    pub(crate) lasso_charge: f32,        // 0..LASSO_MAX_CHARGE_TIME, grows while mouse is held
+    pub(crate) lasso_mouse_down: bool,   // True while left mouse button is held (winding)
+    pub(crate) lasso_spin: f32,          // Accumulated rope spin angle in radians, for visual
+    pub(crate) lasso_on_beat_bonus: f32, // 1.0 normally; LASSO_ONBEAT_BONUS if released on-beat
     // Crabs bitten by the current throw, mid-reel-in: (crab index, snag point, per-crab age seconds).
     // Driven each Dragging frame to yank the crab from where the rope bit it toward the train with
     // visible tension, then fade the taut rope out. Reused (drained, not reallocated) per throw.
@@ -789,6 +898,17 @@ pub struct MainState {
     // catch-event buffers above instead of a fresh Vec::new() every frame; almost always empty
     // (needs a Reef DJ fight in progress plus a hot-beat catch), same reasoning as golden_catches_buf.
     pub(crate) hype_dancer_hits_buf: Vec<Vec2>,
+    // Soft-RPS strong-match / wrong-tool tell buffers. Filled each frame by gameplay code,
+    // drawn in draw_game, then cleared. Vec is reused (grown-but-not-shrunk) to stay allocation-free.
+    pub(crate) beam_hermit_hits_buf: Vec<(Vec2, f32)>, // (pos, drain_fraction 0..1)
+    pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
+    pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
+    pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
+    pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
+    pub(crate) magnet_cluster_hits_buf: Vec<Vec2>,
+    pub(crate) lasso_shell_deflect_hits_buf: Vec<Vec2>,
+    pub(crate) whistle_dancer_hits_buf: Vec<Vec2>,
+    pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
     // Emergent crossover scratch: free Armored crabs whose shell a charged Magnet's widened vacuum
     // ground down this frame — (pos, whether that grind fully cracked the shell open) so the
     // chip/crack feedback fires after the per-crab borrow ends. Almost always empty (needs a
@@ -806,6 +926,12 @@ pub struct MainState {
     pub(crate) pulse_anchor_positions_buf: Vec<Vec2>,
     pub(crate) pulse_scattered_buf: Vec<Vec2>,
     pub(crate) pulse_snapped_positions_buf: Vec<Vec2>,
+    // Stolen crabs fly toward the King Crab boss after a splice: (pos, timer, color).
+    pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
+    // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
+    pub(crate) king_splice_cooldown: f32,
+    // Ambient NPC conga trains: King Crabs each leading followers that wander the world.
+    pub(crate) npc_trains: Vec<NpcCongaTrain>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1164,6 +1290,10 @@ impl MainState {
             lasso_target: Vec2::ZERO,
             lasso_origin: Vec2::ZERO,
             lasso_phase: LassoPhase::Idle,
+            lasso_charge: 0.0,
+            lasso_mouse_down: false,
+            lasso_spin: 0.0,
+            lasso_on_beat_bonus: 1.0,
             lasso_drag_buf: Vec::new(),
             whistle_active: 0.0,
             whistle_radius: 0.0,
@@ -1312,11 +1442,27 @@ impl MainState {
             magnet_shine_catches_buf: Vec::new(),
             match_run_catches_buf: Vec::new(),
             hype_dancer_hits_buf: Vec::new(),
+            beam_hermit_hits_buf: Vec::new(),
+            stomp_dancer_hits_buf: Vec::new(),
+            stomp_armored_hits_buf: Vec::new(),
+            lasso_thief_hits_buf: Vec::new(),
+            lasso_magnet_hits_buf: Vec::new(),
+            magnet_cluster_hits_buf: Vec::new(),
+            lasso_shell_deflect_hits_buf: Vec::new(),
+            whistle_dancer_hits_buf: Vec::new(),
+            whistle_golden_hits_buf: Vec::new(),
             pulse_slingshots_buf: Vec::new(),
             pulse_loaded_magnets_buf: Vec::new(),
             pulse_anchor_positions_buf: Vec::new(),
             pulse_scattered_buf: Vec::new(),
             pulse_snapped_positions_buf: Vec::new(),
+            king_stolen_crabs: Vec::new(),
+            king_splice_cooldown: 0.0,
+            npc_trains: vec![
+                NpcCongaTrain::new_at(world_width, world_height, 0),
+                NpcCongaTrain::new_at(world_width, world_height, 1),
+                NpcCongaTrain::new_at(world_width, world_height, 2),
+            ],
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
