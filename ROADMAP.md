@@ -51,25 +51,21 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** No new human signal on Slack — every post since last run is an auto Dev Diary update, no
-replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here")
-is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. But this was a **productive
-gameplay cycle**, dead on the TOP PRIORITY track — three more soft-RPS tells landed: Magnet vs a herd cluster
-(beat-synced inward burst when a Magnet has 3+ crabs in radius, 01b8573), lasso vs Magnet (cyan field burst, b35db97),
-and the first *negative/wrong-tool* tell — a grey-steel ricochet when the lasso loop slips off a shelled crab
-(01c7877), teaching "wrong tool" as legibly as a strong match. A full **synth-audio overhaul** shipped too: retro
-chiptune/tracker synthesis (67e0aee), distinct whistle/stomp/lasso tool sounds (717ee93), a master limiter to stop
-clipping (234b113), and crackle-free playback by dropping the OGG catch/upgrade sounds for synth chimes (b1aa205).
-Plus the first real **HYPER DEMON delirium layer** — a groove-reactive render-to-texture pass (chromatic aberration +
-scanlines + vignette, 358a3d0) — and much richer per-crab anatomy (jointed legs, eye stalks, claw arms, be1127f).
-King Crab now scales with your conga-line size (4b27a7d). So the soft-RPS web and the visual/audio identity both
-advanced; direction is unchanged. **Still open:** the ambient rival train reads in three visual tiers
-(scout/wanderer/elder, d046ae7) but its **read-check is not cleared** — the smooth directional music-swell radar and a
-distinct name banner still need a pass, and *it has still not been playtested in motion*; that playtest remains the
-cheapest thing anyone could do to unblock the steal rule. The **core steal rule** stays parked in "Also on our mind"
-(reverse-Snake crossing in INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted**
-(2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now
-items this run — depth before breadth.
+**Signal (this cycle).** Quiet cycle. No new human signal on Slack — every post in #general is an auto Dev Diary,
+no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
+here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. And no new gameplay
+shipped since the last run — the only commit is a Supervisor AGENTS.md tweak (ed05d8e), a chore. So direction is
+unchanged and the priorities below stand as written. The prior productive cycle's wins are already folded in above:
+the six soft-RPS tells (three flagship + Magnet-vs-herd + lasso-vs-Magnet + the grey-steel wrong-tool ricochet), the
+synth-audio overhaul (chiptune synthesis, distinct tool sounds, master limiter, crackle-free chimes), the first HYPER
+DEMON delirium pass (358a3d0), and richer per-crab anatomy (be1127f). **The bottleneck is unchanged and it is the
+cheapest thing on the board:** the ambient rival train reads in three visual tiers (scout/wanderer/elder, d046ae7)
+but its **read-check is still not cleared** — the smooth directional music-swell radar and a distinct name banner
+still need a pass, and *it has still not been playtested in motion*. That playtest is the single cheapest action
+anyone could take to unblock the steal rule, and it keeps getting skipped in favour of more tells. The **core steal
+rule** stays parked in "Also on our mind" (reverse-Snake crossing in INSPIRATION) until that read-check passes.
+Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on
+a pile of new player verbs. No new Now items this run — depth before breadth.
 
 ## Bugs (fix before anything else in Now)
 
