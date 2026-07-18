@@ -119,6 +119,10 @@ Steps:
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
    `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
    If any test FAILs, that bug is your task this run — fix it before any feature work.
+   **Disabled tests are also your bug.** If `scripts/playtest.sh` has any `run_script` line
+   commented out, treat that as a FAIL: re-enable it and fix the game code until it passes.
+   Never comment out a test as a workaround — fix the underlying game issue instead. Disabled
+   tests mask regressions and let crashes pile up in subsequent feature work.
 3. Skim the tops of src/main.rs and src/graphics.rs to understand current state
 4. Read INSPIRATION.md (short file) — it's the design compass. Before picking any task, apply
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
@@ -213,6 +217,9 @@ Steps:
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
    `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
    If any test FAILs, that bug is your task this run — fix it before anything else.
+   **Disabled tests are also your bug.** If `scripts/playtest.sh` has any `run_script` line
+   commented out, treat that as a FAIL: re-enable it and fix the game code until it passes.
+   Never comment out a test — fix the underlying issue instead.
 3. Read git log: `git -C . log --oneline -8`
 4. Skim the tops of src/main.rs and src/graphics.rs to understand current state
 5. Read INSPIRATION.md (short file) — the design compass. Apply its test before picking a task:
