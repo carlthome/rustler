@@ -11569,18 +11569,32 @@ impl EventHandler for MainState {
             }
         }
 
-        // Flashlight auto-targeting: aim at the nearest uncaught King Crab (boss), smoothly
-        // interpolating the aim direction so the beam sweeps rather than snapping.
+        // Flashlight auto-targeting: aim at the nearest King Crab — NPC train leaders first,
+        // then any uncaught boss crab in self.crabs. NPC trains are the primary targets since
+        // boss fight crabs only exist during boss encounters.
         {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-            let target = self.crabs.iter()
+
+            // Collect candidate positions: NPC train leaders + uncaught boss crabs.
+            let npc_target = self.npc_trains.iter()
+                .map(|t| t.leader_pos)
+                .min_by_key(|p| (p.distance(player_center) * 100.0) as i32);
+            let boss_target = self.crabs.iter()
                 .filter(|c| !c.caught && c.is_boss())
                 .min_by_key(|c| (c.pos.distance(player_center) * 100.0) as i32)
-                .map(|c| c.pos + Vec2::splat(PLAYER_SIZE / 2.0));
+                .map(|c| c.pos);
+
+            // Pick whichever is closer.
+            let target = match (npc_target, boss_target) {
+                (Some(n), Some(b)) => Some(if n.distance(player_center) < b.distance(player_center) { n } else { b }),
+                (Some(n), None) => Some(n),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            };
+
             if let Some(t) = target {
                 let desired = (t - player_center).normalize_or_zero();
                 if desired.length() > 0.1 {
-                    // Smooth lerp toward target — ~8 degrees per frame at 60fps feels like a turret.
                     let speed = 6.0 * dt;
                     self.flashlight.aim_dir = (self.flashlight.aim_dir + (desired - self.flashlight.aim_dir) * speed).normalize_or_zero();
                 }
