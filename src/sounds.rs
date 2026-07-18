@@ -2071,6 +2071,37 @@ fn groove_voice_note(hz: f32, dur_s: f32, waveform: Waveform, gain: f32) -> Vec<
     synth_note(waveform, hz, hold, &adsr, gain)
 }
 
+/// A warm Rhodes/DX7-style electric-piano voice for the groove lead — the antidote to the
+/// Game Boy square wave. Additive rather than true FM: a sine fundamental carries the round,
+/// warm body, and a 2× sine harmonic with its own fast, sustain-to-silence envelope supplies
+/// the percussive "tine" clang at the attack that settles away, leaving the pure sine behind.
+/// The result reads as Herbie Hancock "Chameleon" rather than a chiptune blip.
+fn synth_ep_note(hz: f32, dur_s: f32, gain: f32) -> Vec<f32> {
+    let hold = (dur_s * 0.85).max(0.02); // match the existing groove voice's note breathing
+
+    // Fundamental: warm round body, medium decay into a moderate sustain, natural release.
+    let body_adsr = Adsr {
+        attack: 0.005,
+        decay: 0.12,
+        sustain: 0.38,
+        release: 0.20,
+    };
+    let mut out = synth_note(Waveform::Sine, hz, hold, &body_adsr, gain * 0.8);
+
+    // 2× harmonic "tine": a pure percussive transient that decays to silence (sustain 0.0),
+    // giving the signature Rhodes "tink" without lingering as a steady overtone.
+    let tine_adsr = Adsr {
+        attack: 0.002,
+        decay: 0.05,
+        sustain: 0.0,
+        release: 0.03,
+    };
+    let tine = synth_note(Waveform::Sine, hz * 2.0, hold, &tine_adsr, gain * 0.45);
+
+    mix_into(&mut out, &tine, 0);
+    out
+}
+
 /// Build a repeating call-and-response groove and render it to a looping Source.
 /// `bpm` sets tempo; `swing` (0..1) is how late odd 1/16 steps land; `bars` is the
 /// phrase length (even numbers alternate question/answer bars).
@@ -2255,12 +2286,12 @@ fn synth_groove(
         let dur_s = note.len as f32 * step_s;
         let midi = groove_degree_to_midi(scale, root_midi, note.degree);
         let hz = groove_midi_to_hz(midi);
-        let waveform = if note.bass {
-            Waveform::Triangle
+        // Bass stays a warm triangle; the lead now sings through the electric-piano voice.
+        let rendered = if note.bass {
+            groove_voice_note(hz, dur_s, Waveform::Triangle, note.gain)
         } else {
-            Waveform::Rect(0.5)
+            synth_ep_note(hz, dur_s, note.gain)
         };
-        let rendered = groove_voice_note(hz, dur_s, waveform, note.gain);
         let offset = (start_s * SAMPLE_RATE as f32) as usize;
         mix_into(&mut mix, &rendered, offset);
     }
@@ -2296,6 +2327,9 @@ pub fn synth_action_groove(ctx: &mut Context, bpm: f32) -> GameResult<Source> {
         0.66, // shuffle: odd 1/16s land noticeably late
         8,
         0.5,
-        6,
+        // Bit depth was 6 (64 levels) — a Game Boy crush that turned the warm electric-piano
+        // lead back into chiptune. Raised to 11 (2048 levels) so the EP's round body survives
+        // to tape; the master limiter still glues the mix.
+        11,
     )
 }
