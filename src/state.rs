@@ -837,7 +837,12 @@ impl MainState {
         // TODO Load all sound effects.
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
-            action_music: Source::new(ctx, "/action.ogg")?,
+            // Procedurally generated action groove — a driving pentatonic shuffle
+            // with a generative riff, swing, call-and-response phrasing, and a
+            // layered bass line (see sounds::synth_action_groove). Replaces the
+            // static /action.ogg so the in-game loop is real, foot-tapping music
+            // rather than a fixed backing track.
+            action_music: sounds::synth_action_groove(ctx)?,
             outro_music: Source::new(ctx, "/outro.ogg")?,
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
