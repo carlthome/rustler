@@ -29,5 +29,4 @@ jobs:
       - name: Run playtests
         run: xvfb-run -a bash scripts/playtest.sh
         env:
-          LIBGL_ALWAYS_INDIRECT: 1
-          WGPU_BACKEND: gl,gles
+          WGPU_BACKEND: gl
