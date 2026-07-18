@@ -7604,7 +7604,7 @@ impl MainState {
                 canvas.draw(
                     &cache.as_ref().unwrap().2,
                     DrawParam::default()
-                        .dest(Vec2::new(10.0, 80.0))
+                        .dest(Vec2::new(10.0, 200.0))
                         .color(Color::from_rgb(255, 100, 100)),
                 );
             });

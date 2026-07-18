@@ -1089,13 +1089,14 @@ fn king_crab_rumble_mono_samples() -> Vec<f32> {
         (xorshift(s) as f32) / (u32::MAX as f32)
     }
 
-    // Low ambient rumble bed.
+    // Low ambient rumble bed — tuned to A (110 Hz) and its harmonics so it sits in
+    // the groove's A minor key rather than clashing with it.
     for i in 0..n {
         let t = i as f32 * dt;
         let breathe = 0.55 + 0.25 * (0.7 * t * std::f32::consts::TAU).sin();
-        let rumble = 0.55 * oscillator_sample(Waveform::Triangle, 78.0 * t)
-            + 0.22 * oscillator_sample(Waveform::Rect(0.5), 119.0 * t)
-            + 0.12 * oscillator_sample(Waveform::Triangle, 167.0 * t);
+        let rumble = 0.55 * oscillator_sample(Waveform::Triangle, 55.0 * t)   // A1 sub
+            + 0.28 * oscillator_sample(Waveform::Rect(0.5), 110.0 * t)        // A2
+            + 0.12 * oscillator_sample(Waveform::Triangle, 165.0 * t);        // E3 (perfect fifth)
         samples[i] += rumble * breathe * 0.35;
     }
 

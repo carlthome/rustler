@@ -3629,8 +3629,10 @@ pub fn draw_flashlight(
     // crashes with a wgpu bind-group layout mismatch. Isolated render pass = no leak.
     {
         let mut cone_canvas = Canvas::from_image(ctx, cone_image.clone(), Color::from_rgba(0, 0, 0, 0));
-        // Cone canvas is screen-size, origin (0,0) — the shader already works in viewport coords.
-        cone_canvas.set_screen_coordinates(ggez::graphics::Rect::new(0.0, 0.0, screen_width, screen_height));
+        // The flashlight vertex shader expects NDC positions [-1,+1] and outputs them directly as
+        // gl_Position. Set screen coordinates to NDC space and draw a NDC-covering quad so the
+        // shader receives the correct vertex positions and computes UV correctly.
+        cone_canvas.set_screen_coordinates(ggez::graphics::Rect::new(-1.0, -1.0, 2.0, 2.0));
         FLASHLIGHT_SHADER_PARAMS.with(|cell| {
             let mut slot = cell.borrow_mut();
             if let Some(params) = slot.as_mut() {
@@ -3645,7 +3647,7 @@ pub fn draw_flashlight(
             }
         });
         cone_canvas.set_shader(shader);
-        let flashlight_quad = cached_fill_rect(ctx, 0.0, 0.0, screen_width, screen_height, Color::WHITE)?;
+        let flashlight_quad = cached_fill_rect(ctx, -1.0, -1.0, 2.0, 2.0, Color::WHITE)?;
         cone_canvas.draw(&flashlight_quad, DrawParam::default());
         cone_canvas.set_default_shader();
         cone_canvas.finish(ctx)?;
