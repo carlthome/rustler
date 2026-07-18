@@ -6620,23 +6620,6 @@ impl MainState {
             )?;
         }
 
-        // Calculate flashlight direction from player to mouse.
-        if self.flashlight.on {
-            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
-            draw_flashlight(
-                ctx,
-                canvas,
-                self.player_pos,
-                flashlight_dir,
-                self.time_since_catch,
-                &self.flashlight,
-                &self.flashlight_shader,
-                self.width,
-                self.height,
-                self.camera_origin,
-            )?;
-        }
-
         // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
 
@@ -7881,6 +7864,27 @@ impl MainState {
                         .color(Color::from_rgba(255, 220, 50, fa)),
                 );
             });
+        }
+
+        // Flashlight drawn absolutely last — after all instanced mesh draws — because ggez 0.9.3's
+        // set_default_shader() doesn't clear the group-3 shader-params bind, and any instanced draw
+        // after set_shader_params crashes with a wgpu bind group layout mismatch. The flashlight
+        // shader uses center_view (world pos minus camera origin) so it renders correctly in
+        // screen-space coordinates.
+        if self.flashlight.on {
+            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
+            draw_flashlight(
+                ctx,
+                canvas,
+                self.player_pos,
+                flashlight_dir,
+                self.time_since_catch,
+                &self.flashlight,
+                &self.flashlight_shader,
+                self.width,
+                self.height,
+                self.camera_origin,
+            )?;
         }
 
         return Ok(());
