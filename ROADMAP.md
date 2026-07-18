@@ -51,19 +51,25 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** Quiet cycle. Slack has no new human signal — every post since last run is an auto Dev Diary
-update (no replies, no reactions to weigh); the one standing ask (Carl, 2026-07-07: "would be nice to see example
-videos here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. And nothing
-game-facing shipped: the only commit since the last roadmap update (462393a) is a Supervisor pipeline change
-(1d73b46 — git pull + playtests for Overnight Dev), not gameplay. So direction is unchanged and the three open Now
-items carry over untouched. **Where they stand** (from prior cycles, still the live picture): the archetype-tool
-soft-RPS system has its first three flagship tells drawn — beam/Hermit, stomp/Dancer, lasso/Thief (e819849) — but
-the rest of the 8×4 web is still implied. The ambient rival train reads in three visual tiers (scout/wanderer/elder,
-d046ae7) but its **read-check is not cleared**: the smooth directional music-swell radar and a distinct name banner
-still need a pass, and *it has still not been playtested in motion* — that playtest is the cheapest thing anyone could
-do to unblock the steal rule. The **core steal rule** stays parked in "Also on our mind" (reverse-Snake crossing in
-INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds:
-sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now items this run — depth before breadth.
+**Signal (this cycle).** No new human signal on Slack — every post since last run is an auto Dev Diary update, no
+replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here")
+is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. But this was a **productive
+gameplay cycle**, dead on the TOP PRIORITY track — three more soft-RPS tells landed: Magnet vs a herd cluster
+(beat-synced inward burst when a Magnet has 3+ crabs in radius, 01b8573), lasso vs Magnet (cyan field burst, b35db97),
+and the first *negative/wrong-tool* tell — a grey-steel ricochet when the lasso loop slips off a shelled crab
+(01c7877), teaching "wrong tool" as legibly as a strong match. A full **synth-audio overhaul** shipped too: retro
+chiptune/tracker synthesis (67e0aee), distinct whistle/stomp/lasso tool sounds (717ee93), a master limiter to stop
+clipping (234b113), and crackle-free playback by dropping the OGG catch/upgrade sounds for synth chimes (b1aa205).
+Plus the first real **HYPER DEMON delirium layer** — a groove-reactive render-to-texture pass (chromatic aberration +
+scanlines + vignette, 358a3d0) — and much richer per-crab anatomy (jointed legs, eye stalks, claw arms, be1127f).
+King Crab now scales with your conga-line size (4b27a7d). So the soft-RPS web and the visual/audio identity both
+advanced; direction is unchanged. **Still open:** the ambient rival train reads in three visual tiers
+(scout/wanderer/elder, d046ae7) but its **read-check is not cleared** — the smooth directional music-swell radar and a
+distinct name banner still need a pass, and *it has still not been playtested in motion*; that playtest remains the
+cheapest thing anyone could do to unblock the steal rule. The **core steal rule** stays parked in "Also on our mind"
+(reverse-Snake crossing in INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted**
+(2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now
+items this run — depth before breadth.
 
 ## Bugs (fix before anything else in Now)
 
@@ -89,13 +95,15 @@ item in "Now" below.
   of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
   beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
-- **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** *First step landed:* the three
-  flagship pairs now detect and draw their strong-match moment — beam/Hermit, stomp/Dancer, lasso/Thief (e819849).
-  That's the pattern proven; now extend and deepen it. The rest of the 8×4 web is still invisible or implied — pick up
-  the *next* few unread pairs (e.g. Magnet vs herd clusters, whistle vs Dancer, stomp vs Armored) and give each a
+- **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** *Momentum is real:* six pairs
+  now draw their moment — the three flagship strong-matches beam/Hermit, stomp/Dancer, lasso/Thief (e819849), plus
+  Magnet-vs-herd-cluster (01b8573) and lasso-vs-Magnet (b35db97), plus the first *negative* tell: a grey-steel
+  ricochet when the lasso slips off a shelled crab, so "wrong tool" reads as clearly as a strong match (01c7877).
+  That's the pattern proven in both directions; keep extending it. Still-unread pairs to pick up next: whistle vs
+  Dancer, stomp vs Armored, beam vs fast/Golden, and the rest of the 8×4 web that's still implied — each wants a
   brief, distinctive, beat-synced tell. Each archetype should telegraph its role with a clear visual identity, and
   each tool should feel like it has a *purpose* on the field beyond "catch things." See INSPIRATION.md Doom Eternal
-  note. Keep the three shipped tells sharp — don't regress them while adding new ones.
+  note. Keep the six shipped tells sharp — don't regress them while adding new ones.
 
 - **Interaction effects: make every meaningful event read clearly.** Catch-time crossovers exist (Dancer
   trips Goldens, Magnets supercharge on Golden-catch) but the visual feedback is sparse. Add small but
