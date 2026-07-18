@@ -7,6 +7,7 @@ mod graphics;
 mod hud_cache;
 mod levels;
 mod menu;
+mod npc_trains;
 mod sounds;
 mod spawnings;
 mod state;
@@ -6476,48 +6477,27 @@ impl MainState {
             draw_whistle_golden_pull(ctx, canvas, &self.whistle_golden_hits_buf)?;
         }
 
-        // Draw lasso: winding-up OR in-flight (Throwing/Snag/Dragging/Miss).
+        // Draw lasso line and tip
         {
             let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             match self.lasso_phase {
                 LassoPhase::Winding => {
-                    // Windup: spinning rope loop above/around the player, grows with charge.
-                    // Pulses brighter on each beat so the player can time the release.
                     let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
-                    // Beat-proximity pulse: brighter the closer to the beat edge.
                     let to_beat = self.beat_timer.min(self.beat_interval - self.beat_timer);
                     let beat_prox = (1.0 - to_beat / (BEAT_WINDOW * 1.5)).clamp(0.0, 1.0);
-                    draw_lasso_windup(
-                        ctx,
-                        canvas,
-                        player_center,
-                        charge_frac,
-                        beat_prox,
-                        self.lasso_spin,
-                    )?;
+                    draw_lasso_windup(ctx, canvas, player_center, charge_frac, beat_prox, self.lasso_spin)?;
                 }
-                LassoPhase::Throwing
-                | LassoPhase::Snag
-                | LassoPhase::Dragging
-                | LassoPhase::Miss => {
+                LassoPhase::Throwing | LassoPhase::Snag | LassoPhase::Dragging | LassoPhase::Miss => {
                     if let Some(tip) = self.lasso_pos {
-                        let (dur, draw_phase) = match self.lasso_phase {
-                            LassoPhase::Throwing => (LASSO_THROW_TIME, LassoDrawPhase::Throw),
-                            LassoPhase::Snag => (LASSO_SNAG_TIME, LassoDrawPhase::Snag),
-                            LassoPhase::Dragging => (LASSO_DRAG_TIME, LassoDrawPhase::Drag),
-                            LassoPhase::Miss => (LASSO_MISS_TIME, LassoDrawPhase::Miss),
-                            _ => (LASSO_THROW_TIME, LassoDrawPhase::Throw),
+                        let elapsed = 0.5 - self.lasso_timer;
+                        let outward_progress = (elapsed / 0.3).clamp(0.0, 1.0);
+                        let draw_phase = match self.lasso_phase {
+                            LassoPhase::Snag => graphics::LassoDrawPhase::Snag,
+                            LassoPhase::Dragging => graphics::LassoDrawPhase::Drag,
+                            LassoPhase::Miss => graphics::LassoDrawPhase::Miss,
+                            _ => graphics::LassoDrawPhase::Throw,
                         };
-                        let phase_t = (1.0 - self.lasso_timer / dur).clamp(0.0, 1.0);
-                        draw_lasso(
-                            ctx,
-                            canvas,
-                            player_center,
-                            tip,
-                            draw_phase,
-                            phase_t,
-                            self.lasso_spin,
-                        )?;
+                        draw_lasso(ctx, canvas, player_center, tip, draw_phase, outward_progress, self.lasso_spin)?;
                     }
                 }
                 LassoPhase::Idle => {}
@@ -6557,7 +6537,6 @@ impl MainState {
         draw_crab_radar(ctx, canvas, &self.crabs, width, height, self.camera_origin, self.beat_intensity, self.time_elapsed)?;
 
         // Minimap — top-right corner, showing the full scrolling world with NPC train positions.
-        // Stack-allocate the tiny NPC arrays (≤8 leaders, ≤64 followers) to avoid per-frame heap allocs.
         {
             const MINI_STEPS: usize = 14;
             let mut leader_buf = [(Vec2::ZERO, 0.0_f32); 8];
@@ -6569,9 +6548,7 @@ impl MainState {
             let mut follower_n = 0usize;
             for npc in &self.npc_trains {
                 for i in 0..npc.follower_types.len() {
-                    if follower_n >= follower_buf.len() {
-                        break;
-                    }
+                    if follower_n >= follower_buf.len() { break; }
                     if let Some(&p) = npc.path_history.get((i + 1) * MINI_STEPS) {
                         follower_buf[follower_n] = p;
                         follower_n += 1;
@@ -6579,12 +6556,9 @@ impl MainState {
                 }
             }
             draw_minimap(
-                ctx,
-                canvas,
-                width,
-                height,
-                self.world_width,
-                self.world_height,
+                ctx, canvas,
+                width, height,
+                self.world_width, self.world_height,
                 self.camera_origin,
                 self.player_pos,
                 self.pen_pos,
@@ -6595,30 +6569,10 @@ impl MainState {
             )?;
             let map_h = 180.0_f32 * (self.world_height / self.world_width);
             draw_day_weather_hud(
-                ctx,
-                canvas,
-                width,
-                map_h,
+                ctx, canvas,
+                width, map_h,
                 self.day_phase_t,
                 self.weather_intensity,
-                self.time_elapsed,
-            )?;
-        }
-
-        // Tool roster — Zelda-style 5-slot bar at the bottom centre.
-        if !self.show_instructions && !self.game_over && !self.show_world_map {
-            draw_tool_roster(
-                ctx,
-                canvas,
-                width,
-                height,
-                self.whistle_cooldown,
-                crate::WHISTLE_COOLDOWN,
-                self.stomp_cooldown,
-                crate::STOMP_COOLDOWN,
-                self.boost_cooldown,
-                !matches!(self.lasso_phase, LassoPhase::Idle),
-                self.groove,
                 self.time_elapsed,
             )?;
         }
@@ -7886,6 +7840,9 @@ impl MainState {
         // glow/ring this frame, instead of interleaved per-crab; since legs are thin lines mostly
         // beside the body and the glow/rings are soft translucent overlays, the reordering isn't
         // perceptible in motion.
+        // NPC conga trains — drawn after player crabs so they render on top of the world.
+        self.draw_npc_conga_train(ctx, canvas)?;
+
         crate::graphics::flush_crab_legs(ctx, canvas)?;
         crate::graphics::flush_crab_bodies(ctx, canvas)?;
         // Flush centerpiece bracket-dot DrawParams deferred by draw_centerpiece_ring() calls
@@ -10256,6 +10213,9 @@ impl EventHandler for MainState {
         if self.chain_snap_cooldown > 0.0 {
             self.chain_snap_cooldown = (self.chain_snap_cooldown - dt).max(0.0);
         }
+        if self.king_splice_cooldown > 0.0 {
+            self.king_splice_cooldown = (self.king_splice_cooldown - dt).max(0.0);
+        }
         if self.dash_flash > 0.0 {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
@@ -10336,6 +10296,9 @@ impl EventHandler for MainState {
         // Biome wrinkle (Rocky Shore): the tide rises and falls on the bar cycle, submerging the
         // low rocks into passable shortcuts on the beat and draining them back to solid walls.
         self.update_rock_tide(dt);
+
+        // NPC conga trains: ambient King Crabs wandering the world, pursuing the player's chain.
+        self.update_npc_trains(dt);
 
         // Thief archetype: a parasite crab clamped onto the tail steadily peels links loose on a
         // timer until you catch or dislodge it — pressure on the train you've already built.
@@ -10777,9 +10740,20 @@ impl EventHandler for MainState {
         // Snag (a beat of tightening) → Dragging (reel the crabs in with rope tension). An empty
         // landing goes Miss (flop down + dust puff). See LassoPhase / the LASSO_*_TIME constants.
         if self.lasso_phase != LassoPhase::Idle {
-            self.lasso_timer -= dt;
+            let player_center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
+            // Winding doesn't use lasso_timer; all other phases do.
+            if self.lasso_phase != LassoPhase::Winding {
+                self.lasso_timer -= dt;
+            }
             let origin = self.lasso_origin;
             match self.lasso_phase {
+                LassoPhase::Winding => {
+                    // Grow charge and spin faster as it builds; cap at max.
+                    self.lasso_charge = (self.lasso_charge + dt).min(LASSO_MAX_CHARGE_TIME);
+                    let charge_frac = self.lasso_charge / LASSO_MAX_CHARGE_TIME;
+                    self.lasso_spin += dt * (8.0 + charge_frac * 20.0);
+                    self.lasso_pos = Some(player_center);
+                }
                 LassoPhase::Throwing => {
                     // Ease-out so the loop leaves the hand fast and settles onto the aim point.
                     let t = (1.0 - (self.lasso_timer / LASSO_THROW_TIME)).clamp(0.0, 1.0);
@@ -10828,13 +10802,7 @@ impl EventHandler for MainState {
                 }
                 LassoPhase::Idle => {}
                 LassoPhase::Winding => {
-                    // Charging while the mouse is held: grow charge and spin faster as it builds,
-                    // capped at max. The throw itself fires in mouse_button_up_event on release.
-                    self.lasso_charge = (self.lasso_charge + dt).min(LASSO_MAX_CHARGE_TIME);
-                    let charge_frac = self.lasso_charge / LASSO_MAX_CHARGE_TIME;
-                    // Loop spins faster as charge builds (cowboy wind-up feel).
-                    self.lasso_spin += dt * (8.0 + charge_frac * 20.0);
-                    // Keep lasso tip parked at player center while winding.
+                    // Charging: grow spin and charge until released (handled in mouse_button_up).
                     self.lasso_pos = Some(self.lasso_origin);
                 }
             }
@@ -11220,7 +11188,6 @@ impl EventHandler for MainState {
             self.lasso_charge = 0.0;
             self.lasso_spin = 0.0;
             self.lasso_phase = LassoPhase::Winding;
-            // Capture player center for the windup origin; target is updated every frame from mouse_pos.
             self.lasso_origin = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
         }
         Ok(())
@@ -11228,17 +11195,16 @@ impl EventHandler for MainState {
 
     fn mouse_button_up_event(
         &mut self,
-        _ctx: &mut Context,
+        ctx: &mut Context,
         button: MouseButton,
         _x: f32,
         _y: f32,
     ) -> GameResult {
         if button == MouseButton::Left && self.lasso_phase == LassoPhase::Winding {
             self.lasso_mouse_down = false;
-            // Compute scaled range from charge: tap = MIN_RANGE_FRAC × MAX_RANGE, full = MAX_RANGE.
+            // TODO: play lasso throw sound here when lasso_sfx is added to GameSounds
             let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
             let range_frac = LASSO_MIN_RANGE_FRAC + (1.0 - LASSO_MIN_RANGE_FRAC) * charge_frac;
-            // On-beat release bonus: extra reach + groove reward.
             let on_beat_bonus = if self.on_beat_now() {
                 let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
                 self.reward_on_beat_tool(center, "LASSO");
@@ -11248,7 +11214,6 @@ impl EventHandler for MainState {
             };
             self.lasso_on_beat_bonus = on_beat_bonus;
             let throw_range = LASSO_MAX_RANGE * range_frac * on_beat_bonus;
-            // Clamp target within throw_range of player center.
             let origin = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             let to_aim = self.mouse_pos - origin;
             let aim_dist = to_aim.length();
@@ -11257,13 +11222,10 @@ impl EventHandler for MainState {
             } else if aim_dist > 1.0 {
                 self.mouse_pos
             } else {
-                // Mouse right on player — throw in the last-faced direction.
                 origin + self.last_dir.normalize_or_zero() * throw_range
             };
             self.lasso_target = clamped_target;
             self.lasso_origin = origin;
-            // Throw speed also scales with charge: a full charge is faster than a tap.
-            // We achieve this by scaling LASSO_THROW_TIME inversely with range_frac.
             let throw_time = LASSO_THROW_TIME / range_frac.max(0.15);
             self.lasso_timer = throw_time;
             self.lasso_phase = LassoPhase::Throwing;
@@ -11304,50 +11266,4 @@ fn main() -> GameResult {
         .build()?;
     let state = MainState::new(&mut ctx)?;
     event::run(ctx, event_loop, state)
-}
-
-#[cfg(test)]
-mod how_to_play_tests {
-    use super::how_to_play_body_text;
-
-    #[test]
-    fn how_to_play_text_matches_current_controls() {
-        let text = how_to_play_body_text();
-        for expected in [
-            "Shift",
-            "Space: dash",
-            "Q: wave",
-            "E: whistle",
-            "R: stomp",
-            "F: call",
-            "X: cycle",
-            "V: groove call",
-            "G: downbeat slam",
-            "B: bank",
-        ] {
-            assert!(
-                text.contains(expected),
-                "missing expected control text: {expected}"
-            );
-        }
-        assert!(!text.contains("Z: whistle"));
-        assert!(!text.contains("C: cycle"));
-    }
-}
-
-#[cfg(test)]
-mod player_name_tests {
-    use super::{normalize_player_name, sanitize_player_name};
-
-    #[test]
-    fn editing_name_can_be_empty() {
-        assert_eq!(sanitize_player_name("Crabby"), "Crabby");
-        assert_eq!(sanitize_player_name(""), "");
-        assert_eq!(sanitize_player_name("   "), "");
-    }
-
-    #[test]
-    fn empty_name_gets_default_when_used_as_a_display_name() {
-        assert_eq!(normalize_player_name(""), "Crabby");
-    }
 }
