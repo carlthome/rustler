@@ -12390,8 +12390,8 @@ impl EventHandler for MainState {
             };
             self.postprocess_params.set_uniforms(ctx, &uniform);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
-            //screen_canvas.set_shader(&self.postprocess_shader);
-            //screen_canvas.set_shader_params(&self.postprocess_params);
+            screen_canvas.set_shader(&self.postprocess_shader);
+            screen_canvas.set_shader_params(&self.postprocess_params);
             // Draw the image covering the full drawable area; scale to drawable size for HiDPI.
             screen_canvas.draw(
                 &self.scene_image,
