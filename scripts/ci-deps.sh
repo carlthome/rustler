@@ -12,6 +12,15 @@
 # the alsa dev headers are already present.
 set -euo pipefail
 
+# Nix-first: when the dev shell is available it already supplies every
+# dependency, so this script does nothing. It only provisions in cargo-only
+# environments without Nix (e.g. Claude's remote routine sandboxes). This keeps
+# it safe to run unconditionally from a SessionStart hook on a Nix machine.
+if command -v nix >/dev/null 2>&1; then
+  echo "ci-deps: Nix detected — dev shell provides dependencies, nothing to do."
+  exit 0
+fi
+
 # Headless ALSA: route the default PCM to null so audio init succeeds when the
 # container has no sound card (otherwise ggez aborts with an AudioError).
 if [ ! -f "$HOME/.asoundrc" ]; then
