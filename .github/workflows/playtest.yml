@@ -23,13 +23,13 @@ jobs:
       - name: Configure headless ALSA
         run: printf '%s\n' 'pcm.!default {' '  type null' '}' > "$HOME/.asoundrc"
       - name: Install graphics libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libgbm-dev libgl1-mesa-dri libglx-mesa0 libegl1
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libgbm-dev libgl1-mesa-dri libglx-mesa0 libegl1 mesa-vulkan-drivers
       - name: Build
         run: nix develop . --command cargo build
       - name: Run playtests
         run: bash scripts/playtest.sh
         env:
-          WGPU_BACKEND: gl
+          WGPU_BACKEND: vulkan,gl
           WINIT_UNIX_BACKEND: x11
           LIBGL_ALWAYS_SOFTWARE: 1
           MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
