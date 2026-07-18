@@ -3556,57 +3556,13 @@ pub fn draw_flashlight(
         screen_height,
     };
 
-    // Set up shader parameters — same cached-ShaderParams pattern as draw_grass: reuse the
-    // existing arena buffer and bind group via set_uniforms() instead of calling build() (which
-    // creates a fresh device.create_buffer + bind group) every frame the flashlight is lit.
-    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        if let Some(params) = slot.as_mut() {
-            params.set_uniforms(ctx, &uniform_data);
-        } else {
-            *slot = Some(ShaderParamsBuilder::new(&uniform_data).build(ctx));
-        }
-    });
-    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
-        if let Some(params) = cell.borrow().as_ref() {
-            canvas.set_shader_params(params);
-        }
-    });
-    canvas.set_shader(shader);
-
-    // Draw a full-screen quad that the shader will render the flashlight onto
-    // Use the same pattern as the grass shader
-    let flashlight_quad = cached_fill_rect(
-        ctx,
-        -screen_width / 2.0,
-        -screen_height / 2.0,
-        screen_width,
-        screen_height,
-        Color::WHITE,
-    )?;
-
-    // Set additive blend mode for the flashlight effect
+    // --- Volumetric dust motes drifting inside the beam ---
+    // Drawn BEFORE the custom shader is applied: ggez 0.9.3's set_default_shader() doesn't
+    // clear the group-3 shader-params bind group, so any instanced draw after set_shader_params
+    // would see a stale incompatible bind group and crash (wgpu validation error). Drawing motes
+    // first (while only the default shader is active) avoids the issue entirely.
     let original_blend = canvas.blend_mode();
     canvas.set_blend_mode(BlendMode::ADD);
-    canvas.draw(&flashlight_quad, DrawParam::default());
-
-    let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
-
-    // Draw flashlight body.
-    let flashlight_body = cached_fill_rect(ctx, -5.0, 0.0, 10.0, 24.0, Color::BLACK)?;
-    canvas.draw(
-        &flashlight_body,
-        DrawParam::default().dest(center).rotation(rotation),
-    );
-
-    // --- Volumetric dust motes drifting inside the beam ---
-    // Cheap procedural "god-ray dust": a fixed set of specks, each riding a straight ray out
-    // from the flashlight, twinkling and recycling at the far end so the cone reads as lit
-    // airborne dust rather than a flat gradient. Every mote's position/brightness is a pure
-    // function of its index and `time`, so this stays allocation-free and reuses the shared
-    // cached unit circle. Switch back to the default shader first (the flashlight shader is
-    // screen-space and ignores mesh colour), but keep the ADD blend so the motes glow.
-    canvas.set_default_shader();
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh.clone(),
         None => {
@@ -3665,7 +3621,42 @@ pub fn draw_flashlight(
         Ok(())
     })?;
 
-    // Restore original blend mode and shader
+    // Now apply the custom cone shader on a full-screen quad. This runs AFTER the instanced
+    // mote draw so the group-3 bind is only set here, with no instanced draws following it.
+    // set_default_shader() at the end clears self.shader but not self.shader_bind_group (ggez
+    // 0.9.3 bug), so the caller must ensure no instanced draws happen after this returns.
+    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if let Some(params) = slot.as_mut() {
+            params.set_uniforms(ctx, &uniform_data);
+        } else {
+            *slot = Some(ShaderParamsBuilder::new(&uniform_data).build(ctx));
+        }
+    });
+    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+        if let Some(params) = cell.borrow().as_ref() {
+            canvas.set_shader_params(params);
+        }
+    });
+    canvas.set_shader(shader);
+    let flashlight_quad = cached_fill_rect(
+        ctx,
+        -screen_width / 2.0,
+        -screen_height / 2.0,
+        screen_width,
+        screen_height,
+        Color::WHITE,
+    )?;
+    canvas.draw(&flashlight_quad, DrawParam::default());
+
+    // Draw flashlight body on top.
+    let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
+    let flashlight_body = cached_fill_rect(ctx, -5.0, 0.0, 10.0, 24.0, Color::BLACK)?;
+    canvas.draw(
+        &flashlight_body,
+        DrawParam::default().dest(center).rotation(rotation),
+    );
+
     canvas.set_blend_mode(original_blend);
     canvas.set_default_shader();
     Ok(())
