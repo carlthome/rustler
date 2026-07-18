@@ -24,6 +24,27 @@ whenever an agent prompt says `nix develop . --command <cmd>`, a cargo-only
 session can just run `<cmd>` directly — the hook has already provisioned the
 environment.
 
+## Playtests are the ground truth — keep them green
+
+The bot playtests (`scripts/playtest.sh`) are how we know the game still *works*, not
+just that it compiles. The **Playtest** GitHub Actions workflow now runs them on every
+push and PR to `main`, and it is green — keeping it green is a hard rule for every
+code-writing agent (Feature Developer, Overnight Dev, Optimizer, Architect, Issue Agent):
+
+- **Run playtests before you push, every time.** `cargo build && bash scripts/playtest.sh`
+  must pass locally before you commit. A change that builds but fails a playtest is a broken
+  change — don't push it.
+- **A red Playtest is the top-priority bug.** If `main`'s Playtest is failing, or your push
+  turns it red, fixing it comes before any feature work — ahead of the ROADMAP.
+- **Never disable, comment out, skip, or `|| true` a test to force a green result.** That
+  hides a real regression. A commented-out `run_script` line in `scripts/playtest.sh` is
+  itself a bug: re-enable it and fix the underlying game issue, don't work around it.
+- **New mechanics deserve new coverage.** When you add something the bots can meaningfully
+  exercise, extend a bot script so future changes can't silently break it.
+
+This is the whole point of running as autonomous collaborating agents: development stays
+grounded in whether the game actually plays, not just whether it builds.
+
 ## Issue-driven development (next-gen feature pipeline)
 
 Opening a GitHub Issue triggers the Issue Agent (`.github/workflows/issue-agent.yml`):
