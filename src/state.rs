@@ -443,6 +443,7 @@ pub struct MainState {
     pub(crate) camera_origin: Vec2, // Top-left world coord of the visible viewport this frame (player-following, clamped to world bounds). Read by draw() and the mouse handlers to map screen<->world.
     pub(crate) shader: ggez::graphics::Shader, // Shader for grass rendering
     pub(crate) flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
+    pub(crate) flashlight_cone_image: ggez::graphics::Image, // Offscreen target for flashlight cone (isolated from scene canvas to avoid wgpu group-3 bind leak)
     pub(crate) scene_image: ggez::graphics::Image, // Offscreen render target for post-processing
     pub(crate) postprocess_shader: ggez::graphics::Shader, // Screen-space post-process shader
     pub(crate) postprocess_params: ShaderParams<PostProcessUniform>, // Params for post-process shader
@@ -1297,6 +1298,17 @@ impl MainState {
             .fragment_path("/flashlight.wgsl")
             .build(&ctx.gfx)?;
 
+        // Offscreen target for the flashlight cone shader — kept separate so the custom shader's
+        // group-3 bind never touches the scene canvas (ggez 0.9.3 set_default_shader doesn't clear
+        // shader_bind_group, which would poison every subsequent instanced draw on the same canvas).
+        let flashlight_cone_image = ggez::graphics::Image::new_canvas_image(
+            ctx,
+            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
+            width as u32,
+            height as u32,
+            1,
+        );
+
         // Use logical size (1280x960) for the offscreen render target, consistent with the viewport.
         // The postprocess pass will handle any HiDPI scaling when blitting to screen.
         let scene_image = ggez::graphics::Image::new_canvas_image(
@@ -1403,6 +1415,7 @@ impl MainState {
             camera_origin: Vec2::ZERO,
             shader,
             flashlight_shader,
+            flashlight_cone_image,
             scene_image,
             postprocess_shader,
             postprocess_params,

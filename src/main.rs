@@ -7881,6 +7881,7 @@ impl MainState {
                 self.time_since_catch,
                 &self.flashlight,
                 &self.flashlight_shader,
+                &self.flashlight_cone_image,
                 self.width,
                 self.height,
                 self.camera_origin,

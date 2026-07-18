@@ -3511,6 +3511,7 @@ pub fn draw_flashlight(
     time_since_catch: f32,
     flashlight: &Flashlight,
     shader: &Shader,
+    cone_image: &ggez::graphics::Image,
     screen_width: f32,
     screen_height: f32,
     cam: Vec2,
@@ -3621,35 +3622,39 @@ pub fn draw_flashlight(
         Ok(())
     })?;
 
-    // Now apply the custom cone shader on a full-screen quad. This runs AFTER the instanced
-    // mote draw so the group-3 bind is only set here, with no instanced draws following it.
-    // set_default_shader() at the end clears self.shader but not self.shader_bind_group (ggez
-    // 0.9.3 bug), so the caller must ensure no instanced draws happen after this returns.
-    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        if let Some(params) = slot.as_mut() {
-            params.set_uniforms(ctx, &uniform_data);
-        } else {
-            *slot = Some(ShaderParamsBuilder::new(&uniform_data).build(ctx));
-        }
-    });
-    FLASHLIGHT_SHADER_PARAMS.with(|cell| {
-        if let Some(params) = cell.borrow().as_ref() {
-            canvas.set_shader_params(params);
-        }
-    });
-    canvas.set_shader(shader);
-    let flashlight_quad = cached_fill_rect(
-        ctx,
-        -screen_width / 2.0,
-        -screen_height / 2.0,
-        screen_width,
-        screen_height,
-        Color::WHITE,
-    )?;
-    canvas.draw(&flashlight_quad, DrawParam::default());
+    // Render the cone shader to a separate offscreen canvas so the custom shader's group-3 bind
+    // never touches the scene canvas. ggez 0.9.3's set_default_shader() doesn't clear
+    // shader_bind_group, so any instanced draw on the *same* canvas after set_shader_params
+    // crashes with a wgpu bind-group layout mismatch. Isolated render pass = no leak.
+    {
+        let mut cone_canvas = Canvas::from_image(ctx, cone_image.clone(), Color::from_rgba(0, 0, 0, 0));
+        // Cone canvas is screen-size, origin (0,0) — the shader already works in viewport coords.
+        cone_canvas.set_screen_coordinates(ggez::graphics::Rect::new(0.0, 0.0, screen_width, screen_height));
+        FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            if let Some(params) = slot.as_mut() {
+                params.set_uniforms(ctx, &uniform_data);
+            } else {
+                *slot = Some(ShaderParamsBuilder::new(&uniform_data).build(ctx));
+            }
+        });
+        FLASHLIGHT_SHADER_PARAMS.with(|cell| {
+            if let Some(params) = cell.borrow().as_ref() {
+                cone_canvas.set_shader_params(params);
+            }
+        });
+        cone_canvas.set_shader(shader);
+        let flashlight_quad = cached_fill_rect(ctx, 0.0, 0.0, screen_width, screen_height, Color::WHITE)?;
+        cone_canvas.draw(&flashlight_quad, DrawParam::default());
+        cone_canvas.set_default_shader();
+        cone_canvas.finish(ctx)?;
+    }
+    // Composite the cone image onto the scene canvas with additive blend — no custom shader needed.
+    canvas.set_blend_mode(BlendMode::ADD);
+    canvas.draw(cone_image, DrawParam::default().dest(center_view - Vec2::new(screen_width / 2.0, screen_height / 2.0)));
 
     // Draw flashlight body on top.
+    canvas.set_blend_mode(original_blend);
     let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
     let flashlight_body = cached_fill_rect(ctx, -5.0, 0.0, 10.0, 24.0, Color::BLACK)?;
     canvas.draw(
@@ -3658,7 +3663,6 @@ pub fn draw_flashlight(
     );
 
     canvas.set_blend_mode(original_blend);
-    canvas.set_default_shader();
     Ok(())
 }
 
