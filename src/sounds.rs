@@ -1730,3 +1730,295 @@ pub fn synth_theme_duck_golden(ctx: &mut Context) -> GameResult<Source> {
     ];
     synth_two_voice(ctx, s, v1, v2, 0.55, 0.38)
 }
+
+// ---------------------------------------------------------------------------
+// Generative GROOVE engine  (scale + riff + swing + bass/melody + build)
+//
+// The two-voice themes above are hand-written GB arpeggios — nice, but fixed.
+// This engine *generates* a groove from musical rules so the loop the player
+// actually hears (see `synth_action_groove`, wired into `action_music`) has a
+// real feel rather than reading as a fixed backing track:
+//
+//   * Notes come from a named SCALE (pentatonic / blues / dorian), so nothing
+//     ever sounds "wrong".
+//   * A short MOTIF is the riff; it REPEATS across a phrase with small
+//     deterministic VARIATIONS (neighbour-note substitution, octave lift, ghost
+//     notes) so the riff evolves instead of looping identically.
+//   * Onsets are quantised to a 1/16 BEAT GRID with SWING (odd 1/16s land late)
+//     for a shuffle feel — syncopation is intentional, tied to the grid.
+//   * CALL-AND-RESPONSE: two-bar phrases — a "question" motif then an "answer"
+//     that inverts the contour and resolves onto the root, held long.
+//   * LAYERING: a sparse triangle BASS plays root then fifth on the downbeats
+//     under the busier square LEAD.
+//   * DYNAMIC BUILD: ghost-note density rises across the phrase then resets, so
+//     each phrase breathes — sparse start, dense finish.
+//
+// A deterministic xorshift seed makes each groove reproducible build-to-build;
+// the randomness only ever chooses *between musical options*.
+// ---------------------------------------------------------------------------
+
+/// A musical scale as semitone offsets from the root across one octave.
+#[derive(Clone, Copy)]
+enum GrooveScale {
+    /// Minor pentatonic — the workhorse: no avoid-notes, always consonant.
+    PentatonicMinor,
+    /// Blues — minor pentatonic plus the flat-5 "blue note" for grit.
+    Blues,
+    /// Dorian — minor with a raised 6th, funky and hopeful.
+    Dorian,
+    /// Major pentatonic — bright and sparkly.
+    PentatonicMajor,
+}
+
+impl GrooveScale {
+    fn degrees(self) -> &'static [i32] {
+        match self {
+            GrooveScale::PentatonicMinor => &[0, 3, 5, 7, 10],
+            GrooveScale::Blues => &[0, 3, 5, 6, 7, 10],
+            GrooveScale::Dorian => &[0, 2, 3, 5, 7, 9, 10],
+            GrooveScale::PentatonicMajor => &[0, 2, 4, 7, 9],
+        }
+    }
+}
+
+/// Equal-temperament frequency for a MIDI note number (69 = A4 = 440 Hz).
+fn groove_midi_to_hz(midi: i32) -> f32 {
+    440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0)
+}
+
+/// Map a scale *degree index* (0 = root; may be negative or beyond the octave) to a
+/// MIDI note by wrapping through the scale and adding octaves — lets a riff walk the
+/// scale smoothly up and down without ever leaving it.
+fn groove_degree_to_midi(scale: GrooveScale, root_midi: i32, degree: i32) -> i32 {
+    let steps = scale.degrees();
+    let n = steps.len() as i32;
+    let octave = degree.div_euclid(n);
+    let idx = degree.rem_euclid(n) as usize;
+    root_midi + octave * 12 + steps[idx]
+}
+
+/// Deterministic xorshift32 PRNG — reproducible per seed. Used only to choose
+/// between musical options (which degree, whether to add a ghost note, etc.).
+struct GrooveRng(u32);
+impl GrooveRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.0 = x;
+        x
+    }
+    fn f01(&mut self) -> f32 {
+        (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
+    }
+    fn below(&mut self, n: usize) -> usize {
+        (self.next_u32() as usize) % n.max(1)
+    }
+    fn chance(&mut self, p: f32) -> bool {
+        self.f01() < p
+    }
+}
+
+/// One scheduled note on the 1/16 grid.
+struct GrooveNote {
+    step: u32,   // start position in 1/16 units
+    len: u32,    // length in 1/16 units
+    degree: i32, // scale degree relative to the root
+    bass: bool,  // bass (triangle, low) vs. lead (square)
+    gain: f32,
+}
+
+/// Render one voice note with a tight percussive envelope so onsets land crisply
+/// on the beat, with a short release tail so consecutive notes stay legato.
+fn groove_voice_note(hz: f32, dur_s: f32, waveform: Waveform, gain: f32) -> Vec<f32> {
+    let adsr = Adsr {
+        attack: 0.004,
+        decay: 0.06,
+        sustain: 0.55,
+        release: 0.09,
+    };
+    let hold = (dur_s * 0.85).max(0.02); // notes breathe but stay connected
+    synth_note(waveform, hz, hold, &adsr, gain)
+}
+
+/// Build a repeating call-and-response groove and render it to a looping Source.
+/// `bpm` sets tempo; `swing` (0..1) is how late odd 1/16 steps land; `bars` is the
+/// phrase length (even numbers alternate question/answer bars).
+#[allow(clippy::too_many_arguments)]
+fn synth_groove(
+    ctx: &mut Context,
+    seed: u32,
+    scale: GrooveScale,
+    root_midi: i32,
+    bpm: f32,
+    swing: f32,
+    bars: u32,
+    melody_gain: f32,
+    bit_depth: u32,
+) -> GameResult<Source> {
+    let mut rng = GrooveRng(seed | 1);
+
+    let beat_s = 60.0 / bpm;
+    let step_s = beat_s / 4.0; // 1/16-note grid
+    let steps_per_bar = 16u32;
+
+    // Rhythmic weighting: downbeats most likely, "and" next, "e"/"a" rare (syncopation).
+    let step_weight = |s: u32| -> f32 {
+        match s % 4 {
+            0 => 1.0,
+            2 => 0.7,
+            _ => 0.28,
+        }
+    };
+
+    // --- Build the "question" motif over one bar on the 1/16 grid. ---
+    let mut question: Vec<(u32, i32, u32)> = Vec::new(); // (step, degree, len)
+    let mut degree = 0i32; // start on the root
+    let mut s = 0u32;
+    while s < steps_per_bar {
+        if rng.f01() < step_weight(s) {
+            let len = match rng.below(4) {
+                0 => 1, // 1/16
+                3 => 4, // 1/4 for phrasing
+                _ => 2, // 1/8 (most common)
+            };
+            question.push((s, degree, len));
+            // Contour: mostly stepwise within the scale, occasional leap.
+            let motion = if rng.chance(0.7) {
+                if rng.chance(0.5) { 1 } else { -1 }
+            } else if rng.chance(0.5) {
+                2
+            } else {
+                -2
+            };
+            degree = (degree + motion).clamp(-3, 8);
+            s += len;
+        } else {
+            s += 1;
+        }
+    }
+    // Guarantee a downbeat root anchor.
+    if !question.iter().any(|&(st, _, _)| st == 0) {
+        question.insert(0, (0, 0, 2));
+    }
+
+    // The "answer": same rhythm, inverted contour, resolves to the root (held long).
+    let mut answer: Vec<(u32, i32, u32)> = question
+        .iter()
+        .map(|&(st, deg, len)| (st, -deg / 2, len))
+        .collect();
+    if let Some(last) = answer.last_mut() {
+        last.1 = 0;
+        last.2 = 4;
+    }
+
+    // --- Assemble the full phrase: alternate question/answer bars with rising
+    // ghost-note density and small variations on later repeats. ---
+    let mut notes: Vec<GrooveNote> = Vec::new();
+    for bar in 0..bars {
+        let call = bar % 2 == 0;
+        let motif = if call { &question } else { &answer };
+        let build = bar as f32 / bars.max(1) as f32; // 0..1 across the phrase
+
+        for &(st, deg, len) in motif {
+            let mut d = deg;
+            if bar >= 2 {
+                if rng.chance(0.18) {
+                    d += if rng.chance(0.5) { 1 } else { -1 };
+                }
+                if rng.chance(0.12) {
+                    d += 5; // ~octave lift (5 pentatonic steps)
+                }
+            }
+            let global_step = bar * steps_per_bar + st;
+            notes.push(GrooveNote {
+                step: global_step,
+                len,
+                degree: d.clamp(-4, 12),
+                bass: false,
+                gain: melody_gain,
+            });
+            // Ghost note — quiet extra 1/16, more likely as the build rises.
+            if rng.chance(0.10 + 0.35 * build) && st + len < steps_per_bar {
+                notes.push(GrooveNote {
+                    step: global_step + len,
+                    len: 1,
+                    degree: (d - 1).clamp(-4, 12),
+                    bass: false,
+                    gain: melody_gain * 0.5,
+                });
+            }
+        }
+
+        // --- Bass: root on beat 1, fifth on beat 3, an octave below the lead. ---
+        notes.push(GrooveNote {
+            step: bar * steps_per_bar,
+            len: 4,
+            degree: -7,
+            bass: true,
+            gain: melody_gain * 0.9,
+        });
+        notes.push(GrooveNote {
+            step: bar * steps_per_bar + 8,
+            len: 4,
+            degree: -7 + 3, // the fifth (pentatonic degree 3), octave down
+            bass: true,
+            gain: melody_gain * 0.8,
+        });
+    }
+
+    // --- Render every note onto the mix bus at its swung onset time. ---
+    let total_steps = bars * steps_per_bar;
+    let total_s = total_steps as f32 * step_s + 0.3;
+    let mut mix: Vec<f32> = vec![0.0; (SAMPLE_RATE as f32 * total_s) as usize];
+
+    for note in &notes {
+        // Swing: push odd 1/16 steps late by up to half a step × swing.
+        let swing_offset = if note.step % 2 == 1 {
+            swing * 0.5 * step_s
+        } else {
+            0.0
+        };
+        let start_s = note.step as f32 * step_s + swing_offset;
+        let dur_s = note.len as f32 * step_s;
+        let midi = groove_degree_to_midi(scale, root_midi, note.degree);
+        let hz = groove_midi_to_hz(midi);
+        let waveform = if note.bass {
+            Waveform::Triangle
+        } else {
+            Waveform::Rect(0.5)
+        };
+        let rendered = groove_voice_note(hz, dur_s, waveform, note.gain);
+        let offset = (start_s * SAMPLE_RATE as f32) as usize;
+        mix_into(&mut mix, &rendered, offset);
+    }
+
+    // Glue the layered voices and bring up to clean full loudness.
+    compress(&mut mix, 0.5, 3.0, 0.005, 0.08);
+    master_limiter(&mut mix);
+
+    let pcm = samples_to_pcm(&mut mix, bit_depth, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    let mut src = Source::from_data(ctx, data)?;
+    src.set_repeat(true);
+    Ok(src)
+}
+
+/// The default in-game action groove — the loop the player hears while rustling.
+/// A driving A-minor-pentatonic shuffle at 148 BPM, 8 bars so the riff visibly
+/// evolves (variation + rising density) before it loops.
+pub fn synth_action_groove(ctx: &mut Context) -> GameResult<Source> {
+    synth_groove(
+        ctx,
+        0xC0FFEE,
+        GrooveScale::PentatonicMinor,
+        57, // A3 root register
+        148.0,
+        0.58,
+        8,
+        0.5,
+        6,
+    )
+}
