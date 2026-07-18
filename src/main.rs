@@ -103,9 +103,9 @@ use crate::graphics::{
     draw_puddle_ripples, draw_reef_phrase, draw_rustler, draw_sky_overlay, draw_slam_ring,
     draw_speed_lines, draw_splitter_aura, draw_sprint_whoosh, draw_stomp_ring, draw_tail_run_badge,
     draw_thief_aura, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_wave_telegraph,
-    draw_weather, draw_whistle_ring, draw_world_edge, draw_world_map, flush_attracted_crab_glows,
-    flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots,
-    flush_magnet_auras, unit_circle, unit_line, unit_square,
+    draw_weather, draw_whistle_ring, draw_world_edge, draw_world_map, draw_world_zones,
+    flush_attracted_crab_glows, flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots,
+    flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
     draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
@@ -6065,20 +6065,8 @@ impl MainState {
         let ground_g = ((tg as f32 * dg) + 255.0 * flash * 0.25).min(255.0) as u8;
         let ground_b = ((tb as f32 * db) + 255.0 * flash * 0.25).min(255.0) as u8;
 
-        // Draw level background, color-graded to the current biome and time of day.
-        draw_grass(
-            ctx,
-            canvas,
-            world_w,
-            world_h,
-            texture,
-            &self.shader,
-            self.time_elapsed,
-            // Beat phase 0→1 across a beat (0 the instant one lands), so the grass shader can
-            // fire a ripple of light outward from center on every downbeat.
-            (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0),
-            Color::from_rgb(ground_r, ground_g, ground_b),
-        )?;
+        // Draw world zones: grass (left), beach (middle), water (right)
+        draw_world_zones(ctx, canvas, world_w, world_h)?;
 
         // World-space sky overlay: a soft full-world tint carrying the day/night mood plus the
         // cloudy/rain grey dimming. Sits over the ground but under the action. Rain streaks, the

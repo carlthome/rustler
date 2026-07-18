@@ -56,21 +56,27 @@ impl BotState {
 }
 
 pub fn script_menu_to_game() -> Vec<BotEvent> {
-    // Sweep in all four directions to guarantee the flashlight covers nearby crabs regardless
-    // of where they spawn. At 8× time_scale, each 1.5 s game-time segment = ~0.19 s wall-clock.
+    // Sweep in all four directions and whistle periodically to pull crabs toward the player.
+    // Crabs flee from the player but the whistle (E) charms and pulls them into catching range.
+    // At 8× time_scale, each 1.5 s game-time segment = ~0.19 s wall-clock.
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0,  action: BotAction::HoldKey(KeyCode::Right) },
+        BotEvent { at: 2.1,  action: BotAction::TapKey(KeyCode::E) },   // whistle to pull crabs
         BotEvent { at: 3.5,  action: BotAction::ReleaseKey(KeyCode::Right) },
         BotEvent { at: 3.5,  action: BotAction::HoldKey(KeyCode::Down) },
+        BotEvent { at: 3.6,  action: BotAction::TapKey(KeyCode::E) },
         BotEvent { at: 5.0,  action: BotAction::ReleaseKey(KeyCode::Down) },
         BotEvent { at: 5.0,  action: BotAction::HoldKey(KeyCode::Left) },
+        BotEvent { at: 5.1,  action: BotAction::TapKey(KeyCode::E) },
         BotEvent { at: 6.5,  action: BotAction::ReleaseKey(KeyCode::Left) },
         BotEvent { at: 6.5,  action: BotAction::HoldKey(KeyCode::Up) },
+        BotEvent { at: 6.6,  action: BotAction::TapKey(KeyCode::E) },
         BotEvent { at: 8.0,  action: BotAction::ReleaseKey(KeyCode::Up) },
         BotEvent { at: 8.0,  action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 10.1, action: BotAction::TapKey(KeyCode::E) },
         BotEvent { at: 15.0, action: BotAction::Assert(BotAssert::ChainAtLeast(1)) },
     ]
 }
