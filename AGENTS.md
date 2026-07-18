@@ -13,6 +13,17 @@ See `README.md` for the current development and build instructions.
 > **Note:** Run `nix develop` from the repo root before running Cargo or launching the game.
 > Agents should use local checkout commands (`nix develop`, `cargo build`, `cargo run`) and avoid `nix run github:...`.
 
+**Cargo-only environments (no Nix).** Nix is the primary path, but the remote
+routine sandboxes (see the roster below) have Cargo without Nix. There,
+`scripts/ci-deps.sh` installs the system libraries from `default.nix` via apt and
+configures a headless null-audio device; a `SessionStart` hook in
+`.claude/settings.json` runs it automatically at the start of every session (it
+no-ops when Nix is present, so it's harmless locally). `scripts/playtest.sh`
+auto-detects Nix and falls back to plain `cargo` + `xvfb` otherwise. In short:
+whenever an agent prompt says `nix develop . --command <cmd>`, a cargo-only
+session can just run `<cmd>` directly — the hook has already provisioned the
+environment.
+
 ## Issue-driven development (next-gen feature pipeline)
 
 Opening a GitHub Issue triggers the Issue Agent (`.github/workflows/issue-agent.yml`):
@@ -55,9 +66,12 @@ git -C . push origin main
 
 ## Agent roster
 
-Two tiers: **remote routines** (run in Anthropic's cloud, survive restarts, managed at claude.ai/code/routines) and **local crons** (session-scoped, need Claude Code open, set up via "bootstrap").
+All eight agents now run as **remote routines** (in Anthropic's cloud, surviving
+restarts, managed at claude.ai/code/routines). No laptop or "bootstrap" needed.
+The code-writing agents (1, 4, 5, 7) build and playtest with cargo in the remote
+sandbox — the `SessionStart` hook provisions dependencies (see **Build** above).
 
-**Remote routines — always running, no bootstrap needed:**
+**Text / git / doc routines (no game build):**
 
 ```text
 2. Release Manager  — daily 07:00 UTC     — haiku  ← pure counting/tagging, no build needed
@@ -66,21 +80,26 @@ Two tiers: **remote routines** (run in Anthropic's cloud, survive restarts, mana
 8. Supervisor       — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
 ```
 
-Manage at: [claude.ai/code/routines](https://claude.ai/code/routines)
-
-**Local crons — need Claude Code open (say "bootstrap" to start):**
+**Code-writing routines (cargo build + playtest in the sandbox):**
 
 ```text
-1. Feature Developer — every 12 min  — opus   / effort: high   ← main gameplay driver, needs nix+cargo
-4. Overnight Dev     — daily at 00:03 — sonnet / effort: medium ← conservative overnight work
-5. Optimizer         — every 30 min   — sonnet / effort: medium ← perf fixes, needs build
-7. Architect         — every 3 hours  — sonnet / effort: medium ← file splits, needs build
+1. Feature Developer — hourly          — opus   ← main gameplay driver
+4. Overnight Dev     — daily at 00:03  — sonnet ← conservative overnight work
+5. Optimizer         — every 2 hours   — sonnet ← perf fixes
+7. Architect         — every 3 hours   — sonnet ← file splits
 ```
 
-Token budget principle: Opus+high on decisions that compound. Haiku+low for mechanical tasks.
-Sonnet+medium for code correctness. Don't run agents more often than their inputs change.
+> Cadence note: remote routines fire at most hourly, so the old sub-hourly
+> cadences (Feature Dev every 12 min, Optimizer every 30 min) were raised to the
+> hourly minimum. Minutes are staggered so concurrent pushes to main don't collide.
 
-**DO NOT** bootstrap the remote agents (2, 3, 6, 8) as local crons — they're already running remotely and duplicates will create conflicting commits.
+Manage all of them at: [claude.ai/code/routines](https://claude.ai/code/routines)
+
+Token budget principle: Opus on decisions that compound. Haiku for mechanical tasks.
+Sonnet for code correctness. Don't run agents more often than their inputs change.
+
+**DO NOT** create duplicate local crons for any of these — they're all running
+remotely and duplicates will create conflicting commits.
 
 ## Worktree isolation
 
@@ -94,7 +113,11 @@ Example spawn call:
 Agent(description="...", prompt="...", model="opus", isolation="worktree", run_in_background=True)
 ```
 
-Remote routines (2, 3, 6, 8) run in Anthropic's cloud with their own checkout — they're already isolated by design.
+This worktree advice only applies if you run the code-writing agents locally by
+hand. As remote routines, all eight run in Anthropic's cloud, each in its own
+fresh sandbox with its own checkout — they're isolated by design, so no worktree
+setup is needed. They still `git pull --ff-only`/rebase before pushing to reconcile
+concurrent commits to main.
 
 ## How the agents work together
 

@@ -44,3 +44,24 @@ cargo run
 ```
 
 **Tip:** You can also run one-off commands directly, for example: `nix develop --command cargo check`
+
+### Without Nix (cargo only)
+
+Nix is optional. On a machine with Rust/Cargo already installed you can build and
+playtest with cargo directly — `scripts/ci-deps.sh` installs the system libraries
+(the same ones listed in `default.nix`) and configures a headless audio device so
+the game builds and the bot playtests can run offscreen:
+
+```sh
+# One-time: install system libraries + headless audio (Ubuntu/Debian, idempotent).
+bash scripts/ci-deps.sh
+
+# Build, and run the bot playtests.
+cargo build
+bash scripts/playtest.sh
+```
+
+`scripts/playtest.sh` auto-detects Nix: it uses the dev shell when present and
+falls back to plain cargo (with `xvfb` for offscreen rendering) otherwise. This is
+what lets the feature-development agents run as Claude cloud routines without a
+local machine.
