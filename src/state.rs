@@ -52,6 +52,9 @@ pub struct GameSounds {
     pub(crate) stomp_sfx: Source,
     /// Synthesised whoosh for the Lasso throw release.
     pub(crate) lasso_sfx: Source,
+    /// Five crab-theme loops (Duck Game / Deus Ex ABA melodies), one per archetype group.
+    /// 0=normal/fast/big  1=dancer/splitter  2=thief/sneaky  3=boss/armored  4=golden/magnet/hermit
+    pub(crate) crab_themes: [Source; 5],
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -288,8 +291,8 @@ impl NpcCongaTrain {
         // Scale, speed, and follower count all differ so they read instantly at a glance.
         let (sx, sy, tc_x, tc_y, leader_scale, speed_hint) = match index {
             0 => (0.2, 0.3, 0.25, 0.3, 1.2_f32, 110.0_f32), // small/fast scout, top-left territory
-            1 => (0.8, 0.2, 0.75, 0.25, 1.8_f32, 80.0_f32),  // medium wanderer, top-right territory
-            _ => (0.5, 0.8, 0.5, 0.75, 2.4_f32, 55.0_f32),   // large elder, bottom territory
+            1 => (0.8, 0.2, 0.75, 0.25, 1.8_f32, 80.0_f32), // medium wanderer, top-right territory
+            _ => (0.5, 0.8, 0.5, 0.75, 2.4_f32, 55.0_f32),  // large elder, bottom territory
         };
         let _ = speed_hint; // stored per-train would need another field; use leader_scale as proxy in update
         let start = Vec2::new(world_width * sx, world_height * sy);
@@ -300,9 +303,23 @@ impl NpcCongaTrain {
             // Small scout: fast light crabs
             0 => vec![CrabType::Fast, CrabType::Sneaky, CrabType::Normal],
             // Medium wanderer: balanced mix
-            1 => vec![CrabType::Armored, CrabType::Normal, CrabType::Fast, CrabType::Magnet, CrabType::Dancer],
+            1 => vec![
+                CrabType::Armored,
+                CrabType::Normal,
+                CrabType::Fast,
+                CrabType::Magnet,
+                CrabType::Dancer,
+            ],
             // Large elder: heavy diverse retinue
-            _ => vec![CrabType::Big, CrabType::Dancer, CrabType::Golden, CrabType::Normal, CrabType::Sneaky, CrabType::Hermit, CrabType::Fast],
+            _ => vec![
+                CrabType::Big,
+                CrabType::Dancer,
+                CrabType::Golden,
+                CrabType::Normal,
+                CrabType::Sneaky,
+                CrabType::Hermit,
+                CrabType::Fast,
+            ],
         };
         let mut history = VecDeque::new();
         history.push_back(start);
@@ -419,10 +436,10 @@ pub struct MainState {
     pub(crate) scene_image: ggez::graphics::Image, // Offscreen render target for post-processing
     pub(crate) postprocess_shader: ggez::graphics::Shader, // Screen-space post-process shader
     pub(crate) postprocess_params: ShaderParams<PostProcessUniform>, // Params for post-process shader
-    pub(crate) particle_system: ParticleSystem, // Particle effects system
-    pub(crate) level_title: String, // Title of the current level
+    pub(crate) particle_system: ParticleSystem,                      // Particle effects system
+    pub(crate) level_title: String,                                  // Title of the current level
     pub(crate) level_title_timer: f32, // Timer for displaying level title
-    pub(crate) subtitle: String,    // Random subtitle for instructions screen
+    pub(crate) subtitle: String,       // Random subtitle for instructions screen
     pub(crate) position_history: VecDeque<Vec2>,
     pub(crate) chain_count: usize,
     pub(crate) beat_timer: f32,
@@ -1080,6 +1097,13 @@ impl MainState {
             whistle_sfx: sounds::synth_whistle(ctx)?,
             stomp_sfx: sounds::synth_stomp(ctx)?,
             lasso_sfx: sounds::synth_lasso_throw(ctx)?,
+            crab_themes: [
+                sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
+                sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
+                sounds::synth_theme_deus_tense(ctx)?,   // 2 — thief/sneaky
+                sounds::synth_theme_deus_ambient(ctx)?, // 3 — boss/armored/hermit
+                sounds::synth_theme_duck_golden(ctx)?,  // 4 — golden/magnet
+            ],
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
@@ -1253,11 +1277,14 @@ impl MainState {
             .fragment_path("/flashlight.wgsl")
             .build(&ctx.gfx)?;
 
+        // Use the drawable (physical pixel) size so the image covers the full canvas on
+        // HiDPI/Retina displays where the drawable size is 2× the logical window size.
+        let (draw_w, draw_h) = ctx.gfx.drawable_size();
         let scene_image = ggez::graphics::Image::new_canvas_image(
             ctx,
             ggez::graphics::ImageFormat::Rgba8UnormSrgb,
-            width as u32,
-            height as u32,
+            draw_w as u32,
+            draw_h as u32,
             1,
         );
         let postprocess_shader = ShaderBuilder::new()

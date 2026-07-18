@@ -1239,3 +1239,136 @@ pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {
     let data = SoundData::from_bytes(&wav);
     Source::from_data(ctx, data)
 }
+
+// ---------------------------------------------------------------------------
+// Crab-theme melody synthesiser  (Duck Game / Deus Ex inspired ABA loops)
+// ---------------------------------------------------------------------------
+
+fn melody_note(hz: f32, dur_s: f32, amp: f32) -> Vec<f32> {
+    let n = (SAMPLE_RATE as f32 * dur_s) as usize;
+    let mut out = Vec::with_capacity(n);
+    if hz < 1.0 {
+        out.resize(n, 0.0);
+        return out;
+    }
+    let mut phase = 0.0_f32;
+    for i in 0..n {
+        let t = i as f32 / SAMPLE_RATE as f32;
+        phase += hz / SAMPLE_RATE as f32;
+        let sq = if (phase % 1.0) < 0.5 { 1.0_f32 } else { -1.0 };
+        let frac = t / dur_s;
+        let env = if frac < 0.05 { frac / 0.05 }
+                  else if frac < 0.15 { 1.0 - (frac - 0.05) / 0.10 * 0.3 }
+                  else if frac < 0.82 { 0.7 }
+                  else { 0.7 * (1.0 - (frac - 0.82) / 0.18) };
+        out.push(sq * amp * env.clamp(0.0, 1.0));
+    }
+    out
+}
+
+fn synth_theme_loop(
+    ctx: &mut Context,
+    beat_s: f32,
+    sequence: &[(f32, f32)], // (hz, beats)
+    amp: f32,
+    bit_depth: u32,
+) -> GameResult<Source> {
+    let mut all: Vec<f32> = Vec::new();
+    for &(hz, beats) in sequence {
+        all.extend(melody_note(hz, beat_s * beats, amp));
+    }
+    let pcm = samples_to_pcm(&mut all, bit_depth, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    let mut src = Source::from_data(ctx, data)?;
+    src.set_repeat(true);
+    Ok(src)
+}
+
+// Pre-computed equal-temperament frequencies
+const C3:  f32 = 130.81; const E3: f32 = 164.81; const F3: f32 = 174.61;
+const G3:  f32 = 196.00; const A3: f32 = 220.00; const B3: f32 = 246.94;
+const C4:  f32 = 261.63; const D4: f32 = 293.66; const DS4: f32 = 311.13;
+const E4:  f32 = 329.63; const F4: f32 = 349.23; const FS4: f32 = 369.99;
+const G4:  f32 = 392.00; const GS4: f32 = 415.30; const A4: f32 = 440.00;
+const B4:  f32 = 493.88;
+const C5:  f32 = 523.25; const D5: f32 = 587.33; const E5: f32 = 659.25;
+const FS5: f32 = 739.99; const G5: f32 = 783.99; const A5: f32 = 880.00;
+const R:   f32 = 0.0; // rest
+
+/// Theme 0 — "Happy Crab Stomp": C major, 170 BPM, Duck-Game bouncy arpeggios. ABA.
+pub fn synth_theme_duck_bounce(ctx: &mut Context) -> GameResult<Source> {
+    let b = 60.0 / 170.0;
+    #[rustfmt::skip]
+    let seq: &[(f32, f32)] = &[
+        // A
+        (C5,0.5),(E5,0.5),(G5,0.5),(E5,0.5),(C5,0.5),(G4,0.5),(A4,0.5),(C5,0.5),
+        // B
+        (G4,1.0),(F4,0.5),(E4,0.5),(D4,1.0),(C4,1.0),
+        // A
+        (C5,0.5),(E5,0.5),(G5,0.5),(E5,0.5),(C5,0.5),(G4,0.5),(A4,0.5),(C5,1.0),
+    ];
+    synth_theme_loop(ctx, b, seq, 0.55, 6)
+}
+
+/// Theme 1 — "Funky Dancer": D major, 145 BPM, syncopated Duck-Game groove. ABA.
+pub fn synth_theme_duck_funky(ctx: &mut Context) -> GameResult<Source> {
+    let b = 60.0 / 145.0;
+    #[rustfmt::skip]
+    let seq: &[(f32, f32)] = &[
+        // A — offbeat groove
+        (D5,0.5),(R,0.25),(D5,0.25),(A4,0.5),(FS4,0.5),
+        (D5,0.5),(E5,0.25),(FS5,0.25),(E5,0.5),(D5,0.5),
+        // B — slower hook
+        (G4,1.0),(A4,1.0),(FS4,0.5),(E4,0.5),(D4,1.0),
+        // A
+        (D5,0.5),(R,0.25),(D5,0.25),(A4,0.5),(FS4,0.5),
+        (D5,0.5),(E5,0.25),(FS5,0.25),(E5,0.5),(D5,1.0),
+    ];
+    synth_theme_loop(ctx, b, seq, 0.50, 6)
+}
+
+/// Theme 2 — "UNATCO Corridor": E Phrygian, 95 BPM, Deus Ex tense darkness. ABA.
+pub fn synth_theme_deus_tense(ctx: &mut Context) -> GameResult<Source> {
+    let b = 60.0 / 95.0;
+    #[rustfmt::skip]
+    let seq: &[(f32, f32)] = &[
+        // A — descending Phrygian figure
+        (E4,1.0),(F4,0.5),(E4,0.5),(B3,1.0),(G3,1.0),(F3,0.5),(E3,0.5),(R,1.0),
+        // B — chromatic tension
+        (A3,1.0),(GS4,1.0),(F4,0.5),(E4,1.0),(DS4,0.5),(R,1.0),
+        // A
+        (E4,1.0),(F4,0.5),(E4,0.5),(B3,1.0),(G3,1.0),(F3,0.5),(E3,1.5),
+    ];
+    synth_theme_loop(ctx, b, seq, 0.60, 8)
+}
+
+/// Theme 3 — "Ambient Biomech": A minor, 80 BPM, sparse Deus Ex atmosphere. ABA.
+pub fn synth_theme_deus_ambient(ctx: &mut Context) -> GameResult<Source> {
+    let b = 60.0 / 80.0;
+    #[rustfmt::skip]
+    let seq: &[(f32, f32)] = &[
+        // A — long notes with space
+        (A3,2.0),(R,0.5),(C4,1.5),(E4,2.0),(R,0.5),(G4,1.5),
+        // B — chromatic float
+        (F4,2.0),(GS4,1.5),(R,0.5),(B4,2.0),(A4,2.0),
+        // A
+        (A3,2.0),(R,0.5),(C4,1.5),(E4,2.0),(R,0.5),(A4,2.0),
+    ];
+    synth_theme_loop(ctx, b, seq, 0.50, 10)
+}
+
+/// Theme 4 — "Golden Rush": G major pentatonic, 155 BPM, sparkly Duck-Game runs. ABA.
+pub fn synth_theme_duck_golden(ctx: &mut Context) -> GameResult<Source> {
+    let b = 60.0 / 155.0;
+    #[rustfmt::skip]
+    let seq: &[(f32, f32)] = &[
+        // A — rapid pentatonic run
+        (G4,0.5),(A4,0.5),(B4,0.5),(D5,0.5),(G5,0.5),(D5,0.5),(B4,0.5),(G4,0.5),
+        // B — octave leap surprise
+        (D5,1.0),(G5,0.5),(A5,0.5),(G5,1.0),(D5,1.0),
+        // A
+        (G4,0.5),(A4,0.5),(B4,0.5),(D5,0.5),(G5,0.5),(D5,0.5),(B4,0.5),(G4,1.0),
+    ];
+    synth_theme_loop(ctx, b, seq, 0.55, 6)
+}

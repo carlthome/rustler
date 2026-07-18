@@ -13,11 +13,35 @@ See `README.md` for the current development and build instructions.
 > **Note:** Run `nix develop` from the repo root before running Cargo or launching the game.
 > Agents should use local checkout commands (`nix develop`, `cargo build`, `cargo run`) and avoid `nix run github:...`.
 
+## Issue-driven development (next-gen feature pipeline)
+
+Opening a GitHub Issue triggers the Issue Agent (`.github/workflows/issue-agent.yml`):
+it spins up a Claude Opus agent in CI, implements the feature, runs playtests, and opens a PR.
+The PR auto-merges once CI + Playtest pass (`.github/workflows/auto-merge.yml`).
+
+Multiple issues can be open simultaneously — each gets its own branch (`issue-<N>`) and
+its own isolated CI run, so they develop in parallel with no shared working directory.
+
+**To avoid merge conflicts between parallel issue PRs:**
+- Scope issues to a single subsystem (e.g. "enemies", "audio", "rendering", "spawning").
+- If you're planning refactors or modularisation that will move files, open that as its own
+  issue and merge it before opening feature issues that touch the same area.
+- The Architect agent (cron 7) continuously splits large files into subsystem modules —
+  smaller, well-named modules make parallel issue PRs far less likely to conflict.
+
+**Issue Agent coordination:** Before implementing, check open PRs with `gh pr list` to see
+what other issue agents are already working on. If a concurrent PR touches the same file,
+either rebase on it or narrow your change to avoid the overlap and note the dependency in
+your PR description. When in doubt, coordinate via the PR description — note what you're
+sharing and why, and look for opportunities to reuse or consolidate rather than duplicate.
+
 ## File ownership (parallel agent splits)
 
 - `ROADMAP.md` — owned by Game Director (cron 6) only.
 - The Optimizer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
-- When multiple agents work on gameplay or rendering code, coordinate to avoid overlapping edits.
+- Issue Agent PRs each live on their own branch — they never share a working directory with
+  each other or with the local crons. If two issue PRs touch the same file, the second to
+  merge will need a rebase; GitHub will flag the conflict.
 
 Never write to the same file from two agents simultaneously.
 

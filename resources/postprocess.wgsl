@@ -23,8 +23,13 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    out.position = vec4<f32>(position, 0.0, 1.0);
-    out.uv = position * 0.5 + vec2<f32>(0.5, 0.5);
+    // ggez passes raw pixel-space positions to custom vertex shaders (no MVP applied).
+    // We must convert: pixel (0,0)=top-left → NDC (-1,+1); pixel (w,h)=bottom-right → NDC (+1,-1).
+    let ndcx = (position.x / pp.screen_width) * 2.0 - 1.0;
+    let ndcy = 1.0 - (position.y / pp.screen_height) * 2.0;
+    out.position = vec4<f32>(ndcx, ndcy, 0.0, 1.0);
+    // UV: (0,0) = top-left of texture, (1,1) = bottom-right — matches ggez image storage.
+    out.uv = vec2<f32>(position.x / pp.screen_width, position.y / pp.screen_height);
     out.color = vec4<f32>(1.0);
     return out;
 }
@@ -33,18 +38,18 @@ fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
 
-    // Chromatic aberration — scales with groove
+    // Chromatic aberration — scales with groove (invisible at 0, up to ~6px split at max groove)
     let ca = pp.groove * 0.006;
     let r = textureSample(t, s, uv + vec2<f32>(ca, 0.0)).r;
     let g = textureSample(t, s, uv).g;
-    let b = textureSample(t, s, uv - vec2<f32>(ca, 0.0)).b;
-    var color = vec3<f32>(r, g, b);
+    let b_ch = textureSample(t, s, uv - vec2<f32>(ca, 0.0)).b;
+    var color = vec3<f32>(r, g, b_ch);
 
-    // CRT scanlines — subtle horizontal darkening every 2 screen pixels
+    // CRT scanlines — subtle horizontal darkening at every screen pixel row
     let line = sin(uv.y * pp.screen_height * 3.14159);
     color = color * (0.94 + 0.06 * line);
 
-    // Vignette — dark edges
+    // Vignette — darken edges
     let vig_uv = uv * 2.0 - vec2<f32>(1.0);
     let vignette = clamp(1.0 - dot(vig_uv * 0.6, vig_uv * 0.6), 0.0, 1.0);
     color = color * vignette;
