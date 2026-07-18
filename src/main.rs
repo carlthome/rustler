@@ -6259,23 +6259,6 @@ impl MainState {
             draw_speed_lines(ctx, canvas, center, self.last_dir, intensity)?;
         }
 
-        // Calculate flashlight direction from player to mouse.
-        if self.flashlight.on {
-            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
-            draw_flashlight(
-                ctx,
-                canvas,
-                self.player_pos,
-                flashlight_dir,
-                self.time_since_catch,
-                &self.flashlight,
-                &self.flashlight_shader,
-                self.width,
-                self.height,
-                self.camera_origin,
-            )?;
-        }
-
         // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
 
@@ -6502,6 +6485,24 @@ impl MainState {
                 }
                 LassoPhase::Idle => {}
             }
+        }
+
+        // Flashlight is drawn last in world-space so its custom shader's group-3 bind doesn't
+        // leak into subsequent instanced mesh draws (ggez 0.9.3 set_default_shader bug).
+        if self.flashlight.on {
+            let flashlight_dir = (self.mouse_pos - self.player_pos).normalize_or_zero();
+            draw_flashlight(
+                ctx,
+                canvas,
+                self.player_pos,
+                flashlight_dir,
+                self.time_since_catch,
+                &self.flashlight,
+                &self.flashlight_shader,
+                self.width,
+                self.height,
+                self.camera_origin,
+            )?;
         }
 
         // ===== SWITCH TO SCREEN SPACE FOR THE HUD =====
