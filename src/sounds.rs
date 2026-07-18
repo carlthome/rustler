@@ -2113,6 +2113,33 @@ fn synth_ep_note(hz: f32, dur_s: f32, gain: f32) -> Vec<f32> {
 /// `bpm` sets tempo; `swing` (0..1) is how late odd 1/16 steps land; `bars` is the
 /// phrase length (even numbers alternate question/answer bars).
 #[allow(clippy::too_many_arguments)]
+/// A punchy 808-style kick: a sine whose pitch sweeps down from ~120 Hz to a 40 Hz
+/// floor under a fast exponential envelope, giving the "thump" without a click.
+fn render_kick(mix: &mut Vec<f32>, offset: usize, gain: f32) {
+    let sr = SAMPLE_RATE as f32;
+    let dur = (sr * 0.12) as usize;
+    for k in 0..dur.min(mix.len().saturating_sub(offset)) {
+        let t = k as f32 / sr;
+        let env = (-t * 40.0_f32).exp();
+        let freq = 80.0 * (-t * 25.0_f32).exp() + 40.0;
+        let sample = (std::f32::consts::TAU * freq * t).sin() * env * gain;
+        mix[offset + k] += sample;
+    }
+}
+
+/// A dry snare: filtered-free white noise (from the groove RNG) under a very fast
+/// exponential decay. Short and bright so the backbeat cuts through the mix.
+fn render_snare(mix: &mut Vec<f32>, offset: usize, gain: f32, rng: &mut GrooveRng) {
+    let sr = SAMPLE_RATE as f32;
+    let dur = (sr * 0.08) as usize;
+    for k in 0..dur.min(mix.len().saturating_sub(offset)) {
+        let t = k as f32 / sr;
+        let env = (-t * 50.0_f32).exp();
+        let noise = rng.f01() * 2.0 - 1.0; // xorshift white noise in [-1, 1]
+        mix[offset + k] += noise * env * gain;
+    }
+}
+
 fn synth_groove(
     ctx: &mut Context,
     seed: u32,
@@ -2248,33 +2275,26 @@ fn synth_groove(
             }
         }
 
-        // --- Bass: a walking/pumping pattern an octave below the lead root.
-        // Degrees are scale-INDICES (pentatonic-minor [0,3,5,7,10]), so:
-        //   -5 → root one octave down, -2 → fifth one octave down.
-        // Pattern: root on beat 1, fifth on beat 3, short root on beat 4's "and"
-        // (step 14). Beat 2's "and" is left as a rest so the bass breathes.
+        // --- Walking bass: a 4-note line an octave below the lead root, one note
+        // per beat (steps 0, 4, 8, 12). Degrees are scale-INDICES (pentatonic-minor
+        // [0,3,5,7,10]), all an octave down. Question bars walk UP, answer bars walk
+        // DOWN, so the bass mirrors the call-and-response of the melody and keeps the
+        // low end moving instead of pumping the same root.
         let bar_start = bar * steps_per_bar;
-        notes.push(GrooveNote {
-            step: bar_start, // beat 1
-            len: 4,
-            degree: -5, // root, octave down
-            bass: true,
-            gain: melody_gain * 0.95,
-        });
-        notes.push(GrooveNote {
-            step: bar_start + 8, // beat 3
-            len: 4,
-            degree: -2, // fifth, octave down
-            bass: true,
-            gain: melody_gain * 0.85,
-        });
-        notes.push(GrooveNote {
-            step: bar_start + 14, // beat 4's "and" — short pump back to the root
-            len: 2,
-            degree: -5, // root, octave down
-            bass: true,
-            gain: melody_gain * 0.8,
-        });
+        let bass_degs: [i32; 4] = if call {
+            [-5, -4, -3, -2] // question bar: walk up
+        } else {
+            [-2, -3, -4, -5] // answer bar: walk back down
+        };
+        for (j, &bd) in bass_degs.iter().enumerate() {
+            notes.push(GrooveNote {
+                step: bar_start + j as u32 * 4, // one note per beat
+                len: 4,
+                degree: bd,
+                bass: true,
+                gain: melody_gain * 0.85,
+            });
+        }
     }
 
     // --- Render every note onto the mix bus at its swung onset time. ---
@@ -2301,6 +2321,20 @@ fn synth_groove(
         };
         let offset = (start_s * SAMPLE_RATE as f32) as usize;
         mix_into(&mut mix, &rendered, offset);
+    }
+
+    // --- Drum pass: a straight backbeat under the melody/bass. Kick on beats 1 & 3
+    // (steps 0, 8), snare on beats 2 & 4 (steps 4, 12) of every bar. All land on even
+    // steps, so no swing offset applies. Rendered after the melody loop so melody
+    // determinism is untouched; the snare's noise consumes RNG here at the very end.
+    for bar in 0..bars {
+        let bar_start = bar * steps_per_bar;
+        let step_offset =
+            |st: u32| -> usize { (st as f32 * step_s * SAMPLE_RATE as f32) as usize };
+        render_kick(&mut mix, step_offset(bar_start), melody_gain);
+        render_kick(&mut mix, step_offset(bar_start + 8), melody_gain);
+        render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.8, &mut rng);
+        render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.8, &mut rng);
     }
 
     // Glue the layered voices and bring up to clean full loudness.
