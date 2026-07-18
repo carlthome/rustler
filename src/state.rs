@@ -57,6 +57,14 @@ pub struct GameSounds {
     /// Five crab-theme loops (Duck Game / Deus Ex ABA melodies), one per archetype group.
     /// 0=normal/fast/big  1=dancer/splitter  2=thief/sneaky  3=boss/armored  4=golden/magnet/hermit
     pub(crate) crab_themes: [Source; 5],
+    /// Spatial King Crab boss rumble — left-panned bright version.
+    /// Volume driven per-frame by boss distance and angle relative to player.
+    pub(crate) king_crab_l: Source,
+    /// Spatial King Crab boss rumble — right-panned bright version.
+    pub(crate) king_crab_r: Source,
+    /// Spatial King Crab boss rumble — soft/distant version with baked room echo.
+    /// Crossfades in as the boss moves further away (brightness rolloff approximation).
+    pub(crate) king_crab_soft: Source,
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -1085,6 +1093,7 @@ impl MainState {
         );
 
         // TODO Load all sound effects.
+        let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
             // Procedurally generated action groove — a driving pentatonic shuffle
@@ -1112,6 +1121,9 @@ impl MainState {
                 sounds::synth_theme_deus_ambient(ctx)?, // 3 — boss/armored/hermit
                 sounds::synth_theme_duck_golden(ctx)?,  // 4 — golden/magnet
             ],
+            king_crab_l,
+            king_crab_r,
+            king_crab_soft,
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
