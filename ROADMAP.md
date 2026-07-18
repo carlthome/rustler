@@ -42,7 +42,11 @@ steal-and-recover tension the ecology will run on. The four-scenario opt-in tuto
 the first world-map nodes (removed from the main menu) and still double as regression tests. The beach is now a
 **scrolling world** (2× viewport, player-following camera) carrying a **day/night cycle + weather** (sunny → storm,
 ambient visuals) — the "world feels alive and inhabited" aesthetic layer is in, now with **density tuned for the
-larger field** (~1.8× spawn counts, 40e2455) so it reads as inhabited rather than sparse. Legibility got a pass:
+larger field** (~1.8× spawn counts, 40e2455) so it reads as inhabited rather than sparse, and a **three-zone
+environment** (grass / beach / water, 8a8145b) carrying procedural terrain texture — tufts, pebbles, animated water
+ripples/foam, feathered transitions, batched into three instanced draws (ae95f50). Music got a real pass too: a
+**generative groove engine** drives the action music (2486e58) over rewritten Game Boy / Deus Ex two-voice arpeggio
+themes (844010a) — early scaffolding toward the BYO-music mashup. Legibility got a pass:
 a **Zelda-style 5-slot tool-roster HUD** with cooldowns (4dbfd84), a **minimap + day/night + weather indicators**
 (467655a). **The first ecology slice has landed**: an ambient wandering NPC King Crab conga line (6a17026) that
 trails followers and roams the world on its own, *heard before seen* via a spatial-audio rumble that swells as it
@@ -51,37 +55,47 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** No new human signal on Slack — every post in #general is an auto Dev Diary,
+**Signal (this cycle).** Still no new human signal on Slack — every post in #general is an auto Dev Diary,
 no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
-here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. What shipped since the
-last run is **rendering plumbing, not gameplay**: the delirium post-process (render-to-texture chromatic
-aberration / scanlines / vignette, 358a3d0) got actually *wired to display* — enabled (d37a293) after a batch of
-pipeline fixes (coordinate system 092dfe2, HiDPI logical-size scaling a7ef3ee, shader group bindings 1f9ffe4). Note
-the **churn**: a fullscreen-scaling attempt was reverted (dbe6c3d) and the shader bindings were reworked twice, so
-this path is freshly landed and **unverified in motion** — a look at it on the next playtest (the postprocess frame
-renders clean, no HiDPI/fullscreen artifact) belongs alongside the still-pending ambient-train read-check, not as a
-separate errand. Direction is unchanged and the priorities below stand as written. The prior productive cycle's wins
-are already folded in above: the six soft-RPS tells (three flagship + Magnet-vs-herd + lasso-vs-Magnet + the
-grey-steel wrong-tool ricochet), the synth-audio overhaul (chiptune synthesis, distinct tool sounds, master limiter,
-crackle-free chimes), the HYPER DEMON delirium pass (358a3d0, now rendering), and richer per-crab anatomy (be1127f).
-**The bottleneck is unchanged and it is the
-cheapest thing on the board:** the ambient rival train reads in three visual tiers (scout/wanderer/elder, d046ae7)
-but its **read-check is still not cleared** — the smooth directional music-swell radar and a distinct name banner
-still need a pass, and *it has still not been playtested in motion*. That playtest is the single cheapest action
-anyone could take to unblock the steal rule, and it keeps getting skipped in favour of more tells. The **core steal
+here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. This was a **mixed
+cycle — audio genuinely advanced the thesis, but a core-verb regression got hidden.** The wins: a **generative groove
+engine** now drives the in-game action music (2486e58) and the synth themes were rewritten into a Game Boy / Deus Ex
+two-voice arpeggio architecture (844010a) — real steps toward the BYO-music mashup, not just plumbing. Most important
+for the ecology, the King Crab boss now has **true spatial-audio rumble with distance rolloff, stereo pan, and
+brightness rolloff** (2101cef) — this is exactly the "audio IS the radar" machinery the ambient train's music-swell
+read-check needs, now proven on the boss; applying it to the ambient train is now a *port*, not new tech. The
+delirium post-process settled: the flashlight/wgpu crashes churning last cycle are **fixed for real** (draw-order
+fix, a375f52 / 53b23c3). The world also grew a **three-zone environment** (grass / beach / water, 8a8145b) with
+procedural terrain texture — tufts, pebbles, animated water ripples/foam, feathered transitions, batched into three
+instanced draws (ae95f50) — plus richer per-crab anatomy (asymmetric claws, antennae, catch-lights, 963f473).
+**But — the down side, and it is now the top priority:** commit 477f7e6 **disabled two playtests** to work around
+bugs instead of fixing them — `menu_to_game` (a **crab-catching** regression, the core verb) and `campaign_tutorial`
+(a tutorial→world-map bug). Per the Supervisor's ruling (621d07e) a disabled test *is* a FAIL; these now sit in the
+Bugs section and beat every feature item until re-enabled and green. **The bottleneck is unchanged but now cheaper
+than ever:** the ambient rival train reads in three visual tiers (scout/wanderer/elder, d046ae7) but its
+**read-check is still not cleared** — the smooth directional music-swell radar (now trivially portable from 2101cef)
+and a distinct name banner still need a pass, and *it has still not been playtested in motion*. The **core steal
 rule** stays parked in "Also on our mind" (reverse-Snake crossing in INSPIRATION) until that read-check passes.
 Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on
-a pile of new player verbs. No new Now items this run — depth before breadth.
+a pile of new player verbs. No new Now items this run — fix the disabled-test bugs first, then depth before breadth.
 
 ## Bugs (fix before anything else in Now)
 
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- None open. (Fixed: the upgrade screen fired at the wrong time / popped back-to-back — c01b922 loops the
-  threshold past the current banked score, 3b17573 fires the check at the pen; also the start-of-run
-  `InstanceArray capacity > 0` crash and the windowed-instead-of-fullscreen bug.) If you hit a panic or a
-  wrong-looking frame while testing, log it here before shipping anything new.
+- **[TOP BUG] `menu_to_game` playtest is disabled to hide a crab-catching regression.** `scripts/playtest.sh`
+  line 28 has `run_script menu_to_game` commented out "pending crab catching fix" (477f7e6). Catching is the
+  *core verb* — a masked regression here is the worst kind. Fix the underlying catch detection until the test
+  passes, then re-enable the line. Never leave it commented as a workaround (Supervisor ruling, 621d07e).
+- **[BUG] `campaign_tutorial` playtest is disabled pending a tutorial→world-map bug.** Same file, line 29,
+  commented "enable once tutorial->world-map bug is fixed." Re-enable and fix once the crab-catching bug above
+  is cleared (they may share a root cause in the menu/level transition).
+- Fixed this cycle: the flashlight/wgpu crash (draw-order fix — flashlight drawn last, after all instanced
+  meshes, a375f52 / 53b23c3). Previously fixed: upgrade screen fired at the wrong time / popped back-to-back
+  (c01b922 loops the threshold past the current banked score, 3b17573 fires the check at the pen); the
+  start-of-run `InstanceArray capacity > 0` crash; the windowed-instead-of-fullscreen bug. If you hit a panic
+  or a wrong-looking frame while testing, log it here before shipping anything new.
 
 ## Now
 
@@ -119,7 +133,9 @@ item in "Now" below.
   differently from a huge one at a glance, and the wander feels less like a scripted lap. Two gates remain before this
   clears, no new player verb: a **clean music-swell radar** (rumble should rise smoothly and *directionally* as it
   nears, agar.io-style — audio IS the radar per INSPIRATION; verify it's smooth, not steppy) and a **distinct
-  silhouette/name banner** you can read across the field to tell rivals apart. And it still hasn't been playtested —
+  silhouette/name banner** you can read across the field to tell rivals apart. **The radar just got cheap:** the King
+  Crab boss now has real spatial audio with distance rolloff + stereo pan + brightness rolloff (2101cef) — port that
+  same rolloff/pan onto the ambient train's rumble and the first gate is done. And it still hasn't been playtested —
   someone should confirm the tiers and rumble actually read in motion. Still visual-only: does NOT steal, splice, or
   react to you. Passing this read-check is what unblocks the steal rule below.
 
