@@ -30,6 +30,14 @@ pub struct GameSounds {
     pub(crate) hihat: Source,
     pub(crate) whistle_sfx: Source,
     pub(crate) stomp_sfx: Source,
+    /// Spatial King Crab boss rumble — left-panned bright version.
+    /// Volume driven per-frame by boss distance and angle relative to player.
+    pub(crate) king_crab_l: Source,
+    /// Spatial King Crab boss rumble — right-panned bright version.
+    pub(crate) king_crab_r: Source,
+    /// Spatial King Crab boss rumble — soft/distant version with baked room echo.
+    /// Crossfades in as the boss moves further away (brightness rolloff approximation).
+    pub(crate) king_crab_soft: Source,
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -835,6 +843,7 @@ impl MainState {
         );
 
         // TODO Load all sound effects.
+        let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
             // Procedurally generated action groove — a driving pentatonic shuffle
@@ -850,6 +859,9 @@ impl MainState {
             hihat: sounds::synth_hihat(ctx)?,
             whistle_sfx: sounds::synth_whistle(ctx)?,
             stomp_sfx: sounds::synth_stomp(ctx)?,
+            king_crab_l,
+            king_crab_r,
+            king_crab_soft,
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather

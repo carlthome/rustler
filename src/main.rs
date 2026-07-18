@@ -10776,6 +10776,90 @@ impl EventHandler for MainState {
             self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 18.0 * 60.0;
         }
 
+        // Spatial audio for King Crab boss crabs.
+        //
+        // Three looping stereo sources are blended by boss distance and angle each frame:
+        //   king_crab_l  — bright rumble, hard-panned left
+        //   king_crab_r  — bright rumble, hard-panned right
+        //   king_crab_soft — muffled/sine rumble with room echo, centered
+        //
+        // Volume rolloff: full brightness within 150 px, fades to zero at 600 px.
+        // Panning: boss angle relative to player drives L/R split (equal-power law).
+        // Brightness rolloff: soft source crossfades in as distance increases, so
+        //   a distant boss sounds muffled (filtered) while a near one sounds present.
+        // Player's own action_music is always full-range — the boss is the distant source.
+        {
+            use ggez::audio::SoundSource;
+
+            // Mute during non-game screens.
+            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
+
+            // Find the nearest uncaught boss crab position (if any).
+            let nearest_boss: Option<Vec2> = if game_active {
+                self.crabs.iter()
+                    .filter(|c| !c.caught && c.is_boss())
+                    .map(|c| c.pos)
+                    .min_by(|a, b| {
+                        let da = a.distance(self.player_pos);
+                        let db = b.distance(self.player_pos);
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+            } else {
+                None
+            };
+
+            let (vol_l, vol_r, vol_soft) = if let Some(boss_pos) = nearest_boss {
+                let dist = boss_pos.distance(self.player_pos);
+                // Distance factor: full within 150 px, zero at 600 px.
+                const FULL_DIST: f32 = 150.0;
+                const SILENT_DIST: f32 = 600.0;
+                let near_factor = ((SILENT_DIST - dist) / (SILENT_DIST - FULL_DIST)).clamp(0.0, 1.0);
+                // Soft/far factor: kicks in beyond FULL_DIST, full at SILENT_DIST.
+                let far_factor = (1.0 - near_factor) * near_factor.max(0.15);
+
+                // Angle from player to boss: 0 = right, π = left.
+                let delta = boss_pos - self.player_pos;
+                // pan in -1..1: negative = left, positive = right.
+                let pan = if delta.length_squared() > 1.0 {
+                    (delta.x / delta.length()).clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
+                // Equal-power panning: map -1..+1 → 0..π/2, then cos/sin.
+                let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+                let gain_l = angle.cos() * near_factor;
+                let gain_r = angle.sin() * near_factor;
+                (gain_l, gain_r, far_factor * 0.7)
+            } else {
+                (0.0, 0.0, 0.0)
+            };
+
+            // Smooth toward targets with a ~0.5s time constant so the pan doesn't snap.
+            let smooth = |cur: f32, tgt: f32| cur + (tgt - cur) * (dt * 4.0).min(1.0);
+            let cur_l = self.sounds.king_crab_l.volume();
+            let cur_r = self.sounds.king_crab_r.volume();
+            let cur_s = self.sounds.king_crab_soft.volume();
+            let new_l = smooth(cur_l, vol_l);
+            let new_r = smooth(cur_r, vol_r);
+            let new_s = smooth(cur_s, vol_soft);
+            self.sounds.king_crab_l.set_volume(new_l);
+            self.sounds.king_crab_r.set_volume(new_r);
+            self.sounds.king_crab_soft.set_volume(new_s);
+
+            // Start/stop sources based on audibility threshold.
+            for (src, vol) in [
+                (&mut self.sounds.king_crab_l, new_l),
+                (&mut self.sounds.king_crab_r, new_r),
+                (&mut self.sounds.king_crab_soft, new_s),
+            ] {
+                if vol > 0.01 && !src.playing() {
+                    let _ = src.play(ctx);
+                } else if vol <= 0.01 && src.playing() {
+                    src.pause();
+                }
+            }
+        }
+
         // Scale music volume with intensity
         // (action_music gets louder, layers fade in)
         let base_vol = 0.25 + self.music_intensity * 0.75;
