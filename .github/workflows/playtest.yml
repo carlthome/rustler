@@ -23,7 +23,7 @@ jobs:
       - name: Configure headless ALSA
         run: printf '%s\n' 'pcm.!default {' '  type null' '}' > "$HOME/.asoundrc"
       - name: Install graphics libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libgbm-dev libgl1-mesa-dri libglx-mesa0 libegl1-mesa
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev libgbm-dev libgl1-mesa-dri libglx-mesa0 libegl1
       - name: Build
         run: nix develop . --command cargo build
       - name: Run playtests
