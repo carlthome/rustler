@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Crab Rustler: run game",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/rustler",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
