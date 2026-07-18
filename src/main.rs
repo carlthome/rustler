@@ -1,6 +1,8 @@
+mod bot;
 mod constants;
 mod controls;
 mod enemies;
+mod floating_text;
 mod graphics;
 mod hud_cache;
 mod levels;
@@ -27,6 +29,7 @@ thread_local! {
     // Vec<usize> allocation that was fired inside draw_crabs_with_shake is eliminated. Same
     // grown-but-not-shrunk pattern: reaches steady state at max train length and stays there.
     static CENTERPIECE_OUT_BUF: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+    static STAMINA_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
 }
 
 use ggez::audio::SoundSource;
@@ -5393,6 +5396,16 @@ impl MainState {
     /// never pollute the persistent career.
     /// Open the campaign world map. Creates it on first visit; subsequent visits reuse the same
     /// instance so node completion persists across runs.
+    fn push_player_name_char(&mut self, ch: char) {
+        if self.player_name.len() < 16 {
+            self.player_name.push(ch);
+        }
+    }
+
+    fn pop_player_name_char(&mut self) {
+        self.player_name.pop();
+    }
+
     fn enter_world_map(&mut self) {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
@@ -5408,7 +5421,7 @@ impl MainState {
         let level_index = self
             .world_map
             .as_ref()
-            .map(|m| m.selected_level_index())
+            .and_then(|m| m.selected_level_index())
             .unwrap_or(0);
         self.reset_game();
         self.current_level = level_index.min(self.levels.len().saturating_sub(1));
@@ -6905,7 +6918,13 @@ impl MainState {
             let elapsed = 0.5 - self.lasso_timer;
             let outward_progress = (elapsed / 0.3).clamp(0.0, 1.0);
             let spin = self.time_elapsed * 18.0; // fast spin in radians/sec
-            draw_lasso(ctx, canvas, player_center, tip, outward_progress, spin)?;
+            let draw_phase = match self.lasso_phase {
+                LassoPhase::Snag => graphics::LassoDrawPhase::Snag,
+                LassoPhase::Dragging => graphics::LassoDrawPhase::Drag,
+                LassoPhase::Miss => graphics::LassoDrawPhase::Miss,
+                _ => graphics::LassoDrawPhase::Throw,
+            };
+            draw_lasso(ctx, canvas, player_center, tip, draw_phase, outward_progress, spin)?;
         }
 
         // ===== SWITCH TO SCREEN SPACE FOR THE HUD =====
@@ -7291,6 +7310,7 @@ impl MainState {
         } else {
             0.0
         };
+        let beat_phase = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         draw_groove_vignette(
             ctx,
             canvas,
@@ -7299,6 +7319,7 @@ impl MainState {
             self.groove,
             self.beat_intensity,
             streak_heat,
+            beat_phase,
         )?;
 
         // Beat indicator (top right)

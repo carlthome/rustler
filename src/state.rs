@@ -8,6 +8,7 @@ use ggez::{Context, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 
+use crate::bot::BotState;
 use crate::constants::*;
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
@@ -26,7 +27,9 @@ pub struct GameSounds {
     pub(crate) upgrade: Source,
     pub(crate) success: Source,
     pub(crate) success2: Source,
-    // Add more sounds here as needed
+    pub(crate) hihat: Source,
+    pub(crate) whistle_sfx: Source,
+    pub(crate) stomp_sfx: Source,
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -212,6 +215,13 @@ pub struct MainState {
     pub(crate) start_stomp_rank: u32,
     pub(crate) shop_flash: f32,                           // brief green flash on the last-bought perk (title-screen juice)
     pub(crate) shop_denied: f32,                          // brief red flash when a purchase is refused (can't afford / maxed)
+    pub(crate) show_how_to_play_text: bool,
+    pub(crate) menu_selection: usize,
+    pub(crate) player_name: String,
+    pub(crate) sprint_stamina: f32,
+    pub(crate) jam_timer: f32,
+    pub(crate) music_muted: bool,
+    pub(crate) bot: Option<BotState>,
     pub(crate) width: f32,                                // Virtual width of the game (viewport)
     pub(crate) height: f32,                               // Virtual height of the game (viewport)
     pub(crate) world_width: f32,                          // Full playfield width — larger than the viewport; the camera scrolls across it
@@ -832,7 +842,9 @@ impl MainState {
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
-            // Add more sounds here as needed
+            hihat: sounds::synth_hihat(ctx)?,
+            whistle_sfx: sounds::synth_whistle(ctx)?,
+            stomp_sfx: sounds::synth_stomp(ctx)?,
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
@@ -1052,6 +1064,13 @@ impl MainState {
             start_stomp_rank,
             shop_flash: 0.0,
             shop_denied: 0.0,
+            show_how_to_play_text: false,
+            menu_selection: 0,
+            player_name: String::new(),
+            sprint_stamina: SPRINT_STAMINA_MAX,
+            jam_timer: 0.0,
+            music_muted: false,
+            bot: None,
             run_recorded: false,
             run_is_new_best: false,
             width,
