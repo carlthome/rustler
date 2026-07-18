@@ -42,7 +42,11 @@ steal-and-recover tension the ecology will run on. The four-scenario opt-in tuto
 the first world-map nodes (removed from the main menu) and still double as regression tests. The beach is now a
 **scrolling world** (2× viewport, player-following camera) carrying a **day/night cycle + weather** (sunny → storm,
 ambient visuals) — the "world feels alive and inhabited" aesthetic layer is in, now with **density tuned for the
-larger field** (~1.8× spawn counts, 40e2455) so it reads as inhabited rather than sparse. Legibility got a pass:
+larger field** (~1.8× spawn counts, 40e2455) so it reads as inhabited rather than sparse. The world now also carries **spatial variety** — a three-zone
+environment (grass left, beach middle, water right, 29dc205) enriched with procedural texture (grass tufts/flowers/mowing
+stripes, beach pebbles/shells/ripples, animated water, feathered transitions, batched into 3 instanced draws, d9dc24b) —
+and the action music runs on a **generative groove engine** (955610d) over rewritten **Game Boy / Deus Ex two-voice
+arpeggio** synth themes (3605f77), a first step toward the BYO-music mashup. Legibility got a pass:
 a **Zelda-style 5-slot tool-roster HUD** with cooldowns (4dbfd84), a **minimap + day/night + weather indicators**
 (467655a). **The first ecology slice has landed**: an ambient wandering NPC King Crab conga line (6a17026) that
 trails followers and roams the world on its own, *heard before seen* via a spatial-audio rumble that swells as it
@@ -54,16 +58,18 @@ campaign scaffolding exists but stays parked in "Later" — the gate is Carl's e
 **Signal (this cycle).** No new human signal on Slack — every post in #general is an auto Dev Diary,
 no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
 here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. What shipped since the
-last run is **rendering plumbing, not gameplay**: the delirium post-process (render-to-texture chromatic
-aberration / scanlines / vignette, 358a3d0) got actually *wired to display* — enabled (d37a293) after a batch of
-pipeline fixes (coordinate system 092dfe2, HiDPI logical-size scaling a7ef3ee, shader group bindings 1f9ffe4). Note
-the **churn**: a fullscreen-scaling attempt was reverted (dbe6c3d) and the shader bindings were reworked twice, so
-this path is freshly landed and **unverified in motion** — a look at it on the next playtest (the postprocess frame
-renders clean, no HiDPI/fullscreen artifact) belongs alongside the still-pending ambient-train read-check, not as a
-separate errand. Direction is unchanged and the priorities below stand as written. The prior productive cycle's wins
+last run is **environment + audio texture, not gameplay**: a three-zone world (grass/beach/water, 29dc205) with
+procedural surface detail batched into 3 instanced draws (d9dc24b), the action music moved onto a generative groove
+engine (955610d) over rewritten Game Boy / Deus Ex two-voice arpeggio synth themes (3605f77), and richer crab anatomy
+(asymmetric claws / antennae / catch-lights, f505ce1); Duck Game was added to INSPIRATION as the music-hook reference
+(1dc1da6). The **delirium post-process is still unverified in motion** — last cycle's rendering-plumbing landing
+(358a3d0 wired to display via d37a293) hasn't had its motion playtest, and the latest Dev Diary confirms it's still
+pending. That playtest belongs alongside the still-pending ambient-train read-check, not as a separate errand.
+Direction is unchanged and the priorities below stand as written. The prior productive cycle's wins
 are already folded in above: the six soft-RPS tells (three flagship + Magnet-vs-herd + lasso-vs-Magnet + the
 grey-steel wrong-tool ricochet), the synth-audio overhaul (chiptune synthesis, distinct tool sounds, master limiter,
-crackle-free chimes), the HYPER DEMON delirium pass (358a3d0, now rendering), and richer per-crab anatomy (be1127f).
+crackle-free chimes), the HYPER DEMON delirium pass (358a3d0, now rendering), and richer per-crab anatomy — now with
+**asymmetric crusher/pincer claws, idle flex, antennae and eye catch-lights** (f505ce1, atop be1127f).
 **The bottleneck is unchanged and it is the
 cheapest thing on the board:** the ambient rival train reads in three visual tiers (scout/wanderer/elder, d046ae7)
 but its **read-check is still not cleared** — the smooth directional music-swell radar and a distinct name banner
