@@ -45,13 +45,32 @@ use spawnings::SpawnPattern;
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
-    cached_stroke_rect, draw_attracted_crab_glow,
-    draw_armor_ring, draw_hermit_shell, draw_beat_indicator, draw_beat_wave_ring, draw_catch_shockwaves, draw_chain_rings,
-    draw_combo_meter, draw_boss_health_ring, draw_conga_rope, draw_crab, draw_crab_radar,
-    draw_ambient_motes, draw_sky_overlay, draw_world_edge, draw_weather, draw_puddle_ripples, draw_delivery_pen, draw_delivery_streak, draw_fear_rings, draw_flashlight, draw_floating_texts, draw_grass, draw_haul_worth, draw_lasso, draw_pen_guide,
-    draw_boss_fissures, draw_call_ring, draw_deliver_beam, draw_train_at_risk, draw_catch_bloom_ring, draw_catch_next_hint, draw_centerpiece_ring, draw_cycle_preview_ring, draw_catch_trails, draw_cleave_slash, draw_cleave_stakes, draw_downbeat_pulse_ring, draw_golden_sparkle, draw_groove_call_ring, draw_kelp_snag_warning, draw_groove_vignette, draw_magnet_aura, draw_particles, draw_penned_marchers, draw_rustler, draw_slam_ring, draw_speed_lines, draw_splitter_aura, draw_stomp_ring, draw_thief_aura, draw_tide_pools,
-    draw_reef_phrase, draw_tail_run_badge, draw_tide_pulses, draw_wave_telegraph,
-    draw_whistle_ring, draw_world_map, flush_attracted_crab_glows, flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_square,
+    LassoDrawPhase, cached_stroke_rect, draw_ambient_motes, draw_armor_ring,
+    draw_attracted_crab_glow, draw_beat_hit_punch, draw_beat_indicator, draw_beat_wave_ring,
+    draw_boss_fissures, draw_boss_health_ring, draw_call_ring, draw_catch_bloom_ring,
+    draw_catch_next_hint, draw_catch_shockwaves, draw_catch_trails, draw_centerpiece_ring,
+    draw_chain_rings, draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope,
+    draw_crab, draw_crab_radar, draw_cycle_preview_ring, draw_deliver_beam, draw_delivery_pen,
+    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_flashlight,
+    draw_floating_texts, draw_golden_sparkle, draw_grass, draw_groove_call_ring,
+    draw_groove_vignette, draw_haul_worth, draw_hermit_shell, draw_kelp_snag_warning, draw_lasso,
+    draw_lasso_windup, draw_magnet_aura, draw_particles, draw_pen_guide, draw_penned_marchers,
+    draw_puddle_ripples, draw_reef_phrase, draw_rustler, draw_sky_overlay, draw_slam_ring,
+    draw_speed_lines, draw_splitter_aura, draw_sprint_whoosh, draw_stomp_ring, draw_tail_run_badge,
+    draw_thief_aura, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_wave_telegraph,
+    draw_weather, draw_whistle_ring, draw_world_edge, draw_world_map, draw_world_zones,
+    flush_attracted_crab_glows, flush_beat_coronas, flush_catch_next_ticks, flush_centerpiece_dots,
+    flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_line, unit_square,
+};
+use crate::graphics::{
+    draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
+    draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
+    draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
+    draw_whistle_golden_pull,
+};
+use crate::hud_cache::{
+    CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
+    MENU_TITLE_CACHE, MENU_TITLE_CHARS_CACHE, PLAYER_NAME_CACHE,
 };
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
@@ -6154,20 +6173,8 @@ impl MainState {
         let ground_g = ((tg as f32 * dg) + 255.0 * flash * 0.25).min(255.0) as u8;
         let ground_b = ((tb as f32 * db) + 255.0 * flash * 0.25).min(255.0) as u8;
 
-        // Draw level background, color-graded to the current biome and time of day.
-        draw_grass(
-            ctx,
-            canvas,
-            world_w,
-            world_h,
-            texture,
-            &self.shader,
-            self.time_elapsed,
-            // Beat phase 0→1 across a beat (0 the instant one lands), so the grass shader can
-            // fire a ripple of light outward from center on every downbeat.
-            (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0),
-            Color::from_rgb(ground_r, ground_g, ground_b),
-        )?;
+        // Draw world zones: grass (left), beach (middle), water (right)
+        draw_world_zones(ctx, canvas, world_w, world_h)?;
 
         // World-space sky overlay: a soft full-world tint carrying the day/night mood plus the
         // cloudy/rain grey dimming. Sits over the ground but under the action. Rain streaks, the

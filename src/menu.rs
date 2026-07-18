@@ -99,6 +99,33 @@ pub fn draw_menu(
             .color(Color::new(0.98, 0.96, 0.86, 1.0)),
     );
 
+    // --- Grass ground at the bottom so crabs have a surface to walk on ------------------
+    let grass_start = height - 66.0;
+    let grass_h = 66.0;
+    let grass_square = unit_square(ctx)?;
+    // Darker grass base layer
+    canvas.draw(
+        grass_square,
+        DrawParam::default()
+            .dest(Vec2::new(0.0, grass_start))
+            .scale(Vec2::new(width, grass_h))
+            .color(Color::from_rgb(42, 68, 38)),
+    );
+    // Grass texture: wavy highlight stripes for depth
+    let grass_stripes = 6;
+    for i in 0..grass_stripes {
+        let stripe_h = grass_h / grass_stripes as f32;
+        let y = grass_start + i as f32 * stripe_h;
+        let alpha = 0.15 - (i as f32 / grass_stripes as f32) * 0.12;
+        canvas.draw(
+            grass_square,
+            DrawParam::default()
+                .dest(Vec2::new(0.0, y))
+                .scale(Vec2::new(width, stripe_h + 2.0))
+                .color(Color::new(0.6, 0.8, 0.4, alpha)),
+        );
+    }
+
     // --- Two rival King Crab conga trains marching across the sand -----------------------
     // Front train (bottom row): King Crab leads right with a retinue — moody, authoritative.
     // Back train (slightly higher): rival leads left, smaller and scrappier.

@@ -1841,6 +1841,80 @@ pub fn draw_particles(
     Ok(())
 }
 
+pub fn draw_world_zones(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    world_w: f32,
+    world_h: f32,
+) -> ggez::GameResult {
+    let sq = unit_square(ctx)?;
+    let third = world_w / 3.0;
+
+    // Left third: grass zone (dark green with subtle stripes)
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest([0.0, 0.0])
+            .scale(Vec2::new(third, world_h))
+            .color(Color::from_rgb(34, 80, 28)),
+    );
+    for i in 0..4 {
+        let stripe_y = i as f32 * world_h / 4.0;
+        let alpha = if i % 2 == 0 { 0.08 } else { 0.03 };
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest([0.0, stripe_y])
+                .scale(Vec2::new(third, world_h / 4.0 + 1.0))
+                .color(Color::new(0.5, 0.8, 0.3, alpha)),
+        );
+    }
+
+    // Middle third: beach/sand zone (warm tan)
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest([third, 0.0])
+            .scale(Vec2::new(third, world_h))
+            .color(Color::from_rgb(180, 140, 80)),
+    );
+    // Sand ripples
+    for i in 0..6 {
+        let wave_y = i as f32 * world_h / 6.0;
+        let alpha = if i % 2 == 0 { 0.12 } else { 0.06 };
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest([third, wave_y])
+                .scale(Vec2::new(third, world_h / 6.0 + 1.0))
+                .color(Color::new(0.85, 0.75, 0.5, alpha)),
+        );
+    }
+
+    // Right third: water zone (deep blue)
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest([third * 2.0, 0.0])
+            .scale(Vec2::new(third, world_h))
+            .color(Color::from_rgb(15, 60, 100)),
+    );
+    // Water shimmer
+    for i in 0..5 {
+        let wave_y = i as f32 * world_h / 5.0;
+        let alpha = if i % 2 == 0 { 0.15 } else { 0.08 };
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest([third * 2.0, wave_y])
+                .scale(Vec2::new(third, world_h / 5.0 + 1.0))
+                .color(Color::new(0.3, 0.6, 0.9, alpha)),
+        );
+    }
+
+    Ok(())
+}
+
 pub fn draw_grass(
     ctx: &mut Context,
     canvas: &mut Canvas,
