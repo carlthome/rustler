@@ -12780,6 +12780,7 @@ fn main() -> GameResult {
         .add_resource_path(resource_dir)
         .window_mode(WindowMode::default())
         .build()?;
+    ctx.gfx.window().set_cursor_visible(false);
     let mut state = MainState::new(&mut ctx)?;
 
     if let Some(ref name) = bot_script {
