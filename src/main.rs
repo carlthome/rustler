@@ -10042,6 +10042,9 @@ impl MainState {
     fn draw_scene(&mut self, ctx: &mut Context) -> GameResult {
         let width = self.width;
         let height = self.height;
+        let (draw_w, draw_h) = ctx.gfx.drawable_size();
+        let scale_x = draw_w / width;
+        let scale_y = draw_h / height;
         let mut canvas = Canvas::from_image(
             ctx,
             self.scene_image.clone(),
@@ -10060,10 +10063,10 @@ impl MainState {
         let vw = width * (1.0 - z);
         let vh = height * (1.0 - z);
         canvas.set_screen_coordinates(Rect::new(
-            cam.x + z * (focus.x - cam.x) + shake_ox,
-            cam.y + z * (focus.y - cam.y) + shake_oy,
-            vw,
-            vh,
+            (cam.x + z * (focus.x - cam.x) + shake_ox) * scale_x,
+            (cam.y + z * (focus.y - cam.y) + shake_oy) * scale_y,
+            vw * scale_x,
+            vh * scale_y,
         ));
         canvas.set_blend_mode(BlendMode::ALPHA);
         canvas.set_sampler(Sampler::nearest_clamp());
@@ -12391,7 +12394,7 @@ impl EventHandler for MainState {
             self.postprocess_params.set_uniforms(ctx, &uniform);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             //screen_canvas.set_shader(&self.postprocess_shader);
-            screen_canvas.set_shader_params(&self.postprocess_params);
+            //screen_canvas.set_shader_params(&self.postprocess_params);
             // Draw the image covering the full drawable area; scale(1,1) is correct because the
             // image was created at drawable size in state.rs.
             screen_canvas.draw(
