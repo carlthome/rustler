@@ -264,7 +264,7 @@ thousands-of-lines files.
 Guidelines:
 - No file should be much more than 500 lines. Files over 800 need splitting. Files over 3000 lines
   are an **active crisis**: they get top priority every single run until they're under 2000 lines.
-  Right now `src/main.rs` (10k+ lines) and `src/graphics.rs` (7k+ lines) are both in crisis —
+  Right now `src/main.rs` (12k+ lines) and `src/graphics.rs` (8k+ lines) are both in crisis —
   prioritise them above everything else until they come down.
 - DRY only where it costs you nothing: don't create abstractions that require understanding the
   abstraction before the thing it abstracts. Prefer readable duplication over confusing unification.
@@ -277,11 +277,14 @@ Steps:
 3. For each file over 1000 lines, get a structural map before reading anything:
    `grep -n "^pub fn \|^fn \|^impl \|^pub struct \|^struct \|^pub enum \|^mod " src/<file>.rs | head -80`
    This reveals semantic clusters far faster than reading top-to-bottom, and is the only practical
-   discovery method for files over 5000 lines. Look for a cohesive cluster of 300–800 lines
+   discovery method for files over 5000 lines. Look for a cohesive cluster of 400–1200 lines
    (a struct + its impls, a group of related helpers, a distinct subsystem) that belongs in its own module.
 4. Pick ONE extraction: move that cluster into a new `src/<module>.rs` file and wire up the `mod`/`use`
-   declarations. Don't do multiple splits in one run, but make each split count — aim for 300–600 lines
-   extracted, not a trivial 50-line helper.
+   declarations. Don't do multiple splits in one run, but make each split count. **Scale target to file
+   size** — small extractions can't dent monster files:
+   - Files over 5000 lines: aim for **800–1500 lines** extracted per run.
+   - Files under 5000 lines: aim for **400–700 lines** extracted.
+   Never extract a trivial 50-line helper.
 5. Implement it. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix errors, rebuild until clean
 7. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
