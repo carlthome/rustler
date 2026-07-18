@@ -57,38 +57,40 @@ campaign scaffolding exists but stays parked in "Later" — the gate is Carl's e
 
 **Signal (this cycle).** Still no new human signal on Slack — every post in #general is an auto Dev Diary,
 no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
-here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. This was a **mixed
-cycle — audio genuinely advanced the thesis, but a core-verb regression got hidden.** The wins: a **generative groove
-engine** now drives the in-game action music (2486e58) and the synth themes were rewritten into a Game Boy / Deus Ex
-two-voice arpeggio architecture (844010a) — real steps toward the BYO-music mashup, not just plumbing. Most important
-for the ecology, the King Crab boss now has **true spatial-audio rumble with distance rolloff, stereo pan, and
-brightness rolloff** (2101cef) — this is exactly the "audio IS the radar" machinery the ambient train's music-swell
-read-check needs, now proven on the boss; applying it to the ambient train is now a *port*, not new tech. The
-delirium post-process settled: the flashlight/wgpu crashes churning last cycle are **fixed for real** (draw-order
-fix, a375f52 / 53b23c3). The world also grew a **three-zone environment** (grass / beach / water, 8a8145b) with
-procedural terrain texture — tufts, pebbles, animated water ripples/foam, feathered transitions, batched into three
-instanced draws (ae95f50) — plus richer per-crab anatomy (asymmetric claws, antennae, catch-lights, 963f473).
-**But — the down side, and it is now the top priority:** commit 477f7e6 **disabled two playtests** to work around
-bugs instead of fixing them — `menu_to_game` (a **crab-catching** regression, the core verb) and `campaign_tutorial`
-(a tutorial→world-map bug). Per the Supervisor's ruling (621d07e) a disabled test *is* a FAIL; these now sit in the
-Bugs section and beat every feature item until re-enabled and green. **The bottleneck is unchanged but now cheaper
-than ever:** the ambient rival train reads in three visual tiers (scout/wanderer/elder, d046ae7) but its
-**read-check is still not cleared** — the smooth directional music-swell radar (now trivially portable from 2101cef)
-and a distinct name banner still need a pass, and *it has still not been playtested in motion*. The **core steal
-rule** stays parked in "Also on our mind" (reverse-Snake crossing in INSPIRATION) until that read-check passes.
-Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on
-a pile of new player verbs. No new Now items this run — fix the disabled-test bugs first, then depth before breadth.
+here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. This was a **polish/audio
+cycle that inched the ecology forward but left the core-verb regression untouched.** The landings: the groove engine
+grew a real rhythm bed — **kick/snare drums + a walking bass** (7598b14) on top of the electric-piano lead
+(c80c96a) — more BYO-music scaffolding. The ambient rival train got two concrete nudges toward its read-check: the
+**flashlight now targets NPC train leaders, not just boss crabs** (28452dc) — the first time a player *tool* reaches a
+rival leader at all — and its **rumble was tuned to snap to one bar at the game BPM with event density halved for a
+calmer, more musical swell** (e571ce1, plus an NDC coord fix + A-minor key, 5b9b3ee). Level transitions got the
+Control-style **slide-in title cards** Carl likes (cd0cc39), and the HUD tightened (1cce79d). CI moved off Nix to a
+cargo+apt path (#16/#17) and the mouse cursor is hidden in-window (6bef4f8). **The down side is unchanged and now
+glaring:** the two playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb) and
+`campaign_tutorial` — are *still commented out*, ~14 commits later. Per the Supervisor's ruling (621d07e) a disabled
+test *is* a FAIL; agents keep choosing softer audio/HUD work over it. It beats everything until green (top of Bugs).
+**The ecology read-check is now half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
+(e571ce1) — but it's still **mono**: no directional stereo pan, so you hear the train approach without hearing *which
+way* it is. The boss already has the pan-by-angle + rolloff machinery (2101cef); porting it onto the ambient train's
+rumble is the one remaining audio task for the radar, alongside the distinct name banner — and *it still has not been
+playtested in motion*. The **core steal rule** stays parked in "Also on our mind" (reverse-Snake crossing in
+INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds:
+sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now items this run — fix the
+disabled-test bugs first, then finish the radar's directional pan.
 
 ## Bugs (fix before anything else in Now)
 
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- **[TOP BUG] `menu_to_game` playtest is disabled to hide a crab-catching regression.** `scripts/playtest.sh`
-  line 28 has `run_script menu_to_game` commented out "pending crab catching fix" (477f7e6). Catching is the
-  *core verb* — a masked regression here is the worst kind. Fix the underlying catch detection until the test
-  passes, then re-enable the line. Never leave it commented as a workaround (Supervisor ruling, 621d07e).
-- **[BUG] `campaign_tutorial` playtest is disabled pending a tutorial→world-map bug.** Same file, line 29,
+- **[TOP BUG — a full feature cycle has passed without a fix] `menu_to_game` playtest is disabled to hide a
+  crab-catching regression.** `scripts/playtest.sh` line 48 has `run_script menu_to_game` commented out "pending
+  crab catching fix" (477f7e6). Catching is the *core verb* — a masked regression here is the worst kind, and
+  ~14 commits of audio/HUD polish have landed on top of it without touching it. **Feature/Overnight agents keep
+  bouncing off this into softer work — stop.** Fix the underlying catch detection until the test passes, then
+  re-enable the line. Never leave it commented as a workaround (Supervisor ruling, 621d07e). This beats every
+  feature and every ecology item below until it is green.
+- **[BUG] `campaign_tutorial` playtest is disabled pending a tutorial→world-map bug.** Same file, line 49,
   commented "enable once tutorial->world-map bug is fixed." Re-enable and fix once the crab-catching bug above
   is cleared (they may share a root cause in the menu/level transition).
 - Fixed this cycle: the flashlight/wgpu crash (draw-order fix — flashlight drawn last, after all instanced
@@ -128,16 +130,18 @@ item in "Now" below.
   the system by watching it, not by reading a tutorial.
 
 - **[ECOLOGY — validate the first slice] Make the ambient King Crab train read as a genuine rival.** The ambient
-  wandering train (6a17026 + spatial rumble 2200964 + names 38201e5) is now more legible: **three visually distinct
-  tiers** — scout/wanderer/elder differ in size, speed, territory, and idle pauses (d046ae7), so a small train reads
-  differently from a huge one at a glance, and the wander feels less like a scripted lap. Two gates remain before this
-  clears, no new player verb: a **clean music-swell radar** (rumble should rise smoothly and *directionally* as it
-  nears, agar.io-style — audio IS the radar per INSPIRATION; verify it's smooth, not steppy) and a **distinct
-  silhouette/name banner** you can read across the field to tell rivals apart. **The radar just got cheap:** the King
-  Crab boss now has real spatial audio with distance rolloff + stereo pan + brightness rolloff (2101cef) — port that
-  same rolloff/pan onto the ambient train's rumble and the first gate is done. And it still hasn't been playtested —
-  someone should confirm the tiers and rumble actually read in motion. Still visual-only: does NOT steal, splice, or
-  react to you. Passing this read-check is what unblocks the steal rule below.
+  wandering train (6a17026 + spatial rumble 2200964 + names 38201e5) reads in **three visually distinct tiers** —
+  scout/wanderer/elder differ in size, speed, territory, and idle pauses (d046ae7) — and the flashlight now *targets*
+  its leader (28452dc), the first player-tool contact with a rival. The music-swell radar is **half done**: the
+  distance swell is smooth and tuned (e571ce1), but the rumble is **still mono** — you hear the train approach without
+  hearing *which way* it is. Two concrete tasks remain, no new player verb:
+  1. **Directional pan (the one remaining audio task).** Port the boss's stereo-pan-by-angle + rolloff (2101cef) onto
+     the ambient train's rumble so it pans left/right by the leader's bearing, agar.io-style. Distance swell is
+     already there; this adds the *direction*.
+  2. **Distinct name banner.** A larger, distance-scaled-alpha name label you can read across the field to tell
+     rivals apart.
+  Then **playtest it in motion** — nobody has yet confirmed the tiers and rumble actually read while moving. Still
+  visual-only: does NOT steal, splice, or react to you. Passing this read-check unblocks the steal rule below.
 
 ## Later (outer loop — not yet)
 
