@@ -770,46 +770,75 @@ fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32)
         }
     }
 
-    // A deliberately stark 16-step minor tracker line gives the map pad a darker, Deus Ex-era
-    // industrial pulse: clipped square notes, a low repeating bass ostinato, and a couple of
-    // strategically empty steps. It is a musical pattern rather than a modern sustained chord,
-    // so the ambience still has a machine-like groove underneath the long pad.
+    // Two-voice GB/Deus Ex arpeggio line layered beneath the pad — gives the ambience a
+    // machine-like groove underneath the long-swell sound.
+    //
+    // Voice A (Rect 0.125 — buzzy pulse channel 1): fast 16th-note arpeggio cycling through
+    // a minor chord in A Aeolian (A–C–E / G–B–D), Deus Ex style. Step = 16th note at ~80 BPM
+    // = 0.1875 s. The pattern repeats for as long as the note_duration runs.
+    //
+    // Voice B (Rect 0.5 — softer square, channel 2): slow counter-melody in half-notes,
+    // descending the scale one step per two bars — the "unease bass" that makes it hypnotic.
     let tracker_adsr = Adsr {
         attack: 0.001,
-        decay: 0.035,
+        decay: 0.03,
         sustain: 0.0,
-        release: 0.045,
+        release: 0.035,
     };
-    let tracker_pattern = [0, 3, 7, 10, 7, 3, 0, -2, 0, 3, 7, 12, 10, 7, 3, -2];
-    let step_duration = 0.125;
-    for (step, semitone) in tracker_pattern.iter().enumerate() {
-        // Leave two off-beats empty, as a tracker pattern would, instead of filling every slot.
-        if step == 5 || step == 13 {
+    // 16th note at ~80 BPM
+    let step_s = 60.0_f32 / 80.0 / 4.0; // ~0.1875 s
+    // Arpeggio pattern — semitones from root, cycling through minor chord tones.
+    // Pattern: root, m3, P5, octave, P5, m3 — one full arpeggio per 6 steps.
+    // Then the minor triad a fifth below (bVII) for the second cell, creating
+    // the two-chord Deus Ex shimmer.
+    let arp_pattern: &[i32] = &[
+        0, 3, 7, 12,  7, 3,   // Am arpeggio up and back
+        -2, 2, 5, 10, 5, 2,   // Gm colour (bVII), same motion
+        0, 3, 7, 12,  10, 7,  // Am again, top-note linger
+        -5, 0, 3,  7,  3, 0,  // Fm (bVI) — the "unease" colour
+    ];
+    let n_arp_steps = arp_pattern.len();
+    // Rests: skip steps 4, 11, 22 for a bit of rhythmic air.
+    let rest_steps: &[usize] = &[4, 11, 22];
+    let total_steps = (note_duration / step_s).ceil() as usize;
+    for step in 0..total_steps {
+        if rest_steps.contains(&(step % n_arp_steps)) {
             continue;
         }
-        let ratio = 2.0_f32.powf(*semitone as f32 / 12.0);
+        let semitone = arp_pattern[step % n_arp_steps];
+        let ratio = 2.0_f32.powf(semitone as f32 / 12.0);
+        // Note duration = 70% of step for staccato pulse feel.
         let voice = synth_note(
             Waveform::Rect(0.125),
             root_hz * ratio,
-            0.075,
+            step_s * 0.70,
             &tracker_adsr,
-            gain * 0.16,
+            gain * 0.18,
         );
-        mix_into(
-            &mut mono,
-            &voice,
-            (SAMPLE_RATE as f32 * step_duration * step as f32) as usize,
-        );
+        mix_into(&mut mono, &voice, (step_s * step as f32 * SAMPLE_RATE as f32) as usize);
     }
-    // A quieter sub-bass line pins the motif to the root, like a second tracker channel.
-    let bass = synth_note(
-        Waveform::Rect(0.5),
-        root_hz * 0.5,
-        note_duration,
-        &tracker_adsr,
-        gain * 0.12,
-    );
-    mix_into(&mut mono, &bass, 0);
+    // Voice B — slow counter-melody descending (half-note pace = 8 steps each).
+    // A Aeolian descent: A → G → F → E → repeat.
+    let counter_melody: &[(i32, usize)] = &[
+        (0, 8),   // A — root, two bars
+        (-2, 8),  // G
+        (-5, 8),  // F
+        (-7, 8),  // E
+        (0, 8),   // A again
+        (-2, 8),  // G cadence
+    ];
+    let counter_adsr = Adsr { attack: 0.005, decay: 0.08, sustain: 0.3, release: 0.12 };
+    let mut counter_cursor = 0usize;
+    for &(semitone, len_steps) in counter_melody {
+        let ratio = 2.0_f32.powf(semitone as f32 / 12.0);
+        let dur = step_s * len_steps as f32 * 0.85;
+        let voice = synth_note(Waveform::Rect(0.5), root_hz * 0.5 * ratio, dur, &counter_adsr, gain * 0.14);
+        let offset_samples = (step_s * counter_cursor as f32 * SAMPLE_RATE as f32) as usize;
+        if offset_samples < mono.len() {
+            mix_into(&mut mono, &voice, offset_samples);
+        }
+        counter_cursor += len_steps;
+    }
 
     apply_resonant_sweep(
         &mut mono,
@@ -1410,48 +1439,122 @@ pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {
 }
 
 // ---------------------------------------------------------------------------
-// Crab-theme melody synthesiser  (Duck Game / Deus Ex inspired ABA loops)
+// Crab-theme melody synthesiser
+//
+// Game Boy / Deus Ex aesthetic:
+//   - Arpeggio-driven harmony: fast 16th-note arpeggios cycle through chord tones instead of
+//     held notes, giving the GB "shimmer" (Pokémon Red, Link's Awakening).
+//   - Two-voice interplay: pulse channel 1 carries the fast arpeggio riff; pulse channel 2
+//     answers with a slower counter-melody a bar later, like the two pulse channels on a DMG.
+//   - Pulse-wave character: Rect(0.125) duty = buzzy/bright. Counter-voice uses Rect(0.5).
+//   - Deus Ex feel: minor/Phrygian modes, slow-moving bass beneath the arpeggio, a sense of
+//     unease. Alexander Brandon vibe: hypnotises rather than excites.
+//   - Strict grid: all durations are exact 16th-note multiples; velocity/amplitude nudges give
+//     staccato pulse feel (notes rendered slightly shorter than their grid slot).
 // ---------------------------------------------------------------------------
 
-fn melody_note(hz: f32, dur_s: f32, amp: f32) -> Vec<f32> {
+// Pre-computed equal-temperament frequencies
+const C3: f32 = 130.81;
+const D3: f32 = 146.83;
+const DS3: f32 = 155.56;
+const E3: f32 = 164.81;
+const F3: f32 = 174.61;
+const G3: f32 = 196.00;
+const A3: f32 = 220.00;
+const AS3: f32 = 233.08;
+const B3: f32 = 246.94;
+const C4: f32 = 261.63;
+const D4: f32 = 293.66;
+const E4: f32 = 329.63;
+const F4: f32 = 349.23;
+const FS4: f32 = 369.99;
+const G4: f32 = 392.00;
+const A4: f32 = 440.00;
+const AS4: f32 = 466.16;
+const B4: f32 = 493.88;
+const C5: f32 = 523.25;
+const D5: f32 = 587.33;
+const E5: f32 = 659.25;
+const F5: f32 = 698.46;
+const FS5: f32 = 739.99;
+const G5: f32 = 783.99;
+const A5: f32 = 880.00;
+const R: f32 = 0.0; // rest
+
+/// Render a single pulse-wave note into a flat `f32` buffer.
+///
+/// `duty` controls the pulse width (0.125 = narrow buzzy GB pulse channel 1,
+/// 0.5 = square = softer channel 2). Notes are rendered slightly shorter than
+/// `dur_s` (staccato: 80% on, 20% silence tail) to give that strict-grid
+/// chip-tune feel where each note punches in cleanly rather than smearing.
+fn gb_pulse_note(hz: f32, dur_s: f32, duty: f32, amp: f32) -> Vec<f32> {
     let n = (SAMPLE_RATE as f32 * dur_s) as usize;
     let mut out = Vec::with_capacity(n);
     if hz < 1.0 {
-        out.resize(n, 0.0);
+        out.resize(n, 0.0); // rest
         return out;
     }
+    // Staccato gate: note sounds for the first 80% of its slot, silent the rest.
+    let gate_n = ((n as f32) * 0.80) as usize;
     let mut phase = 0.0_f32;
     for i in 0..n {
+        if i >= gate_n {
+            out.push(0.0);
+            continue;
+        }
         let t = i as f32 / SAMPLE_RATE as f32;
         phase += hz / SAMPLE_RATE as f32;
-        let sq = if (phase % 1.0) < 0.5 { 1.0_f32 } else { -1.0 };
-        let frac = t / dur_s;
-        let env = if frac < 0.05 {
-            frac / 0.05
-        } else if frac < 0.15 {
-            1.0 - (frac - 0.05) / 0.10 * 0.3
-        } else if frac < 0.82 {
-            0.7
+        let p = phase.rem_euclid(1.0);
+        let wave = if p < duty.clamp(0.01, 0.99) { 1.0_f32 } else { -1.0 };
+        // Short linear attack (1.5 ms) + linear decay at the tail of the gate to avoid clicks.
+        let attack = (t / 0.0015).min(1.0);
+        let tail_start = gate_n.saturating_sub((SAMPLE_RATE as f32 * 0.004) as usize);
+        let release = if i > tail_start {
+            1.0 - (i - tail_start) as f32 / (gate_n - tail_start).max(1) as f32
         } else {
-            0.7 * (1.0 - (frac - 0.82) / 0.18)
+            1.0
         };
-        out.push(sq * amp * env.clamp(0.0, 1.0));
+        out.push(wave * amp * attack * release);
     }
     out
 }
 
-fn synth_theme_loop(
+/// Build a two-voice GB-style theme and return it as a looping `Source`.
+///
+/// `voice1` = fast arpeggio riff on pulse channel 1 (duty 0.125, bright/buzzy).
+/// `voice2` = slower counter-melody on pulse channel 2 (duty 0.5, softer square), mixed at
+/// a slightly lower level so it sits behind the main riff.
+/// Both sequences are `(hz, 16th_note_count)` pairs; `sixteenth_s` is the duration of one 16th note.
+fn synth_two_voice(
     ctx: &mut Context,
-    beat_s: f32,
-    sequence: &[(f32, f32)], // (hz, beats)
-    amp: f32,
-    bit_depth: u32,
+    sixteenth_s: f32,
+    voice1: &[(f32, u32)],  // (hz, 16ths) — arpeggio riff, Rect(0.125)
+    voice2: &[(f32, u32)],  // (hz, 16ths) — counter-melody, Rect(0.5)
+    amp1: f32,
+    amp2: f32,
 ) -> GameResult<Source> {
-    let mut all: Vec<f32> = Vec::new();
-    for &(hz, beats) in sequence {
-        all.extend(melody_note(hz, beat_s * beats, amp));
+    // Render voice 1 (arpeggio).
+    let mut ch1: Vec<f32> = Vec::new();
+    for &(hz, n16) in voice1 {
+        ch1.extend(gb_pulse_note(hz, sixteenth_s * n16 as f32, 0.125, amp1));
     }
-    let pcm = samples_to_pcm(&mut all, bit_depth, 1);
+    // Render voice 2 (counter-melody).
+    let mut ch2: Vec<f32> = Vec::new();
+    for &(hz, n16) in voice2 {
+        ch2.extend(gb_pulse_note(hz, sixteenth_s * n16 as f32, 0.5, amp2));
+    }
+    // Mix: extend shorter voice with silence so they align, then sum.
+    let len = ch1.len().max(ch2.len());
+    ch1.resize(len, 0.0);
+    ch2.resize(len, 0.0);
+    let mut mix: Vec<f32> = ch1.iter().zip(ch2.iter()).map(|(a, b)| a + b).collect();
+    // Mild bitcrush for GB grit, then normalize.
+    bitcrush(&mut mix, 8, 2);
+    normalize_and_saturate(&mut mix, 0.82);
+    let pcm: Vec<i16> = mix
+        .iter()
+        .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect();
     let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav);
     let mut src = Source::from_data(ctx, data)?;
@@ -1459,104 +1562,171 @@ fn synth_theme_loop(
     Ok(src)
 }
 
-// Pre-computed equal-temperament frequencies
-const C3: f32 = 130.81;
-const E3: f32 = 164.81;
-const F3: f32 = 174.61;
-const G3: f32 = 196.00;
-const A3: f32 = 220.00;
-const B3: f32 = 246.94;
-const C4: f32 = 261.63;
-const D4: f32 = 293.66;
-const DS4: f32 = 311.13;
-const E4: f32 = 329.63;
-const F4: f32 = 349.23;
-const FS4: f32 = 369.99;
-const G4: f32 = 392.00;
-const GS4: f32 = 415.30;
-const A4: f32 = 440.00;
-const B4: f32 = 493.88;
-const C5: f32 = 523.25;
-const D5: f32 = 587.33;
-const E5: f32 = 659.25;
-const FS5: f32 = 739.99;
-const G5: f32 = 783.99;
-const A5: f32 = 880.00;
-const R: f32 = 0.0; // rest
-
-/// Theme 0 — "Happy Crab Stomp": C major, 170 BPM, Duck-Game bouncy arpeggios. ABA.
+/// Theme 0 — "Pallet Town Crab": C major, 160 BPM.
+///
+/// Voice 1: fast 16th-note arpeggio shimmer cycling C–E–G–C (classic GB Pokémon Red shimmer).
+/// Voice 2: slower quarter-note counter-melody descending back down the triad.
+/// Feels like an upbeat town theme — bouncy, bright, immediately earwormy.
 pub fn synth_theme_duck_bounce(ctx: &mut Context) -> GameResult<Source> {
-    let b = 60.0 / 170.0;
+    // 160 BPM → quarter = 375 ms → 16th = 93.75 ms
+    let s = 60.0 / 160.0 / 4.0;
     #[rustfmt::skip]
-    let seq: &[(f32, f32)] = &[
-        // A
-        (C5,0.5),(E5,0.5),(G5,0.5),(E5,0.5),(C5,0.5),(G4,0.5),(A4,0.5),(C5,0.5),
-        // B
-        (G4,1.0),(F4,0.5),(E4,0.5),(D4,1.0),(C4,1.0),
-        // A
-        (C5,0.5),(E5,0.5),(G5,0.5),(E5,0.5),(C5,0.5),(G4,0.5),(A4,0.5),(C5,1.0),
+    // Voice 1: arpeggio riff — 16ths cycling C–E–G (two bars × 2 = 4 bars total, ABA feel)
+    let v1: &[(f32, u32)] = &[
+        // bar 1 A: C maj arpeggio up and back
+        (C5,1),(E5,1),(G5,1),(C5,1), (G5,1),(E5,1),(C5,1),(G4,1),
+        // bar 2 A: same riff, slightly displaced
+        (E5,1),(G5,1),(C5,1),(E5,1), (C5,1),(G4,1),(E4,1),(C4,1),
+        // bar 3 B: F maj arpeggio — colour change
+        (F4,1),(A4,1),(C5,1),(F5,1), (C5,1),(A4,1),(F4,1),(C4,1),
+        // bar 4 B: G dominant — tension before return
+        (G4,1),(B4,1),(D5,1),(G5,1), (D5,1),(B4,1),(G4,1),(D4,1),
+        // bar 5–6 A repeat
+        (C5,1),(E5,1),(G5,1),(C5,1), (G5,1),(E5,1),(C5,1),(G4,1),
+        (E5,1),(G5,1),(C5,1),(E5,1), (C5,1),(G4,1),(E4,1),(C4,2),
     ];
-    synth_theme_loop(ctx, b, seq, 0.55, 6)
+    #[rustfmt::skip]
+    // Voice 2: quarter-note counter-melody (each entry = 4 sixteenths = one quarter)
+    let v2: &[(f32, u32)] = &[
+        // bars 1-2: descending reply
+        (G4,4),(E4,4),(C4,4),(D4,4),
+        // bars 3-4: answering phrase
+        (F4,4),(E4,4),(D4,4),(G3,4),
+        // bars 5-6: return + cadence
+        (G4,4),(E4,4),(C4,4),(C4,6),
+    ];
+    synth_two_voice(ctx, s, v1, v2, 0.55, 0.35)
 }
 
-/// Theme 1 — "Funky Dancer": D major, 145 BPM, syncopated Duck-Game groove. ABA.
+/// Theme 1 — "Corridor Funk": D Dorian, 148 BPM.
+///
+/// Dorian gives the minor feel with a bright 6th (B natural in D Dorian) — feels tense but
+/// groovy. Voice 1: syncopated 16th arpeggio. Voice 2: sparse bass-register counter-line.
 pub fn synth_theme_duck_funky(ctx: &mut Context) -> GameResult<Source> {
-    let b = 60.0 / 145.0;
+    let s = 60.0 / 148.0 / 4.0;
     #[rustfmt::skip]
-    let seq: &[(f32, f32)] = &[
-        // A — offbeat groove
-        (D5,0.5),(R,0.25),(D5,0.25),(A4,0.5),(FS4,0.5),
-        (D5,0.5),(E5,0.25),(FS5,0.25),(E5,0.5),(D5,0.5),
-        // B — slower hook
-        (G4,1.0),(A4,1.0),(FS4,0.5),(E4,0.5),(D4,1.0),
-        // A
-        (D5,0.5),(R,0.25),(D5,0.25),(A4,0.5),(FS4,0.5),
-        (D5,0.5),(E5,0.25),(FS5,0.25),(E5,0.5),(D5,1.0),
+    // Voice 1: D–F–A (D minor triad) 16th arpeggios with rhythmic rests for syncopation
+    let v1: &[(f32, u32)] = &[
+        // bar 1: riff with rest on beat 2 for syncopation
+        (D5,1),(F5,1),(A5,1),(R,1), (D5,1),(A4,1),(F4,1),(D4,1),
+        // bar 2: answer riff rising
+        (R,1),(F4,1),(A4,1),(D5,1), (F5,1),(A5,1),(F5,1),(D5,1),
+        // bar 3 B: G minor colour
+        (G4,1),(AS4,1),(D5,1),(G5,1), (D5,1),(AS4,1),(G4,1),(R,1),
+        // bar 4 B: descend via A (natural 6th = bright Dorian colour)
+        (A4,1),(C5,1),(E5,1),(A5,1), (E5,1),(C5,1),(A4,1),(G4,1),
+        // bars 5-6: A repeat with held cadence
+        (D5,1),(F5,1),(A5,1),(R,1), (D5,1),(A4,1),(F4,1),(D4,1),
+        (R,1),(F4,1),(A4,1),(D5,1), (F5,1),(D5,1),(A4,2),
     ];
-    synth_theme_loop(ctx, b, seq, 0.50, 6)
+    #[rustfmt::skip]
+    // Voice 2: slow bass line, half-note pulse (8 sixteenths each)
+    let v2: &[(f32, u32)] = &[
+        (D3,8),(G3,8),(AS3,8),(A3,6),(D3,2),
+        (D3,8),(G3,6),(D3,4),(A3,8),
+    ];
+    synth_two_voice(ctx, s, v1, v2, 0.52, 0.42)
 }
 
-/// Theme 2 — "UNATCO Corridor": E Phrygian, 95 BPM, Deus Ex tense darkness. ABA.
+/// Theme 2 — "UNATCO Corridor": E Phrygian, 92 BPM, Deus Ex tense darkness.
+///
+/// Phrygian mode (E–F–G–A–B–C–D) = semitone above root gives the iconic Spanish/dark-minor
+/// tension. Voice 1: arpeggio with deliberate stabs (lots of rests). Voice 2: slow
+/// chromatic descent answering one bar late. Hypnotises rather than excites.
 pub fn synth_theme_deus_tense(ctx: &mut Context) -> GameResult<Source> {
-    let b = 60.0 / 95.0;
+    let s = 60.0 / 92.0 / 4.0;
     #[rustfmt::skip]
-    let seq: &[(f32, f32)] = &[
-        // A — descending Phrygian figure
-        (E4,1.0),(F4,0.5),(E4,0.5),(B3,1.0),(G3,1.0),(F3,0.5),(E3,0.5),(R,1.0),
-        // B — chromatic tension
-        (A3,1.0),(GS4,1.0),(F4,0.5),(E4,1.0),(DS4,0.5),(R,1.0),
-        // A
-        (E4,1.0),(F4,0.5),(E4,0.5),(B3,1.0),(G3,1.0),(F3,0.5),(E3,1.5),
+    // Voice 1: E minor arpeggio (E–G–B) with plenty of air — less frantic than the upbeat themes
+    let v1: &[(f32, u32)] = &[
+        // bar 1 A: stab pattern, arpeggio on beat 1 then silence
+        (E4,1),(G4,1),(B4,1),(E5,1), (R,2),(B4,1),(G4,1),
+        // bar 2 A: half-bar descent
+        (E4,1),(F4,1),(E4,1),(R,1), (B3,1),(G3,1),(E3,2),
+        // bar 3 B: chromatic tension — move to C (bVI) colour
+        (C4,1),(E4,1),(G4,1),(C5,1), (G4,1),(E4,1),(C4,2),
+        // bar 4 B: D7 (bVII dominant) resolving back
+        (D4,1),(FS4,1),(A4,1),(D5,1), (A4,1),(FS4,1),(D4,1),(R,1),
+        // bars 5-6 A: return + long resolution
+        (E4,1),(G4,1),(B4,1),(E5,1), (R,2),(B4,1),(G4,1),
+        (E4,1),(F4,1),(E4,1),(R,1), (B3,2),(E3,4),
     ];
-    synth_theme_loop(ctx, b, seq, 0.60, 8)
+    #[rustfmt::skip]
+    // Voice 2: slow chromatic descent — the Alexander Brandon "unease bass"
+    let v2: &[(f32, u32)] = &[
+        (E3,8),             // hold root
+        (DS3,4),(D3,4),     // semitone steps down
+        (C3,8),             // bVI bass
+        (B3,4),(AS3,4),     // more descent
+        (E3,6),(R,2),       // return with breath
+        (E3,8),             // final hold
+    ];
+    synth_two_voice(ctx, s, v1, v2, 0.58, 0.45)
 }
 
-/// Theme 3 — "Ambient Biomech": A minor, 80 BPM, sparse Deus Ex atmosphere. ABA.
+/// Theme 3 — "Biomechanical Hum": A Aeolian (natural minor), 78 BPM.
+///
+/// Slower and more ambient: voice 1 plays a sparse minor arpeggio with long rests between
+/// phrases (Link's Awakening dungeon pacing). Voice 2 answers with a slow two-note motif
+/// that hangs in the air, giving a sense of distant, patient unease.
 pub fn synth_theme_deus_ambient(ctx: &mut Context) -> GameResult<Source> {
-    let b = 60.0 / 80.0;
+    let s = 60.0 / 78.0 / 4.0;
     #[rustfmt::skip]
-    let seq: &[(f32, f32)] = &[
-        // A — long notes with space
-        (A3,2.0),(R,0.5),(C4,1.5),(E4,2.0),(R,0.5),(G4,1.5),
-        // B — chromatic float
-        (F4,2.0),(GS4,1.5),(R,0.5),(B4,2.0),(A4,2.0),
-        // A
-        (A3,2.0),(R,0.5),(C4,1.5),(E4,2.0),(R,0.5),(A4,2.0),
+    // Voice 1: sparse A minor (A–C–E) — lots of rests let each phrase breathe
+    let v1: &[(f32, u32)] = &[
+        // bar 1 A: just the upward statement
+        (A4,1),(C5,1),(E5,1),(A5,1), (R,4),(E5,2),(C5,2),
+        // bar 2 A: answer phrase descending
+        (A4,1),(E4,1),(C4,1),(A3,1), (R,4),(A3,4),
+        // bar 3 B: G minor colour (bVII)
+        (G4,1),(AS4,1),(D5,1),(G5,1), (R,4),(D5,4),
+        // bar 4 B: F major (bVI) — the Deus Ex "unease" chord
+        (F4,1),(A4,1),(C5,1),(F5,1), (R,6),(C5,1),(A4,1),
+        // bars 5-6 A: repeat with held close
+        (A4,1),(C5,1),(E5,1),(A5,1), (R,4),(E5,2),(C5,2),
+        (A4,2),(E4,2),(A3,8),
     ];
-    synth_theme_loop(ctx, b, seq, 0.50, 10)
+    #[rustfmt::skip]
+    // Voice 2: two-note call-response at half-note pace, mostly low register
+    let v2: &[(f32, u32)] = &[
+        (A3,8),(R,8),
+        (G3,8),(R,8),
+        (F3,8),(R,8),
+        (A3,10),(R,6),
+    ];
+    synth_two_voice(ctx, s, v1, v2, 0.48, 0.40)
 }
 
-/// Theme 4 — "Golden Rush": G major pentatonic, 155 BPM, sparkly Duck-Game runs. ABA.
+/// Theme 4 — "Golden Pentatonic": G major pentatonic, 152 BPM.
+///
+/// Pentatonic avoids dissonance entirely — pure shimmer. Voice 1: 16th-note pentatonic
+/// arpeggio that never stops (Tetris/Pokémon title-screen energy). Voice 2: a short
+/// motivic cell (3-note tag) that pops in every other bar as the counter-voice.
 pub fn synth_theme_duck_golden(ctx: &mut Context) -> GameResult<Source> {
-    let b = 60.0 / 155.0;
+    let s = 60.0 / 152.0 / 4.0;
     #[rustfmt::skip]
-    let seq: &[(f32, f32)] = &[
-        // A — rapid pentatonic run
-        (G4,0.5),(A4,0.5),(B4,0.5),(D5,0.5),(G5,0.5),(D5,0.5),(B4,0.5),(G4,0.5),
-        // B — octave leap surprise
-        (D5,1.0),(G5,0.5),(A5,0.5),(G5,1.0),(D5,1.0),
-        // A
-        (G4,0.5),(A4,0.5),(B4,0.5),(D5,0.5),(G5,0.5),(D5,0.5),(B4,0.5),(G4,1.0),
+    // Voice 1: G pentatonic (G–A–B–D–E) non-stop shimmer
+    let v1: &[(f32, u32)] = &[
+        // bar 1 A: up the pentatonic
+        (G4,1),(A4,1),(B4,1),(D5,1), (E5,1),(D5,1),(B4,1),(A4,1),
+        // bar 2 A: up again, hit the octave top
+        (G5,1),(E5,1),(D5,1),(B4,1), (A4,1),(G4,1),(D4,1),(G4,1),
+        // bar 3 B: D major arpeggio (V chord, tension)
+        (D5,1),(FS5,1),(A5,1),(D5,1), (A4,1),(FS4,1),(D4,1),(A3,1),
+        // bar 4 B: resolve back via E minor
+        (E5,1),(D5,1),(B4,1),(G4,1), (E4,1),(G4,1),(B4,1),(E5,1),
+        // bars 5-6 A: full repeat with longer cadence hold
+        (G4,1),(A4,1),(B4,1),(D5,1), (E5,1),(D5,1),(B4,1),(A4,1),
+        (G5,1),(E5,1),(D5,1),(B4,1), (G4,2),(D4,2),(G4,4),
     ];
-    synth_theme_loop(ctx, b, seq, 0.55, 6)
+    #[rustfmt::skip]
+    // Voice 2: 3-note motivic tag — appears every other bar (padded with rests)
+    let v2: &[(f32, u32)] = &[
+        (R,8),                          // bar 1: silent
+        (D5,2),(E5,2),(G5,4),           // bar 2: tag
+        (R,8),                          // bar 3: silent
+        (B4,2),(A4,2),(G4,4),           // bar 4: answer tag (lower)
+        (R,8),                          // bar 5: silent
+        (D5,2),(G5,2),(R,4),            // bar 6: final punctuation
+    ];
+    synth_two_voice(ctx, s, v1, v2, 0.55, 0.38)
 }
