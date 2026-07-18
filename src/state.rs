@@ -40,6 +40,8 @@ pub struct GameSounds {
     /// Volume is driven each frame by distance to the player.
     pub(crate) king_crab_rumble: Source,
     pub(crate) hihat: Source,
+    /// Short bright chirp for the flashlight toggle (F key) — a snappy UI beep.
+    pub(crate) flashlight_toggle: Source,
     /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
     /// sampled `success`/`success2` catch sounds for extra retro sparkle.
     pub(crate) coin_chime: Source,
@@ -1092,6 +1094,7 @@ impl MainState {
             success2: Source::new(ctx, "/success2.ogg")?,
             king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
             hihat: sounds::synth_hihat(ctx)?,
+            flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,
             world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
             whistle_sfx: sounds::synth_whistle(ctx)?,

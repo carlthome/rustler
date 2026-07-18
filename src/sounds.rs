@@ -322,7 +322,7 @@ fn synth_fm_note_inner(
         };
         mod_phase += carrier_hz * pitch * mod_ratio * dt;
         mod_phase = mod_phase.rem_euclid(1.0); // Bound the accumulator for long pad-length notes.
-                                               // Modulation index decays exponentially from its peak so the "clang" settles fast.
+        // Modulation index decays exponentially from its peak so the "clang" settles fast.
         let idx = mod_index * (-mod_index_decay * t).exp();
         let modulator = (std::f32::consts::TAU * mod_phase).sin() * idx;
         carrier_phase += carrier_hz * pitch * dt;
@@ -958,6 +958,33 @@ pub fn synth_hihat(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// A short bright chirp for the flashlight toggle (F key). ~120ms sine sweep with a snappy
+/// exponential decay so it reads as a crisp "UI click" without being intrusive.
+pub fn synth_flashlight_toggle(ctx: &mut Context) -> GameResult<Source> {
+    let dur = 0.12_f32;
+    let n = (SAMPLE_RATE as f32 * dur) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    let start_hz = 1800.0_f32;
+    let end_hz = 2600.0_f32;
+    let mut phase = 0.0_f32;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let k = t / dur;
+        let hz = start_hz + (end_hz - start_hz) * k;
+        phase += 2.0 * std::f32::consts::PI * hz * dt;
+        // Fast attack, exponential decay
+        let attack = (t / 0.005).min(1.0);
+        let env = attack * (-22.0 * t).exp();
+        let v = phase.sin() * env * 0.35;
+        samples.push(v);
+    }
+    let pcm = samples_to_pcm(&mut samples, 8, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
 fn encode_wav_mono16(pcm: &[i16]) -> Vec<u8> {
     let num_channels: u16 = 1;
     let bits_per_sample: u16 = 16;
@@ -1071,7 +1098,9 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
             let env = (1.0 - (-900.0 * t).exp()) * (-38.0 / dur_s.max(0.001) * t).exp();
             // xorshift white noise -> [-1, 1]
             let mut x = *rng_state;
-            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
             *rng_state = x;
             let raw = (x as f32) / (u32::MAX as f32) * 2.0 - 1.0;
             // Highpass via first-difference: brightens the noise.
@@ -1087,28 +1116,24 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
 
     // Helper: brief resonant chirp for claw-snap (300-600Hz, slight downward slide,
     // fast decay). This gives the "snap" more body than a pure click.
-    let add_claw_snap = |samples: &mut Vec<f32>,
-                         at: usize,
-                         start_hz: f32,
-                         end_hz: f32,
-                         dur_s: f32,
-                         amp: f32| {
-        let dur_n = (SAMPLE_RATE as f32 * dur_s) as usize;
-        let mut phase = 0.0_f32;
-        for k in 0..dur_n {
-            let t = k as f32 * dt;
-            let slide = (t / dur_s).min(1.0);
-            let freq = start_hz + (end_hz - start_hz) * slide;
-            phase += freq * dt;
-            // Sharp attack, fast decay — snappy but with a hint of sustain from the sine.
-            let env = (1.0 - (-500.0 * t).exp()) * (-28.0 * t).exp();
-            let body = (phase * std::f32::consts::TAU).sin();
-            // A hair of second-harmonic gives it a woodier bite than a pure sine.
-            let bite = 0.35 * (phase * 2.0 * std::f32::consts::TAU).sin();
-            let idx = (at + k) % samples.len();
-            samples[idx] += (body + bite) * env * amp;
-        }
-    };
+    let add_claw_snap =
+        |samples: &mut Vec<f32>, at: usize, start_hz: f32, end_hz: f32, dur_s: f32, amp: f32| {
+            let dur_n = (SAMPLE_RATE as f32 * dur_s) as usize;
+            let mut phase = 0.0_f32;
+            for k in 0..dur_n {
+                let t = k as f32 * dt;
+                let slide = (t / dur_s).min(1.0);
+                let freq = start_hz + (end_hz - start_hz) * slide;
+                phase += freq * dt;
+                // Sharp attack, fast decay — snappy but with a hint of sustain from the sine.
+                let env = (1.0 - (-500.0 * t).exp()) * (-28.0 * t).exp();
+                let body = (phase * std::f32::consts::TAU).sin();
+                // A hair of second-harmonic gives it a woodier bite than a pure sine.
+                let bite = 0.35 * (phase * 2.0 * std::f32::consts::TAU).sin();
+                let idx = (at + k) % samples.len();
+                samples[idx] += (body + bite) * env * amp;
+            }
+        };
 
     // --- Layer 2: sparse shell-click pings scattered across the loop ---
     // Density varies: some pockets busy, others quiet.
@@ -1123,7 +1148,11 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
         add_click(&mut samples, at, dur, carrier, 0.75, amp, &mut rng_state);
         // Gap: mostly short, occasionally long "pockets of silence" so it feels alive.
         let r = rand01(&mut rng_state);
-        let gap = if r > 0.85 { 0.18 + rand01(&mut rng_state) * 0.20 } else { 0.05 + rand01(&mut rng_state) * 0.12 };
+        let gap = if r > 0.85 {
+            0.18 + rand01(&mut rng_state) * 0.20
+        } else {
+            0.05 + rand01(&mut rng_state) * 0.12
+        };
         t_cursor += gap;
     }
 
@@ -1152,13 +1181,22 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
             let frac = c as f32 / (click_count.max(1) as f32);
             let jitter = (rand01(&mut rng_state) - 0.5) * 0.006;
             let t_click = burst_start + frac * burst_span + jitter;
-            if t_click <= 0.0 || t_click >= loop_len - 0.01 { continue; }
+            if t_click <= 0.0 || t_click >= loop_len - 0.01 {
+                continue;
+            }
             let at = (t_click * SAMPLE_RATE as f32) as usize;
             // Tiny per-click pitch wobble around the burst's centre.
             let carrier = pitch_centre * (0.85 + rand01(&mut rng_state) * 0.3);
             // Each chitter click is very short and quieter than shell clicks.
-            add_click(&mut samples, at, 0.005 + rand01(&mut rng_state) * 0.004, carrier, 0.65,
-                      0.11 + rand01(&mut rng_state) * 0.07, &mut rng_state);
+            add_click(
+                &mut samples,
+                at,
+                0.005 + rand01(&mut rng_state) * 0.004,
+                carrier,
+                0.65,
+                0.11 + rand01(&mut rng_state) * 0.07,
+                &mut rng_state,
+            );
         }
     }
 
@@ -1251,10 +1289,10 @@ pub fn synth_whistle(ctx: &mut Context) -> GameResult<Source> {
     let mut samples = Vec::with_capacity(n);
 
     let target_hz = 1600.0_f32; // piercing high whistle
-    let start_hz  =  900.0_f32; // slide-in from a lower note
+    let start_hz = 900.0_f32; // slide-in from a lower note
 
-    let attack   = 0.03_f32; // pitch-slide / volume attack
-    let decay    = 0.10_f32; // amplitude decay begins here
+    let attack = 0.03_f32; // pitch-slide / volume attack
+    let decay = 0.10_f32; // amplitude decay begins here
     let vibrato_rate = 6.5_f32;
     let vibrato_depth = 0.012_f32; // fraction of freq
 
@@ -1274,7 +1312,8 @@ pub fn synth_whistle(ctx: &mut Context) -> GameResult<Source> {
             let t_decay = t - attack;
             let decay_len = duration - attack;
             1.0 - (t_decay / decay_len).powi(2)
-        }.max(0.0);
+        }
+        .max(0.0);
 
         phase += freq / SAMPLE_RATE as f32;
         samples.push((phase * std::f32::consts::TAU).sin() * amp * 0.7);
@@ -1350,7 +1389,11 @@ pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {
         let noise = ((lfsr & 0xFF) as f32 / 128.0) - 1.0;
 
         // Amplitude envelope: sharp attack (0-10 ms) then exponential decay
-        let amp = if t < 0.01 { t / 0.01 } else { (-t * 22.0_f32).exp() };
+        let amp = if t < 0.01 {
+            t / 0.01
+        } else {
+            (-t * 22.0_f32).exp()
+        };
 
         // Very simple "tone" sweep: mix in a sine swept from 400→2000 Hz
         // to give the "whipping" sense of pitch-rise on release
@@ -1383,10 +1426,15 @@ fn melody_note(hz: f32, dur_s: f32, amp: f32) -> Vec<f32> {
         phase += hz / SAMPLE_RATE as f32;
         let sq = if (phase % 1.0) < 0.5 { 1.0_f32 } else { -1.0 };
         let frac = t / dur_s;
-        let env = if frac < 0.05 { frac / 0.05 }
-                  else if frac < 0.15 { 1.0 - (frac - 0.05) / 0.10 * 0.3 }
-                  else if frac < 0.82 { 0.7 }
-                  else { 0.7 * (1.0 - (frac - 0.82) / 0.18) };
+        let env = if frac < 0.05 {
+            frac / 0.05
+        } else if frac < 0.15 {
+            1.0 - (frac - 0.05) / 0.10 * 0.3
+        } else if frac < 0.82 {
+            0.7
+        } else {
+            0.7 * (1.0 - (frac - 0.82) / 0.18)
+        };
         out.push(sq * amp * env.clamp(0.0, 1.0));
     }
     out
@@ -1412,15 +1460,29 @@ fn synth_theme_loop(
 }
 
 // Pre-computed equal-temperament frequencies
-const C3:  f32 = 130.81; const E3: f32 = 164.81; const F3: f32 = 174.61;
-const G3:  f32 = 196.00; const A3: f32 = 220.00; const B3: f32 = 246.94;
-const C4:  f32 = 261.63; const D4: f32 = 293.66; const DS4: f32 = 311.13;
-const E4:  f32 = 329.63; const F4: f32 = 349.23; const FS4: f32 = 369.99;
-const G4:  f32 = 392.00; const GS4: f32 = 415.30; const A4: f32 = 440.00;
-const B4:  f32 = 493.88;
-const C5:  f32 = 523.25; const D5: f32 = 587.33; const E5: f32 = 659.25;
-const FS5: f32 = 739.99; const G5: f32 = 783.99; const A5: f32 = 880.00;
-const R:   f32 = 0.0; // rest
+const C3: f32 = 130.81;
+const E3: f32 = 164.81;
+const F3: f32 = 174.61;
+const G3: f32 = 196.00;
+const A3: f32 = 220.00;
+const B3: f32 = 246.94;
+const C4: f32 = 261.63;
+const D4: f32 = 293.66;
+const DS4: f32 = 311.13;
+const E4: f32 = 329.63;
+const F4: f32 = 349.23;
+const FS4: f32 = 369.99;
+const G4: f32 = 392.00;
+const GS4: f32 = 415.30;
+const A4: f32 = 440.00;
+const B4: f32 = 493.88;
+const C5: f32 = 523.25;
+const D5: f32 = 587.33;
+const E5: f32 = 659.25;
+const FS5: f32 = 739.99;
+const G5: f32 = 783.99;
+const A5: f32 = 880.00;
+const R: f32 = 0.0; // rest
 
 /// Theme 0 — "Happy Crab Stomp": C major, 170 BPM, Duck-Game bouncy arpeggios. ABA.
 pub fn synth_theme_duck_bounce(ctx: &mut Context) -> GameResult<Source> {

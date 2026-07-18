@@ -2137,8 +2137,8 @@ impl MainState {
         hype_dancer_hits.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
-                && (self.player_pos.x - crab.pos.x).abs() < (PLAYER_SIZE + crab.scale) / 2.0
-                && (self.player_pos.y - crab.pos.y).abs() < (PLAYER_SIZE + crab.scale) / 2.0
+                && (self.player_pos.x - crab.pos.x).abs() < PLAYER_SIZE * 0.6 + crab.scale
+                && (self.player_pos.y - crab.pos.y).abs() < PLAYER_SIZE * 0.6 + crab.scale
             {
                 if crab.is_boss() {
                     boss_catches.push((crab.pos, crab.is_tide_boss()));
@@ -12419,6 +12419,11 @@ impl EventHandler for MainState {
         if let Some(key) = input.keycode {
             if key == KeyCode::F {
                 self.flashlight.on = !self.flashlight.on;
+                use ggez::audio::SoundSource;
+                // Slightly higher pitch on, lower on off, so the toggle direction is audible.
+                let pitch = if self.flashlight.on { 1.15 } else { 0.85 };
+                self.sounds.flashlight_toggle.set_pitch(pitch);
+                let _ = self.sounds.flashlight_toggle.play_detached(ctx);
                 return Ok(());
             }
         }
