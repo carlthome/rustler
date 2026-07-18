@@ -23,19 +23,48 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    // ggez generates position in logical image space (0-1280, 0-960).
-    // Scale to drawable space, then to NDC for proper full-screen coverage.
-    let logical_pos = position / vec2<f32>(1280.0, 960.0); // 0..1
-    let screen_pos = logical_pos * vec2<f32>(pp.screen_width, pp.screen_height); // 0..drawable
-    let ndc = screen_pos / vec2<f32>(pp.screen_width, pp.screen_height) * 2.0 - vec2<f32>(1.0);
-    out.position = vec4<f32>(ndc.x, -ndc.y, 0.0, 1.0);
-    out.uv = logical_pos;
+    // ggez emits the quad in image-pixel space: 0..image_w, 0..image_h.
+    // Normalize by image dimensions to get 0..1 UV coordinates.
+    let uv = position / vec2<f32>(pp.screen_width, pp.screen_height);
+    out.uv = uv;
+    // Map 0..1 -> NDC -1..1, flipping Y because wgpu clip-space Y is up
+    // while texture/UV Y is down.
+    out.position = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
     out.color = vec4<f32>(1.0);
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Debug: output magenta to verify shader is running
-    return vec4<f32>(1.0, 0.0, 1.0, 1.0);
+    let uv = in.uv;
+
+    // Chromatic aberration — scales with groove (invisible at 0, up to ~6px split at max groove)
+    let ca = pp.groove * 0.006;
+    let r = textureSample(t, s, uv + vec2<f32>(ca, 0.0)).r;
+    let g = textureSample(t, s, uv).g;
+    let b_ch = textureSample(t, s, uv - vec2<f32>(ca, 0.0)).b;
+    var color = vec3<f32>(r, g, b_ch);
+
+    // CRT scanlines — subtle horizontal darkening at every screen pixel row
+    let line = sin(uv.y * pp.screen_height * 3.14159);
+    color = color * (0.94 + 0.06 * line);
+
+    // Vignette — darken edges
+    let vig_uv = uv * 2.0 - vec2<f32>(1.0);
+    let vignette = clamp(1.0 - dot(vig_uv * 0.6, vig_uv * 0.6), 0.0, 1.0);
+    color = color * vignette;
+
+    // Haze glow — soft bloom at high groove
+    if (pp.groove > 0.5) {
+        let px_x = 1.0 / pp.screen_width;
+        let px_y = 1.0 / pp.screen_height;
+        let c0 = textureSample(t, s, uv).rgb;
+        let c1 = textureSample(t, s, uv + vec2<f32>(px_x, 0.0)).rgb;
+        let c2 = textureSample(t, s, uv - vec2<f32>(px_x, 0.0)).rgb;
+        let blurred = (c0 + c1 + c2) / 3.0;
+        let blend = (pp.groove - 0.5) * 0.25;
+        color = mix(color, blurred, blend);
+    }
+
+    return vec4<f32>(color, 1.0);
 }

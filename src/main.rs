@@ -12380,19 +12380,20 @@ impl EventHandler for MainState {
         // --- Pass 2: blit the scene image to screen with post-processing ---
         {
             let (draw_w, draw_h) = ctx.gfx.drawable_size();
+            let scale_x = draw_w / self.width;
+            let scale_y = draw_h / self.height;
+            // Use logical (image) dimensions for shader uniforms, not drawable size.
+            // The vertex shader needs image dimensions to properly normalize coordinates to 0..1.
             let uniform = PostProcessUniform {
                 groove: self.groove,
                 time: self.time_elapsed,
-                screen_width: draw_w,
-                screen_height: draw_h,
+                screen_width: self.width,
+                screen_height: self.height,
             };
             self.postprocess_params.set_uniforms(ctx, &uniform);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             screen_canvas.set_shader(&self.postprocess_shader);
             screen_canvas.set_shader_params(&self.postprocess_params);
-            // Draw scaled to cover full drawable area
-            let scale_x = draw_w / self.width;
-            let scale_y = draw_h / self.height;
             screen_canvas.draw(
                 &self.scene_image,
                 DrawParam::default()
