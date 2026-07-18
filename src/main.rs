@@ -12388,13 +12388,11 @@ impl EventHandler for MainState {
                 screen_width: self.width,
                 screen_height: self.height,
             };
-            // Rebuild shader params with texture binding each frame
-            let params = ShaderParamsBuilder::new(&uniform)
-                .images(&[&self.scene_image], &[Sampler::nearest_clamp()], false)
-                .build(ctx);
+            // Reuse cached shader params, just update uniforms (avoids per-frame GPU buffer alloc)
+            self.postprocess_params.set_uniforms(ctx, &uniform);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             screen_canvas.set_shader(&self.postprocess_shader);
-            screen_canvas.set_shader_params(&params);
+            screen_canvas.set_shader_params(&self.postprocess_params);
             screen_canvas.draw(
                 &self.scene_image,
                 DrawParam::default()
