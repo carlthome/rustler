@@ -12395,9 +12395,7 @@ impl EventHandler for MainState {
             screen_canvas.set_shader_params(&self.postprocess_params);
             screen_canvas.draw(
                 &self.scene_image,
-                DrawParam::default()
-                    .dest(Vec2::ZERO)
-                    .scale(Vec2::new(scale_x, scale_y)),
+                DrawParam::default().dest(Vec2::ZERO),
             );
             screen_canvas.set_default_shader();
             screen_canvas.finish(ctx)?;

@@ -23,13 +23,13 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    // ggez passes the position attribute already in NDC [-1, 1] for custom
-    // shaders (same convention used by grass.wgsl and flashlight.wgsl in this
-    // codebase). Do NOT try to transform pixel-space to NDC here — that
-    // collapses the quad to a single point and produces a black screen.
+    // ggez passes position in NDC [-1, 1]. For a full-screen quad covering drawable area,
+    // we may need to scale the quad if drawable size != logical size (HiDPI).
+    // The scene_image is created at logical size (1280x960), but drawn to full drawable.
+    // We pass screen_width/height as logical size in uniforms, so the quad is already correct
+    // in NDC space — it naturally fills the full screen when interpreted as NDC.
     out.position = vec4<f32>(position, 0.0, 1.0);
-    // Remap NDC to UV [0, 1]. Flip Y so uv.y=0 is the top of the image,
-    // matching texture sampling convention.
+    // Remap NDC to UV [0, 1]. Flip Y so uv.y=0 is the top of the image.
     out.uv = vec2<f32>(position.x * 0.5 + 0.5, 0.5 - position.y * 0.5);
     out.color = vec4<f32>(1.0);
     return out;
