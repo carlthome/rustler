@@ -142,6 +142,18 @@ A competing-DJ mashup conga line game where the coolest, longest crab rave party
 
 ---
 
+## Duck Game (Landon Podbielski)
+
+**What Carl said:** Duck Game has great music — keep it as a reference.
+
+**What we're taking:** Duck Game's soundtrack has a punchy, retro chiptune energy — short looping tracks that feel hand-composed rather than procedural, with clear melodic identity per level. Each track has a riff you can hum after one loop. The music never overwhelms; it sits perfectly in the background while chaos unfolds in the foreground. For Crab Rustler, this means: music loops should have memorable, singable hooks; they should feel authored even when generated; and they should energize the player without demanding attention.
+
+**Direction for agents:** When tuning the music engine, ask "can I hum this after 8 bars?" If not, the riff isn't sticky enough. Duck Game's music works because the loops are short and the motifs repeat — lean into that.
+
+**What we're *not* taking:** Duck Game's frantic multiplayer tempo. Crab Rustler's music should groove, not sprint.
+
+---
+
 ## Design principles distilled from the above
 
 - **Keys as drum pads.** Every tool should feel satisfying to hammer rhythmically. On-beat hits pay off more. Downbeats are the biggest moment. Players should be able to "play the music" with their hands and catch crabs as a consequence.
