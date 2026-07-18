@@ -2942,11 +2942,20 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // pulses faintly with the beat so the herd shimmers on the downbeat.
     let glint_a = 0.5 + beat_phase * 0.35;
 
-    // Crab claws (small circles)
-    let claw_offset = size * 0.7;
-    let claw_radius = size * 0.18;
-    let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.3));
-    let claw_r = draw_pos + rotate_offset(claw_offset, -(claw_offset * 0.3));
+    // Crab claws — asymmetric like a real fiddler/shore crab: a big crusher on the left and a
+    // smaller pincer on the right, each idly flexing with a slow sine so a standing crab still
+    // feels alive. `claw_idle` swings roughly [-1, 1]; phase varies per-crab so a herd isn't in
+    // lockstep.
+    let claw_phase = (crab.pos.x - crab.pos.y) * 0.07;
+    let claw_idle = (time * (1.6 + beat_phase * 0.8) + claw_phase).sin();
+    let claw_offset = size * 0.72;
+    let crusher_radius = size * 0.23; // dominant claw
+    let pincer_radius = size * 0.15; // small claw
+    // Idle flex nudges each claw slightly (opposite phases so they alternate).
+    let crusher_lift = size * 0.06 * claw_idle;
+    let pincer_lift = size * 0.05 * -claw_idle;
+    let claw_l = draw_pos + rotate_offset(-(claw_offset), -(claw_offset * 0.30) - crusher_lift);
+    let claw_r = draw_pos + rotate_offset(claw_offset * 0.90, -(claw_offset * 0.28) - pincer_lift);
 
     // Eyes — now sit on the tips of short stalks that spread outward from the top of the shell.
     let eye_radius = size * 0.16;
@@ -2971,6 +2980,16 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     } else {
         (0.0, 0.0)
     };
+
+    // Antenna tips: point up-and-out from between the eyes, bobbing gently with the idle sine.
+    // Computed here (not inside a closure) since both the body batch (tip beads) and leg batch
+    // (the antenna lines) need them.
+    let ant_ang_l = rotation - std::f32::consts::FRAC_PI_2 - 0.7;
+    let ant_ang_r = rotation - std::f32::consts::FRAC_PI_2 + 0.7;
+    let ant_tip_l =
+        draw_pos + Vec2::new(ant_ang_l.cos(), ant_ang_l.sin()) * (size * (0.55 + 0.04 * claw_idle));
+    let ant_tip_r =
+        draw_pos + Vec2::new(ant_ang_r.cos(), ant_ang_r.sin()) * (size * (0.55 - 0.04 * claw_idle));
 
     // All ~14 body-part pushes (shadow, body, dome, glint, 2 claws, 2 claw highlights, 2 eyes,
     // 2 pupils) collected under a single thread-local borrow instead of one `.with()` call per
@@ -3028,29 +3047,57 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .scale(Vec2::splat(size / 2.0 * 0.2))
                 .color(Color::new(1.0, 1.0, 1.0, glint_a)),
         );
+        // Big crusher claw (left): an oval knob elongated toward the body, with a darker
+        // pincer-gap notch and a lit highlight so it reads as a chunky rounded shell.
         params.push(
             DrawParam::default()
                 .dest(claw_l)
-                .scale(Vec2::splat(claw_radius))
+                .scale(Vec2::new(crusher_radius * 1.15, crusher_radius * 0.85))
+                .rotation(rotation)
                 .color(crab_color),
         );
+        // Pincer gap: a dark thin ellipse across the crusher tip that opens/closes with the idle
+        // flex, suggesting a mouth-like claw opening.
+        let notch_color = Color::new(0.10, 0.08, 0.10, 0.85);
+        params.push(
+            DrawParam::default()
+                .dest(claw_l + rotate_offset(-crusher_radius * 0.55, 0.0))
+                .scale(Vec2::new(
+                    crusher_radius * 0.55,
+                    crusher_radius * (0.10 + 0.12 * (0.5 + 0.5 * claw_idle)),
+                ))
+                .rotation(rotation)
+                .color(notch_color),
+        );
+        // Small pincer claw (right): a rounder, smaller knob.
         params.push(
             DrawParam::default()
                 .dest(claw_r)
-                .scale(Vec2::splat(claw_radius))
+                .scale(Vec2::new(pincer_radius * 1.05, pincer_radius * 0.90))
+                .rotation(rotation)
                 .color(crab_color),
         );
-        // Matching lit highlight on each claw so they look like the same rounded shell as the body.
         params.push(
             DrawParam::default()
-                .dest(claw_l + light_dir * claw_radius * 0.5)
-                .scale(Vec2::splat(claw_radius * 0.55))
+                .dest(claw_r + rotate_offset(pincer_radius * 0.5, 0.0))
+                .scale(Vec2::new(
+                    pincer_radius * 0.45,
+                    pincer_radius * (0.10 + 0.12 * (0.5 - 0.5 * claw_idle)),
+                ))
+                .rotation(rotation)
+                .color(notch_color),
+        );
+        // Matching lit highlights so the claws catch the same sky-light as the body shell.
+        params.push(
+            DrawParam::default()
+                .dest(claw_l + light_dir * crusher_radius * 0.5)
+                .scale(Vec2::splat(crusher_radius * 0.50))
                 .color(dome_color),
         );
         params.push(
             DrawParam::default()
-                .dest(claw_r + light_dir * claw_radius * 0.5)
-                .scale(Vec2::splat(claw_radius * 0.55))
+                .dest(claw_r + light_dir * pincer_radius * 0.5)
+                .scale(Vec2::splat(pincer_radius * 0.55))
                 .color(dome_color),
         );
         params.push(
@@ -3076,6 +3123,37 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .dest(eye_pos_r + rotate_offset(pdx, pdy))
                 .scale(Vec2::splat(pupil_r))
                 .color(Color::BLACK),
+        );
+        // Tiny white catch-light in each eye so the crab reads as bright-eyed, not dead-eyed.
+        let catch = pupil_r * 0.4;
+        params.push(
+            DrawParam::default()
+                .dest(eye_pos_l + rotate_offset(pdx - eye_radius * 0.25, pdy - eye_radius * 0.25))
+                .scale(Vec2::splat(catch))
+                .color(Color::new(1.0, 1.0, 1.0, 0.9)),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(eye_pos_r + rotate_offset(pdx - eye_radius * 0.25, pdy - eye_radius * 0.25))
+                .scale(Vec2::splat(catch))
+                .color(Color::new(1.0, 1.0, 1.0, 0.9)),
+        );
+        // Antenna tip beads at the ends of the two antennae drawn in the leg batch below.
+        for tip in [ant_tip_l, ant_tip_r] {
+            params.push(
+                DrawParam::default()
+                    .dest(tip)
+                    .scale(Vec2::splat(size * 0.05))
+                    .color(Color::new(0.15, 0.10, 0.12, 1.0)),
+            );
+        }
+        // Little mouth: a dark speck below the eyes so the face reads.
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos + rotate_offset(0.0, -size * 0.02))
+                .scale(Vec2::new(size * 0.10, size * 0.05))
+                .rotation(rotation)
+                .color(Color::new(0.12, 0.08, 0.10, 0.7)),
         );
     });
 
@@ -3146,18 +3224,19 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         let arm_len_r = arm_dir_r.length();
         let arm_angle_l = arm_dir_l.y.atan2(arm_dir_l.x);
         let arm_angle_r = arm_dir_r.y.atan2(arm_dir_r.x);
+        // Crusher arm is chunkier than the pincer arm, matching the asymmetric claws.
         params.push(
             DrawParam::default()
                 .dest(claw_arm_root_l)
                 .rotation(arm_angle_l)
-                .scale(Vec2::new(arm_len_l, 3.0))
+                .scale(Vec2::new(arm_len_l, 4.0))
                 .color(leg_color),
         );
         params.push(
             DrawParam::default()
                 .dest(claw_arm_root_r)
                 .rotation(arm_angle_r)
-                .scale(Vec2::new(arm_len_r, 3.0))
+                .scale(Vec2::new(arm_len_r, 2.6))
                 .color(leg_color),
         );
 
@@ -3169,6 +3248,21 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .scale(Vec2::new(stalk_len, 2.0))
                 .color(leg_color),
         );
+        // Antennae — two thin lines waving up-and-out from between the eyes to the tip beads
+        // pushed into the body batch above. Slightly darker/thinner than the stalks.
+        let ant_root = draw_pos + rotate_offset(0.0, -size * 0.10);
+        for (tip, _s) in [(ant_tip_l, -1.0_f32), (ant_tip_r, 1.0)] {
+            let d = tip - ant_root;
+            let len = d.length().max(0.0001);
+            let ang = d.y.atan2(d.x);
+            params.push(
+                DrawParam::default()
+                    .dest(ant_root)
+                    .rotation(ang)
+                    .scale(Vec2::new(len, 1.4))
+                    .color(tibia_color),
+            );
+        }
         params.push(
             DrawParam::default()
                 .dest(stalk_r_root)
