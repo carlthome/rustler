@@ -21,7 +21,6 @@ pub const LASSO_MISS_TIME: f32 = 0.18;
 pub const LASSO_MAX_CHARGE_TIME: f32 = 1.2;
 pub const LASSO_MIN_RANGE_FRAC: f32 = 0.28; // quick tap reaches 28% of max range
 pub const LASSO_ONBEAT_BONUS: f32 = 1.35; // 35% extra range+speed when released on-beat
-
 pub const CRAB_SIZE: f32 = 36.0;
 // Universal crab velocity cap — prevents runaway speed from compounding forces (wall
 // bounces, scatter kicks, lasso drag) from producing visually broken teleport-level movement.

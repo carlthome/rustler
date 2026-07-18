@@ -1,23 +1,13 @@
 use std::{collections::VecDeque, fs};
 
-use crevice::std140::AsStd140;
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
 use ggez::glam::Vec2;
-use ggez::graphics::{Image, ShaderBuilder, ShaderParams, ShaderParamsBuilder};
+use ggez::graphics::{Image, ShaderBuilder};
 use ggez::{Context, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 
-#[derive(Copy, Clone, Debug, AsStd140)]
-pub struct PostProcessUniform {
-    pub groove: f32,
-    pub time: f32,
-    pub screen_width: f32,
-    pub screen_height: f32,
-}
-
-use crate::bot::BotState;
 use crate::constants::*;
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
@@ -36,27 +26,7 @@ pub struct GameSounds {
     pub(crate) upgrade: Source,
     pub(crate) success: Source,
     pub(crate) success2: Source,
-    /// Looping low rumble for the ambient NPC King Crab conga train.
-    /// Volume is driven each frame by distance to the player.
-    pub(crate) king_crab_rumble: Source,
-    pub(crate) hihat: Source,
-    /// Short bright chirp for the flashlight toggle (F key) — a snappy UI beep.
-    pub(crate) flashlight_toggle: Source,
-    /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
-    /// sampled `success`/`success2` catch sounds for extra retro sparkle.
-    pub(crate) coin_chime: Source,
-    /// Ambient synth pad played on entering the campaign world map — a calm, atmospheric moment
-    /// between levels, long swell/tail with a slow filter sweep, delay and stereo auto-pan.
-    pub(crate) world_map_pad: Source,
-    /// Synthesised finger-whistle for the Whistle tool.
-    pub(crate) whistle_sfx: Source,
-    /// Synthesised stomp thud (kick + noise crack) for the Stomp tool.
-    pub(crate) stomp_sfx: Source,
-    /// Synthesised whoosh for the Lasso throw release.
-    pub(crate) lasso_sfx: Source,
-    /// Five crab-theme loops (Duck Game / Deus Ex ABA melodies), one per archetype group.
-    /// 0=normal/fast/big  1=dancer/splitter  2=thief/sneaky  3=boss/armored  4=golden/magnet/hermit
-    pub(crate) crab_themes: [Source; 5],
+    // Add more sounds here as needed
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -89,11 +59,13 @@ pub fn play_catch_sound(
     let scale = PENTATONIC[step] * 2.0_f32.powi(octave as i32);
     // Small random detune on top of the scale note so simultaneous catches still don't phase-lock.
     let pitch = scale * rng.random_range(0.98_f32..1.02);
-    // Pure synthesized FM chime — no OGG samples. The synth voice handles rapid
-    // multi-catch without the crackling/phase artifacts the sampled files produced
-    // when many copies played simultaneously, and fits the retro chiptune direction.
-    sounds.coin_chime.set_pitch(pitch);
-    let _ = sounds.coin_chime.play_detached(ctx);
+    if rng.random_range(0..5) == 0 {
+        sounds.success2.set_pitch(pitch);
+        let _ = sounds.success2.play_detached(ctx);
+    } else {
+        sounds.success.set_pitch(pitch);
+        let _ = sounds.success.play_detached(ctx);
+    }
 }
 
 pub struct Flashlight {
@@ -151,227 +123,41 @@ pub enum DayPhase {
     Night,
 }
 
-/// Phases of a single lasso throw. A throw is a real skill-shot now: the loop flies out to the aim
-/// point over `LASSO_THROW_TIME` (Throwing), then either bites whatever crabs are clustered under it
-/// (Snag — a brief tightening squeeze) and reels them back with visible rope tension (Dragging), or
-/// finds nothing and flops down empty with a dust puff (Miss). `Idle` = no throw live.
+/// Phases of a single lasso throw. A throw is a real skill-shot now: the loop flies out toward the
+/// aim point over `LASSO_THROW_TIME` (Throwing), then either bites into whatever crabs are clustered
+/// under it (Snag — a brief tightening squeeze) and reels them back with visible rope tension
+/// (Dragging), or finds nothing and flops down empty with a dust puff (Miss). `Idle` = no throw live.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LassoPhase {
-    /// No lasso activity — nothing drawn, nothing blocking the next throw.
     Idle,
-    /// Mouse is held down: the rope swirls above the player, growing with charge. Fires on release.
-    Winding,
-    /// Rope is in the air flying toward the target.
     Throwing,
-    /// Loop just landed on a crab — brief tighten/squeeze pop before the drag begins.
     Snag,
-    /// Reeling the caught crabs back toward the player.
     Dragging,
-    /// Empty throw — loop settling in a dust puff.
     Miss,
 }
 
-/// Ambient wandering NPC conga train — a King Crab leading a few followers across the world.
-/// Visual-only: it does not steal from or react to the player. It's world life, like weather.
-pub struct NpcCongaTrain {
-    pub leader_pos: Vec2,
-    pub leader_vel: Vec2,
-    pub target: Vec2,
-    pub target_timer: f32,
-    /// Sampled leader positions (pushed when leader moves >6px); followers trail by index offset.
-    pub path_history: VecDeque<Vec2>,
-    pub follower_types: Vec<CrabType>,
-    /// Target volume for the rumble SFX, computed each frame from distance to player.
-    /// Smoothed and applied by the EventHandler::update caller which has ctx access.
-    pub target_vol: f32,
-    /// Procedurally generated name — stable for the session (Shadow of Mordor style individuality).
-    pub name: String,
-    /// Visual scale of the King Crab leader — grows with conga length; tier sets the floor.
-    pub leader_scale: f32,
-    /// Minimum scale for this tier — leader can only grow above this, never shrink below it.
-    pub base_scale: f32,
-    /// Brief idle pause at destination before picking the next wander target (Rain World agency feel).
-    pub idle_timer: f32,
-    /// Preferred territory centre — each NPC biases its wander targets toward its own quadrant.
-    pub territory_center: Vec2,
-    /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
-    pub steal_cooldown: f32,
-    /// Time since this NPC last caught a free crab (throttles free-crab collection).
-    pub catch_cooldown: f32,
-}
-
-/// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
-/// pirate flair, and a smattering of completely vanilla comedy names ("Kevin").
-pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
-    const SOLO_NAMES: &[&str] = &[
-        "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet", "Barry", "Brenda", "Trevor", "Karen",
-    ];
-    let solo_roll: f32 = rng.random();
-    if solo_roll < 0.15 {
-        return SOLO_NAMES.choose(rng).unwrap().to_string();
-    }
-
-    const TITLES: &[&str] = &[
-        "Gravelord",
-        "The Undying",
-        "Clawkeeper of the Brackish Deep",
-        "Herald of the Eternal Tide",
-        "Scuttlefiend,",
-        "Devourer of Shores",
-        "Ashen",
-        "Lord of the Sunken Reef",
-        "The Hollow",
-        "Keeper of the Last Shell",
-        "Sovereign of the Abyssal Shallows",
-        "The Forsaken",
-        "Bearer of the Cursed Carapace",
-        "Watcher of the Drowned Coast",
-        "Misterhult",
-        "Cap'n",
-        "First Mate",
-        "Barnacle",
-        "The Scurvy",
-        "Admiral",
-        "Quartermaster",
-        "DJ",
-        "Rave King",
-        "The Eternal",
-        "MC",
-        "Sideways Champion",
-        "Drop Lord",
-        "The Eternal Groove of",
-        "Shellmaster",
-        "The Immortal",
-        "Ancient",
-    ];
-
-    const NAMES: &[&str] = &[
-        "Pinchfeast",
-        "Moltveil",
-        "Chelicerae",
-        "Scuttlegrim",
-        "Brinewraith",
-        "Tidecurse",
-        "Carapace",
-        "Saltborn",
-        "Shellreaper",
-        "Abysswalker",
-        "Duskshell",
-        "Emberclaw",
-        "Grimtide",
-        "Voidmolt",
-        "Pete",
-        "Clawbeard",
-        "Snippy",
-        "the Saltbitten",
-        "Ironpincer",
-        "Buccaneers",
-        "Moultzilla",
-        "Snapsalot",
-        "Groove",
-        "Bounceback",
-        "Sidestep",
-        "the Bass Drop",
-        "Shellshaker",
-        "Clawdrop",
-        "the Unbroken",
-        "Razorshell",
-    ];
-
-    let title = TITLES.choose(rng).unwrap();
-    let name = NAMES.choose(rng).unwrap();
-    format!("{} {}", title, name)
-}
-
-impl NpcCongaTrain {
-    pub fn new(world_width: f32, world_height: f32) -> Self {
-        Self::new_at(world_width, world_height, 0)
-    }
-
-    pub fn new_at(world_width: f32, world_height: f32, index: usize) -> Self {
-        // Three distinct tiers: small scout, medium wanderer, large elder.
-        // Scale, speed, and follower count all differ so they read instantly at a glance.
-        let (sx, sy, tc_x, tc_y, leader_scale, speed_hint) = match index {
-            0 => (0.2, 0.3, 0.25, 0.3, 1.2_f32, 110.0_f32), // small/fast scout, top-left territory
-            1 => (0.8, 0.2, 0.75, 0.25, 1.8_f32, 80.0_f32), // medium wanderer, top-right territory
-            _ => (0.5, 0.8, 0.5, 0.75, 2.4_f32, 55.0_f32),  // large elder, bottom territory
-        };
-        let _ = speed_hint; // stored per-train would need another field; use leader_scale as proxy in update
-        let start = Vec2::new(world_width * sx, world_height * sy);
-        let territory_center = Vec2::new(world_width * tc_x, world_height * tc_y);
-        // Initial target biased toward territory center
-        let target = territory_center + Vec2::new(world_width * 0.1, world_height * 0.05);
-        let follower_types = match index {
-            // Small scout: fast light crabs
-            0 => vec![CrabType::Fast, CrabType::Sneaky, CrabType::Normal],
-            // Medium wanderer: balanced mix
-            1 => vec![
-                CrabType::Armored,
-                CrabType::Normal,
-                CrabType::Fast,
-                CrabType::Magnet,
-                CrabType::Dancer,
-            ],
-            // Large elder: heavy diverse retinue
-            _ => vec![
-                CrabType::Big,
-                CrabType::Dancer,
-                CrabType::Golden,
-                CrabType::Normal,
-                CrabType::Sneaky,
-                CrabType::Hermit,
-                CrabType::Fast,
-            ],
-        };
-        let mut history = VecDeque::new();
-        history.push_back(start);
-        let name = gen_king_crab_name(&mut rand::rng());
-        Self {
-            leader_pos: start,
-            leader_vel: Vec2::ZERO,
-            target,
-            target_timer: 8.0 + index as f32 * 5.0,
-            path_history: history,
-            follower_types,
-            target_vol: 0.0,
-            name,
-            leader_scale,
-            base_scale: leader_scale,
-            idle_timer: 0.0,
-            territory_center,
-            steal_cooldown: 0.0,
-            catch_cooldown: 0.0,
-        }
-    }
-}
-
 pub struct MainState {
-    pub(crate) player_pos: Vec2,              // Player position
-    pub(crate) player_vel: Vec2,              // Player velocity (for smooth movement)
-    pub(crate) mouse_pos: Vec2,               // Mouse position for flashlight aiming
-    pub(crate) crabs: Vec<EnemyCrab>,         // List of crabs in the game
-    pub(crate) score: usize,                  // Current score
-    pub(crate) spawn_timer: f32,              // Timer for spawning new crabs
-    pub(crate) time_elapsed: f32,             // Time since game start
-    pub(crate) menu_time: f32, // Free-running clock for the title/menu screen animation
-    pub(crate) game_over: bool, // Game over flag
-    pub(crate) sounds: GameSounds, // All game sound effects
-    pub(crate) beat_synth: sounds::BeatSynth, // Procedural kick drum played on every beat tick
-    pub(crate) flashlight: Flashlight, // Flashlight settings and upgrades
-    pub(crate) show_instructions: bool, // Show instructions screen
-    pub(crate) show_how_to_play_text: bool, // Show plain-text How to Play card instead of Home menu
+    pub(crate) player_pos: Vec2,                          // Player position
+    pub(crate) player_vel: Vec2,                          // Player velocity (for smooth movement)
+    pub(crate) mouse_pos: Vec2,                           // Mouse position for flashlight aiming
+    pub(crate) crabs: Vec<EnemyCrab>,                     // List of crabs in the game
+    pub(crate) score: usize,                              // Current score
+    pub(crate) spawn_timer: f32,                          // Timer for spawning new crabs
+    pub(crate) time_elapsed: f32,                         // Time since game start
+    pub(crate) menu_time: f32,                            // Free-running clock for the title/menu screen animation
+    pub(crate) game_over: bool,                           // Game over flag
+    pub(crate) sounds: GameSounds,                        // All game sound effects
+    pub(crate) beat_synth: sounds::BeatSynth,             // Procedural kick drum played on every beat tick
+    pub(crate) flashlight: Flashlight,                    // Flashlight settings and upgrades
+    pub(crate) show_instructions: bool,                   // Show instructions screen
     // Active cosmetic loadout for the player character (hat, facial hair, accessory).
     // Loaded from career.txt on startup; changed from the title screen customisation menu.
     // Purely visual — never affects gameplay.
     pub(crate) player_skin: PlayerSkin,
-    // Player crab name shown on the title screen and above the crab in-game.
-    pub(crate) player_name: String,
     // Which cosmetic column the title-screen skin picker currently focuses: 0=Hat, 1=FacialHair, 2=Accessory.
     pub(crate) skin_slot: usize,
     // Which menu page is active on the title screen: 0=Home, 1=Loadout.
     pub(crate) menu_page: usize,
-    // Which button is highlighted in the Home page button list (0..NUM_MENU_BUTTONS).
-    pub(crate) menu_selection: usize,
     // Campaign world map — `Some` once the player has entered campaign mode from the title.
     // Persists across runs so node completion carries over. `show_world_map` gates whether the
     // map screen is currently visible; `in_campaign` is true during an active campaign run.
@@ -383,18 +169,17 @@ pub struct MainState {
     // escalation, no level advance) and tracks its own machine-readable pass condition. `None`
     // during a real run or on the menus.
     pub(crate) tutorial: Option<Tutorial>,
-    pub(crate) last_dir: Vec2,   // Last movement direction for flashlight
-    pub(crate) shake_timer: f32, // Timer for crab shake effect
-    pub(crate) time_since_catch: f32, // Time since last crab was caught
-    pub(crate) boost_timer: f32, // Timer for speed boost
-    pub(crate) boost_cooldown: f32, // Cooldown to prevent holding space
-    pub(crate) sprint_stamina: f32, // Shift sprint meter: drains while sprinting, refills after
-    pub(crate) levels: Vec<Level>, // List of levels with patterns
-    pub(crate) current_level: usize, // Current level index
-    pub(crate) current_pattern: usize, // Current pattern index within the level
-    pub(crate) pattern_timer: f32, // Timer for current pattern duration
-    pub(crate) debug_mode: bool, // Debug mode flag
-    pub(crate) pending_upgrade: bool, // Whether upgrade screen should be shown
+    pub(crate) last_dir: Vec2,                            // Last movement direction for flashlight
+    pub(crate) shake_timer: f32,                          // Timer for crab shake effect
+    pub(crate) time_since_catch: f32,                     // Time since last crab was caught
+    pub(crate) boost_timer: f32,                          // Timer for speed boost
+    pub(crate) boost_cooldown: f32,                       // Cooldown to prevent holding space
+    pub(crate) levels: Vec<Level>,                        // List of levels with patterns
+    pub(crate) current_level: usize,                      // Current level index
+    pub(crate) current_pattern: usize,                    // Current pattern index within the level
+    pub(crate) pattern_timer: f32,                        // Timer for current pattern duration
+    pub(crate) debug_mode: bool,                          // Debug mode flag
+    pub(crate) pending_upgrade: bool,                     // Whether upgrade screen should be shown
     // The three options rolled for the CURRENT upgrade screen (indices into UPGRADE_POOL). Rolled
     // once when the upgrade is queued (see roll_upgrade_offer / check_upgrade_unlock), NOT in draw,
     // so the cards stay stable instead of reshuffling every frame. Read by draw_upgrade_screen and
@@ -404,16 +189,16 @@ pub struct MainState {
     // upgrades push it up (nimbler) or down (sluggish); 1.0 is neutral. A stat knob, not a new
     // mechanic — the movement it scales already exists.
     pub(crate) speed_mult: f32,
-    pub(crate) next_upgrade_score: usize, // Score threshold that triggers the next upgrade (rises each unlock)
-    pub(crate) best_time: f32,            // Fastest time to catch all crabs
+    pub(crate) next_upgrade_score: usize,                 // Score threshold that triggers the next upgrade (rises each unlock)
+    pub(crate) best_time: f32,                            // Fastest time to catch all crabs
     // --- Meta-progression: a single persistent thread that survives across runs, so ending a
     // run (win or loss) still banks progress into a career you carry forward. Persisted to
     // career.txt as three whitespace-separated integers: best_score total_score runs.
-    pub(crate) career_best_score: usize, // Highest single-run score ever reached
-    pub(crate) career_total_score: usize, // Sum of every run's final score (lifetime crabs banked)
-    pub(crate) career_runs: usize,       // How many runs have ended
-    pub(crate) run_recorded: bool, // Guard so the current run is banked into career exactly once
-    pub(crate) run_is_new_best: bool, // Did the just-ended run set a new career best? (for game-over flourish)
+    pub(crate) career_best_score: usize,                  // Highest single-run score ever reached
+    pub(crate) career_total_score: usize,                 // Sum of every run's final score (lifetime crabs banked)
+    pub(crate) career_runs: usize,                        // How many runs have ended
+    pub(crate) run_recorded: bool,                        // Guard so the current run is banked into career exactly once
+    pub(crate) run_is_new_best: bool,                     // Did the just-ended run set a new career best? (for game-over flourish)
     // Spend side of meta-progression: banked crabs (career_total_score) are a currency you spend
     // on the title screen for PERMANENT starting tool ranks — a head-start that persists across
     // runs, so even a losing run buys you closer to your next unlock. `career_spent` is the ledger
@@ -425,23 +210,19 @@ pub struct MainState {
     pub(crate) start_lasso_rank: u32,
     pub(crate) start_whistle_rank: u32,
     pub(crate) start_stomp_rank: u32,
-    pub(crate) shop_flash: f32, // brief green flash on the last-bought perk (title-screen juice)
-    pub(crate) shop_denied: f32, // brief red flash when a purchase is refused (can't afford / maxed)
-    pub(crate) jam_timer: f32,   // B-key jam emote: >0 while the crab is vibing (drives animation)
-    pub(crate) width: f32,       // Virtual width of the game (viewport)
-    pub(crate) height: f32,      // Virtual height of the game (viewport)
-    pub(crate) world_width: f32, // Full playfield width — larger than the viewport; the camera scrolls across it
-    pub(crate) world_height: f32, // Full playfield height — larger than the viewport
-    pub(crate) camera_origin: Vec2, // Top-left world coord of the visible viewport this frame (player-following, clamped to world bounds). Read by draw() and the mouse handlers to map screen<->world.
-    pub(crate) shader: ggez::graphics::Shader, // Shader for grass rendering
+    pub(crate) shop_flash: f32,                           // brief green flash on the last-bought perk (title-screen juice)
+    pub(crate) shop_denied: f32,                          // brief red flash when a purchase is refused (can't afford / maxed)
+    pub(crate) width: f32,                                // Virtual width of the game (viewport)
+    pub(crate) height: f32,                               // Virtual height of the game (viewport)
+    pub(crate) world_width: f32,                          // Full playfield width — larger than the viewport; the camera scrolls across it
+    pub(crate) world_height: f32,                         // Full playfield height — larger than the viewport
+    pub(crate) camera_origin: Vec2,                       // Top-left world coord of the visible viewport this frame (player-following, clamped to world bounds). Read by draw() and the mouse handlers to map screen<->world.
+    pub(crate) shader: ggez::graphics::Shader,            // Shader for grass rendering
     pub(crate) flashlight_shader: ggez::graphics::Shader, // Shader for flashlight rendering
-    pub(crate) scene_image: ggez::graphics::Image, // Offscreen render target for post-processing
-    pub(crate) postprocess_shader: ggez::graphics::Shader, // Screen-space post-process shader
-    pub(crate) postprocess_params: ShaderParams<PostProcessUniform>, // Params for post-process shader
-    pub(crate) particle_system: ParticleSystem,                      // Particle effects system
-    pub(crate) level_title: String,                                  // Title of the current level
-    pub(crate) level_title_timer: f32, // Timer for displaying level title
-    pub(crate) subtitle: String,       // Random subtitle for instructions screen
+    pub(crate) particle_system: ParticleSystem,           // Particle effects system
+    pub(crate) level_title: String,                       // Title of the current level
+    pub(crate) level_title_timer: f32,                    // Timer for displaying level title
+    pub(crate) subtitle: String,                          // Random subtitle for instructions screen
     pub(crate) position_history: VecDeque<Vec2>,
     pub(crate) chain_count: usize,
     pub(crate) beat_timer: f32,
@@ -453,8 +234,8 @@ pub struct MainState {
     pub(crate) beat_intensity: f32,
     pub(crate) music_intensity: f32,
     pub(crate) on_beat_flash: f32,
-    pub(crate) groove: f32, // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
-    pub(crate) beat_streak: u32, // consecutive on-beat catches; escalates the score bonus
+    pub(crate) groove: f32,         // 0..=1 on-beat "groove" meter — fills on rhythmic catches, decays over time
+    pub(crate) beat_streak: u32,    // consecutive on-beat catches; escalates the score bonus
     // Consecutive PERFECT (tight-window) catches. Distinct from beat_streak only in that it counts
     // ONLY the flawless hits inside PERFECT_WINDOW, not the looser on-beat ones — so it can drive a
     // super-linear dedicated bonus that rewards a sustained flawless run far out of proportion to a
@@ -462,7 +243,7 @@ pub struct MainState {
     // global gamble multiplier or banking — its payoff is additive to score and flows into the
     // RHYTHM BONUS readout, keeping the banking risk/reward axis untouched.
     pub(crate) perfect_streak: u32,
-    pub(crate) perfect_flash: f32, // 1→0 one-shot flash when a PERFECT lands, so the flawless hit reads on screen
+    pub(crate) perfect_flash: f32,  // 1→0 one-shot flash when a PERFECT lands, so the flawless hit reads on screen
     // Cumulative rhythm-attributable score: the running total of EXTRA points playing in the pocket
     // has earned over a hypothetical flat-1x run. On every award (catch and bank) we add the delta
     // between what actually paid out and what the same event would have paid at neutral rhythm
@@ -474,9 +255,9 @@ pub struct MainState {
     // GLOBAL score multiplier (beat_streak drives beat_gamble_mult); a single off-beat catch breaks
     // the run and resets it to 1x. It's a tension the player is actively managing: keep nailing the
     // beat and every point is worth more, but one greedy off-beat grab throws the whole heat away.
-    pub(crate) beat_gamble_mult: f32, // current compounding multiplier from the on-beat streak (>= 1.0)
-    pub(crate) beat_gamble_flash: f32, // green pulse when the multiplier steps up
-    pub(crate) streak_lost_flash: f32, // red pulse + callout when an off-beat catch breaks a hot streak
+    pub(crate) beat_gamble_mult: f32,   // current compounding multiplier from the on-beat streak (>= 1.0)
+    pub(crate) beat_gamble_flash: f32,  // green pulse when the multiplier steps up
+    pub(crate) streak_lost_flash: f32,  // red pulse + callout when an off-beat catch breaks a hot streak
     // Cash-out fork: pressing B banks the live streak. Banking ON the beat locks the whole
     // multiplier into a safe floor that an off-beat miss can no longer wipe; banking off-beat
     // takes a haircut. After a bank the live climb resets to the locked floor and keeps rising,
@@ -490,7 +271,6 @@ pub struct MainState {
     // repeat. `groove_full_flash` is the one-shot celebration timer it lights.
     pub(crate) groove_was_full: bool,
     pub(crate) groove_full_flash: f32,
-    pub(crate) music_muted: bool, // Whether music playback is muted (M key toggle)
     pub(crate) music_layers: Vec<Source>,
     pub(crate) catch_radius_upgrade: f32,
     // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
@@ -529,10 +309,10 @@ pub struct MainState {
     pub(crate) marcher_arrivals_buf: Vec<(Vec2, [f32; 3])>,
     pub(crate) combo_count: usize,
     pub(crate) combo_timer: f32,
-    pub(crate) textures: GameTextures, // Textures for grass, sand, and player
-    pub(crate) level_textures: Vec<LevelTexture>, // Textures for each level
+    pub(crate) textures: GameTextures,                    // Textures for grass, sand, and player
+    pub(crate) level_textures: Vec<LevelTexture>,         // Textures for each level
     // Beat Wave ability
-    pub(crate) beat_count: u32, // Counts beats fired, every 4th triggers wave
+    pub(crate) beat_count: u32,                           // Counts beats fired, every 4th triggers wave
     // Bar downbeat accent: the musical "1" of every 4-beat bar lands harder than the three
     // beats between it, so the rhythm reads as structured bars instead of a flat metronome.
     // Kicked to 1.0 on each `beat_count % 4 == 0` beat and decayed each frame; the beat-stepping
@@ -547,13 +327,13 @@ pub struct MainState {
     // the radial Slam), timing-gated (only pays if you land the beats), and costs no Groove meter,
     // so it's a skill move you perform rather than a meter you spend. Missing a beat while holding
     // resets the stack, so the tension is holding the roll clean through a full bar for the big pop.
-    pub(crate) drum_roll_held: bool, // was T held last frame — edge-detects press/release in update
-    pub(crate) drum_roll_hits: u32, // consecutive on-beat "roll hits" banked while holding (the charge)
-    pub(crate) drum_roll_charge: f32, // 0..1 visual charge level, eased toward drum_roll_hits for a smooth telegraph
-    pub(crate) drum_roll_fire: f32, // 1..0 timer while a fired blast's wide beam is live (drives the catch boost + glow)
-    pub(crate) drum_roll_power: u32, // roll hits captured at the moment of firing — scales the fired blast's reach/arc
-    pub(crate) beat_wave_active: bool, // Whether beat wave is expanding
-    pub(crate) beat_wave_radius: f32, // Current radius of expanding wave
+    pub(crate) drum_roll_held: bool,       // was T held last frame — edge-detects press/release in update
+    pub(crate) drum_roll_hits: u32,        // consecutive on-beat "roll hits" banked while holding (the charge)
+    pub(crate) drum_roll_charge: f32,      // 0..1 visual charge level, eased toward drum_roll_hits for a smooth telegraph
+    pub(crate) drum_roll_fire: f32,        // 1..0 timer while a fired blast's wide beam is live (drives the catch boost + glow)
+    pub(crate) drum_roll_power: u32,       // roll hits captured at the moment of firing — scales the fired blast's reach/arc
+    pub(crate) beat_wave_active: bool,                    // Whether beat wave is expanding
+    pub(crate) beat_wave_radius: f32,                     // Current radius of expanding wave
     // Bar-quantized spawns: when a pattern ends we don't drop the next wave at an arbitrary
     // instant — we arm it and let it land on the next downbeat (bar boundary), so every fresh
     // herd arrives locked to the music. `wave_armed` is set when the pattern timer lapses (or
@@ -579,43 +359,38 @@ pub struct MainState {
     pub(crate) stage_banner_timer: f32,
     pub(crate) stage_banner_name: &'static str,
     // Lasso Throw ability
-    pub(crate) lasso_phase: LassoPhase, // Throw state machine (see LassoPhase)
-    pub(crate) lasso_pos: Option<Vec2>, // Current lasso tip position (None = inactive)
-    pub(crate) lasso_timer: f32,        // Time remaining in the CURRENT phase
-    pub(crate) lasso_target: Vec2, // Aim point the loop flies toward (world space, set on release)
-    pub(crate) lasso_origin: Vec2, // Player center captured at throw time (arc anchor)
-    // Charge-throw fields: the player holds the mouse to wind up, releasing fires the throw.
-    pub(crate) lasso_charge: f32, // 0..LASSO_MAX_CHARGE_TIME, grows while mouse is held
-    pub(crate) lasso_mouse_down: bool, // True while left mouse button is held (winding)
-    pub(crate) lasso_spin: f32,   // Accumulated rope spin angle in radians, for visual
-    pub(crate) lasso_on_beat_bonus: f32, // 1.0 normally; LASSO_ONBEAT_BONUS if released on-beat
+    pub(crate) lasso_pos: Option<Vec2>,                   // Current lasso tip position (None = inactive)
+    pub(crate) lasso_timer: f32,                          // Time remaining in the CURRENT phase
+    pub(crate) lasso_target: Vec2,                        // Aim point the loop flies toward
+    pub(crate) lasso_origin: Vec2,                        // Player center captured at throw time (arc anchor)
+    pub(crate) lasso_phase: LassoPhase,                   // Throw state machine (see LassoPhase)
     // Crabs bitten by the current throw, mid-reel-in: (crab index, snag point, per-crab age seconds).
     // Driven each Dragging frame to yank the crab from where the rope bit it toward the train with
-    // visible tension. Reused (drained, not reallocated) per throw.
+    // visible tension, then fade the taut rope out. Reused (drained, not reallocated) per throw.
     pub(crate) lasso_drag_buf: Vec<(usize, Vec2, f32)>,
     // Whistle ability — a sonic pulse that yanks nearby crabs toward the player. Soft-counters
     // skittish Sneaky crabs (strong pull) while heavy Big crabs barely budge (see CrabType::whistle_pull).
-    pub(crate) whistle_active: f32, // >0 while the ring is expanding (seconds remaining)
-    pub(crate) whistle_radius: f32, // current front radius of the expanding pulse
-    pub(crate) whistle_cooldown: f32, // >0 while on cooldown; whistle unusable until it hits 0
-    pub(crate) whistle_center: Vec2, // player center captured at cast time (ring origin)
-    pub(crate) whistle_beat_bonus: f32, // 1.0 normally, >1 when this cast landed on-beat (bigger reach)
+    pub(crate) whistle_active: f32,                        // >0 while the ring is expanding (seconds remaining)
+    pub(crate) whistle_radius: f32,                        // current front radius of the expanding pulse
+    pub(crate) whistle_cooldown: f32,                      // >0 while on cooldown; whistle unusable until it hits 0
+    pub(crate) whistle_center: Vec2,                       // player center captured at cast time (ring origin)
+    pub(crate) whistle_beat_bonus: f32,                     // 1.0 normally, >1 when this cast landed on-beat (bigger reach)
     // Stomp ability — a close-range ground-pound that CRACKS armored crab shells instantly (its
     // dedicated counter; the beam is the slow universal fallback) and shoves nearby free crabs in.
-    pub(crate) stomp_active: f32, // >0 while the shockwave is expanding (seconds remaining)
-    pub(crate) stomp_radius: f32, // current front radius of the shockwave
-    pub(crate) stomp_cooldown: f32, // >0 while on cooldown; Stomp unusable until it hits 0
-    pub(crate) stomp_center: Vec2, // player center captured at stomp time (ring origin)
-    pub(crate) stomp_beat_bonus: f32, // 1.0 normally, >1 when this cast landed on-beat (bigger slam)
+    pub(crate) stomp_active: f32,                          // >0 while the shockwave is expanding (seconds remaining)
+    pub(crate) stomp_radius: f32,                          // current front radius of the shockwave
+    pub(crate) stomp_cooldown: f32,                        // >0 while on cooldown; Stomp unusable until it hits 0
+    pub(crate) stomp_center: Vec2,                         // player center captured at stomp time (ring origin)
+    pub(crate) stomp_beat_bonus: f32,                       // 1.0 normally, >1 when this cast landed on-beat (bigger slam)
     // Call ability (F) — a rhythm-native summon aimed at Dancer crabs. An on-beat Call charms every
     // nearby Dancer into "answering": on the next beat they hop TOWARD the player instead of fleeing,
     // opening a catch window you actively play for. Off-beat it fizzles. This is the player's own
     // on-beat action the Dancer answers to, turning rhythm from something you watch into something
     // you play. Purely a control layer over existing Dancer hop logic — no new draw dependency.
-    pub(crate) call_cooldown: f32, // >0 while on cooldown; Call unusable until it hits 0
-    pub(crate) cycle_cooldown: f32, // >0 while on cooldown; Cycle (X) unusable until it hits 0
-    pub(crate) call_pulse: f32, // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
-    pub(crate) call_pulse_center: Vec2, // player center captured when the Call rang out
+    pub(crate) call_cooldown: f32,                          // >0 while on cooldown; Call unusable until it hits 0
+    pub(crate) cycle_cooldown: f32,                          // >0 while on cooldown; Cycle (X) unusable until it hits 0
+    pub(crate) call_pulse: f32,                             // 0..1 visual ring pulse, set to 1 on a successful on-beat Call, decays
+    pub(crate) call_pulse_center: Vec2,                     // player center captured when the Call rang out
     // Groove Call (V) — a player-initiated, FIELD-WIDE beat-phrase lure. Distinct from every other
     // pull verb: the whistle is a local, instant radial yank; the Dancer Call (F) charms only nearby
     // Dancers; Groove Dash pulls with a movement input. This one is the Reef DJ's call-and-response
@@ -625,18 +400,18 @@ pub struct MainState {
     // arena, not just around the player. Rhythm-quality-gated — an on-beat call pulls harder and
     // for more bars than a sloppy off-beat one, which barely answers. The unfolding stream over the
     // bar is the watchable moment no shipped verb produces.
-    pub(crate) groove_call_cooldown: f32, // >0 while on cooldown; Groove Call unusable until it hits 0
-    pub(crate) groove_call_bars: f32, // bars of "response" left — counts DOWN each downbeat while the herd streams in
-    pub(crate) groove_call_strength: f32, // pull scale set at call time — bigger on a clean on-beat call
-    pub(crate) groove_call_pulse: f32, // 0..1 visual ring pulse, re-kicked on each downbeat while active, decays
-    pub(crate) groove_call_center: Vec2, // player center captured when the call rang out (visual ring origin)
-    pub(crate) groove_call_surge: f32, // 1→0 per-downbeat surge envelope — the herd lunges on the beat, drifts between
+    pub(crate) groove_call_cooldown: f32,   // >0 while on cooldown; Groove Call unusable until it hits 0
+    pub(crate) groove_call_bars: f32,       // bars of "response" left — counts DOWN each downbeat while the herd streams in
+    pub(crate) groove_call_strength: f32,   // pull scale set at call time — bigger on a clean on-beat call
+    pub(crate) groove_call_pulse: f32,      // 0..1 visual ring pulse, re-kicked on each downbeat while active, decays
+    pub(crate) groove_call_center: Vec2,    // player center captured when the call rang out (visual ring origin)
+    pub(crate) groove_call_surge: f32,      // 1→0 per-downbeat surge envelope — the herd lunges on the beat, drifts between
     // Call-and-response ECHO: while a call is live, re-pressing V ON a beat "echoes" the phrase —
     // extending the response by a bar and ramping the pull. It's a skill layer on the SAME verb, not
     // a new button: a groove-savvy player keeps the herd streaming by answering the DJ every bar
     // (nail the phrase → the whole field piles in harder and longer; miss the beat → nothing, and the
     // call decays on its own). echo_count tracks the phrase length purely for the on-screen readout.
-    pub(crate) groove_call_echo: u32, // echoes chained this call (0 = the opening call, no echoes yet)
+    pub(crate) groove_call_echo: u32,       // echoes chained this call (0 = the opening call, no echoes yet)
     pub(crate) groove_call_echo_flash: f32, // 1→0 flash kicked on a clean echo so the answered beat reads
     // Downbeat Slam (G) — the rhythm ultimate. It only fires when the Groove meter is full AND the
     // press lands on the beat: a huge shockwave erupts from the player that yanks every free crab in
@@ -644,10 +419,10 @@ pub struct MainState {
     // spectacle payoff for playing in the pocket — the groove meter finally *does* something instead
     // of only swelling the (currently silent) music. Off-beat or an empty meter fizzles with feedback
     // so mistiming reads clearly. The slam ring below is purely visual; the catch happens instantly.
-    pub(crate) slam_active: f32, // >0 while the slam ring is expanding (seconds remaining)
-    pub(crate) slam_radius: f32, // current front radius of the expanding slam ring
-    pub(crate) slam_center: Vec2, // player center captured when the slam fired (ring origin)
-    pub(crate) slam_flash: f32,  // 1..0 gold screen bloom on a successful slam
+    pub(crate) slam_active: f32,                            // >0 while the slam ring is expanding (seconds remaining)
+    pub(crate) slam_radius: f32,                            // current front radius of the expanding slam ring
+    pub(crate) slam_center: Vec2,                           // player center captured when the slam fired (ring origin)
+    pub(crate) slam_flash: f32,                             // 1..0 gold screen bloom on a successful slam
     // Dash effect
     pub(crate) dash_just_fired: bool,
     pub(crate) dash_flash: f32,
@@ -680,23 +455,22 @@ pub struct MainState {
     // no new mechanics, just mood. `weather_intensity` eases toward `weather_target.intensity()`
     // so states cross-fade; `weather_step_timer` gates the random-walk retarget cadence.
     pub(crate) weather_target: WeatherState,
-    pub(crate) weather_intensity: f32, // 0..1, eased toward the target's intensity() each frame
-    pub(crate) weather_step_timer: f32, // counts down to the next random-walk retarget
-    pub(crate) lightning_flash: f32, // 1→0 storm flash: brightens screen, spikes catch radius, kicks shake
-    pub(crate) lightning_timer: f32, // counts down to the next possible strike (only while Storm)
-    pub(crate) day_phase_t: f32,     // 0..1 across a run: dawn→day→dusk→night
-    pub(crate) screen_shake: f32,    // current shake magnitude (pixels), decays each frame
-    pub(crate) screen_shake_vel: Vec2, // current shake offset velocity
-    pub(crate) screen_shake_offset: Vec2, // current pixel offset applied to viewport
-    pub(crate) hitstop_timer: f32,   // brief whole-sim freeze right after a catch (juice)
-    pub(crate) slowmo_timer: f32, // 1..0 cinematic slow-motion ramp on the biggest climax moments
-    // (boss catches, Downbeat Slam). Unlike hitstop's hard freeze, the
-    // sim keeps running but time is dilated, easing back to full speed
-    // as the timer decays — so a set-piece victory lands in bullet-time
-    // instead of just snapping past.
-    pub(crate) boss_hit_iframes: f32, // >0 briefly after a King Crab charge lands a DIRECT player hit (the full-train scatter). While it ticks the boss can't chain-charge you, giving a regroup window. Decays each frame.
-    pub(crate) chain_join_ripple: bool, // set true when any crab is caught this frame
-    pub(crate) chain_snap_cooldown: f32, // >0 briefly after a tail snaps, so one brush can't strip the whole train
+    pub(crate) weather_intensity: f32,     // 0..1, eased toward the target's intensity() each frame
+    pub(crate) weather_step_timer: f32,    // counts down to the next random-walk retarget
+    pub(crate) lightning_flash: f32,       // 1→0 storm flash: brightens screen, spikes catch radius, kicks shake
+    pub(crate) lightning_timer: f32,       // counts down to the next possible strike (only while Storm)
+    pub(crate) day_phase_t: f32,           // 0..1 across a run: dawn→day→dusk→night
+    pub(crate) screen_shake: f32,          // current shake magnitude (pixels), decays each frame
+    pub(crate) screen_shake_vel: Vec2,     // current shake offset velocity
+    pub(crate) screen_shake_offset: Vec2,  // current pixel offset applied to viewport
+    pub(crate) hitstop_timer: f32,         // brief whole-sim freeze right after a catch (juice)
+    pub(crate) slowmo_timer: f32,          // 1..0 cinematic slow-motion ramp on the biggest climax moments
+                                // (boss catches, Downbeat Slam). Unlike hitstop's hard freeze, the
+                                // sim keeps running but time is dilated, easing back to full speed
+                                // as the timer decays — so a set-piece victory lands in bullet-time
+                                // instead of just snapping past.
+    pub(crate) chain_join_ripple: bool,       // set true when any crab is caught this frame
+    pub(crate) chain_snap_cooldown: f32,      // >0 briefly after a tail snaps, so one brush can't strip the whole train
     pub(crate) cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
     pub(crate) cached_tail_type: Option<CrabType>, // archetype of that same tail crab, refreshed in the same snapshot pass. Drives the field "CATCH-NEXT" highlight: a free crab of this type would extend the tail_run_len match run, so it's lit as the arrangement-smart grab. Purely legibility.
     // CYCLE PREVIEW: the crab currently at chain_index == 1 — the one that WOULD become the new head
@@ -706,11 +480,11 @@ pub struct MainState {
     // into an informed arrangement decision. Purely legibility — changes no odds. True when a train
     // of >= 2 links exists and the cycle verb is off cooldown (i.e. pressing X would do something).
     pub(crate) cycle_preview_active: bool,
-    pub(crate) free_splitter_present: bool, // true when at least one uncaught Splitter is on the field; refreshed in update_crabs to avoid an O(n) scan in the draw path every frame
-    pub(crate) tail_run_len: u32, // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
-    pub(crate) next_milestone: usize, // Next train-length milestone to celebrate
-    pub(crate) next_boss_score: usize, // score at which the next boss arrives
-    pub(crate) next_boss_kind: usize, // cycles 0=King Crab, 1=Tide Boss, 2=Reef DJ so runs rotate through all three climax beats
+    pub(crate) free_splitter_present: bool,   // true when at least one uncaught Splitter is on the field; refreshed in update_crabs to avoid an O(n) scan in the draw path every frame
+    pub(crate) tail_run_len: u32,             // length of the current unbroken run of *same-type* links at the tail of the train. Every catch that matches the previous tail's type extends it, escalating a "match" bonus (see handle_crab_catching); a mismatched catch resets it to 1. This is what makes catch ORDER a live spatial decision: catch A-A-A-A and each same-type link pays more, catch A-B-A-B and it never builds. Reset to 0 on delivery, and recomputed from the new tail whenever a peel/snap strips links.
+    pub(crate) next_milestone: usize,               // Next train-length milestone to celebrate
+    pub(crate) next_boss_score: usize,              // score at which the next boss arrives
+    pub(crate) next_boss_kind: usize,               // cycles 0=King Crab, 1=Tide Boss, 2=Reef DJ so runs rotate through all three climax beats
     // Reef DJ call-and-response phrase. The rhythm boss doesn't open its shell on *every* beat —
     // it CALLS a short phrase: each bar it flashes a random subset of the four beats as "hot", and
     // its shell only drains while you hold the light on it during one of those called beats. Off
@@ -718,27 +492,27 @@ pub struct MainState {
     // real echo-the-pattern duel instead of a hold-and-tap-the-beat one. `reef_phrase[i]` is true
     // when beat `i` of the current bar (beat_count % 4) is a called/hot beat.
     pub(crate) reef_phrase: [bool; 4],
-    pub(crate) reef_phrase_bar: u32, // beat_count/4 of the bar the current phrase was rolled for, so we re-roll once per bar
-    pub(crate) reef_active: bool, // true while a Reef DJ is on the field, gating the phrase HUD/telegraph
+    pub(crate) reef_phrase_bar: u32,                // beat_count/4 of the bar the current phrase was rolled for, so we re-roll once per bar
+    pub(crate) reef_active: bool,                   // true while a Reef DJ is on the field, gating the phrase HUD/telegraph
     // Reef DJ backup dancers: the fight otherwise silences the whole archetype web, so the DJ
     // summons its own "hype Dancers" into the arena as a fight mechanic. Catching one on a called
     // (hot) beat chips the boss shell — herd them onto the phrase to crack it faster than light
     // alone. This timer counts down while the DJ is on the field; on zero it spawns one and resets.
     pub(crate) reef_dancer_timer: f32,
-    pub(crate) reef_hit_flash: f32, // 1..0 juice bloom kicked when the player lands a hot beat on the DJ's shell
+    pub(crate) reef_hit_flash: f32,                 // 1..0 juice bloom kicked when the player lands a hot beat on the DJ's shell
     // Delivery pen — the "cash in the train" mechanic. Drive the conga line into the pen to bank
     // the whole train for a super-linear score payout (longer train = disproportionately more) and
     // reset the chain, closing the risk/reward loop the chain-snap risk opened. The pen relocates
     // each level so routing the train there stays a fresh decision.
-    pub(crate) pen_pos: Vec2,      // center of the delivery pen on the field
-    pub(crate) deliver_flash: f32, // 1..0 bloom timer after a successful bank (visual only)
+    pub(crate) pen_pos: Vec2,                       // center of the delivery pen on the field
+    pub(crate) deliver_flash: f32,                  // 1..0 bloom timer after a successful bank (visual only)
     // Where the player (and so the train's head) stood at the instant of the last bank. The delivery
     // beam is drawn from here to the pen while deliver_flash decays, connecting where the conga line
     // departed to the vault it cashes into — the one connective beat the pen's own coin-spray/rings
     // don't cover, since those all erupt at the pen. Set in try_deliver_train, purely visual.
-    pub(crate) deliver_beam_from: Vec2, // player center at the last bank (source of the delivery beam)
-    pub(crate) deliver_beam_to: Vec2, // pen center the last bank cashed into (the pen relocates after a bank, so snapshot it)
-    pub(crate) deliver_beam_perfect: bool, // whether the last bank was on-beat (beam runs gold vs. green)
+    pub(crate) deliver_beam_from: Vec2,             // player center at the last bank (source of the delivery beam)
+    pub(crate) deliver_beam_to: Vec2,               // pen center the last bank cashed into (the pen relocates after a bank, so snapshot it)
+    pub(crate) deliver_beam_perfect: bool,          // whether the last bank was on-beat (beam runs gold vs. green)
     // Delivery streak — consecutive banks escalate a payout multiplier so cashing in repeatedly
     // (rather than hoarding one giant train) builds its own rising reward, and banking *on the
     // beat* stacks a "PERFECT DELIVERY" rhythm bonus on top. Closes the rhythm hook over the
@@ -746,14 +520,14 @@ pub struct MainState {
     // resets on its own (there's no fail state for banking) but a long dry spell decays it via
     // `deliver_streak_timer` so the multiplier reflects *recent* cashing tempo, not lifetime.
     pub(crate) deliver_streak: u32,
-    pub(crate) deliver_streak_timer: f32, // seconds of grace left before an idle streak decays a notch
+    pub(crate) deliver_streak_timer: f32,           // seconds of grace left before an idle streak decays a notch
     // Tide pools — terrain that shapes where the train can go. Each pool is a patch of shallow
     // water (center, radius) that drags on movement: crossing one slows the player to a wade, and
     // because the whole conga tail replays the player's path, hauling a long train through open
     // water costs you real time and exposure. They relocate each level (like the pen) so routing
     // — skirt the pools or dash across them — stays a live, geography-driven decision.
-    pub(crate) tide_pools: Vec<(Vec2, f32)>, // (center, radius) of each shallow-water drag zone
-    pub(crate) in_tide_pool: bool, // whether the player is wading right now (for splash juice)
+    pub(crate) tide_pools: Vec<(Vec2, f32)>,        // (center, radius) of each shallow-water drag zone
+    pub(crate) in_tide_pool: bool,                  // whether the player is wading right now (for splash juice)
     // Kelp-snag telegraph: a 0..=1 tension that RISES while the conga tail sits in a kelp patch and
     // is long enough to snag, and eases back down once the tail routes clear. It drives a pulsing
     // green warning ring around the tail crab so an imminent snag is *seen coming* — the loss stops
@@ -786,15 +560,9 @@ pub struct MainState {
     // is only fully dangerous *on the beat* — the player learns to thread the tail across in the
     // gaps, tying the arena-crack finale into the game's rhythm spine instead of being a static pit.
     pub(crate) boss_fissure_erupt: f32,
-    pub(crate) boss_flood_pools: usize, // count of extra pools a Tide Boss flooded in on enrage
+    pub(crate) boss_flood_pools: usize,             // count of extra pools a Tide Boss flooded in on enrage
     pub(crate) chain_rings: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) for beat ghost rings
     pub(crate) catch_shockwaves: Vec<(Vec2, f32, [f32; 3])>, // (pos, age 0..1, rgb) impact ring per catch
-    // Queued beat-hit punch effects — (pos, rgb, beat_quality) — pushed during update when an
-    // on-beat catch fires and drained in draw. Cleared at the top of each update tick.
-    pub(crate) beat_punch_events: Vec<(Vec2, [f32; 3], f32)>,
-    /// Same-type bond-forming flash: (tail_pos, new_crab_pos, rgb, age 0..1).
-    /// Emitted when a catch links a same-type neighbor; drawn as a brief bright arc between the two.
-    pub(crate) bond_flash_events: Vec<(Vec2, Vec2, [f32; 3], f32)>,
     // A bright whip-streak that arcs from where a crab was caught to the head of the train, so a
     // catch reads as the crab being *yanked* in rather than just blinking onto the tail. Each entry
     // is (from, to, age 0..1, rgb); brighter/thicker when the catch landed on the beat.
@@ -804,11 +572,11 @@ pub struct MainState {
     // capped Vec (drawn with draw_catch_trails) so it never starves real catch-snap trails. Same
     // (from, to, age, color) tuple as catch_trails; ages out on its own decay pass.
     pub(crate) call_streaks: Vec<(Vec2, Vec2, f32, [f32; 3])>,
-    pub(crate) fear_rings: Vec<(Vec2, f32)>, // (pos, age 0..1) cold alarm ring where a catch startled the herd
+    pub(crate) fear_rings: Vec<(Vec2, f32)>,          // (pos, age 0..1) cold alarm ring where a catch startled the herd
     // Tide Boss shockwave pulses — (center, current radius) of each expanding front. Grows to
     // TIDE_PULSE_RADIUS then fades out. Bounded by the one-boss-at-a-time cap plus a hard len guard.
     pub(crate) tide_pulses: Vec<(Vec2, f32)>,
-    pub(crate) zoom_punch: f32, // camera zoom-in kick on catch, springs back to 0 (juice)
+    pub(crate) zoom_punch: f32,            // camera zoom-in kick on catch, springs back to 0 (juice)
     pub(crate) fullscreen_applied: bool, // deferred until the first update tick, see update()
     // Scratch buffers for catch_by_chain, reused every frame instead of being freshly
     // allocated each call. The play area is fixed-size so the grid's cell count (and thus
@@ -962,20 +730,6 @@ pub struct MainState {
     // for a fraction of a second to a couple seconds per use, so without reuse this was a
     // per-frame allocation for the whole duration of every whistle/stomp/lasso.
     pub(crate) whistle_soothed_buf: Vec<Vec2>,
-    // Strong-match hit positions collected each frame for archetype-tool visual feedback.
-    // Cleared at the start of update() and read (immutably) in draw_game().
-    pub(crate) beam_hermit_hits_buf: Vec<(Vec2, f32)>,
-    pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
-    pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
-    pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
-    pub(crate) whistle_dancer_hits_buf: Vec<Vec2>,
-    pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
-    pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
-    // Positions where a lasso throw landed on a still-shelled crab (Armored / shelled Hermit) and
-    // the loop slipped straight off — a WRONG-TOOL tell. Mirrors the beam/Hermit amber "can't-crack"
-    // cue: teaches "crack the shell first (Stomp), then lasso" instead of failing silently.
-    pub(crate) lasso_shell_deflect_hits_buf: Vec<Vec2>,
-    pub(crate) magnet_cluster_hits_buf: Vec<Vec2>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
     // ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Collected inside the &mut crabs
@@ -1034,16 +788,6 @@ pub struct MainState {
     pub(crate) pulse_anchor_positions_buf: Vec<Vec2>,
     pub(crate) pulse_scattered_buf: Vec<Vec2>,
     pub(crate) pulse_snapped_positions_buf: Vec<Vec2>,
-    // King Crab splice mechanic: crabs stolen by crossing through the conga line. Each entry is
-    // (world_pos, magnet_timer) — the crab visually flies toward the boss via magnetic pull until
-    // the timer expires, at which point it joins the boss as a visual follower.
-    // (pos, timer, color) — pos is current world position, timer counts down from 1.0→0.0,
-    // color is the crab's original body color for continuity.
-    pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
-    // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
-    pub(crate) king_splice_cooldown: f32,
-    // Ambient NPC conga trains: three King Crabs each leading followers that wander the world.
-    pub(crate) npc_trains: Vec<NpcCongaTrain>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
     // average + worst-case every couple seconds so future optimization passes have real numbers
     // instead of guessing from code inspection alone.
@@ -1062,10 +806,6 @@ pub struct MainState {
     pub(crate) perf_last_worst_ms: f32,
     #[cfg(debug_assertions)]
     pub(crate) perf_last_fps: f32,
-
-    // Bot playtest harness: scripted inputs + time acceleration.
-    pub(crate) bot: Option<BotState>,
-    pub(crate) time_scale: f32,
 }
 
 impl MainState {
@@ -1092,21 +832,7 @@ impl MainState {
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
-            king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
-            hihat: sounds::synth_hihat(ctx)?,
-            flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
-            coin_chime: sounds::synth_coin_chime(ctx)?,
-            world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
-            whistle_sfx: sounds::synth_whistle(ctx)?,
-            stomp_sfx: sounds::synth_stomp(ctx)?,
-            lasso_sfx: sounds::synth_lasso_throw(ctx)?,
-            crab_themes: [
-                sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
-                sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
-                sounds::synth_theme_deus_tense(ctx)?,   // 2 — thief/sneaky
-                sounds::synth_theme_deus_ambient(ctx)?, // 3 — boss/armored/hermit
-                sounds::synth_theme_duck_golden(ctx)?,  // 4 — golden/magnet
-            ],
+            // Add more sounds here as needed
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
@@ -1118,26 +844,16 @@ impl MainState {
             use std::io::Read as _;
             let mut bytes = Vec::new();
             let result = ggez::filesystem::open(ctx, "/action.ogg")
-                .and_then(|mut f| {
-                    f.read_to_end(&mut bytes)
-                        .map_err(|e| ggez::GameError::CustomError(e.to_string()))
-                })
+                .and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| ggez::GameError::CustomError(e.to_string())))
                 .map(|_| bytes);
             match result {
                 Ok(bytes) => match sounds::detect_bpm_from_ogg(&bytes) {
                     Some(interval) => {
-                        println!(
-                            "Detected BPM: {:.1} (interval {:.4}s)",
-                            60.0 / interval,
-                            interval
-                        );
+                        println!("Detected BPM: {:.1} (interval {:.4}s)", 60.0 / interval, interval);
                         interval
                     }
                     None => {
-                        println!(
-                            "BPM detection failed, using default {}BPM",
-                            (60.0 / BEAT_INTERVAL) as u32
-                        );
+                        println!("BPM detection failed, using default {}BPM", (60.0 / BEAT_INTERVAL) as u32);
                         BEAT_INTERVAL
                     }
                 },
@@ -1199,7 +915,6 @@ impl MainState {
         // fields were added later, so an old three-number save still parses — the extras just
         // default to 0 (no perks purchased yet). Starting ranks are clamped to their cap on load
         // so a hand-edited or future save can never over-buy a run.
-        let career_text = fs::read_to_string("career.txt").ok();
         let (
             career_best_score,
             career_total_score,
@@ -1209,19 +924,16 @@ impl MainState {
             start_lasso_rank,
             start_whistle_rank,
             start_stomp_rank,
-        ) = career_text
-            .as_deref()
+        ) = fs::read_to_string("career.txt")
+            .ok()
             .and_then(|s| {
                 let mut it = s.split_whitespace().take(8);
                 let best = it.next()?.parse::<usize>().ok()?;
                 let total = it.next()?.parse::<usize>().ok()?;
                 let runs = it.next()?.parse::<usize>().ok()?;
                 let spent = it.next().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-                let clamp_rank = |v: Option<&str>| {
-                    v.and_then(|s| s.parse::<u32>().ok())
-                        .unwrap_or(0)
-                        .min(MAX_START_RANK)
-                };
+                let clamp_rank =
+                    |v: Option<&str>| v.and_then(|s| s.parse::<u32>().ok()).unwrap_or(0).min(MAX_START_RANK);
                 let beam = clamp_rank(it.next());
                 let lasso = clamp_rank(it.next());
                 let whistle = clamp_rank(it.next());
@@ -1231,25 +943,14 @@ impl MainState {
             .unwrap_or((0, 0, 0, 0, 0, 0, 0, 0));
 
         // Load the saved cosmetic loadout — stored as its own `skin ...` line in career.txt.
-        let player_skin = career_text
-            .as_deref()
+        let player_skin = fs::read_to_string("career.txt")
+            .ok()
             .and_then(|s| {
                 s.lines()
                     .find(|l| l.trim_start().starts_with("skin "))
                     .map(|l| PlayerSkin::from_save_line(l.trim()))
             })
             .unwrap_or_else(PlayerSkin::default_skin);
-
-        let player_name = career_text
-            .as_deref()
-            .and_then(|s| {
-                s.lines().find_map(|line| {
-                    line.trim_start()
-                        .strip_prefix("name ")
-                        .map(crate::normalize_player_name)
-                })
-            })
-            .unwrap_or_else(|| "Crabby".to_string());
 
         let crabs: Vec<EnemyCrab> = [].to_vec();
 
@@ -1279,27 +980,6 @@ impl MainState {
             .vertex_path("/flashlight.wgsl")
             .fragment_path("/flashlight.wgsl")
             .build(&ctx.gfx)?;
-
-        // Use logical size (1280x960) for the offscreen render target, consistent with the viewport.
-        // The postprocess pass will handle any HiDPI scaling when blitting to screen.
-        let scene_image = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
-            width as u32,
-            height as u32,
-            1,
-        );
-        let postprocess_shader = ShaderBuilder::new()
-            .vertex_path("/postprocess.wgsl")
-            .fragment_path("/postprocess.wgsl")
-            .build(&ctx.gfx)?;
-        let initial_pp_uniform = PostProcessUniform {
-            groove: 0.0,
-            time: 0.0,
-            screen_width: width,
-            screen_height: height,
-        };
-        let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
 
         let flashlight = Flashlight {
             on: true,
@@ -1340,12 +1020,9 @@ impl MainState {
             beat_synth,
             flashlight,
             show_instructions: true,
-            show_how_to_play_text: false,
             player_skin,
-            player_name,
             skin_slot: 0,
             menu_page: 0,
-            menu_selection: 0,
             world_map: None,
             show_world_map: false,
             in_campaign: false,
@@ -1355,7 +1032,6 @@ impl MainState {
             time_since_catch: 0.0,
             boost_timer: 0.0,
             boost_cooldown: 0.0,
-            sprint_stamina: SPRINT_STAMINA_MAX,
             levels,
             current_level: 0,
             current_pattern: 0,
@@ -1375,7 +1051,6 @@ impl MainState {
             start_whistle_rank,
             start_stomp_rank,
             shop_flash: 0.0,
-            jam_timer: 0.0,
             shop_denied: 0.0,
             run_recorded: false,
             run_is_new_best: false,
@@ -1386,9 +1061,6 @@ impl MainState {
             camera_origin: Vec2::ZERO,
             shader,
             flashlight_shader,
-            scene_image,
-            postprocess_shader,
-            postprocess_params,
             particle_system: ParticleSystem::new(),
             level_title: String::new(),
             level_title_timer: 0.0,
@@ -1410,7 +1082,6 @@ impl MainState {
             gamble_bank_pulse: 0.0,
             groove_was_full: false,
             groove_full_flash: 0.0,
-            music_muted: false,
             groove: 0.0,
             beat_streak: 0,
             perfect_streak: 0,
@@ -1452,15 +1123,11 @@ impl MainState {
             intensity_stage: 0,
             stage_banner_timer: 0.0,
             stage_banner_name: "",
-            lasso_phase: LassoPhase::Idle,
             lasso_pos: None,
             lasso_timer: 0.0,
             lasso_target: Vec2::ZERO,
             lasso_origin: Vec2::ZERO,
-            lasso_charge: 0.0,
-            lasso_mouse_down: false,
-            lasso_spin: 0.0,
-            lasso_on_beat_bonus: 1.0,
+            lasso_phase: LassoPhase::Idle,
             lasso_drag_buf: Vec::new(),
             whistle_active: 0.0,
             whistle_radius: 0.0,
@@ -1507,7 +1174,6 @@ impl MainState {
             screen_shake_offset: Vec2::ZERO,
             hitstop_timer: 0.0,
             slowmo_timer: 0.0,
-            boss_hit_iframes: 0.0,
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
@@ -1539,8 +1205,6 @@ impl MainState {
             boss_flood_pools: 0,
             chain_rings: Vec::new(),
             catch_shockwaves: Vec::new(),
-            beat_punch_events: Vec::new(),
-            bond_flash_events: Vec::new(),
             catch_trails: Vec::new(),
             call_streaks: Vec::new(),
             fear_rings: Vec::new(),
@@ -1599,15 +1263,6 @@ impl MainState {
             dancer_link_buf: Vec::new(),
             dancer_aura_caught_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
-            beam_hermit_hits_buf: Vec::new(),
-            stomp_dancer_hits_buf: Vec::new(),
-            stomp_armored_hits_buf: Vec::new(),
-            whistle_golden_hits_buf: Vec::new(),
-            whistle_dancer_hits_buf: Vec::new(),
-            lasso_thief_hits_buf: Vec::new(),
-            lasso_magnet_hits_buf: Vec::new(),
-            lasso_shell_deflect_hits_buf: Vec::new(),
-            magnet_cluster_hits_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
@@ -1626,13 +1281,6 @@ impl MainState {
             pulse_anchor_positions_buf: Vec::new(),
             pulse_scattered_buf: Vec::new(),
             pulse_snapped_positions_buf: Vec::new(),
-            king_stolen_crabs: Vec::new(),
-            king_splice_cooldown: 0.0,
-            npc_trains: vec![
-                NpcCongaTrain::new_at(world_width, world_height, 0),
-                NpcCongaTrain::new_at(world_width, world_height, 1),
-                NpcCongaTrain::new_at(world_width, world_height, 2),
-            ],
             #[cfg(debug_assertions)]
             perf_frame_count: 0,
             #[cfg(debug_assertions)]
@@ -1645,8 +1293,6 @@ impl MainState {
             perf_last_worst_ms: 0.0,
             #[cfg(debug_assertions)]
             perf_last_fps: 0.0,
-            bot: None,
-            time_scale: 1.0,
         })
     }
 }
