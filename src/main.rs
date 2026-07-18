@@ -7533,37 +7533,30 @@ impl MainState {
             );
         }
 
-        // Show current level at the bottom center. Text/layout is cached per level index (see
-        // LEVEL_LABEL_CACHE) since it's static for the whole level but this branch runs every
-        // frame — only the very first frame after a level change pays for building/measuring it.
-        if self.level_title_timer == 0.0 {
-            LEVEL_LABEL_CACHE.with(|c| -> GameResult {
-                let mut cache = c.borrow_mut();
-                if !cache.contains_key(&self.current_level) {
-                    let mut label = Text::new(format!(
-                        "Level {}: {}\n{} | Difficulty: {}",
-                        self.current_level + 1,
-                        self.levels[self.current_level].title,
-                        self.levels[self.current_level].description,
-                        self.levels[self.current_level].difficulty
-                    ));
-                    label.set_scale(18.0);
-                    let dims = label.measure(ctx)?;
-                    cache.insert(self.current_level, (label, dims.x, dims.y));
-                }
-                let (label, label_width, label_height) = cache.get(&self.current_level).unwrap();
-                canvas.draw(
-                    label,
-                    DrawParam::default()
-                        .dest(Vec2::new(
-                            (width - label_width) / 2.0,
-                            height - label_height - 18.0,
-                        ))
-                        .color(Color::from_rgba(220, 220, 220, 120)), // subtle, monochrome, semi-transparent
-                );
-                Ok(())
-            })?;
-        }
+        // Debug info: current level in bottom-left corner, small and unobtrusive.
+        LEVEL_LABEL_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            if !cache.contains_key(&self.current_level) {
+                let mut label = Text::new(format!(
+                    "Level {}: {} | {} | Difficulty: {}",
+                    self.current_level + 1,
+                    self.levels[self.current_level].title,
+                    self.levels[self.current_level].description,
+                    self.levels[self.current_level].difficulty
+                ));
+                label.set_scale(13.0);
+                let dims = label.measure(ctx)?;
+                cache.insert(self.current_level, (label, dims.x, dims.y));
+            }
+            let (label, _label_width, label_height) = cache.get(&self.current_level).unwrap();
+            canvas.draw(
+                label,
+                DrawParam::default()
+                    .dest(Vec2::new(8.0, height - label_height - 6.0))
+                    .color(Color::from_rgba(180, 180, 180, 80)),
+            );
+            Ok(())
+        })?;
 
         // Draw level title if timer is active.
         if self.level_title_timer > 0.0 {
