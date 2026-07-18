@@ -80,7 +80,7 @@ use ggez::audio::SoundSource;
 use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
 use ggez::glam::Vec2;
-use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Mesh, Rect, Sampler, Text};
+use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Mesh, Rect, Sampler, ShaderParamsBuilder, Text};
 use ggez::input::keyboard::{KeyCode, KeyInput};
 use ggez::input::mouse::MouseButton;
 use ggez::{Context, ContextBuilder, GameResult};
@@ -12382,18 +12382,19 @@ impl EventHandler for MainState {
             let (draw_w, draw_h) = ctx.gfx.drawable_size();
             let scale_x = draw_w / self.width;
             let scale_y = draw_h / self.height;
-            // Use logical (image) dimensions for shader uniforms, not drawable size.
-            // The vertex shader needs image dimensions to properly normalize coordinates to 0..1.
             let uniform = PostProcessUniform {
                 groove: self.groove,
                 time: self.time_elapsed,
                 screen_width: self.width,
                 screen_height: self.height,
             };
-            self.postprocess_params.set_uniforms(ctx, &uniform);
+            // Rebuild shader params with texture binding each frame
+            let params = ShaderParamsBuilder::new(&uniform)
+                .images(&[&self.scene_image], &[Sampler::nearest_clamp()], false)
+                .build(ctx);
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             screen_canvas.set_shader(&self.postprocess_shader);
-            screen_canvas.set_shader_params(&self.postprocess_params);
+            screen_canvas.set_shader_params(&params);
             screen_canvas.draw(
                 &self.scene_image,
                 DrawParam::default()
