@@ -23,14 +23,11 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    // ggez passes position in NDC [-1, 1]. For a full-screen quad covering drawable area,
-    // we may need to scale the quad if drawable size != logical size (HiDPI).
-    // The scene_image is created at logical size (1280x960), but drawn to full drawable.
-    // We pass screen_width/height as logical size in uniforms, so the quad is already correct
-    // in NDC space — it naturally fills the full screen when interpreted as NDC.
-    out.position = vec4<f32>(position, 0.0, 1.0);
-    // Remap NDC to UV [0, 1]. Flip Y so uv.y=0 is the top of the image.
-    out.uv = vec2<f32>(position.x * 0.5 + 0.5, 0.5 - position.y * 0.5);
+    // ggez passes position in [0, 1] image-local space, not NDC [-1, 1].
+    // Convert to NDC: x ∈ [0,1] → [-1,1], y ∈ [0,1] → [1,-1] (flip for screen coords).
+    out.position = vec4<f32>(position.x * 2.0 - 1.0, 1.0 - position.y * 2.0, 0.0, 1.0);
+    // UV is already [0, 1] from input position, perfect for texture sampling.
+    out.uv = position;
     out.color = vec4<f32>(1.0);
     return out;
 }
