@@ -14,7 +14,7 @@ run_script() {
     # Bot mode still initializes the window backend, so CI runs each bot under xvfb-run.
     local bot_cmd=(./target/debug/rustler --bot "$name")
     if [ -n "${CI:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
-        xvfb-run -a -s "-screen 0 1280x720x24" "${bot_cmd[@]}" 2>&1 | tee "/tmp/bot_$name.log"
+        xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" "${bot_cmd[@]}" 2>&1 | tee "/tmp/bot_$name.log"
     else
         "${bot_cmd[@]}" 2>&1 | tee "/tmp/bot_$name.log"
     fi
