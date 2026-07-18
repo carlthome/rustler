@@ -23,13 +23,14 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    // ggez emits the quad in image-pixel space: 0..image_w, 0..image_h.
-    // Normalize by image dimensions to get 0..1 UV coordinates.
-    let uv = position / vec2<f32>(pp.screen_width, pp.screen_height);
-    out.uv = uv;
-    // Map 0..1 -> NDC -1..1, flipping Y because wgpu clip-space Y is up
-    // while texture/UV Y is down.
-    out.position = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+    // ggez passes the position attribute already in NDC [-1, 1] for custom
+    // shaders (same convention used by grass.wgsl and flashlight.wgsl in this
+    // codebase). Do NOT try to transform pixel-space to NDC here — that
+    // collapses the quad to a single point and produces a black screen.
+    out.position = vec4<f32>(position, 0.0, 1.0);
+    // Remap NDC to UV [0, 1]. Flip Y so uv.y=0 is the top of the image,
+    // matching texture sampling convention.
+    out.uv = vec2<f32>(position.x * 0.5 + 0.5, 0.5 - position.y * 0.5);
     out.color = vec4<f32>(1.0);
     return out;
 }
