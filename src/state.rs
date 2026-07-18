@@ -1097,45 +1097,10 @@ impl MainState {
             world_height / 2.0 - PLAYER_SIZE / 2.0,
         );
 
-        // TODO Load all sound effects.
-        let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
-        let sounds = GameSounds {
-            intro_music: Source::new(ctx, "/intro.ogg")?,
-            // Procedurally generated action groove — a driving pentatonic shuffle
-            // with a generative riff, swing, call-and-response phrasing, and a
-            // layered bass line (see sounds::synth_action_groove). Replaces the
-            // static /action.ogg so the in-game loop is real, foot-tapping music
-            // rather than a fixed backing track.
-            action_music: sounds::synth_action_groove(ctx)?,
-            outro_music: Source::new(ctx, "/outro.ogg")?,
-            upgrade: Source::new(ctx, "/upgrade.ogg")?,
-            success: Source::new(ctx, "/success.ogg")?,
-            success2: Source::new(ctx, "/success2.ogg")?,
-            king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
-            hihat: sounds::synth_hihat(ctx)?,
-            flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
-            coin_chime: sounds::synth_coin_chime(ctx)?,
-            world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
-            whistle_sfx: sounds::synth_whistle(ctx)?,
-            stomp_sfx: sounds::synth_stomp(ctx)?,
-            lasso_sfx: sounds::synth_lasso_throw(ctx)?,
-            crab_themes: [
-                sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
-                sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
-                sounds::synth_theme_deus_tense(ctx)?,   // 2 — thief/sneaky
-                sounds::synth_theme_deus_ambient(ctx)?, // 3 — boss/armored/hermit
-                sounds::synth_theme_duck_golden(ctx)?,  // 4 — golden/magnet
-            ],
-            king_crab_l,
-            king_crab_r,
-            king_crab_soft,
-        };
-
-        // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
-        // than as silence on the first beat.
-        let beat_synth = sounds::BeatSynth::new(ctx)?;
-
-        // Detect the actual BPM of action.ogg so the beat grid stays in sync with the music.
+        // Detect the actual BPM of action.ogg FIRST, so the beat grid AND the
+        // procedurally-generated action groove are both built at the same tempo.
+        // The groove is synthesised from this value below — a hardcoded groove BPM
+        // would loop against the visual beats and beat-synced mechanics.
         let detected_beat_interval: f32 = {
             use std::io::Read as _;
             let mut bytes = Vec::new();
@@ -1169,6 +1134,45 @@ impl MainState {
                 }
             }
         };
+        let action_bpm = 60.0 / detected_beat_interval;
+
+        // TODO Load all sound effects.
+        let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
+        let sounds = GameSounds {
+            intro_music: Source::new(ctx, "/intro.ogg")?,
+            // Procedurally generated action groove — a driving pentatonic shuffle
+            // with a generative riff, swing, call-and-response phrasing, and a
+            // layered bass line (see sounds::synth_action_groove). Replaces the
+            // static /action.ogg so the in-game loop is real, foot-tapping music
+            // rather than a fixed backing track.
+            action_music: sounds::synth_action_groove(ctx, action_bpm)?,
+            outro_music: Source::new(ctx, "/outro.ogg")?,
+            upgrade: Source::new(ctx, "/upgrade.ogg")?,
+            success: Source::new(ctx, "/success.ogg")?,
+            success2: Source::new(ctx, "/success2.ogg")?,
+            king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
+            hihat: sounds::synth_hihat(ctx)?,
+            flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
+            coin_chime: sounds::synth_coin_chime(ctx)?,
+            world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
+            whistle_sfx: sounds::synth_whistle(ctx)?,
+            stomp_sfx: sounds::synth_stomp(ctx)?,
+            lasso_sfx: sounds::synth_lasso_throw(ctx)?,
+            crab_themes: [
+                sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
+                sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
+                sounds::synth_theme_deus_tense(ctx)?,   // 2 — thief/sneaky
+                sounds::synth_theme_deus_ambient(ctx)?, // 3 — boss/armored/hermit
+                sounds::synth_theme_duck_golden(ctx)?,  // 4 — golden/magnet
+            ],
+            king_crab_l,
+            king_crab_r,
+            king_crab_soft,
+        };
+
+        // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
+        // than as silence on the first beat.
+        let beat_synth = sounds::BeatSynth::new(ctx)?;
 
         // Load both grass and sand textures.
         let textures = GameTextures {

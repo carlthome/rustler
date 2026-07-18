@@ -2102,9 +2102,17 @@ fn synth_groove(
     };
 
     // --- Build the "question" motif over one bar on the 1/16 grid. ---
-    let mut question: Vec<(u32, i32, u32)> = Vec::new(); // (step, degree, len)
-    let mut degree = 0i32; // start on the root
-    let mut s = 0u32;
+    // Open with a distinctive, instantly-recognisable HOOK: root → fifth → octave
+    // (scale degrees 0, 3, 5 — a strong rising arpeggio) on the first three beats
+    // so the phrase has a clear identity every time it comes round, rather than a
+    // random scramble of pitches. The generator then fills the rest of the bar.
+    let mut question: Vec<(u32, i32, u32)> = vec![
+        (0, 0, 2), // beat 1  : root
+        (4, 3, 2), // beat 2  : fifth
+        (8, 5, 2), // beat 3  : octave (root, one octave up)
+    ];
+    let mut degree = 5i32; // continue the contour from the octave
+    let mut s = 12u32; // free generation fills only beat 4 onward
     while s < steps_per_bar {
         if rng.f01() < step_weight(s) {
             let len = match rng.below(4) {
@@ -2127,19 +2135,28 @@ fn synth_groove(
             s += 1;
         }
     }
-    // Guarantee a downbeat root anchor.
-    if !question.iter().any(|&(st, _, _)| st == 0) {
-        question.insert(0, (0, 0, 2));
-    }
 
-    // The "answer": same rhythm, inverted contour, resolves to the root (held long).
+    // The "answer": same rhythm, but it clearly DESCENDS and resolves onto the
+    // root. Instead of a weak inversion we ramp each note down toward degree 0
+    // across the bar, then plant the final note firmly on the root, held a full
+    // beat — a real call-and-response cadence the ear can follow home.
+    let n_ans = question.len().max(1);
     let mut answer: Vec<(u32, i32, u32)> = question
         .iter()
-        .map(|&(st, deg, len)| (st, -deg / 2, len))
+        .enumerate()
+        .map(|(i, &(st, _deg, len))| {
+            // Fraction along the bar: 1.0 at the start, 0.0 at the last note. We
+            // scale a FIXED high point (the octave, degree 5) by it so the answer
+            // walks monotonically DOWN from the octave to the root — a real falling
+            // cadence, independent of the question's own rising contour.
+            let frac = 1.0 - (i as f32 / (n_ans - 1).max(1) as f32);
+            let d = (5.0 * frac).round() as i32; // octave → … → root
+            (st, d, len)
+        })
         .collect();
     if let Some(last) = answer.last_mut() {
-        last.1 = 0;
-        last.2 = 4;
+        last.1 = 0; // land on the root
+        last.2 = 4; // held a full beat — clear resolution
     }
 
     // --- Assemble the full phrase: alternate question/answer bars with rising
@@ -2150,7 +2167,7 @@ fn synth_groove(
         let motif = if call { &question } else { &answer };
         let build = bar as f32 / bars.max(1) as f32; // 0..1 across the phrase
 
-        for &(st, deg, len) in motif {
+        for (i, &(st, deg, len)) in motif.iter().enumerate() {
             let mut d = deg;
             if bar >= 2 {
                 if rng.chance(0.18) {
@@ -2161,37 +2178,62 @@ fn synth_groove(
                 }
             }
             let global_step = bar * steps_per_bar + st;
+            // Two-bar phrase lock: the very first note of each phrase (start of every
+            // even bar's downbeat) is nailed to the root at full gain. This is the
+            // musical anchor that makes the loop feel deliberate rather than adrift.
+            let phrase_anchor = bar % 2 == 0 && i == 0 && st == 0;
+            let (note_degree, note_gain) = if phrase_anchor {
+                (0, 1.0)
+            } else {
+                (d.clamp(-4, 12), melody_gain)
+            };
             notes.push(GrooveNote {
                 step: global_step,
                 len,
-                degree: d.clamp(-4, 12),
+                degree: note_degree,
                 bass: false,
-                gain: melody_gain,
+                gain: note_gain,
             });
-            // Ghost note — quiet extra 1/16, more likely as the build rises.
-            if rng.chance(0.10 + 0.35 * build) && st + len < steps_per_bar {
+            // Ghost note — quiet extra 1/16. Kept sparse outside the build so the
+            // phrase earns its density: a low base probability, rising with `build`.
+            if !phrase_anchor
+                && rng.chance(0.02 + 0.4 * build)
+                && st + len < steps_per_bar
+            {
                 notes.push(GrooveNote {
                     step: global_step + len,
                     len: 1,
-                    degree: (d - 1).clamp(-4, 12),
+                    degree: (note_degree - 1).clamp(-4, 12),
                     bass: false,
                     gain: melody_gain * 0.5,
                 });
             }
         }
 
-        // --- Bass: root on beat 1, fifth on beat 3, an octave below the lead. ---
+        // --- Bass: a walking/pumping pattern an octave below the lead root.
+        // Degrees are scale-INDICES (pentatonic-minor [0,3,5,7,10]), so:
+        //   -5 → root one octave down, -2 → fifth one octave down.
+        // Pattern: root on beat 1, fifth on beat 3, short root on beat 4's "and"
+        // (step 14). Beat 2's "and" is left as a rest so the bass breathes.
+        let bar_start = bar * steps_per_bar;
         notes.push(GrooveNote {
-            step: bar * steps_per_bar,
+            step: bar_start, // beat 1
             len: 4,
-            degree: -7,
+            degree: -5, // root, octave down
             bass: true,
-            gain: melody_gain * 0.9,
+            gain: melody_gain * 0.95,
         });
         notes.push(GrooveNote {
-            step: bar * steps_per_bar + 8,
+            step: bar_start + 8, // beat 3
             len: 4,
-            degree: -7 + 3, // the fifth (pentatonic degree 3), octave down
+            degree: -2, // fifth, octave down
+            bass: true,
+            gain: melody_gain * 0.85,
+        });
+        notes.push(GrooveNote {
+            step: bar_start + 14, // beat 4's "and" — short pump back to the root
+            len: 2,
+            degree: -5, // root, octave down
             bass: true,
             gain: melody_gain * 0.8,
         });
@@ -2236,16 +2278,22 @@ fn synth_groove(
 }
 
 /// The default in-game action groove — the loop the player hears while rustling.
-/// A driving A-minor-pentatonic shuffle at 148 BPM, 8 bars so the riff visibly
-/// evolves (variation + rising density) before it loops.
-pub fn synth_action_groove(ctx: &mut Context) -> GameResult<Source> {
+/// A driving A-minor-pentatonic shuffle, 8 bars so the riff visibly evolves
+/// (variation + rising density) before it loops.
+///
+/// `bpm` MUST match the game's detected beat tempo (`60.0 / beat_interval`) so
+/// the groove loops in lock-step with the visual beats and beat-synced mechanics
+/// — a hardcoded tempo here would drift against the on-beat feel. The BPM also
+/// seeds the RNG, so each session's detected tempo yields a slightly different
+/// (but reproducible) groove.
+pub fn synth_action_groove(ctx: &mut Context, bpm: f32) -> GameResult<Source> {
     synth_groove(
         ctx,
-        0xC0FFEE,
+        0xC0FFEE ^ (bpm as u32),
         GrooveScale::PentatonicMinor,
         57, // A3 root register
-        148.0,
-        0.58,
+        bpm,
+        0.66, // shuffle: odd 1/16s land noticeably late
         8,
         0.5,
         6,
