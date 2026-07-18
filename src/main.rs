@@ -7276,11 +7276,11 @@ impl MainState {
             );
         });
 
-        // Draw dash bar for boost timer/cooldown.
+        // Action bars — pushed down so they don't collide with score/rhythm bonus above.
         let bar_x = 10.0;
-        let bar_y = 50.0;
-        let bar_width = 220.0;
-        let bar_height = 18.0;
+        let bar_y = 80.0;   // was 50 — now clears score(y=10) + rhythm bonus(y=30) with margin
+        let bar_width = 160.0; // was 220 — narrower to feel less heavy
+        let bar_height = 10.0; // was 18 — thinner, less dominant
         let max_boost = 0.18;
         let max_cooldown = 0.08;
         let cooldown_ratio = (self.boost_cooldown / max_cooldown).clamp(0.0, 1.0);
@@ -7326,24 +7326,25 @@ impl MainState {
                 .color(Color::from_rgb(255, 255, 255)),
         );
 
-        // Draw label (static text — build once and reuse forever, same pattern as the HUD/level
-        // label caches above).
+        // Key hint to the right of the bar — compact, no vertical label overhead.
         DASH_LABEL_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                *cache = Some(Text::new("Dash (Space)"));
+                let mut t = Text::new("Space");
+                t.set_scale(13.0);
+                *cache = Some(t);
             }
             canvas.draw(
                 cache.as_ref().unwrap(),
                 DrawParam::default()
-                    .dest(Vec2::new(bar_x, bar_y - 22.0))
-                    .color(Color::from_rgb(255, 255, 255)),
+                    .dest(Vec2::new(bar_x + bar_width + 5.0, bar_y - 1.0))
+                    .color(Color::from_rgba(255, 255, 255, 160)),
             );
         });
 
         // Draw sprint stamina bar for held Shift sprinting.
-        let sprint_y = bar_y + bar_height + 12.0;
-        let sprint_height = 12.0;
+        let sprint_y = bar_y + bar_height + 6.0;
+        let sprint_height = 10.0;
         let sprint_ratio = (self.sprint_stamina / SPRINT_STAMINA_MAX).clamp(0.0, 1.0);
         canvas.draw(
             unit_square(ctx)?,
@@ -7372,19 +7373,20 @@ impl MainState {
         SPRINT_LABEL_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                *cache = Some(Text::new("Sprint (Shift)"));
+                let mut t = Text::new("Shift");
+                t.set_scale(13.0);
+                *cache = Some(t);
             }
             canvas.draw(
                 cache.as_ref().unwrap(),
                 DrawParam::default()
-                    .dest(Vec2::new(bar_x, sprint_y - 20.0))
-                    .color(Color::from_rgb(220, 255, 240)),
+                    .dest(Vec2::new(bar_x + bar_width + 5.0, sprint_y - 1.0))
+                    .color(Color::from_rgba(220, 255, 240, 160)),
             );
         });
 
-        // Whistle cooldown bar (E) — fills back up to amber as it recharges, ready when full.
-        let wbar_y = sprint_y + sprint_height + 18.0;
-        let wbar_h = 12.0;
+        let wbar_y = sprint_y + sprint_height + 6.0;
+        let wbar_h = 10.0;
         let ready = self.whistle_cooldown <= 0.0;
         let charge = (1.0 - self.whistle_cooldown / self.whistle_cooldown_dur()).clamp(0.0, 1.0);
         canvas.draw(
@@ -7417,24 +7419,20 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == ready);
             if needs_rebuild {
-                let text = Text::new(if ready {
-                    "Whistle (E) READY"
-                } else {
-                    "Whistle (E)"
-                });
+                let mut text = Text::new(if ready { "Whistle (E) ✓" } else { "Whistle (E)" });
+                text.set_scale(13.0);
                 *cache = Some((ready, text));
             }
             canvas.draw(
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
-                    .dest(Vec2::new(bar_x + bar_width + 8.0, wbar_y - 2.0))
-                    .color(Color::from_rgb(255, 230, 150)),
+                    .dest(Vec2::new(bar_x + bar_width + 5.0, wbar_y - 1.0))
+                    .color(Color::from_rgba(255, 230, 150, if ready { 220 } else { 130 })),
             );
         });
 
-        // Stomp cooldown bar (R) — steely blue, refills as the ground-pound recharges.
-        let sbar_y = wbar_y + wbar_h + 20.0;
-        let sbar_h = 12.0;
+        let sbar_y = wbar_y + wbar_h + 6.0;
+        let sbar_h = 10.0;
         let sready = self.stomp_cooldown <= 0.0;
         let scharge = (1.0 - self.stomp_cooldown / self.stomp_cooldown_dur()).clamp(0.0, 1.0);
         canvas.draw(
@@ -7467,25 +7465,21 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == sready);
             if needs_rebuild {
-                let text = Text::new(if sready {
-                    "Stomp (R) READY"
-                } else {
-                    "Stomp (R)"
-                });
+                let mut text = Text::new(if sready { "Stomp (R) ✓" } else { "Stomp (R)" });
+                text.set_scale(13.0);
                 *cache = Some((sready, text));
             }
             canvas.draw(
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
-                    .dest(Vec2::new(bar_x + bar_width + 8.0, sbar_y - 2.0))
-                    .color(Color::from_rgb(190, 215, 245)),
+                    .dest(Vec2::new(bar_x + bar_width + 5.0, sbar_y - 1.0))
+                    .color(Color::from_rgba(190, 215, 245, if sready { 220 } else { 130 })),
             );
         });
 
-        // Flashlight charge bar (F) — amber/orange when charged, dim when depleted.
         if self.flashlight.laser_level > 0 || self.flashlight.charge < 1.0 || self.flashlight.on {
-            let fbar_y = sbar_y + sbar_h + 20.0;
-            let fbar_h = 12.0;
+            let fbar_y = sbar_y + sbar_h + 6.0;
+            let fbar_h = 10.0;
             let fcharge = self.flashlight.charge;
             let fready = fcharge > 0.15;
             canvas.draw(
@@ -7524,7 +7518,7 @@ impl MainState {
                 "Flashlight (F) recharging..."
             };
             let mut ft = Text::new(flabel);
-            ft.set_scale(16.0);
+            ft.set_scale(13.0);
             canvas.draw(
                 &ft,
                 DrawParam::default()

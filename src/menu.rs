@@ -193,7 +193,7 @@ pub fn draw_menu(
     {
         let speed = -55.0_f32; // negative = moving left
         let spacing = 60.0_f32;
-        let y_base = height - 108.0;
+        let y_base = height - 80.0;
         let train_b_types = [
             (CrabType::Boss, 1.4_f32),
             (CrabType::Armored, 0.65_f32),
@@ -207,7 +207,7 @@ pub fn draw_menu(
             let bob = (t * 4.5 + i as f32 * 1.1).sin() * if i == 0 { 5.0 } else { 3.0 };
             let deco = make_crab(ctype, x, y_base, speed, scale, i);
             let beat_phase = (t * 3.8 + i as f32 * 0.6).sin().abs();
-            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), std::f32::consts::PI, t)?;
+            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), 0.0, t)?;
         }
     }
 
