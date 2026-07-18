@@ -2086,7 +2086,11 @@ fn synth_ep_note(hz: f32, dur_s: f32, gain: f32) -> Vec<f32> {
         sustain: 0.38,
         release: 0.20,
     };
-    let mut out = synth_note(Waveform::Sine, hz, hold, &body_adsr, gain * 0.8);
+    // A sine's RMS is ~0.71× its amplitude, versus ~1.0× for the square this replaces, so a
+    // straight 0.8 gain would sit the lead ~5 dB quieter than the old chiptune lead and bury it
+    // under the (unchanged) bass. Push the fundamental to 1.1 to recover roughly the square's
+    // perceived loudness; the master limiter still catches the combined peak.
+    let mut out = synth_note(Waveform::Sine, hz, hold, &body_adsr, gain * 1.1);
 
     // 2× harmonic "tine": a pure percussive transient that decays to silence (sustain 0.0),
     // giving the signature Rhodes "tink" without lingering as a steady overtone.
