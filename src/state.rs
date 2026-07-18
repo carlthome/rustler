@@ -15,6 +15,8 @@ pub struct PostProcessUniform {
     pub time: f32,
     pub screen_width: f32,
     pub screen_height: f32,
+    /// 0 = normal, 1 = full desaturate/title-card effect
+    pub title_card_t: f32,
 }
 
 use crate::bot::BotState;
@@ -1335,6 +1337,7 @@ impl MainState {
             time: 0.0,
             screen_width: width,
             screen_height: height,
+            title_card_t: 0.0,
         };
         let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
 

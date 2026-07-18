@@ -5536,7 +5536,7 @@ impl MainState {
                 .get(self.current_level)
                 .map(|l| l.title.clone())
                 .unwrap_or_else(|| level.title.clone());
-            self.level_title_timer = 1.0;
+            self.level_title_timer = 3.1; // 0.3s fade-in + 2.2s hold + 0.6s fade-out
             // Fresh biome, fresh pen location — keep routing the train there a live decision.
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             self.pen_pos = pick_pen_pos(
@@ -7941,11 +7941,23 @@ impl MainState {
         width: f32,
         height: f32,
     ) -> Result<(), ggez::GameError> {
-        // The title overlay shows for ~1s (~60 frames) each level transition. All 4 objects
-        // (title Text, biome Text, fill Mesh, stroke Mesh) are constant for the entire window
-        // — only the fade alpha (a DrawParam, not baked into the objects) varies per frame.
-        // Build and cache them on the first frame, reuse for the remaining ~59.
+        // Timing: timer counts down from 3.1 → 0.
+        //   3.1..2.8  fade in  (0.3s)
+        //   2.8..0.6  hold
+        //   0.6..0.0  fade out
+        let t = self.level_title_timer;
+        let alpha = if t > 2.8 {
+            ((3.1 - t) / 0.3).clamp(0.0, 1.0)
+        } else if t < 0.6 {
+            (t / 0.6).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        // Slide in from left: during fade-in, title slides right into position.
+        let slide_x = (1.0 - alpha) * -80.0;
+
         let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
+
         LEVEL_TITLE_OVERLAY_CACHE.with(|c| -> Result<(), ggez::GameError> {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
@@ -7955,94 +7967,112 @@ impl MainState {
                 None => true,
             };
             if needs_rebuild {
-                let mut title = Text::new(&self.level_title);
-                title.set_scale(96.0);
-                let title_width = title.measure(ctx)?.x;
-                let title_height = title.measure(ctx)?.y;
-                let rect_x = (width - title_width) / 2.0 - 32.0;
-                let rect_y = (height - title_height) / 2.0 - 16.0;
-                let rect_w = title_width + 64.0;
-                let rect_h = title_height + 32.0;
-                let bg_rect = Mesh::new_rectangle(
-                    ctx,
-                    ggez::graphics::DrawMode::fill(),
-                    Rect::new(rect_x, rect_y, rect_w, rect_h),
-                    Color::from_rgb(30, 30, 30),
-                )?;
-                let border_rect = Mesh::new_rectangle(
-                    ctx,
-                    ggez::graphics::DrawMode::stroke(3.0),
-                    Rect::new(rect_x, rect_y, rect_w, rect_h),
-                    Color::from_rgb(220, 220, 220),
-                )?;
-                let mut subtitle = Text::new(biome.name);
-                subtitle.set_scale(40.0);
-                let sub_width = subtitle.measure(ctx)?.x;
+                // Control style: large title, smaller biome subtitle, threat tag
+                let mut title = Text::new(self.level_title.to_uppercase());
+                title.set_scale(72.0);
+                let title_dims = title.measure(ctx)?;
+
+                let mut subtitle = Text::new(biome.name.to_uppercase());
+                subtitle.set_scale(22.0);
+                let sub_dims = subtitle.measure(ctx)?;
+
                 let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
                 let threat_opt = if let Some(label) = crate::levels::emphasis_label(emphasis) {
-                    let mut threat = Text::new(format!("!! {label} !!"));
-                    threat.set_scale(30.0);
+                    let mut threat = Text::new(label.to_uppercase());
+                    threat.set_scale(18.0);
                     let tw = threat.measure(ctx)?.x;
                     Some((threat, tw))
                 } else {
                     None
                 };
+
                 *cache = Some((
                     self.level_title.clone(),
                     biome.name,
                     title,
-                    bg_rect,
-                    border_rect,
+                    // bg_rect slot — unused now, store a dummy
+                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
+                    // border_rect slot — unused now
+                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
                     subtitle,
-                    title_width,
-                    title_height,
-                    rect_y,
-                    rect_h,
-                    sub_width,
+                    title_dims.x,
+                    title_dims.y,
+                    sub_dims.y,
+                    sub_dims.x,
+                    sub_dims.x, // reuse slot
                     threat_opt,
                 ));
             }
-            let (
-                _,
-                _,
-                title,
-                bg_rect,
-                border_rect,
-                subtitle,
-                title_width,
-                title_height,
-                rect_y,
-                rect_h,
-                sub_width,
-                threat_opt,
-            ) = cache.as_ref().unwrap();
-            canvas.draw(bg_rect, DrawParam::default());
-            canvas.draw(border_rect, DrawParam::default());
-            canvas.draw(
-                title,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - title_width) / 2.0,
-                        (height - title_height) / 2.0,
-                    ))
-                    .color(Color::from_rgb(240, 240, 240)),
-            );
+
+            let (_, _, title, _, _, subtitle, title_w, title_h, sub_h, sub_w, _, threat_opt) =
+                cache.as_ref().unwrap();
+
+            // Layout: anchored to lower-left, ~35% up from bottom — Control style
+            let margin_left = 72.0;
+            let anchor_y = height * 0.62;
+
+            let a = (alpha * 255.0) as u8;
+            let a_dim = (alpha * 120.0) as u8;
+
+            // Dark translucent backing strip — full width, left-anchored
+            let strip_h = title_h + sub_h + 28.0;
+            let strip = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(0.0, anchor_y - 8.0, width, strip_h + 16.0),
+                Color::from_rgba(0, 0, 0, (alpha * 140.0) as u8),
+            )?;
+            canvas.draw(&strip, DrawParam::default());
+
+            // Accent line — thin white vertical bar to the left of the text, Control-style
+            let accent = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(margin_left + slide_x - 16.0, anchor_y, 3.0, strip_h - 12.0),
+                Color::from_rgba(255, 255, 255, a),
+            )?;
+            canvas.draw(&accent, DrawParam::default());
+
+            // Subtitle (biome) ABOVE the title — small caps, dimmed
             let (pr, pg, pb) = biome.pulse;
             canvas.draw(
                 subtitle,
                 DrawParam::default()
-                    .dest(Vec2::new((width - sub_width) / 2.0, rect_y + rect_h + 12.0))
-                    .color(Color::from_rgb(pr, pg, pb)),
+                    .dest(Vec2::new(margin_left + slide_x, anchor_y))
+                    .color(Color::from_rgba(pr, pg, pb, a_dim)),
             );
-            // Zone threat banner — built and measured once in the cache above, reused every frame.
+
+            // Main title — large, white
+            canvas.draw(
+                title,
+                DrawParam::default()
+                    .dest(Vec2::new(margin_left + slide_x, anchor_y + sub_h + 4.0))
+                    .color(Color::from_rgba(245, 245, 248, a)),
+            );
+
+            // Horizontal rule under title
+            let rule_y = anchor_y + sub_h + 4.0 + title_h + 6.0;
+            let rule = Mesh::new_rectangle(
+                ctx,
+                ggez::graphics::DrawMode::fill(),
+                Rect::new(margin_left + slide_x, rule_y, title_w * 0.6, 1.5),
+                Color::from_rgba(200, 200, 210, a_dim),
+            )?;
+            canvas.draw(&rule, DrawParam::default());
+
+            // Threat tag below rule
             if let Some((threat, tw)) = threat_opt {
                 canvas.draw(
                     threat,
                     DrawParam::default()
-                        .dest(Vec2::new((width - tw) / 2.0, rect_y + rect_h + 60.0))
-                        .color(Color::from_rgb(255, 170, 60)),
+                        .dest(Vec2::new(margin_left + slide_x, rule_y + 10.0))
+                        .color(Color::from_rgba(255, 160, 60, a)),
                 );
+                let _ = tw;
             }
+
             Ok(())
         })
     }
@@ -12539,11 +12569,21 @@ impl EventHandler for MainState {
             let (draw_w, draw_h) = ctx.gfx.drawable_size();
             let scale_x = draw_w / self.width;
             let scale_y = draw_h / self.height;
+            // title_card_t: ease in fast, hold, ease out over the last 0.6s
+            let title_t = if self.level_title_timer > 0.0 {
+                let hold = 2.5_f32;
+                let fade_in = (1.0 - (self.level_title_timer - hold) / 0.3).clamp(0.0, 1.0);
+                let fade_out = (self.level_title_timer / 0.6).clamp(0.0, 1.0);
+                fade_in.min(fade_out)
+            } else {
+                0.0
+            };
             let uniform = PostProcessUniform {
                 groove: self.groove,
                 time: self.time_elapsed,
                 screen_width: self.width,
                 screen_height: self.height,
+                title_card_t: title_t,
             };
             // Reuse cached shader params, just update uniforms (avoids per-frame GPU buffer alloc)
             self.postprocess_params.set_uniforms(ctx, &uniform);

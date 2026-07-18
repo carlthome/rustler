@@ -9,6 +9,11 @@ struct PostProcessUniform {
     time: f32,
     screen_width: f32,
     screen_height: f32,
+    title_card_t: f32,
+    // crevice AsStd140 pads a 5-float struct to vec4 boundary (3 padding floats)
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 @group(1) @binding(0)
@@ -23,10 +28,7 @@ var<uniform> pp: PostProcessUniform;
 @vertex
 fn vs_main(@location(0) position: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
-    // ggez passes position in [0, 1] image-local space, not NDC [-1, 1].
-    // Convert to NDC: x ∈ [0,1] → [-1,1], y ∈ [0,1] → [1,-1] (flip for screen coords).
     out.position = vec4<f32>(position.x * 2.0 - 1.0, 1.0 - position.y * 2.0, 0.0, 1.0);
-    // UV is already [0, 1] from input position, perfect for texture sampling.
     out.uv = position;
     out.color = vec4<f32>(1.0);
     return out;
@@ -62,6 +64,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let blurred = (c0 + c1 + c2) / 3.0;
         let blend = (pp.groove - 0.5) * 0.25;
         color = mix(color, blurred, blend);
+    }
+
+    // Title card effect — desaturate + darken the world while the level card is showing.
+    // t=0: no effect. t=1: full greyscale + slight darkening.
+    if (pp.title_card_t > 0.0) {
+        let luma = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+        let grey = vec3<f32>(luma);
+        // Desaturate toward grey
+        color = mix(color, grey, pp.title_card_t * 0.85);
+        // Slight darkening so the white title card text pops
+        color = color * (1.0 - pp.title_card_t * 0.25);
+        // Subtle blue-grey tint like Control's aesthetic
+        let tint = vec3<f32>(0.88, 0.92, 1.0);
+        color = mix(color, color * tint, pp.title_card_t * 0.4);
     }
 
     return vec4<f32>(color, 1.0);

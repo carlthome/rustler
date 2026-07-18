@@ -3598,7 +3598,8 @@ pub fn draw_flashlight(
             let dist = dfrac * flashlight_len * 1.02;
             // Cone widens with distance: motes near the apex hug the axis, far ones fan out.
             let mote_angle = angle + lateral * half_spread * (0.25 + 0.75 * dfrac);
-            let pos = center + Vec2::new(mote_angle.cos(), mote_angle.sin()) * dist;
+            // Use center_view (viewport coords) since flashlight is drawn in screen space.
+            let pos = center_view + Vec2::new(mote_angle.cos(), mote_angle.sin()) * dist;
             // Brightness: fade in from the apex and out at the far edge, dim toward the cone
             // sides, and twinkle over time so the dust shimmers.
             let along_fade = (dfrac * std::f32::consts::PI).sin(); // 0 at both ends, 1 mid-beam
@@ -3649,17 +3650,17 @@ pub fn draw_flashlight(
         cone_canvas.set_default_shader();
         cone_canvas.finish(ctx)?;
     }
-    // Composite the cone image onto the scene canvas with additive blend — no custom shader needed.
+    // Composite the cone image at (0,0) — the shader already rendered in full screen-space coords.
     canvas.set_blend_mode(BlendMode::ADD);
-    canvas.draw(cone_image, DrawParam::default().dest(center_view - Vec2::new(screen_width / 2.0, screen_height / 2.0)));
+    canvas.draw(cone_image, DrawParam::default().dest(Vec2::ZERO));
 
-    // Draw flashlight body on top.
+    // Draw flashlight body at center_view (viewport/screen coords, not world coords).
     canvas.set_blend_mode(original_blend);
     let rotation = dir.y.atan2(dir.x) + std::f32::consts::PI / 2.0;
     let flashlight_body = cached_fill_rect(ctx, -5.0, 0.0, 10.0, 24.0, Color::BLACK)?;
     canvas.draw(
         &flashlight_body,
-        DrawParam::default().dest(center).rotation(rotation),
+        DrawParam::default().dest(center_view).rotation(rotation),
     );
 
     canvas.set_blend_mode(original_blend);
