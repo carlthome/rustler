@@ -1071,7 +1071,8 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
 /// sound like the same creature. Returns `f32` samples in -1..1 before any panning or
 /// brightness shaping, so the callers can apply L/R gain independently.
 fn king_crab_rumble_mono_samples() -> Vec<f32> {
-    let loop_len = 2.0_f32;
+    // One bar at 98.4 BPM = 4 × 0.61s ≈ 2.44s — loop snaps to a musical boundary.
+    let loop_len = 60.0_f32 / 98.4 * 4.0;
     let n = (SAMPLE_RATE as f32 * loop_len) as usize;
     let dt = 1.0 / SAMPLE_RATE as f32;
     let mut samples = vec![0.0_f32; n];
@@ -1161,26 +1162,27 @@ fn king_crab_rumble_mono_samples() -> Vec<f32> {
         t_cursor += gap;
     }
 
-    // Claw snaps.
-    let snap_times = [0.18_f32, 0.55, 0.92, 1.34, 1.71];
+    // Claw snaps — 2 per bar, on beats 1 and 3 (half-tempo feel).
+    let beat = loop_len / 4.0;
+    let snap_times = [beat * 0.05, beat * 2.05];
     for &st in &snap_times {
         let at = (st * SAMPLE_RATE as f32) as usize;
-        let start_hz = 320.0 + rand01(&mut rng_state) * 260.0;
+        let start_hz = 320.0 + rand01(&mut rng_state) * 180.0;
         let end_hz = start_hz * (0.55 + rand01(&mut rng_state) * 0.15);
-        let dur = 0.030 + rand01(&mut rng_state) * 0.025;
-        let amp = 0.22 + rand01(&mut rng_state) * 0.10;
+        let dur = 0.030 + rand01(&mut rng_state) * 0.020;
+        let amp = 0.16 + rand01(&mut rng_state) * 0.08;
         add_claw_snap(&mut samples, at, start_hz, end_hz, dur, amp);
     }
 
-    // Mandible chitter bursts.
-    let chitter_starts = [0.30_f32, 1.05, 1.55];
+    // Mandible chitter — one sparse burst per bar on beat 3.
+    let chitter_starts = [beat * 2.4];
     for &burst_start in &chitter_starts {
-        let click_count = 5 + (rand01(&mut rng_state) * 5.0) as usize;
-        let burst_span = 0.055 + rand01(&mut rng_state) * 0.035;
-        let pitch_centre = 2600.0 + rand01(&mut rng_state) * 1400.0;
+        let click_count = 3 + (rand01(&mut rng_state) * 3.0) as usize;
+        let burst_span = 0.04 + rand01(&mut rng_state) * 0.02;
+        let pitch_centre = 2000.0 + rand01(&mut rng_state) * 800.0;
         for c in 0..click_count {
             let frac = c as f32 / (click_count.max(1) as f32);
-            let jitter = (rand01(&mut rng_state) - 0.5) * 0.006;
+            let jitter = (rand01(&mut rng_state) - 0.5) * 0.004;
             let t_click = burst_start + frac * burst_span + jitter;
             if t_click <= 0.0 || t_click >= loop_len - 0.01 {
                 continue;
@@ -1190,10 +1192,10 @@ fn king_crab_rumble_mono_samples() -> Vec<f32> {
             add_click(
                 &mut samples,
                 at,
-                0.005 + rand01(&mut rng_state) * 0.004,
+                0.004 + rand01(&mut rng_state) * 0.003,
                 carrier,
                 0.65,
-                0.11 + rand01(&mut rng_state) * 0.07,
+                0.08 + rand01(&mut rng_state) * 0.05,
                 &mut rng_state,
             );
         }
