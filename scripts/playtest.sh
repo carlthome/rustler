@@ -11,8 +11,13 @@ FAIL=0
 run_script() {
     local name=$1
     echo -n "Running $name ... "
-    # Bot mode still initializes the window backend, so CI may wrap this script in xvfb-run.
-    nix develop . --command ./target/debug/rustler --bot "$name" 2>&1 | tee "/tmp/bot_$name.log"
+    # Bot mode still initializes the window backend, so CI runs each bot under xvfb-run.
+    local bot_cmd=(nix develop . --command ./target/debug/rustler --bot "$name")
+    if [ -n "${CI:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
+        xvfb-run -a -s "-screen 0 1280x720x24" "${bot_cmd[@]}" 2>&1 | tee "/tmp/bot_$name.log"
+    else
+        "${bot_cmd[@]}" 2>&1 | tee "/tmp/bot_$name.log"
+    fi
     local exitcode=${PIPESTATUS[0]}
 
     if [ $exitcode -eq 0 ]; then
