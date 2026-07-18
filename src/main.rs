@@ -10554,13 +10554,20 @@ impl EventHandler for MainState {
         }
 
         // Scale music volume with intensity
-        // (action_music gets louder, layers fade in)
-        let base_vol = 0.25 + self.music_intensity * 0.75;
+        // (action_music gets louder, layers fade in). If music is muted (M key), force every
+        // music voice to silence — the synthesised beats/SFX still play, only the music track mutes.
+        let base_vol = if self.music_muted {
+            0.0
+        } else {
+            0.25 + self.music_intensity * 0.75
+        };
         self.sounds.action_music.set_volume(base_vol);
         let layer_count = self.music_layers.len();
         for (i, layer) in self.music_layers.iter_mut().enumerate() {
             let threshold = (i + 1) as f32 / (layer_count + 1) as f32;
-            let vol = if self.music_intensity > threshold {
+            let vol = if self.music_muted {
+                0.0
+            } else if self.music_intensity > threshold {
                 ((self.music_intensity - threshold) * 2.0).min(1.0)
             } else {
                 0.0
