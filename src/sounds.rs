@@ -1009,41 +1009,167 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
     Source::from_data(ctx, data)
 }
 
-/// Synthesise a looping low rumble for the NPC King Crab conga train.
+/// Synthesise a looping "living creature" ambient for the NPC King Crab conga train.
 ///
-/// The bed is still a low 80 Hz growl, but instead of a smooth electronic tremolo it uses an
-/// uneven "tippy-tappy" stutter envelope per half-second cycle (two quick pulses, short breath,
-/// then two heavier pulses). A faint high-click layer adds claw-ish texture while keeping the
-/// overall tone ominous.
+/// A quiet low rumble sits underneath as a bass bed, but the character is carried by three
+/// organic percussion layers baked into the buffer:
+///   * metallic shell-click transients (very short filtered-noise pings, ~1.8–3.5 kHz)
+///   * claw-snap chirps (brief resonant bursts, ~300–600 Hz)
+///   * mandible chitter bursts (rapid 60–90 ms clusters of tiny clicks)
+/// All events are scattered pseudo-randomly across a ~2 s loop with varying density and pitch
+/// so it reads as a creature moving nearby rather than a repeating synth pad.
 /// Wrapped in a WAV so `Source::from_data` / rodio can decode it normally.
 /// The caller sets `repeat(true)` so it loops; volume is driven by distance each frame.
 pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
-    let n = (SAMPLE_RATE as f32 * 0.5) as usize;
-    let mut samples = Vec::with_capacity(n);
+    // Longer loop (~2s) so the tap pattern doesn't feel obviously cyclic.
+    let loop_len = 2.0_f32;
+    let n = (SAMPLE_RATE as f32 * loop_len) as usize;
     let dt = 1.0 / SAMPLE_RATE as f32;
-    // Pulse starts within each 0.5s loop: ti-ppy ... ta-ppy
-    let pulse_starts = [0.00_f32, 0.065_f32, 0.225_f32, 0.305_f32];
+    let mut samples = vec![0.0_f32; n];
+
+    // Deterministic PRNG (xorshift32) so the loop is reproducible from build to build.
+    let mut rng_state: u32 = 0xC0FFEE_u32;
+    fn xorshift(s: &mut u32) -> u32 {
+        let mut x = *s;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        *s = x;
+        x
+    }
+    fn rand01(s: &mut u32) -> f32 {
+        (xorshift(s) as f32) / (u32::MAX as f32)
+    }
+
+    // --- Layer 1: low ambient rumble bed (soft, so taps sit on top clearly) ---
     for i in 0..n {
         let t = i as f32 * dt;
-        let mut gate = 0.08_f32;
-        for &start in &pulse_starts {
-            let d = t - start;
-            if d >= 0.0 {
-                // Quick attack / short decay per pulse, stronger on the latter pair.
-                let amp = if start < 0.2 { 0.65 } else { 0.95 };
-                gate += amp * (1.0 - (-95.0 * d).exp()) * (-18.0 * d).exp();
-            }
-        }
-
-        let rumble = 0.62 * oscillator_sample(Waveform::Triangle, 80.0 * t)
-            + 0.26 * oscillator_sample(Waveform::Rect(0.5), 121.0 * t)
-            + 0.16 * oscillator_sample(Waveform::Triangle, 173.0 * t);
-        // Subtle, short high component so pulses read as "claw taps" instead of pure hum.
-        let tap = 0.12 * oscillator_sample(Waveform::Rect(0.125), 420.0 * t);
-        let v = ((rumble + tap) * gate * 0.72).tanh();
-        samples.push(v * 17000.0 / i16::MAX as f32);
+        // Slow amplitude undulation so the bed breathes.
+        let breathe = 0.55 + 0.25 * (0.7 * t * std::f32::consts::TAU).sin();
+        let rumble = 0.55 * oscillator_sample(Waveform::Triangle, 78.0 * t)
+            + 0.22 * oscillator_sample(Waveform::Rect(0.5), 119.0 * t)
+            + 0.12 * oscillator_sample(Waveform::Triangle, 167.0 * t);
+        samples[i] += rumble * breathe * 0.35;
     }
-    let pcm = samples_to_pcm(&mut samples, 6, 2);
+
+    // Helper: add a filtered-noise "click" transient at sample offset `at` (in samples)
+    // with a short exponential envelope and a resonant carrier frequency. Uses a simple
+    // one-pole highpass on white noise (via successive-difference) to bias toward brightness.
+    // `carrier_hz` gives it a metallic pitch; noise gives it grit.
+    let add_click = |samples: &mut Vec<f32>,
+                     at: usize,
+                     dur_s: f32,
+                     carrier_hz: f32,
+                     noise_mix: f32,
+                     amp: f32,
+                     rng_state: &mut u32| {
+        let dur_n = (SAMPLE_RATE as f32 * dur_s) as usize;
+        let mut prev_noise = 0.0_f32;
+        for k in 0..dur_n {
+            let t = k as f32 * dt;
+            // Fast attack, exponential decay — very short so it reads as a "tick".
+            let env = (1.0 - (-900.0 * t).exp()) * (-38.0 / dur_s.max(0.001) * t).exp();
+            // xorshift white noise -> [-1, 1]
+            let mut x = *rng_state;
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            *rng_state = x;
+            let raw = (x as f32) / (u32::MAX as f32) * 2.0 - 1.0;
+            // Highpass via first-difference: brightens the noise.
+            let hp = raw - prev_noise * 0.85;
+            prev_noise = raw;
+            // Ringing resonant carrier at carrier_hz for the metallic ping quality.
+            let ring = (std::f32::consts::TAU * carrier_hz * t).sin();
+            let v = (noise_mix * hp + (1.0 - noise_mix) * ring) * env * amp;
+            let idx = (at + k) % samples.len(); // wrap into loop for seamless boundary
+            samples[idx] += v;
+        }
+    };
+
+    // Helper: brief resonant chirp for claw-snap (300-600Hz, slight downward slide,
+    // fast decay). This gives the "snap" more body than a pure click.
+    let add_claw_snap = |samples: &mut Vec<f32>,
+                         at: usize,
+                         start_hz: f32,
+                         end_hz: f32,
+                         dur_s: f32,
+                         amp: f32| {
+        let dur_n = (SAMPLE_RATE as f32 * dur_s) as usize;
+        let mut phase = 0.0_f32;
+        for k in 0..dur_n {
+            let t = k as f32 * dt;
+            let slide = (t / dur_s).min(1.0);
+            let freq = start_hz + (end_hz - start_hz) * slide;
+            phase += freq * dt;
+            // Sharp attack, fast decay — snappy but with a hint of sustain from the sine.
+            let env = (1.0 - (-500.0 * t).exp()) * (-28.0 * t).exp();
+            let body = (phase * std::f32::consts::TAU).sin();
+            // A hair of second-harmonic gives it a woodier bite than a pure sine.
+            let bite = 0.35 * (phase * 2.0 * std::f32::consts::TAU).sin();
+            let idx = (at + k) % samples.len();
+            samples[idx] += (body + bite) * env * amp;
+        }
+    };
+
+    // --- Layer 2: sparse shell-click pings scattered across the loop ---
+    // Density varies: some pockets busy, others quiet.
+    let mut t_cursor = 0.02_f32;
+    while t_cursor < loop_len - 0.05 {
+        let at = (t_cursor * SAMPLE_RATE as f32) as usize;
+        // Pitch drifts across the loop for variety (1.8–3.5 kHz range).
+        let carrier = 1800.0 + rand01(&mut rng_state) * 1700.0;
+        let dur = 0.008 + rand01(&mut rng_state) * 0.012;
+        let amp = 0.18 + rand01(&mut rng_state) * 0.14;
+        // Noise-heavy so it sounds like a shell tick, not a tone.
+        add_click(&mut samples, at, dur, carrier, 0.75, amp, &mut rng_state);
+        // Gap: mostly short, occasionally long "pockets of silence" so it feels alive.
+        let r = rand01(&mut rng_state);
+        let gap = if r > 0.85 { 0.18 + rand01(&mut rng_state) * 0.20 } else { 0.05 + rand01(&mut rng_state) * 0.12 };
+        t_cursor += gap;
+    }
+
+    // --- Layer 3: a few claw-snap chirps, sparser and louder than shell clicks ---
+    let snap_times = [0.18_f32, 0.55, 0.92, 1.34, 1.71];
+    for &st in &snap_times {
+        let at = (st * SAMPLE_RATE as f32) as usize;
+        // Each snap picks a slightly different pitch region so they don't sound identical.
+        let start_hz = 320.0 + rand01(&mut rng_state) * 260.0;
+        let end_hz = start_hz * (0.55 + rand01(&mut rng_state) * 0.15);
+        let dur = 0.030 + rand01(&mut rng_state) * 0.025;
+        let amp = 0.22 + rand01(&mut rng_state) * 0.10;
+        add_claw_snap(&mut samples, at, start_hz, end_hz, dur, amp);
+    }
+
+    // --- Layer 4: mandible chitter bursts — rapid 60–90ms clusters of tiny clicks ---
+    // Three bursts placed in the loop, each a dense micro-pattern of 5–9 clicks.
+    let chitter_starts = [0.30_f32, 1.05, 1.55];
+    for &burst_start in &chitter_starts {
+        let click_count = 5 + (rand01(&mut rng_state) * 5.0) as usize; // 5..=9
+        let burst_span = 0.055 + rand01(&mut rng_state) * 0.035; // 55–90 ms
+        // Pitch centre for this creature-voice burst, varied per burst.
+        let pitch_centre = 2600.0 + rand01(&mut rng_state) * 1400.0;
+        for c in 0..click_count {
+            // Slight timing jitter within the burst so it doesn't sound machine-gunned.
+            let frac = c as f32 / (click_count.max(1) as f32);
+            let jitter = (rand01(&mut rng_state) - 0.5) * 0.006;
+            let t_click = burst_start + frac * burst_span + jitter;
+            if t_click <= 0.0 || t_click >= loop_len - 0.01 { continue; }
+            let at = (t_click * SAMPLE_RATE as f32) as usize;
+            // Tiny per-click pitch wobble around the burst's centre.
+            let carrier = pitch_centre * (0.85 + rand01(&mut rng_state) * 0.3);
+            // Each chitter click is very short and quieter than shell clicks.
+            add_click(&mut samples, at, 0.005 + rand01(&mut rng_state) * 0.004, carrier, 0.65,
+                      0.11 + rand01(&mut rng_state) * 0.07, &mut rng_state);
+        }
+    }
+
+    // --- Final pass: soft clip + normalise to i16 range with headroom ---
+    for v in samples.iter_mut() {
+        *v = (*v * 0.85).tanh();
+    }
+
+    // Convert to PCM. Milder bit-crush (8-bit) than before — the taps rely on transient
+    // detail that heavy crushing would smear.
+    let pcm = samples_to_pcm(&mut samples, 8, 1);
     let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav);
     let mut src = Source::from_data(ctx, data)?;
