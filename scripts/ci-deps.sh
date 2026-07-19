@@ -45,8 +45,15 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -qq
-# Mirrors the Linux buildInputs in default.nix, plus xvfb + a software GL driver
-# so bot mode can render offscreen.
+# Loosely mirrors the Linux buildInputs in default.nix, plus xvfb + a software
+# GL driver so bot mode can render offscreen. default.nix also lists
+# glib/gtk3/cairo/pango/gdk-pixbuf, but `ldd target/debug/rustler` shows the
+# actual binary never links against any of them (nothing in Cargo.lock pulls
+# in a GTK/Cairo/Pango binding — no `rfd`-style native dialog crate), and a
+# full `cargo build` + `bash scripts/playtest.sh` (all 5 scenarios) passes
+# with that whole GTK toolchain absent. Skipping it here avoids apt pulling in
+# its large, unused transitive chain (icon themes, at-spi, etc.) on every
+# CI/Playtest job.
 $SUDO apt-get install -y -qq \
   pkg-config \
   libasound2-dev libudev-dev libdbus-1-dev \
@@ -54,7 +61,6 @@ $SUDO apt-get install -y -qq \
   libxinerama-dev libxxf86vm-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev \
   libxkbcommon-dev libwayland-dev wayland-protocols libvulkan-dev \
   libfreetype-dev libfontconfig1-dev zlib1g-dev \
-  libglib2.0-dev libgtk-3-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
   libgl1-mesa-dev libgl1-mesa-dri xvfb
 
 echo "ci-deps: done."
