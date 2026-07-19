@@ -85,6 +85,13 @@ Short plain-English messages. No "Co-Authored-By" lines. Always push after commi
 git -C . push origin main
 ```
 
+**Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
+(the harness enforces this). A code-writing routine's job isn't done when CI passes — it's done when
+the work is *in `main`*. So after opening a PR, watch its checks and **merge it as soon as every
+required check (build + Playtest) is green** — mark it ready for review if it's a draft, then
+squash-merge. Never leave a green PR sitting unmerged. A failing check is the next task: fix and
+re-push, don't merge red.
+
 ## Agent roster
 
 All eight agents now run as **remote routines** (in Anthropic's cloud, surviving
@@ -198,7 +205,11 @@ Steps:
 8. Fix any build errors and rebuild until clean
 9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
 10. Commit with a short plain-English message — no Co-Authored-By lines
-11. Push: `git -C . push origin main`
+11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
+    not `main` directly).
+12. Watch the PR's CI. **Once every required check is green (build + Playtest), merge it** — mark it
+    ready for review if it's a draft, then merge (squash). Don't leave a green PR sitting: a fix that
+    passes CI belongs in `main`. If a check fails, that failure is your next task; fix and re-push.
 ```
 
 ## Cron 2 — Release Manager prompt
@@ -289,7 +300,9 @@ Steps:
 9. Fix any build errors and rebuild until clean
 10. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
 11. Commit with a short plain-English message — no Co-Authored-By lines
-12. Push: `git -C . push origin main`
+12. Push your branch and open a draft PR into `main`.
+13. Watch the PR's CI. **Once every required check is green (build + Playtest), merge it** (mark ready
+    if draft, then squash-merge). Don't leave a green PR sitting. A failed check is your next task.
 ```
 
 ## Cron 5 — Optimizer prompt
