@@ -65,3 +65,7 @@ bash scripts/playtest.sh
 falls back to plain cargo (with `xvfb` for offscreen rendering) otherwise. This is
 what lets the feature-development agents run as Claude cloud routines without a
 local machine.
+
+## Release
+
+To do a release, just git tag the code and push the tag, and a GitHub Actions workflow will build and package the game for all platforms. The release artifacts will be attached to a subsequent GitHub release with the tag.
