@@ -65,6 +65,55 @@ fn make_crab(
     }
 }
 
+/// Build a crab that has just been rustled off a rival's conga train and is snapping onto the
+/// player's line. It spawns already-caught with an assigned `chain_index`, mid-air toward the
+/// player (the caller sets `vel`), fully coloured (spawn_time 999.0) and defenceless — a stolen
+/// crab joins with no shell to re-crack, so it reads as an instant win, not a fresh chase.
+pub fn spawn_stolen_crab(
+    pos: Vec2,
+    vel: Vec2,
+    crab_type: CrabType,
+    chain_index: usize,
+    rng: &mut impl Rng,
+) -> EnemyCrab {
+    let scale = rng.random_range(crab_type.scale_range());
+    let speed = rng.random_range(crab_type.speed_range());
+    EnemyCrab {
+        pos,
+        vel,
+        speed,
+        caught: true,
+        chain_index: Some(chain_index),
+        scale,
+        spawn_time: 999.0,
+        crab_type,
+        spooked_timer: 0.0,
+        beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
+        join_pulse: 1.0, // scale-pop as it snaps into the train
+        fleeing: false,
+        facing_angle: 0.0,
+        in_flashlight: false,
+        startle_timer: 0.0,
+        charm_timer: 0.0,
+        answering_call: 0.0,
+        boss_health: 0.0,
+        boss_max_health: 0.0001,
+        enraged: false,
+        charge_state: BossCharge::Idle,
+        charge_cooldown: 0.0,
+        stun_timer: 0.0,
+        latch_timer: 0.0,
+        panic_amp: 1.0,
+        magnet_snared: 0.0,
+        magnet_lured: 0.0,
+        thief_lured: 0.0,
+        magnet_charged: 0.0,
+        slingshot_spent: 0.0,
+        host_swap_timer: 0.0,
+        surge_timer: 0.0,
+    }
+}
+
 /// Spawn a rare "King Crab" boss. It enters from a random screen edge, lumbers toward the
 /// play area, and carries `max_health` — the player must hold the flashlight on it to wear it
 /// down before it can be caught. Not part of the normal spawn patterns; triggered on score.

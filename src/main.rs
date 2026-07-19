@@ -119,8 +119,8 @@ use crate::hud_cache::{
 };
 use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
-    spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_tide_boss,
-    spawn_tutorial_crabs,
+    spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss, spawn_stolen_crab,
+    spawn_tide_boss, spawn_tutorial_crabs,
 };
 use crate::tutorial::{Tutorial, TutorialKind};
 use crate::upgrade::{UPGRADE_FIRST_AT, UPGRADE_POOL, UpgradeId};
@@ -9722,6 +9722,9 @@ impl MainState {
 
 impl MainState {
     fn update_npc_trains(&mut self, dt: f32) {
+        // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
+        // takes one clean back-section per window instead of vacuuming a whole train in a frame.
+        self.player_steal_cooldown = (self.player_steal_cooldown - dt).max(0.0);
         for i in 0..self.npc_trains.len() {
             // --- Idle pause at destination -------------------------------------------------
             // When idle_timer > 0 the train has just arrived at a target and is "surveying"
@@ -9938,6 +9941,80 @@ impl MainState {
                             self.catch_shockwaves
                                 .push((npc_pos, 0.0, [0.96, 0.72, 0.16]));
                         }
+                    }
+                }
+            }
+
+            // --- Steal to win: thread YOUR head through a rival's line to rustle it back --------
+            // The mirror of the rival's splice above (INSPIRATION.md "The core steal mechanic"):
+            // when the player's head crosses a rival's body, the rival splices at the crossing and
+            // its back section (that follower → tail) snaps onto YOUR conga line as caught crabs.
+            // This is the "Steal to win" verb — the whole prototype has been scaffolding toward it.
+            // Rhythmic: crossing ON the beat pays a groove surge + bigger score (skill ceiling).
+            if self.player_steal_cooldown <= 0.0 && !self.npc_trains[i].follower_types.is_empty() {
+                const P_STEAL_RANGE: f32 = 54.0;
+                // Follower fi sits at path_history[(fi+1)*STEPS] (same layout draw_npc_conga_train
+                // uses). Find the earliest (closest-to-leader) follower the player head is within
+                // range of — splicing there takes the largest tail section, like the rival does.
+                const STEPS: usize = 14;
+                let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                let mut splice_at: Option<usize> = None;
+                for fi in 0..self.npc_trains[i].follower_types.len() {
+                    if let Some(&fpos) = self.npc_trains[i].path_history.get((fi + 1) * STEPS) {
+                        if player_center.distance(fpos) < P_STEAL_RANGE {
+                            splice_at = Some(fi);
+                            break;
+                        }
+                    }
+                }
+                if let Some(fi) = splice_at {
+                    let on_beat = self.on_beat_now();
+                    // split_off(fi) leaves 0..fi on the rival and returns the back section fi..tail.
+                    let stolen = self.npc_trains[i].follower_types.split_off(fi);
+                    let stolen_count = stolen.len();
+                    let mut rng = rand::rng();
+                    for (k, ct) in stolen.into_iter().enumerate() {
+                        // Spawn each rustled crab at its old follower slot, flying toward the player.
+                        let old_pos = self.npc_trains[i]
+                            .path_history
+                            .get((fi + k + 1) * STEPS)
+                            .copied()
+                            .unwrap_or(self.npc_trains[i].leader_pos);
+                        let toward = (player_center - old_pos).normalize_or_zero();
+                        let mut vel = toward * 230.0;
+                        vel.y -= 80.0; // brief upward arc before snapping into line
+                        let ci = self.chain_count;
+                        self.crabs
+                            .push(spawn_stolen_crab(old_pos, vel, ct, ci, &mut rng));
+                        self.chain_count += 1;
+                    }
+                    self.player_steal_cooldown = 2.2;
+                    // Reward: stealing feeds the groove (harder on the beat) and banks score.
+                    self.score += stolen_count * if on_beat { 3 } else { 2 };
+                    self.groove = (self.groove + if on_beat { 0.22 } else { 0.10 }).min(1.0);
+                    if on_beat {
+                        self.beat_streak = (self.beat_streak + 1).min(99);
+                        self.on_beat_flash = (self.on_beat_flash + 0.4).min(0.8);
+                        self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+                    }
+                    // Juice — the triumphant counterpart to losing crabs.
+                    let npc_name = self.npc_trains[i].name.clone();
+                    let label = if on_beat {
+                        format!("RUSTLED {} — ON BEAT!", stolen_count)
+                    } else {
+                        format!("RUSTLED {} from {}!", stolen_count, npc_name)
+                    };
+                    self.floating_texts.spawn(
+                        label,
+                        player_center - Vec2::new(90.0, 60.0),
+                        30.0,
+                        [0.35, 1.0, 0.55, 1.0],
+                    );
+                    self.screen_shake = self.screen_shake.max(if on_beat { 10.0 } else { 6.0 });
+                    self.zoom_punch = self.zoom_punch.max(if on_beat { 0.08 } else { 0.05 });
+                    if self.catch_shockwaves.len() < 48 {
+                        self.catch_shockwaves
+                            .push((player_center, 0.0, [0.35, 1.0, 0.55]));
                     }
                 }
             }
