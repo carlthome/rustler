@@ -38,9 +38,12 @@ pub struct GameSounds {
     pub(crate) upgrade: Source,
     pub(crate) success: Source,
     pub(crate) success2: Source,
-    /// Looping low rumble for the ambient NPC King Crab conga train.
-    /// Volume is driven each frame by distance to the player.
-    pub(crate) king_crab_rumble: Source,
+    /// Ambient NPC King Crab conga train rumble — left-panned version.
+    /// Volume is driven each frame by distance AND the leader's bearing (equal-power pan),
+    /// so the train is heard swelling *and* placed left/right — the "heard before seen" radar.
+    pub(crate) king_crab_rumble_l: Source,
+    /// Ambient NPC King Crab conga train rumble — right-panned version. Paired with `_l`.
+    pub(crate) king_crab_rumble_r: Source,
     pub(crate) hihat: Source,
     /// Short bright chirp for the flashlight toggle (F key) — a snappy UI beep.
     pub(crate) flashlight_toggle: Source,
@@ -1144,6 +1147,8 @@ impl MainState {
 
         // TODO Load all sound effects.
         let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
+        let (king_crab_rumble_l, king_crab_rumble_r) =
+            sounds::synth_king_crab_ambient_spatial(ctx)?;
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
             // Procedurally generated action groove — a driving pentatonic shuffle
@@ -1156,7 +1161,8 @@ impl MainState {
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
             success2: Source::new(ctx, "/success2.ogg")?,
-            king_crab_rumble: sounds::synth_king_crab_rumble(ctx)?,
+            king_crab_rumble_l,
+            king_crab_rumble_r,
             hihat: sounds::synth_hihat(ctx)?,
             flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,

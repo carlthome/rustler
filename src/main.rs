@@ -12553,23 +12553,44 @@ impl EventHandler for MainState {
         // Advance the ambient NPC conga train.
         self.update_npc_trains(dt);
 
-        // Spatial audio: smooth the king crab rumble volume toward the train's computed target.
-        // Full volume within 200px, silent beyond 800px; muted on menu/game-over screens.
+        // Spatial audio: smooth the ambient King Crab train rumble AND pan it by the leader's
+        // bearing, so a rival train is not just heard swelling with distance but *placed*
+        // left/right — the directional radar (agar.io "heard before seen"). Distance swell is
+        // `target_vol` (full within 200px, silent beyond 800px); an equal-power pan splits it
+        // into L/R by the leader's angle. Muted on menu/game-over screens.
         {
-            use ggez::audio::SoundSource;
-            let target = if self.show_instructions || self.game_over || self.show_world_map {
-                0.0
+            use ggez::audio::SoundSource as _;
+            let game_active =
+                !self.show_instructions && !self.game_over && !self.show_world_map;
+            let (target_l, target_r) = if game_active {
+                self.npc_trains.first().map_or((0.0, 0.0), |t| {
+                    // pan in -1..1: negative = left, positive = right, from leader bearing.
+                    let delta = t.leader_pos - self.player_pos;
+                    let pan = if delta.length_squared() > 1.0 {
+                        (delta.x / delta.length()).clamp(-1.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                    // Equal-power law: -1..+1 → 0..π/2, then cos/sin so total loudness is
+                    // constant across the sweep (matches the boss rumble's panning).
+                    let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+                    (angle.cos() * t.target_vol, angle.sin() * t.target_vol)
+                })
             } else {
-                self.npc_trains.first().map_or(0.0, |t| t.target_vol)
+                (0.0, 0.0)
             };
-            let cur = self.sounds.king_crab_rumble.volume();
-            let smoothed = (cur + (target - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0);
-            self.sounds.king_crab_rumble.set_volume(smoothed);
-            if smoothed > 0.02 && !self.sounds.king_crab_rumble.playing() {
-                let _ = self.sounds.king_crab_rumble.play(ctx);
-            } else if smoothed <= 0.02 && self.sounds.king_crab_rumble.playing() {
-                self.sounds.king_crab_rumble.stop(ctx);
-            }
+            let smooth = |src: &mut ggez::audio::Source, tgt: f32| {
+                let cur = src.volume();
+                let v = (cur + (tgt - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0);
+                src.set_volume(v);
+                if v > 0.02 && !src.playing() {
+                    let _ = src.play(ctx);
+                } else if v <= 0.02 && src.playing() {
+                    src.stop(ctx);
+                }
+            };
+            smooth(&mut self.sounds.king_crab_rumble_l, target_l);
+            smooth(&mut self.sounds.king_crab_rumble_r, target_r);
         }
 
         // Crab-theme music loops: count how many of each archetype group are free on the field,

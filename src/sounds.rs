@@ -1294,6 +1294,23 @@ fn synth_king_crab_rumble_soft(ctx: &mut Context) -> GameResult<Source> {
 /// Wrapped in a WAV so `Source::from_data` / rodio can decode it normally.
 /// The caller sets `repeat(true)` so it loops; volume is driven by distance each frame.
 pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
+    let mut samples = king_crab_ambient_mono_samples();
+    // Convert to PCM. Milder bit-crush (8-bit) than before — the taps rely on transient
+    // detail that heavy crushing would smear.
+    let pcm = samples_to_pcm(&mut samples, 8, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    let mut src = Source::from_data(ctx, data)?;
+    src.set_repeat(true);
+    Ok(src)
+}
+
+/// Generate the raw mono sample buffer for the ambient NPC King Crab conga train.
+///
+/// Split out from [`synth_king_crab_rumble`] so the same buffer can also be baked into
+/// hard-left / hard-right panned stereo sources (see [`synth_king_crab_ambient_spatial`]),
+/// giving the ambient train the same directional pan the boss rumble already has.
+fn king_crab_ambient_mono_samples() -> Vec<f32> {
     // Longer loop (~2s) so the tap pattern doesn't feel obviously cyclic.
     let loop_len = 2.0_f32;
     let n = (SAMPLE_RATE as f32 * loop_len) as usize;
@@ -1451,14 +1468,30 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
         *v = (*v * 0.85).tanh();
     }
 
-    // Convert to PCM. Milder bit-crush (8-bit) than before — the taps rely on transient
-    // detail that heavy crushing would smear.
-    let pcm = samples_to_pcm(&mut samples, 8, 1);
-    let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
-    let mut src = Source::from_data(ctx, data)?;
-    src.set_repeat(true);
-    Ok(src)
+    samples
+}
+
+/// Build the hard-left / hard-right panned stereo variants of the ambient NPC King Crab
+/// train rumble. The caller drives their volumes per-frame from the train leader's bearing
+/// relative to the player (equal-power split), so the train pans left/right as it circles —
+/// the directional half of the "heard before seen" radar. Distance swell is applied on top
+/// by scaling both channels together.
+///
+/// ggez 0.9.3 has no per-source pan/filter API, so panning is baked into two sources exactly
+/// like the boss rumble (`synth_king_crab_spatial`).
+pub fn synth_king_crab_ambient_spatial(ctx: &mut Context) -> GameResult<(Source, Source)> {
+    let mono = king_crab_ambient_mono_samples();
+    // Hard-left: all signal in L. Hard-right: all signal in R. The per-frame equal-power
+    // gains applied by the caller do the actual pan sweep between these two extremes.
+    // Raw f32 samples (no bit-crush) exactly like the boss panned rumble.
+    let silence = vec![0.0_f32; mono.len()];
+    let left_wav = encode_wav_stereo16(&mono, &silence);
+    let right_wav = encode_wav_stereo16(&silence, &mono);
+    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
+    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    left.set_repeat(true);
+    right.set_repeat(true);
+    Ok((left, right))
 }
 
 /// Build the three spatial variants of the King Crab boss rumble used for spatialization:
