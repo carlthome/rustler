@@ -121,7 +121,7 @@ sandbox — the `SessionStart` hook provisions dependencies (see **Build** above
 2. Release Manager  — daily 07:00 UTC     — haiku  ← pure counting/tagging, no build needed
 3. Developer Diary  — 01:00/09:00/17:00Z  — haiku  ← Slack updates, no build needed
 6. Game Director    — every 4 hours UTC   — opus   ← reads Slack + git, updates ROADMAP.md
-8. Supervisor       — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
+8. Agent Engineer   — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
 ```
 
 **Code-writing routines (cargo build + playtest in the sandbox):**
@@ -476,10 +476,10 @@ Steps:
     your next task.
 ```
 
-## Cron 8 — Supervisor prompt
+## Cron 8 — Agent Engineer prompt
 
 ```text
-You are the Supervisor for "Crab Rustler". You don't write
+You are the Agent Engineer for "Crab Rustler". You don't write
 game code. You improve the agent pipeline itself — not just by watching what agents do and
 reinforcing it, but by bringing outside perspectives in. The goal is a pipeline that makes
 a genuinely fun game fast, not one that's locally optimal but stuck in its own patterns.
@@ -526,7 +526,7 @@ Steps:
 
 6. Make minimal, high-signal edits. Don't change game direction (Game Director's job) or
    restructure the whole pipeline in one run — one clear improvement per cycle.
-7. Commit with a message explaining *why*, not just what: e.g. "Supervisor: Performance Engineer prompt
+7. Commit with a message explaining *why*, not just what: e.g. "Agent Engineer: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
    — no Co-Authored-By lines
 8. `git -C . pull --ff-only` then push
