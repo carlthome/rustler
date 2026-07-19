@@ -3802,11 +3802,33 @@ impl MainState {
         armored_positions.clear();
         let mut best_chain: Option<(usize, Vec2, CrabType)> = None;
         let mut free_splitter = false;
+        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
+        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
+        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
+        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
+        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
+        // target_ci only depends on self.chain_count (unchanged by this loop), so the search is
+        // folded into the same pass as best_chain/magnet/golden/armored below instead of its own
+        // second full scan over self.crabs.
+        let target_ci = if self.chain_count >= 4 {
+            Some(self.chain_count * 2 / 3) // aim 2/3 down from head = 1/3 from tail
+        } else {
+            None
+        };
+        let mut splice_best_dist = f32::MAX;
+        let mut splice_target_pos: Option<Vec2> = None;
         for c in &self.crabs {
             if c.caught {
                 if let Some(ci) = c.chain_index {
                     if best_chain.map_or(true, |(bci, ..)| ci > bci) {
                         best_chain = Some((ci, c.pos, c.crab_type));
+                    }
+                    if let Some(target_ci) = target_ci {
+                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
+                        if dist < splice_best_dist {
+                            splice_best_dist = dist;
+                            splice_target_pos = Some(c.pos);
+                        }
                     }
                 }
                 continue; // caught crabs can't be a Magnet/Golden/Armored source below
@@ -3824,30 +3846,6 @@ impl MainState {
             }
         }
         let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
-        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
-        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
-        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
-        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
-        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
-        let splice_target_pos: Option<Vec2> = if self.chain_count >= 4 {
-            let target_ci = self.chain_count * 2 / 3; // aim 2/3 down from head = 1/3 from tail
-            let mut best_dist = f32::MAX;
-            let mut found: Option<Vec2> = None;
-            for c in &self.crabs {
-                if c.caught {
-                    if let Some(ci) = c.chain_index {
-                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
-                        if dist < best_dist {
-                            best_dist = dist;
-                            found = Some(c.pos);
-                        }
-                    }
-                }
-            }
-            found
-        } else {
-            None
-        };
         let charge_target =
             splice_target_pos.unwrap_or_else(|| chain_tail_pos.unwrap_or(self.player_pos));
         // Captured before the &mut self.crabs loop: while the post-scatter regroup window is live the
