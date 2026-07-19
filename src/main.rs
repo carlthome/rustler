@@ -5,6 +5,7 @@ mod enemies;
 mod floating_text;
 mod graphics;
 mod hud_cache;
+mod king_crab_audio;
 mod levels;
 mod menu;
 mod skins;
