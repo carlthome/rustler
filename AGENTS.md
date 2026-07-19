@@ -49,7 +49,8 @@ grounded in whether the game actually plays, not just whether it builds.
 
 Opening a GitHub Issue triggers the Issue Agent (`.github/workflows/issue-agent.yml`):
 it spins up a Claude Opus agent in CI, implements the feature, runs playtests, and opens a PR.
-The PR auto-merges once CI + Playtest pass (`.github/workflows/auto-merge.yml`).
+The agent then merges its own PR once CI + Playtest are green (see "Merge your green PRs" under
+Commits below).
 
 Multiple issues can be open simultaneously — each gets its own branch (`issue-<N>`) and
 its own isolated CI run, so they develop in parallel with no shared working directory.
@@ -86,11 +87,21 @@ git -C . push origin main
 ```
 
 **Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
-(the harness enforces this). A code-writing routine's job isn't done when CI passes — it's done when
-the work is *in `main`*. So after opening a PR, watch its checks and **merge it as soon as every
-required check (build + Playtest) is green** — mark it ready for review if it's a draft, then
-squash-merge. Never leave a green PR sitting unmerged. A failing check is the next task: fix and
-re-push, don't merge red.
+(the harness enforces this, opening them as **drafts**). A code-writing routine's job isn't done
+when CI passes — it's done when the work is *in `main`*. There is no bot that merges for you (no
+`auto-merge.yml`; repo-native auto-merge is off), so **you** drive the draft to merged:
+
+1. **Feel done + CI green.** When you believe the change is complete and its checks on the draft are
+   green (build + Playtest), don't stop there.
+2. **Mark it ready for review.** Flip the draft to ready (`update_pull_request` with `draft: false`).
+3. **Watch for additional checks.** Marking ready can queue *new* required checks (or re-run
+   existing ones) that a draft didn't trigger. Wait for those to settle green too — don't merge on
+   the draft-era result alone.
+4. **Merge.** Once every required check is green on the ready PR, squash-merge it.
+
+Never leave a green, ready PR sitting unmerged. A failing check at any step is the next task: fix and
+re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
+couple of honest tries, say so in a PR comment rather than force-merging.
 
 ## Agent roster
 
@@ -207,9 +218,10 @@ Steps:
 10. Commit with a short plain-English message — no Co-Authored-By lines
 11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
     not `main` directly).
-12. Watch the PR's CI. **Once every required check is green (build + Playtest), merge it** — mark it
-    ready for review if it's a draft, then merge (squash). Don't leave a green PR sitting: a fix that
-    passes CI belongs in `main`. If a check fails, that failure is your next task; fix and re-push.
+12. Drive the PR to merged — see "Merge your green PRs" above. In short: when you're done and the
+    draft's checks are green, **mark it ready** (`draft: false`), **wait for any additional checks**
+    that readying triggers to settle green, then **squash-merge**. Don't leave a green PR sitting. A
+    failing check is your next task; fix and re-push, don't merge red.
 ```
 
 ## Cron 2 — Release Manager prompt
@@ -301,8 +313,10 @@ Steps:
 10. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
 11. Commit with a short plain-English message — no Co-Authored-By lines
 12. Push your branch and open a draft PR into `main`.
-13. Watch the PR's CI. **Once every required check is green (build + Playtest), merge it** (mark ready
-    if draft, then squash-merge). Don't leave a green PR sitting. A failed check is your next task.
+13. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
+    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
+    triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failed check is
+    your next task.
 ```
 
 ## Cron 5 — Optimizer prompt
