@@ -298,6 +298,13 @@ pub fn handle_key_down_event(
                             0 => {
                                 state.show_instructions = false;
                                 state.show_how_to_play_text = false;
+                                // Seed a fresh arena run. Without this the crab list stays empty,
+                                // and because `crabs.iter().all(|c| c.caught)` is true for an empty
+                                // list the wave logic immediately advances *past* the opening
+                                // pattern (which spawns crabs around the player at world centre)
+                                // to the next one far across the world — so a run began with no
+                                // catchable crabs anywhere near you. reset_game() spawns pattern 0.
+                                state.reset_game();
                             } // Play
                             1 => {
                                 state.enter_world_map(ctx);

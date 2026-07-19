@@ -45,7 +45,7 @@ run_script() {
 }
 
 run_script groove_dash
-# run_script menu_to_game         # temporarily disabled: crab catching bug blocks this
+run_script menu_to_game
 # run_script campaign_tutorial   # enable once tutorial->world-map bug is fixed
 
 echo ""
