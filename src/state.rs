@@ -752,6 +752,7 @@ pub struct MainState {
     pub(crate) chain_join_ripple: bool, // set true when any crab is caught this frame
     pub(crate) chain_snap_cooldown: f32, // >0 briefly after a tail snaps, so one brush can't strip the whole train
     pub(crate) cached_tail_pos: Option<Vec2>, // position of the highest-chain_index caught crab, refreshed once per frame in update_crabs and reused by steal_chain_thief instead of a second O(n) scan
+    pub(crate) cached_steal_target_pos: Option<Vec2>, // position of the back-half chain link a rival should thread to slice (~2/3 down from head), refreshed once per frame in update_crabs from the same scan the boss uses. Ambient NPC trains route toward this so they deliberately cut the body, not just nip the tail. None on a short chain (< 4 links).
     pub(crate) cached_tail_type: Option<CrabType>, // archetype of that same tail crab, refreshed in the same snapshot pass. Drives the field "CATCH-NEXT" highlight: a free crab of this type would extend the tail_run_len match run, so it's lit as the arrangement-smart grab. Purely legibility.
     // CYCLE PREVIEW: the crab currently at chain_index == 1 — the one that WOULD become the new head
     // if the player cycled (rotation maps ci → (ci + n - 1) % n, so ci=1 lands at the head slot 0).
@@ -1607,6 +1608,7 @@ impl MainState {
             chain_join_ripple: false,
             chain_snap_cooldown: 0.0,
             cached_tail_pos: None,
+            cached_steal_target_pos: None,
             cached_tail_type: None,
             cycle_preview_active: false,
             free_splitter_present: false,
