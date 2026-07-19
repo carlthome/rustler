@@ -11,6 +11,7 @@ mod skins;
 mod sounds;
 mod spawnings;
 mod state;
+mod terrain_fx;
 mod tutorial;
 mod upgrade;
 mod world_map;
