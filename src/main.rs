@@ -5732,6 +5732,8 @@ impl MainState {
         self.chain_count = 0;
         self.total_caught = 0;
         self.crabs_stolen_by_npc = 0;
+        self.crabs_stolen_by_player = 0;
+        self.player_steal_cooldown = 0.0;
         self.tail_run_len = 0;
         self.kelp_snag_warn = 0.0;
         self.beat_timer = BEAT_INTERVAL;
@@ -9557,6 +9559,38 @@ impl MainState {
         self.npc_trains[ni].idle_timer = 0.0;
     }
 
+    /// Bot-test helper (see BotAction::ForcePlayerCross): deterministically stage the player's "steal
+    /// to win" splice. Teleport the player's head onto the nearest rival NPC train's mid-follower and
+    /// clear the steal-back cooldown, so the reciprocal splice in update_npc_trains fires this frame.
+    /// A no-op when there's nothing to steal (no rival with followers, or the player has no train).
+    /// Mirrors force_npc_cross, only pointed the other way — it exercises the real detection +
+    /// split_off + stolen-crab transfer path; only the head's threading (RNG-timed against a wandering
+    /// rival) is shortcut.
+    fn force_player_cross(&mut self) {
+        if self.chain_count < 1 {
+            return;
+        }
+        const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
+        let head = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        // Pick the nearest rival that actually has followers to splice.
+        let ni = (0..self.npc_trains.len())
+            .filter(|&i| !self.npc_trains[i].follower_types.is_empty())
+            .min_by(|&a, &b| {
+                let da = self.npc_trains[a].leader_pos.distance_squared(head);
+                let db = self.npc_trains[b].leader_pos.distance_squared(head);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab.
+        let mid_fi = self.npc_trains[ni].follower_types.len() / 2;
+        if let Some(&fpos) = self.npc_trains[ni].path_history.get((mid_fi + 1) * STEPS) {
+            self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
+            self.player_steal_cooldown = 0.0;
+        }
+    }
+
     /// Fire every bot-script event whose timestamp has arrived, releasing last frame's tap keys
     /// first and auto-dismissing any upgrade overlay after. Shared verbatim by the paused-screen
     /// tick (title / world map / game over) and the in-game tick, so assertions and every action
@@ -9604,6 +9638,9 @@ impl MainState {
                 BotAction::ForceNpcCross => {
                     self.force_npc_cross();
                 }
+                BotAction::ForcePlayerCross => {
+                    self.force_player_cross();
+                }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                 }
@@ -9613,6 +9650,7 @@ impl MainState {
                         BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
                         BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
                         BotAssert::StolenAtLeast(n) => self.crabs_stolen_by_npc >= *n,
+                        BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
@@ -9989,6 +10027,9 @@ impl MainState {
                         self.chain_count += 1;
                     }
                     self.player_steal_cooldown = 2.2;
+                    // Monotonic tally so the bot playtest can assert the steal-back fired without
+                    // racing the live chain count (which banks/snaps drop back to zero).
+                    self.crabs_stolen_by_player += stolen_count;
                     // Reward: stealing feeds the groove (harder on the beat) and banks score.
                     self.score += stolen_count * if on_beat { 3 } else { 2 };
                     self.groove = (self.groove + if on_beat { 0.22 } else { 0.10 }).min(1.0);
@@ -13018,7 +13059,7 @@ fn main() -> GameResult {
     if let Some(ref name) = bot_script {
         use bot::{
             BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
-            script_npc_steal,
+            script_npc_steal, script_player_steal,
         };
         // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
         // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
@@ -13027,13 +13068,14 @@ fn main() -> GameResult {
         // a ~30% on-beat rate); its script leaves a wide time margin so even an unlucky low-rate run
         // banks 3 on-beat catches and returns to the world map before the final assert.
         state.time_scale = match name.as_str() {
-            "menu_to_game" | "campaign_tutorial" | "npc_steal" => 3.0,
+            "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal" => 3.0,
             _ => 8.0,
         };
         state.bot = Some(match name.as_str() {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
             "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
+            "player_steal" => BotState::new(script_player_steal(), 58.0),
             "groove_dash" => BotState::new(script_groove_dash(), 10.0),
             other => {
                 eprintln!("Unknown bot script: {}", other);
