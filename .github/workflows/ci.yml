@@ -15,6 +15,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # lld links noticeably faster than the default bfd linker for this binary's
+    # size, and every incremental rebuild in this job pays that link cost.
+    # ci-deps.sh installs lld alongside the other system libraries.
+    env:
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@v4
 

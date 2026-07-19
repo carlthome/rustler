@@ -22,6 +22,12 @@ jobs:
       # same scripts, just fanned out.
       matrix:
         scenario: [groove_dash, menu_to_game, campaign_tutorial, npc_steal, player_steal]
+    # lld links noticeably faster than the default bfd linker for this binary's
+    # size, and every one of these 5 parallel jobs pays that link cost on its
+    # own incremental rebuild. ci-deps.sh installs lld alongside the other
+    # system libraries.
+    env:
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
     steps:
       - uses: actions/checkout@v4
 

@@ -55,6 +55,7 @@ $SUDO apt-get install -y -qq \
   libxkbcommon-dev libwayland-dev wayland-protocols libvulkan-dev \
   libfreetype-dev libfontconfig1-dev zlib1g-dev \
   libglib2.0-dev libgtk-3-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
-  libgl1-mesa-dev libgl1-mesa-dri xvfb
+  libgl1-mesa-dev libgl1-mesa-dri xvfb \
+  lld
 
 echo "ci-deps: done."
