@@ -3925,24 +3925,33 @@ impl MainState {
         // Magnet cluster detection: on-beat only (rhythmic flash), check each free Magnet
         // for ≥3 nearby free crabs — the "pied-piper vacuum" tell. Fires on the beat so it
         // pulses with the music rather than strobing every frame.
+        // Single pass over crabs tallying into a per-magnet counter, instead of the old
+        // one-full-crab-scan-per-magnet (O(magnets * crabs) with magnets separate closures
+        // re-walking the whole herd each time) — same per-magnet-independent counting
+        // semantics (a crab in range of two overlapping magnet fields still counts for both),
+        // just one cache-friendly walk of self.crabs instead of magnet_positions.len() of them.
         let cluster_on_beat =
             self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
-        if cluster_on_beat {
-            for &mp in &magnet_positions {
-                let nearby = self
-                    .crabs
-                    .iter()
-                    .filter(|c| {
-                        !c.caught
-                            && !c.is_magnet()
-                            && !c.is_boss()
-                            && c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ
-                    })
-                    .count();
-                if nearby >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
+        if cluster_on_beat && !magnet_positions.is_empty() {
+            let mut cluster_counts = std::mem::take(&mut self.magnet_cluster_counts_buf);
+            cluster_counts.clear();
+            cluster_counts.resize(magnet_positions.len(), 0);
+            for c in &self.crabs {
+                if c.caught || c.is_magnet() || c.is_boss() {
+                    continue;
+                }
+                for (mi, &mp) in magnet_positions.iter().enumerate() {
+                    if c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ {
+                        cluster_counts[mi] += 1;
+                    }
+                }
+            }
+            for (mi, &mp) in magnet_positions.iter().enumerate() {
+                if cluster_counts[mi] >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
                     self.magnet_cluster_hits_buf.push(mp);
                 }
             }
+            self.magnet_cluster_counts_buf = cluster_counts;
         }
 
         // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
