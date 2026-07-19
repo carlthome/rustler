@@ -287,11 +287,18 @@ Steps:
    d. This only works headless if the GPU driver supports offscreen rendering — if capture
       fails for any reason, skip it and just post text. Never let a failed screenshot block
       the update. Do NOT take a screenshot of the desktop — only capture the game window.
-4. Post to #general via the Slack MCP tool (slack_send_message). If step 3 produced a fresh
-   screenshot, include its raw GitHub URL on its own line so Slack unfurls it inline:
-     https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
+4. Post to #general via the Slack MCP tool (slack_send_message):
+   - Use channel_id: C01D4D2CN9H (the #general channel)
+   - Compose a 2-4 sentence summary of the changes (see step 2) in an upbeat, friendly tone
+   - If step 3 produced a fresh screenshot, include its raw GitHub URL on its own line so 
+     Slack unfurls it inline: https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
+   - **CRITICAL:** Do not skip or claim to have posted without making the actual tool call. 
+     Wait for the tool result confirming the message_link before proceeding.
+   - If the Slack connection fails, try once more. If it fails again, note the failure in 
+     your output — do not proceed as if the post succeeded.
 5. This post is the thing the Game Designer agent (cron 6) reads reactions and replies from —
-   it's the actual feedback channel to Carl, not just a status update.
+   it's the actual feedback channel to Carl, not just a status update. A failed post means 
+   Carl gets no visibility into progress that run.
 ```
 
 ## Cron 4 — Build Engineer prompt
