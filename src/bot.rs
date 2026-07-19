@@ -16,6 +16,12 @@ pub enum BotAction {
     // catch) without depending on where the RNG happened to scatter the handful of early crabs.
     // `true` turns it on, `false` off.
     SeekCatch(bool),
+    // Deterministically exercise the reverse-Snake steal path: teleport the nearest rival NPC King
+    // Crab train's leader onto a mid-chain link of the player's conga line and clear its steal
+    // cooldown, so the splice-steal fires this frame if a stealable chain exists. A no-op when the
+    // player has no chain (chain_count < 2). Fired repeatedly across a window so at least one attempt
+    // lands while a chain is present — the steal AI's natural pursuit is too RNG-dependent to time.
+    ForceNpcCross,
 }
 
 #[derive(Clone, Debug)]
@@ -27,6 +33,9 @@ pub enum BotAssert {
     /// snaps, or is scattered, so a ChainAtLeast(1) check can race a reset and flake even though the
     /// bot caught plenty. total_caught never drops, so the assert is stable.
     CaughtAtLeast(usize),
+    /// Monotonic count of crabs a rival NPC train has spliced away this run (see
+    /// MainState::crabs_stolen_by_npc). Asserts the reverse-Snake steal path actually fired.
+    StolenAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -120,6 +129,39 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
         BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
         BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
     ]
+}
+
+pub fn script_npc_steal() -> Vec<BotEvent> {
+    // Guards the reverse-Snake train-vs-train steal — the core conga-ecology mechanic (see ROADMAP.md
+    // headline and INSPIRATION.md "The core steal mechanic"). The steal path (rival NPC King Crab
+    // train crosses the player's chain -> back section detaches -> snaps onto the rival) is live in
+    // update_npc_trains but had no coverage, so a refactor could silently break it. This test builds a
+    // real player chain with the seek-catch autopilot, then repeatedly forces the nearest rival to
+    // thread through it (ForceNpcCross) and asserts a splice actually fired (crabs_stolen_by_npc rises)
+    // without crashing the run. Forcing keeps it deterministic — the rival's natural pursuit is too
+    // RNG-dependent to land inside a headless time budget. Runs at 3x time_scale like menu_to_game so
+    // the proximity catch fires often enough for the autopilot to grow a chain.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting NPC steal test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        // Let the autopilot build a chain first. Catching is genuinely slow/RNG (the whistle
+        // recharges every 4.5s and the world is 2x the viewport), so give it the same generous
+        // window menu_to_game proves reliable before asserting a catch has landed.
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Force a crossing every 0.9s across a wide window. Each attempt is a no-op unless a stealable
+    // chain (>= 2 links) exists that frame, so firing many times across ~30s makes it near-certain at
+    // least one lands on a chain moment — the seek-catch chain grows and resets as it banks/snaps.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenAtLeast(1)) });
+    script
 }
 
 pub fn script_groove_dash() -> Vec<BotEvent> {
