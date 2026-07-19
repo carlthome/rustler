@@ -1,14 +1,17 @@
 # Changelog
 
-## v0.18.0 — 2026-07-19
+## v0.18.0 — 2026-07-20
 
 ### Features
+- Rival NPC trains deliberately route to thread the back half of your chain
+- Make defending a rival steal a real on-beat play
 - Add distinct steal stings to the core steal moment
 
 ### Performance
 - Trim ci-deps.sh apt install to packages Cargo.lock actually links
 
 ### Fixes
+- Fix apt cache never saving in CI
 - Fix git tag generation with `--notes-from-tag` and `--generate-notes`
 
 ### Refactoring
