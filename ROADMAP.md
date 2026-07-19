@@ -54,24 +54,25 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 (scout/wanderer/elder — size, speed, territory, idle pauses, d046ae7) so a small train reads differently from a huge
 one at a glance. **The read-check is now cleared:** the rumble pans left/right by the leader's bearing (#25) and each
 rival wears a distinct, tier-styled name banner you can read across the field (#26) — so the ambient train reads *and*
-sounds like a rival from a distance. Still visual-only — it doesn't yet steal or react. A first slice of meta-progression +
-campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
+sounds like a rival from a distance. **And this cycle the steal itself landed:** rivals now thread your line and splice off
+your back section (#32), the snap is telegraphed and lands on the beat (#34), and both directions are guarded by playtests
+(`npc_steal` #28, `player_steal` #33) — the core train-vs-train verb the whole prototype was scaffolding toward is *in*. A
+first slice of meta-progression + campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit
+"core feels done" call, which hasn't come.
 
 **Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
 weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
-request, not a roadmap item. **But the pipeline broke its stall and this is the biggest cycle in weeks.** The
-four-cycle top bug is *fixed*: `menu_to_game` — the core crab-catching verb — was re-enabled with a closed-loop
-autopilot (#20), and `campaign_tutorial` was fixed and re-enabled too (#24). Both disabled tests are green;
-scripts/playtest.sh lines 47–49 are all live `run_script` calls again. **The Bugs section is now empty for the first
-time in a month.** On top of that, both remaining ecology read-check tasks landed: the ambient rumble now
-**pans by the leader's bearing** (#25, porting the boss's pan-by-angle + rolloff 2101cef) and each rival wears a
-**distinct tier-styled name banner** (#26). Add the fleet-safety CI hardening (#27, concurrency + merge-freshness),
-and the groove bed, flashlight-targets-leader, and Control title cards that already stood.
-**This clears the gate the whole roadmap has been sequenced around.** Per the plan, "passing this read-check unblocks
-the steal rule" — so the **core steal rule (train-vs-train splice)** is promoted into Now this cycle as the new
-headline. Mechanics-freeze is **lifted** (2026-07-16), and the steal rule isn't a bolt-on verb — it's the destination
-the prototype has been scaffolding toward. One caveat: nobody has *watched* the tiers/pan/banner read in motion yet,
-so the steal-rule item carries a quick "confirm it reads while moving" pre-flight before the splice work begins.
+request, not a roadmap item. (Note: the latest Dev Diary still describes the crab-catch bug as "a snag we're working
+through" — that's stale auto-generated text; git shows it fixed weeks ago and Playtest CI is green on main.)
+**The headline shipped.** Last cycle promoted the core steal rule into Now once the read-check gate passed; this
+cycle it *landed* — advancing on git evidence, not waiting for Carl to confirm work the plan already called for.
+Rivals now thread your conga line and splice off the back section as stolen crabs (#32), the snap is telegraphed and
+resolves **on the beat** (#34), and both directions are locked behind playtests (`npc_steal` #28, `player_steal` #33,
+both live and green). That's the reverse-Snake crossing rule from INSPIRATION.md, in the prototype. Alongside it: the
+conga risk/reward mechanics were split into `chain_mechanics.rs` and the King Crab audio into `king_crab_audio.rs`
+(structural, no behaviour change), and CI got leaner (apt caching #48, parallel playtest matrix #30).
+**With the steal verb in, the next frontier is making it a *fun fight* — reactive rivals and a contest you can win by
+skill — before the BYO-music mashup (the other half of the thesis) gets wired.** That's the new headline in Now.
 
 ## Bugs (fix before anything else in Now)
 
@@ -101,24 +102,24 @@ item in "Now" below.
   of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
   beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
-- **[★ HEADLINE — CORE GAME, the gate is cleared] Train-vs-train stealing via the reverse-Snake crossing rule.**
-  Per the roadmap's own sequencing, passing the ambient-train read-check unblocks the steal rule — and this cycle it
-  passed: the rival train now reads *and* sounds like a rival from across the field (tiers d046ae7, directional pan #25,
-  name banner #26, flashlight-targets-leader 28452dc all shipped). This is the moment the whole prototype has been
-  scaffolding toward (see thesis at top + INSPIRATION.md "The core steal mechanic"). It **beats the polish items below** —
-  build the **first slice of the splice**, one clean rule, incrementally:
-  1. **Pre-flight (do this first, it's cheap):** run the game and confirm the tiers, rumble pan, and name banner
-     actually read while everything is *moving* — not just parked. If any of the three doesn't read in motion, that's a
-     quick fix and it comes before the splice work. Nobody has watched it live yet.
-  2. **The rule (INSPIRATION.md):** your own conga line may cross itself freely, but when a *rival* King Crab train
-     crosses your line it **splices at the crossing point** — the back section detaches and magnetically snaps onto the
-     rival's train as stolen crabs. Start with the detection + detachment against the existing ambient train; the rival
-     doesn't need clever routing yet, just the crossing → splice → snap.
-  3. **Make it read and make it rhythmic:** the splice must be *legible* (you see which crabs were taken and by whom —
-     reuse the AT RISK / chain-heat language) and *beat-flavored* (the snap lands on the beat, an on-beat defensive
-     reroute or tool hit can contest it). Losing crabs should feel earned, never random (INSPIRATION.md "Legible risk").
-  Keep it a small, safe, well-playtested first slice — detection + one-directional steal (rival takes from you) before
-  the player can steal back. Extend the `menu_to_game`/bot coverage so the new steal path can't silently regress.
+- **[★ HEADLINE — CORE GAME] Turn the steal from a rule into a *fight you win by skill*.** The splice verb landed this
+  cycle (#32/#34, both directions, playtested) — one clean crossing rule, telegraphed and beat-snapped. Now make it the
+  interesting moment INSPIRATION.md promises ("Steal to win… snatching one from a rival train"), still one small slice at a
+  time, still ruthlessly playtested — depth on the verb we have, not a new verb:
+  1. **Rivals that route to steal, not just wander.** Right now the ambient King Crab train roams; the steal only fires
+     when a crossing happens to occur. Give a nearby rival a *deliberate* intent to thread the back half of a long/loose
+     player train — so a lazy spiral genuinely gets sliced and tight routing genuinely defends (INSPIRATION.md: "Rivals
+     route deliberately," "a lazy spiral is easy to slice"). Keep it a simple per-creature urge à la Rain World, not a
+     path-planner.
+  2. **Make the defense a real on-beat play.** The telegraph exists (#34) — now make contesting it *skill*: an on-beat
+     defensive reroute or a tool hit on the telegraphed crossing should cancel or reduce the steal, so losing crabs is
+     always the player's read to make (INSPIRATION.md "Legible risk," "keys as drum pads"). The downbeat version should
+     feel like the big save.
+  3. **Tune so it's fun, not punishing.** Cooldowns, how much of the tail a splice takes, recovery windows — the loop
+     should feel like a tense back-and-forth (you steal, they steal back), not a random tax. Extend the `npc_steal` /
+     `player_steal` bot coverage as you tune so the balance can't silently regress.
+  This beats the polish lanes below. Keep each step small, safe, and green — overnight nobody's watching, so lean on the
+  playtests and prefer the smaller reversible change.
 
 - **Sharpen archetype-tool matchups into a readable soft RPS system.** *(Polish lane — do the steal slice above first.)*
   *Momentum is real:* six pairs
@@ -217,10 +218,11 @@ item in "Now" below.
   leaders. The player starts smallest and must **out-arrange, not just out-catch** — a well-arranged short
   train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs — **✅ ambient slice shipped
   (6a17026), legible in tiers (d046ae7), and read-check cleared — pan (#25) + banner (#26) landed**; (2) train-vs-train
-  stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ promoted to Now this cycle; the read-check gate is
-  passed, first splice slice is the headline task**; (3) ecology from simple per-creature rules à la Rain World (see
-  INSPIRATION.md); (4) human-vs-human Rustlers competing for the largest, best-arranged train.
-  The scrolling-world gate and the ambient-train read-check have both landed; step (2) is now active work in Now.
+  stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ first splice slice SHIPPED (#32/#34, both directions,
+  playtested); deepening it into a skill-based fight is now the Now headline**; (3) ecology from simple per-creature rules
+  à la Rain World — **now starting: the "rivals route deliberately to steal" step (Now, item 1) is the first Rain-World
+  urge**; (4) human-vs-human Rustlers competing for the largest, best-arranged train.
+  Steps (1) and (2) have landed; deepening (2) into a fun fight and beginning (3) is the active work in Now.
 
 - **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
   the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
