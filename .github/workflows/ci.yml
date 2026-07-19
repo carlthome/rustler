@@ -12,16 +12,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      # Incremental cargo cache keyed on the lockfile — subsequent runs only
+      # recompile what changed instead of the whole dependency tree.
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-      # Transparent Nix store cache — first hit re-uses all unchanged store paths,
-      # subsequent runs only rebuild what changed (deps, game source, shaders).
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      # System libraries from default.nix via apt + a headless audio device, so
+      # this gate runs on plain cargo (no Nix). The heavy `nix build` package
+      # verification moved to nix.yml, which runs post-merge on main only.
+      - name: Install system dependencies
+        run: bash scripts/ci-deps.sh
 
       - name: Build
-        run: nix build .#packages.x86_64-linux.default
+        run: cargo build
 
-      # Unit tests run headlessly (no GPU/window needed) — they verify mechanic predicates
-      # like Tutorial::passed() so a broken mechanic fails CI, not just a failed build.
+      # Headless unit tests — they verify mechanic predicates like
+      # Tutorial::passed() so a broken mechanic fails CI, not just a failed build.
       - name: Test
-        run: nix develop . --command cargo test
+        run: cargo test
