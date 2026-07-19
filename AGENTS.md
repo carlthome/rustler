@@ -4,7 +4,7 @@ Rust game (ggez 0.9.3), reverse Vampire Survivors: player builds a conga train o
 
 **INSPIRATION.md** — read before making design decisions. Captures Carl's stated influences and design principles. Game Director and Feature Developer agents treat it as the design compass.
 
-**ROADMAP.md** — maintained by the Game Director agent (Cron 6). Feature Developer and Overnight Developer read it for direction; they don't edit it.
+**ROADMAP.md** — maintained by the Game Director agent (Cron 6). The Feature Developer reads it for direction; it doesn't edit it.
 
 ## Build
 
@@ -29,7 +29,7 @@ environment.
 The bot playtests (`scripts/playtest.sh`) are how we know the game still *works*, not
 just that it compiles. The **Playtest** GitHub Actions workflow now runs them on every
 push and PR to `main`, and it is green — keeping it green is a hard rule for every
-code-writing agent (Feature Developer, Overnight Dev, Optimizer, Architect, Issue Agent):
+code-writing agent (Feature Developer, Optimizer, CI Optimizer, Architect, Issue Agent):
 
 - **Run playtests before you push, every time.** `cargo build && bash scripts/playtest.sh`
   must pass locally before you commit. A change that builds but fails a playtest is a broken
@@ -72,6 +72,7 @@ sharing and why, and look for opportunities to reuse or consolidate rather than 
 
 - `ROADMAP.md` — owned by Game Director (cron 6) only.
 - The Optimizer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
+- The CI Optimizer (cron 4) owns the CI surface — `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh` provisioning, and `[profile.*]` in `Cargo.toml`. It stays out of game source; the game agents stay out of the CI surface. This keeps the two optimizers from colliding.
 - Issue Agent PRs each live on their own branch — they never share a working directory with
   each other or with the local crons. If two issue PRs touch the same file, the second to
   merge will need a rebase; GitHub will flag the conflict.
@@ -122,11 +123,19 @@ sandbox — the `SessionStart` hook provisions dependencies (see **Build** above
 **Code-writing routines (cargo build + playtest in the sandbox):**
 
 ```text
-1. Feature Developer — hourly          — opus   ← main gameplay driver
-4. Overnight Dev     — daily at 00:03  — sonnet ← conservative overnight work
-5. Optimizer         — every 2 hours   — sonnet ← perf fixes
+1. Feature Developer — hourly, 24/7    — opus   ← main gameplay driver (also covers overnight)
+4. CI Optimizer      — every 6 hours   — sonnet ← keeps CI lean & fast (build/test speed)
+5. Optimizer         — every 2 hours   — sonnet ← game runtime perf fixes (FPS / frame time)
 7. Architect         — every 3 hours   — sonnet ← file splits
 ```
+
+Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the *game at runtime*
+(FPS, frame hitches) while 4 optimizes the *pipeline* (CI wall-clock, build/test speed). Keep them
+distinct — 4 never touches game logic for framerate, 5 never edits CI config.
+
+The old **Overnight Dev** (cron 4) is retired: the Feature Developer now runs hourly around the
+clock and covers that window itself. (Its old caution — nobody's watching overnight — is folded into
+the Feature Developer prompt.)
 
 > Cadence note: remote routines fire at most hourly, so the old sub-hourly
 > cadences (Feature Dev every 12 min, Optimizer every 30 min) were raised to the
@@ -160,8 +169,8 @@ concurrent commits to main.
 
 ## How the agents work together
 
-1. **Feature Developer** (cron 1) and **Overnight Developer** (cron 4) write game code, checking ROADMAP.md first.
-2. **Optimizer** (cron 5) keeps it smooth — makes whatever landed cheap to run. Never touches ROADMAP.md.
+1. **Feature Developer** (cron 1) writes game code, checking ROADMAP.md first. It runs hourly around the clock (it absorbed the retired Overnight Dev's window).
+2. **Optimizer** (cron 5) keeps the *game* smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **CI Optimizer** (cron 4) is its sibling: it keeps the *pipeline* fast — trims CI wall-clock and build/test time. Never touches game logic.
 3. **Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
 4. **Release Manager** (cron 2) tags a release once ≥5 non-chore commits have landed.
 5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a screenshot — the feedback channel Carl actually sees.
@@ -175,6 +184,11 @@ If editing a cron's prompt, check whether another cron reads its output before a
 You are a game developer working on "Crab Rustler".
 — a Rust game (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga
 train of caught crabs. Goal: make it more fun and visually impressive.
+
+You run hourly, around the clock — you also cover the overnight window (the old Overnight Dev is
+retired). Overnight nobody's watching to catch a bad merge until morning, so when you're uncertain,
+prefer the smaller, safer, easily-reverted change over the ambitious one, and lean hardest on the
+playtests before merging. Never merge red.
 
 Steps:
 1. Read git log: `git -C . log --oneline -8`
@@ -276,47 +290,53 @@ Steps:
    it's the actual feedback channel to Carl, not just a status update.
 ```
 
-## Cron 4 — Overnight Developer prompt
+## Cron 4 — CI Optimizer prompt
 
 ```text
-You are a game developer working on "Crab Rustler".
-— a Rust game (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga
-train of caught crabs. Goal: make it more fun and visually impressive.
+You are the CI Optimizer for "Crab Rustler" — a Rust game (ggez 0.9.3). You are the sibling of the
+game-performance Optimizer (cron 5): it keeps the *game* fast at runtime; you keep the *pipeline*
+fast. Your one job is to make CI (the GitHub Actions workflows: build, Playtest, claude-review) as
+lean and fast as possible — shorter wall-clock, less wasted work — WITHOUT ever weakening what CI
+actually verifies. You do not write game code or change game behaviour.
 
-Be MORE conservative than cron 1: nobody's around to catch a bad build until morning,
-so prefer smaller, safer, easily-reverted improvements over ambitious ones.
+HARD RULE — speed never comes from less coverage. Never delete, skip, `|| true`, or shorten a test,
+a playtest scenario, or a required check to make CI faster. That is the exact failure the Playtest
+rule (see AGENTS.md) exists to prevent. Your speed wins come from caching, dedup, parallelism, and
+cheaper equivalent work — never from checking less.
 
 Steps:
 1. `git -C . pull --ff-only`
-2. Run the bot playtests FIRST — they are your regression check before touching anything:
-   `cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
-   If any test FAILs, that bug is your task this run — fix it before anything else.
-   **Disabled tests are also your bug.** If `scripts/playtest.sh` has any `run_script` line
-   commented out, treat that as a FAIL. Debug path (the catching regression is safe, focused
-   work — not the "risky overnight work" to avoid):
-   a. Read `src/bot.rs` to understand what the disabled test asserts.
-   b. Re-enable the `run_script` line and run to see the live failure: `bash scripts/playtest.sh 2>&1`
-   c. Inspect what changed at the disabling commit: `git show <commit> -- src/main.rs src/state.rs`
-   d. Fix the root cause; run until it passes; commit with the line re-enabled.
-   Never comment out a test — fix the underlying issue instead.
-3. Read git log: `git -C . log --oneline -8`
-4. Skim the tops of src/main.rs and src/graphics.rs to understand current state
-5. Read INSPIRATION.md (short file) — the design compass. Apply its test before picking a task:
-   does this deepen the groove? Does hitting it on the beat feel like a drum hit?
-6. Read ROADMAP.md — fix Bugs section first if present. Otherwise pick the most impactful
-   buildable item from the "Now" section only (not "Later" or "Also on our mind").
-   Fall back to: (a) game feel/juice + beat depth, (b) archetype/tool legibility,
-   (c) new mechanics, (d) difficulty balance
-7. Implement it. Spawn two parallel subagents if touching both graphics.rs and main.rs/etc.
-8. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
-9. Fix any build errors and rebuild until clean
-10. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-11. Commit with a short plain-English message — no Co-Authored-By lines
-12. Push your branch and open a draft PR into `main`.
-13. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
-    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
-    triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failed check is
-    your next task.
+2. Read git log: `git -C . log --oneline -15`
+3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
+   `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
+   job is the long pole, which steps dominate, what re-runs from scratch that could be cached.
+4. Read the CI surface: `.github/workflows/*.yml` (ci.yml, playtest.yml, claude-code-review.yml,
+   copilot-setup-steps.yml, release.yml), `scripts/ci-deps.sh`, `scripts/playtest.sh`, and the
+   `[profile.*]` sections of `Cargo.toml`.
+5. Pick the SINGLE biggest lever and apply it. Typical wins, roughly in order:
+   - **Cargo/target caching** across runs (e.g. Swatinem/rust-cache) so the long `build` job goes
+     incremental instead of rebuilding every dependency from cold.
+   - **Concurrency groups** that cancel superseded runs on a new push, so stale builds don't hog runners.
+   - **Dedup**: the same crate compiled by multiple jobs, or the same check run twice across workflows —
+     share an artifact or drop the duplicate (never the coverage).
+   - **Provisioning slimming**: `scripts/ci-deps.sh` installing more apt packages than the build needs.
+   - **Cheaper-equivalent build settings** for CI (e.g. thin/`debug=0` debuginfo, `CARGO_INCREMENTAL`,
+     fewer codegen units) that cut compile time without changing what runs.
+   - **Parallelism / fail-fast** so independent jobs overlap and a red job stops the wasteful rest.
+6. Implement it. Prove it locally where you can: `bash scripts/ci-deps.sh` then
+   `cargo build 2>&1 | grep -E "^error|Finished"` and `bash scripts/playtest.sh` must still pass —
+   a faster CI that stops catching bugs is a regression, not a win.
+7. Commit with a short plain-English message — no Co-Authored-By lines.
+8. Push your branch and open a draft PR into `main`.
+9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
+   are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
+   triggers to go green, then **squash-merge**. The PR's own CI run is your before/after benchmark:
+   confirm it's genuinely faster AND still green before merging. Don't leave a green PR sitting; a
+   failed check is your next task.
+
+If nothing obvious stands out this run, add lightweight timing visibility (e.g. per-step timing in a
+job summary) so future runs have real data instead of guesses — same spirit as the perf Optimizer's
+frame-time instrumentation.
 ```
 
 ## Cron 5 — Optimizer prompt
@@ -339,8 +359,14 @@ Steps:
 4. Pick the single biggest win and fix it WITHOUT removing or visibly degrading the feature.
 5. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix any build errors and rebuild until clean
-7. Commit with a short plain-English message — no Co-Authored-By lines
-8. `git -C . pull --ff-only --rebase` then push
+7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
+8. Commit with a short plain-English message — no Co-Authored-By lines
+9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
+   latest `main` first).
+10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
+    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
+    triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failed check is
+    your next task.
 
 If nothing obvious stands out, add lightweight FPS/frame-time instrumentation (print average
 frame time every few seconds in debug builds) so future runs have real data to act on.
@@ -408,8 +434,14 @@ Steps:
    Never extract a trivial 50-line helper.
 5. Implement it. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix errors, rebuild until clean
-7. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
-8. `git -C . pull --ff-only --rebase` then push
+7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
+8. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
+9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
+   latest `main` first).
+10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
+    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
+    triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failed check is
+    your next task.
 ```
 
 ## Cron 8 — Supervisor prompt
