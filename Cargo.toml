@@ -18,3 +18,11 @@ resources = ["resources"]
 
 [patch.crates-io]
 winit = { path = "vendor/winit-0.28.7" }
+
+# CI builds and runs cargo build/test/playtest on the dev profile every push.
+# Debug info isn't used by the bot playtests or `cargo test` assertions, only
+# by interactive debuggers, so dropping it cuts compile+link time and shrinks
+# the cached `target/` dir without changing what's verified. `profile.test`
+# inherits unset fields from `profile.dev`, so this covers `cargo test` too.
+[profile.dev]
+debug = 0
