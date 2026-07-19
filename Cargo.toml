@@ -18,3 +18,10 @@ resources = ["resources"]
 
 [patch.crates-io]
 winit = { path = "vendor/winit-0.28.7" }
+
+# CI/local dev builds don't need debug symbols (no debugger attached in CI, and
+# playtests/tests only check exit codes and stdout). Skipping debuginfo cuts
+# build+link time substantially (~40% on an incremental rebuild with a real
+# feature-sized diff) since dev and test both use this profile by default.
+[profile.dev]
+debug = 0
