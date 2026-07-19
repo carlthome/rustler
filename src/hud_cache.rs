@@ -13,8 +13,9 @@ thread_local! {
 
     pub static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
 
+    #[allow(clippy::type_complexity)]
     #[cfg(debug_assertions)]
-    pub static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, Text, f32)>> = RefCell::new(None);
+    pub static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, i32, i32, Text, f32)>> = RefCell::new(None);
 
     pub static DEBUG_TEXT_CACHE: RefCell<Option<(&'static str, i32, Text)>> = RefCell::new(None);
 

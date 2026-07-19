@@ -6064,25 +6064,31 @@ impl MainState {
             // when the printed numbers would actually change, not every frame.
             let avg_key = (self.perf_last_avg_ms * 100.0).round() as i32;
             let worst_key = (self.perf_last_worst_ms * 100.0).round() as i32;
+            let update_key = (self.perf_last_update_ms * 100.0).round() as i32;
+            let draw_key = (self.perf_last_draw_ms * 100.0).round() as i32;
             let crab_key = self.crabs.len() as i32;
             let needs_rebuild = match &*cache {
-                Some((a, w, c, _, _)) => *a != avg_key || *w != worst_key || *c != crab_key,
+                Some((a, w, u, d, c, _, _)) => {
+                    *a != avg_key || *w != worst_key || *u != update_key || *d != draw_key || *c != crab_key
+                }
                 None => true,
             };
             if needs_rebuild {
                 let msg = format!(
-                    "avg {:.2}ms ({:.0} fps)  worst {:.2}ms  {} crabs ({} chained)",
+                    "avg {:.2}ms ({:.0} fps, sim {:.2}ms + render {:.2}ms)  worst {:.2}ms  {} crabs ({} chained)",
                     self.perf_last_avg_ms,
                     self.perf_last_fps,
+                    self.perf_last_update_ms,
+                    self.perf_last_draw_ms,
                     self.perf_last_worst_ms,
                     self.crabs.len(),
                     self.chain_count,
                 );
                 let text = Text::new(msg);
                 let width = text.measure(ctx).map(|m| m.x).unwrap_or(0.0);
-                *cache = Some((avg_key, worst_key, crab_key, text, width));
+                *cache = Some((avg_key, worst_key, update_key, draw_key, crab_key, text, width));
             }
-            let (_, _, _, text, width) = cache.as_ref().unwrap();
+            let (_, _, _, _, _, text, width) = cache.as_ref().unwrap();
             canvas.draw(
                 text,
                 DrawParam::default()
@@ -8306,8 +8312,10 @@ impl MainState {
     }
 }
 
-impl EventHandler for MainState {
-    fn update(&mut self, ctx: &mut Context) -> GameResult {
+/// Split out of the `EventHandler` trait impl below so `update`/`draw` can wrap these with
+/// Instant-based wall-clock timers (debug builds only) without fighting the borrow checker.
+impl MainState {
+    fn update_inner(&mut self, ctx: &mut Context) -> GameResult {
         if !self.fullscreen_applied {
             // current_monitor() can still be None on the very first tick, so keep retrying
             // until it resolves instead of only trying once.
@@ -8380,6 +8388,17 @@ impl EventHandler for MainState {
             if self.perf_time_accum >= 2.0 {
                 let avg_ms = (self.perf_time_accum / self.perf_frame_count as f32) * 1000.0;
                 let worst_ms = self.perf_worst_frame * 1000.0;
+                // Wall-clock split between our own simulation and render compute (see the
+                // `update`/`draw` trait methods, which Instant-time their `_inner` calls into
+                // perf_update_wall_accum/perf_draw_wall_accum), vs. avg_ms above which is ggez's
+                // inter-frame delta and also bakes in vsync/present wait and OS scheduling. The
+                // gap between avg_ms and (update_ms + draw_ms) is that non-compute overhead —
+                // tells an optimizer pass whether a slow frame is actually our code or the
+                // driver/compositor. draw_wall_accum lags update_wall_accum by one frame's worth
+                // (draw() for the frame that just tripped this print hasn't run yet); negligible
+                // over a 2s/~50-frame window.
+                let update_ms = (self.perf_update_wall_accum / self.perf_frame_count as f32) * 1000.0;
+                let draw_ms = (self.perf_draw_wall_accum / self.perf_frame_count as f32) * 1000.0;
                 // Crab count alongside the timing so a future optimizer pass can correlate a
                 // frame-time regression with herd/train size instead of guessing — cheap: reuses
                 // self.crabs.len() and self.chain_count, no extra scan. NPC follower total added
@@ -8387,11 +8406,13 @@ impl EventHandler for MainState {
                 let npc_followers: usize =
                     self.npc_trains.iter().map(|n| n.follower_types.len()).sum();
                 println!(
-                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained, {} npc followers)",
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps, sim {:.2}ms + render {:.2}ms), worst {:.2}ms — {} crabs ({} chained, {} npc followers)",
                     self.perf_frame_count,
                     self.perf_time_accum,
                     avg_ms,
                     1000.0 / avg_ms,
+                    update_ms,
+                    draw_ms,
                     worst_ms,
                     self.crabs.len(),
                     self.chain_count,
@@ -8402,9 +8423,13 @@ impl EventHandler for MainState {
                 self.perf_last_avg_ms = avg_ms;
                 self.perf_last_worst_ms = worst_ms;
                 self.perf_last_fps = 1000.0 / avg_ms;
+                self.perf_last_update_ms = update_ms;
+                self.perf_last_draw_ms = draw_ms;
                 self.perf_frame_count = 0;
                 self.perf_time_accum = 0.0;
                 self.perf_worst_frame = 0.0;
+                self.perf_update_wall_accum = 0.0;
+                self.perf_draw_wall_accum = 0.0;
             }
         }
 
@@ -10625,8 +10650,9 @@ impl EventHandler for MainState {
         self.camera_origin = self.compute_camera_origin();
         Ok(())
     }
-
-    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+    /// The actual per-frame render pass. Split out from the `draw` trait method so that
+    /// method can wrap it with an Instant-based wall-clock measurement (debug builds only).
+    fn draw_inner(&mut self, ctx: &mut Context) -> GameResult {
         // Bot mode: skip all rendering to run at maximum speed.
         if self.bot.is_some() {
             let mut canvas = Canvas::from_frame(ctx, ggez::graphics::Color::BLACK);
@@ -10672,6 +10698,30 @@ impl EventHandler for MainState {
         }
 
         Ok(())
+    }
+}
+
+impl EventHandler for MainState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
+        #[cfg(debug_assertions)]
+        let update_start = std::time::Instant::now();
+        let result = self.update_inner(ctx);
+        #[cfg(debug_assertions)]
+        {
+            self.perf_update_wall_accum += update_start.elapsed().as_secs_f32();
+        }
+        result
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        #[cfg(debug_assertions)]
+        let draw_start = std::time::Instant::now();
+        let result = self.draw_inner(ctx);
+        #[cfg(debug_assertions)]
+        {
+            self.perf_draw_wall_accum += draw_start.elapsed().as_secs_f32();
+        }
+        result
     }
 
     fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, _repeat: bool) -> GameResult {
@@ -10825,6 +10875,7 @@ impl EventHandler for MainState {
         Ok(())
     }
 }
+
 
 fn main() -> GameResult {
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {

@@ -1105,6 +1105,18 @@ pub struct MainState {
     pub(crate) perf_last_worst_ms: f32,
     #[cfg(debug_assertions)]
     pub(crate) perf_last_fps: f32,
+    // Wall-clock time actually spent inside update_inner()/draw_inner() this window (seconds),
+    // separate from perf_time_accum's dt sum above (which is ggez's inter-frame delta and
+    // includes vsync/present wait, not just our own compute). Split lets an optimizer pass see
+    // whether a slow frame is simulation cost, render cost, or just OS/driver scheduling.
+    #[cfg(debug_assertions)]
+    pub(crate) perf_update_wall_accum: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_draw_wall_accum: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_last_update_ms: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_last_draw_ms: f32,
 
     // Bot playtest harness: scripted inputs + time acceleration.
     pub(crate) bot: Option<BotState>,
@@ -1723,6 +1735,14 @@ impl MainState {
             perf_last_worst_ms: 0.0,
             #[cfg(debug_assertions)]
             perf_last_fps: 0.0,
+            #[cfg(debug_assertions)]
+            perf_update_wall_accum: 0.0,
+            #[cfg(debug_assertions)]
+            perf_draw_wall_accum: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_update_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_draw_ms: 0.0,
             bot: None,
             time_scale: 1.0,
         })
