@@ -287,8 +287,8 @@ Steps:
    d. This only works headless if the GPU driver supports offscreen rendering — if capture
       fails for any reason, skip it and just post text. Never let a failed screenshot block
       the update. Do NOT take a screenshot of the desktop — only capture the game window.
-4. Post to #general via the Slack MCP tool (slack_send_message):
-   - Use channel_id: C01D4D2CN9H (the #general channel)
+4. Post to the Crab Rustler updates channel via the Slack MCP tool (slack_send_message):
+   - channel_id: C05MAD5MA4F (Crab Rustler updates, workspace T05N3J5F70R)
    - Compose a 2-4 sentence summary of the changes (see step 2) in an upbeat, friendly tone
    - If step 3 produced a fresh screenshot, include its raw GitHub URL on its own line so 
      Slack unfurls it inline: https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
