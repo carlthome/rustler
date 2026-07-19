@@ -357,7 +357,14 @@ impl MainState {
                             self.npc_trains[i].steal_target.min(splice_idx);
                     }
                     self.npc_trains[i].steal_threat -= dt;
-                    let splice_idx = self.npc_trains[i].steal_target;
+                    // Cap the cut to a recoverable bite: take at most STEAL_MAX_LINKS off the tail,
+                    // and never more than half the chain, so a mid-chain thread can't wipe the whole
+                    // train in one hit. Clamping the latched target UP (deeper toward the tail) means
+                    // the rival grabs fewer links — the trembling tell below and the snap below both
+                    // read from this same capped index, so the telegraph shows exactly what's at risk.
+                    let max_take = (self.chain_count / 2).max(1).min(STEAL_MAX_LINKS);
+                    let cut_floor = self.chain_count.saturating_sub(max_take).max(1);
+                    let splice_idx = self.npc_trains[i].steal_target.max(cut_floor);
                     for crab in self.crabs.iter_mut() {
                         if crab.caught && crab.chain_index.map_or(false, |idx| idx >= splice_idx) {
                             crab.spooked_timer = crab.spooked_timer.max(0.22); // trembling "AT RISK" tell
@@ -390,6 +397,8 @@ impl MainState {
                         if stolen_count > 0 {
                             self.chain_count = self.chain_count.saturating_sub(stolen_count);
                             self.crabs_stolen_by_npc += stolen_count;
+                            self.max_single_steal_by_npc =
+                                self.max_single_steal_by_npc.max(stolen_count);
                             self.steal_loss_sfx = true; // play the descending loss sting (has no ctx here)
                             self.npc_trains[i].follower_types.extend(stolen_types);
                             self.npc_trains[i].steal_cooldown = 2.2;

@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use ggez::input::keyboard::KeyCode;
 use ggez::glam::Vec2;
 
+use crate::constants::STEAL_MAX_LINKS;
+
 #[derive(Clone, Debug)]
 pub enum BotAction {
     HoldKey(KeyCode),
@@ -48,6 +50,10 @@ pub enum BotAssert {
     /// Monotonic count of crabs a rival NPC train has spliced away this run (see
     /// MainState::crabs_stolen_by_npc). Asserts the reverse-Snake steal path actually fired.
     StolenAtLeast(usize),
+    /// Upper bound on the largest single rival splice this run (see
+    /// MainState::max_single_steal_by_npc). Asserts the steal-size cap holds — a rival can never
+    /// rustle away more than a recoverable bite in one hit, so the loop stays a fair back-and-forth.
+    MaxSingleStealAtMost(usize),
     /// Monotonic count of crabs the player has rustled back off a rival this run (see
     /// MainState::crabs_stolen_by_player). Asserts the "steal to win" steal-back path actually fired.
     StolenByPlayerAtLeast(usize),
@@ -179,6 +185,13 @@ pub fn script_npc_steal() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenAtLeast(1)) });
+    // The steal must stay a recoverable bite: across every forced crossing above (the seek-catch
+    // chain grows well past the cap), no single splice may take more than STEAL_MAX_LINKS. Guards the
+    // "fun, not punishing" cap against a regression that lets a rival wipe the whole tail in one hit.
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::MaxSingleStealAtMost(STEAL_MAX_LINKS)),
+    });
     script
 }
 
