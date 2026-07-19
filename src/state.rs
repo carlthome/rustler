@@ -59,6 +59,11 @@ pub struct GameSounds {
     pub(crate) stomp_sfx: Source,
     /// Synthesised whoosh for the Lasso throw release.
     pub(crate) lasso_sfx: Source,
+    /// Descending sting played when a rival train rustles crabs off your tail — the "loss" half of
+    /// the core steal moment (paired with `steal_gain_sfx`), so losing crabs reads audibly.
+    pub(crate) steal_loss_sfx: Source,
+    /// Rising sting played when you rustle crabs back off a rival — the triumphant "gain" half.
+    pub(crate) steal_gain_sfx: Source,
     /// Five crab-theme loops (Duck Game / Deus Ex ABA melodies), one per archetype group.
     /// 0=normal/fast/big  1=dancer/splitter  2=thief/sneaky  3=boss/armored  4=golden/magnet/hermit
     pub(crate) crab_themes: [Source; 5],
@@ -484,6 +489,11 @@ pub struct MainState {
     /// section snaps onto yours). Never drops, so the bot playtests can assert the steal-back fired
     /// without racing the live chain count.
     pub(crate) crabs_stolen_by_player: usize,
+    /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
+    /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
+    pub(crate) steal_loss_sfx: bool,
+    /// One-frame flag: you rustled crabs back off a rival this frame — play the "gain" steal sting.
+    pub(crate) steal_gain_sfx: bool,
     pub(crate) beat_timer: f32,
     // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
     // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
@@ -1191,6 +1201,8 @@ impl MainState {
             whistle_sfx: sounds::synth_whistle(ctx)?,
             stomp_sfx: sounds::synth_stomp(ctx)?,
             lasso_sfx: sounds::synth_lasso_throw(ctx)?,
+            steal_loss_sfx: sounds::synth_steal_loss(ctx)?,
+            steal_gain_sfx: sounds::synth_steal_gain(ctx)?,
             crab_themes: [
                 sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
                 sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
@@ -1474,6 +1486,8 @@ impl MainState {
             total_caught: 0,
             crabs_stolen_by_npc: 0,
             crabs_stolen_by_player: 0,
+            steal_loss_sfx: false,
+            steal_gain_sfx: false,
             beat_timer: detected_beat_interval,
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
