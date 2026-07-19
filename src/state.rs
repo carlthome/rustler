@@ -1068,6 +1068,9 @@ pub struct MainState {
     pub(crate) king_stolen_crabs: Vec<(Vec2, f32, [f32; 4])>,
     // Cooldown so the splice can't fire every frame as the boss lingers on a segment.
     pub(crate) king_splice_cooldown: f32,
+    // Cooldown so threading your head through a rival train can't strip every follower in one
+    // frame — one clean steal per window, mirroring the rival's steal_cooldown against you.
+    pub(crate) player_steal_cooldown: f32,
     // Ambient NPC conga trains: three King Crabs each leading followers that wander the world.
     pub(crate) npc_trains: Vec<NpcCongaTrain>,
     // Lightweight perf instrumentation (debug builds only): accumulate frame times and print an
@@ -1687,6 +1690,7 @@ impl MainState {
             pulse_snapped_positions_buf: Vec::new(),
             king_stolen_crabs: Vec::new(),
             king_splice_cooldown: 0.0,
+            player_steal_cooldown: 0.0,
             npc_trains: vec![
                 NpcCongaTrain::new_at(world_width, world_height, 0),
                 NpcCongaTrain::new_at(world_width, world_height, 1),
