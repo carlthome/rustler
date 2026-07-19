@@ -92,20 +92,33 @@ pub fn script_menu_to_game() -> Vec<BotEvent> {
 }
 
 pub fn script_campaign_tutorial() -> Vec<BotEvent> {
+    // Drives the campaign on-ramp end to end: title -> world map (C) -> enter the first node, which
+    // is the BeatTiming tutorial (world_map.rs) -> clear it -> confirm it hands control back to the
+    // world map. The first node's pass condition is 3 ON-BEAT catches, so a blind Right/Up walk (the
+    // old script) could never clear it — worse, at 8× time_scale the player teleported past crabs
+    // between frames and caught nothing at all, the failure that had this test disabled. We now hand
+    // the player to the seek-catch autopilot, which in a BeatTiming tutorial stages just outside
+    // catch range and closes the final step on the beat (see handle_player_movement), so the on-beat
+    // catches actually land — and we run at 3× (like menu_to_game) so the proximity catch fires
+    // often enough to register. This exercises the real world-map -> tutorial -> pass -> world-map
+    // transition, the "tutorial->world-map" flow this test exists to guard.
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting campaign tutorial test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::C) },
         BotEvent { at: 1.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
         BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 4.0, action: BotAction::HoldKey(KeyCode::Right) },
-        BotEvent { at: 6.0, action: BotAction::ReleaseKey(KeyCode::Right) },
-        BotEvent { at: 6.0, action: BotAction::HoldKey(KeyCode::Up) },
-        BotEvent { at: 8.0, action: BotAction::ReleaseKey(KeyCode::Up) },
-        BotEvent { at: 10.0, action: BotAction::Assert(BotAssert::GameNotOver) },
-        BotEvent { at: 10.0, action: BotAction::Assert(BotAssert::ChainAtLeast(1)) },
-        BotEvent { at: 25.0, action: BotAction::Assert(BotAssert::TutorialDone) },
-        BotEvent { at: 25.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent { at: 3.5, action: BotAction::SeekCatch(true) },
+        // Mid-run sanity: the tutorial is alive and the autopilot is landing catches (total_caught
+        // never drops, unlike the live chain, so this can't race a bank/snap reset).
+        BotEvent { at: 16.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 16.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        // By now the 3 on-beat catches are in, the "PASSED!" celebration has played, and the ~2.2s
+        // (real-time) exit hold has returned us to the world map. Wide margin so even an unlucky
+        // low-on-beat-rate run banks its 3rd on-beat catch and completes the exit hold well before
+        // we check — the failure mode we're guarding against is a race, not a missing capability.
+        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
     ]
 }
 
