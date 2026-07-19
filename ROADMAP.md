@@ -1,7 +1,7 @@
 # Roadmap
 
 High-level capabilities we believe would make Crab Rustler more fun, kept short and scannable.
-Maintained by the Game Director agent (see CLAUDE.md, Cron 6) — it reads Slack feedback on
+Maintained by the Game Designer agent (see CLAUDE.md, Cron 6) — it reads Slack feedback on
 releases and updates this list accordingly. Feature Developer and Overnight Developer read
 this for direction before picking their next task; they don't edit it themselves.
 

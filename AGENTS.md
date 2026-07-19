@@ -2,9 +2,9 @@
 
 Rust game (ggez 0.9.3), reverse Vampire Survivors: player builds a conga train of caught crabs.
 
-**INSPIRATION.md** — read before making design decisions. Captures Carl's stated influences and design principles. Game Director and Gameplay Engineer agents treat it as the design compass.
+**INSPIRATION.md** — read before making design decisions. Captures Carl's stated influences and design principles. Game Designer and Gameplay Engineer agents treat it as the design compass.
 
-**ROADMAP.md** — maintained by the Game Director agent (Cron 6). The Gameplay Engineer reads it for direction; it doesn't edit it.
+**ROADMAP.md** — maintained by the Game Designer agent (Cron 6). The Gameplay Engineer reads it for direction; it doesn't edit it.
 
 ## Build
 
@@ -72,7 +72,7 @@ sharing and why, and look for opportunities to reuse or consolidate rather than 
 
 ## File ownership (parallel agent splits)
 
-- `ROADMAP.md` — owned by Game Director (cron 6) only.
+- `ROADMAP.md` — owned by Game Designer (cron 6) only.
 - The Performance Engineer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
 - The Build Engineer (cron 4) owns the CI surface — `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh` provisioning, and `[profile.*]` in `Cargo.toml`. It stays out of game source; the game agents stay out of the CI surface. This keeps the Build Engineer and the Performance Engineer from colliding.
 - Issue Agent PRs each live on their own branch — they never share a working directory with
@@ -120,7 +120,7 @@ sandbox — the `SessionStart` hook provisions dependencies (see **Build** above
 ```text
 2. Release Manager  — daily 07:00 UTC     — haiku  ← pure counting/tagging, no build needed
 3. Developer Diary  — 01:00/09:00/17:00Z  — haiku  ← Slack updates, no build needed
-6. Game Director    — every 4 hours UTC   — opus   ← reads Slack + git, updates ROADMAP.md
+6. Game Designer    — every 4 hours UTC   — opus   ← reads Slack + git, updates ROADMAP.md
 8. Agent Engineer   — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
 ```
 
@@ -178,7 +178,7 @@ concurrent commits to main.
 3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
 4. **Release Manager** (cron 2) tags a release once ≥5 non-chore commits have landed.
 5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a screenshot — the feedback channel Carl actually sees.
-6. **Game Director** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md — which feeds back into step 1.
+6. **Game Designer** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md — which feeds back into step 1.
 
 If editing a cron's prompt, check whether another cron reads its output before assuming the change is isolated.
 
@@ -215,7 +215,7 @@ Steps:
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
    satisfying drum hit? Does it make stealing more interesting? If a candidate task fails all
    three, skip it.
-5. Read ROADMAP.md — maintained by the Game Director (cron 6), reflects Carl's Slack feedback.
+5. Read ROADMAP.md — maintained by the Game Designer (cron 6), reflects Carl's Slack feedback.
    If it has a "Bugs" section, fix the top item there before anything else — a crash or broken
    control beats any new feature. Otherwise pick ONE item from the "Now" section only (not
    "Later" or "Also on our mind"):
@@ -290,7 +290,7 @@ Steps:
 4. Post to #general via the Slack MCP tool (slack_send_message). If step 3 produced a fresh
    screenshot, include its raw GitHub URL on its own line so Slack unfurls it inline:
      https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
-5. This post is the thing the Game Director agent (cron 6) reads reactions and replies from —
+5. This post is the thing the Game Designer agent (cron 6) reads reactions and replies from —
    it's the actual feedback channel to Carl, not just a status update.
 ```
 
@@ -383,7 +383,7 @@ If nothing obvious stands out, add lightweight FPS/frame-time instrumentation (p
 frame time every few seconds in debug builds) so future runs have real data to act on.
 ```
 
-## Cron 6 — Game Director prompt
+## Cron 6 — Game Designer prompt
 
 ```text
 You are the game director for "Crab Rustler" — a Rust game
@@ -434,7 +434,7 @@ Guidelines:
 - DRY only where it costs you nothing: don't create abstractions that require understanding the
   abstraction before the thing it abstracts. Prefer readable duplication over confusing unification.
 - Never change observable game behaviour. This is pure structural work — same binary, cleaner source.
-- Don't touch ROADMAP.md; direction is the Game Director's call.
+- Don't touch ROADMAP.md; direction is the Game Designer's call.
 
 Steps:
 1. `git -C . pull --ff-only`
@@ -524,7 +524,7 @@ Steps:
      missing constraints, duplicate sections
    Only trim what evidence or analysis supports. Don't trim constraints preventing known failures.
 
-6. Make minimal, high-signal edits. Don't change game direction (Game Director's job) or
+6. Make minimal, high-signal edits. Don't change game direction (Game Designer's job) or
    restructure the whole pipeline in one run — one clear improvement per cycle.
 7. Commit with a message explaining *why*, not just what: e.g. "Agent Engineer: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
