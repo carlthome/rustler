@@ -32,6 +32,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache the downloaded .deb files for scripts/ci-deps.sh's apt install so
+      # a warm cache skips the network fetch (the observed long pole in a
+      # cold run — see the Playtest job's equivalent step). apt still detects
+      # version mismatches and re-fetches when needed, so a stale cache just
+      # falls back to today's behavior, never breaking the install.
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+
       # System libraries from default.nix via apt + a headless audio device, so
       # this gate runs on plain cargo (no Nix). The heavy `nix build` package
       # verification moved to nix.yml, which runs post-merge on main only.

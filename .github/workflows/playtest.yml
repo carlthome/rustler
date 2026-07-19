@@ -37,6 +37,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache the downloaded .deb files for scripts/ci-deps.sh's apt install so
+      # a warm cache skips the network fetch. This was the single biggest
+      # source of wall-clock variance across the matrix (17s-70s per job for
+      # the exact same install) since every scenario job provisions from a
+      # cold runner. apt still detects version mismatches and re-fetches when
+      # needed, so a stale cache just falls back to today's behavior.
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+
       # Install the system libraries from default.nix via apt and configure a
       # headless null-audio device (no Nix in this job — see PR #16).
       - name: Install system dependencies
