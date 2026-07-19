@@ -1224,6 +1224,78 @@ pub fn synth_stomp(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// Synthesise the "a rival rustled crabs off your tail" sting — the loss half of the core steal
+/// moment. A rival King Crab train has just spliced your back section away, so this reads as a
+/// setback: a short descending minor arpeggio (root → b3 → 5 down an octave) over a low tremble
+/// with a noise scrape, chiptune-flavored so it lands like a dark drum fill rather than a UI error
+/// beep. Kept brief (~0.34 s) so it punches through the mix without stepping on the groove.
+pub fn synth_steal_loss(ctx: &mut Context) -> GameResult<Source> {
+    let duration = 0.34_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    // Descending A minor-ish steps (Hz): the pitch falling is the "losing" gesture.
+    let steps = [440.0_f32, 349.23, 261.63, 174.61];
+    let step_len = duration / steps.len() as f32;
+    let mut lfsr: u32 = 0x1D7F;
+    let mut phase = 0.0_f32;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let si = ((t / step_len) as usize).min(steps.len() - 1);
+        let local = t - si as f32 * step_len;
+        let hz = steps[si];
+        phase += hz / SAMPLE_RATE as f32;
+        // Square-ish tone (two harmonics) for a gritty console voice.
+        let tone = (phase * std::f32::consts::TAU).sin()
+            + 0.35 * (phase * 2.0 * std::f32::consts::TAU).sin();
+        // A short noise scrape on each step attack sells the "grab".
+        let scrape = if local < 0.03 {
+            lfsr_noise(&mut lfsr) * (1.0 - local / 0.03) * 0.4
+        } else {
+            0.0
+        };
+        // Per-step pluck envelope so each note re-articulates.
+        let env = (-local * 11.0).exp() * (local / 0.004).min(1.0);
+        samples.push((tone * 0.5 + scrape) * env * 0.6);
+    }
+    let pcm = samples_to_pcm(&mut samples, 6, 2);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
+/// Synthesise the "you rustled crabs back off a rival" sting — the triumphant half of the steal
+/// moment (INSPIRATION.md "Steal to win"). Mirror of `synth_steal_loss`: a rising major arpeggio
+/// (root → 3 → 5 → octave) with a bright chiptune sparkle so grabbing a rival's tail *sounds* like
+/// a power-get, the audible reward that makes stealing the best feeling in the game.
+pub fn synth_steal_gain(ctx: &mut Context) -> GameResult<Source> {
+    let duration = 0.32_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    // Ascending C major triad + octave (Hz): the pitch climbing is the "winning" gesture.
+    let steps = [392.0_f32, 493.88, 587.33, 783.99];
+    let step_len = duration / steps.len() as f32;
+    let mut phase = 0.0_f32;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let si = ((t / step_len) as usize).min(steps.len() - 1);
+        let local = t - si as f32 * step_len;
+        let hz = steps[si];
+        phase += hz / SAMPLE_RATE as f32;
+        // Bright two-harmonic voice with a shimmer octave for retro sparkle.
+        let tone = (phase * std::f32::consts::TAU).sin()
+            + 0.4 * (phase * 2.0 * std::f32::consts::TAU).sin()
+            + 0.15 * (phase * 3.0 * std::f32::consts::TAU).sin();
+        let env = (-local * 9.0).exp() * (local / 0.004).min(1.0);
+        samples.push(tone * env * 0.42);
+    }
+    let pcm = samples_to_pcm(&mut samples, 7, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav);
+    Source::from_data(ctx, data)
+}
+
 /// Synthesise a lasso whoosh: band-passed noise swept from low to high frequency,
 /// short (120 ms), giving the impression of something spinning then releasing.
 pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {

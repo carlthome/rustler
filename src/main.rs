@@ -7746,6 +7746,7 @@ impl MainState {
                         if stolen_count > 0 {
                             self.chain_count = self.chain_count.saturating_sub(stolen_count);
                             self.crabs_stolen_by_npc += stolen_count;
+                            self.steal_loss_sfx = true; // play the descending loss sting (has no ctx here)
                             self.npc_trains[i].follower_types.extend(stolen_types);
                             self.npc_trains[i].steal_cooldown = 2.2;
                             // Visual + audio feedback — this is the key threat moment
@@ -7822,6 +7823,7 @@ impl MainState {
                     // Monotonic tally so the bot playtest can assert the steal-back fired without
                     // racing the live chain count (which banks/snaps drop back to zero).
                     self.crabs_stolen_by_player += stolen_count;
+                    self.steal_gain_sfx = true; // play the rising triumphant sting (has no ctx here)
                     // Reward: stealing feeds the groove (harder on the beat) and banks score.
                     self.score += stolen_count * if on_beat { 3 } else { 2 };
                     self.groove = (self.groove + if on_beat { 0.22 } else { 0.10 }).min(1.0);
@@ -10535,6 +10537,19 @@ impl EventHandler for MainState {
 
         // Advance the ambient NPC conga train.
         self.update_npc_trains(dt);
+
+        // Steal stings: the splice logic above runs without `ctx`, so it just latches a one-frame
+        // flag when crabs change hands. Play the matching sting here — a descending thud when a
+        // rival rustles from you, a rising sparkle when you rustle back — so the core steal moment
+        // reads in the audio too (INSPIRATION.md "Audio IS the scoreboard" / "Steal to win").
+        if self.steal_loss_sfx {
+            self.steal_loss_sfx = false;
+            let _ = self.sounds.steal_loss_sfx.play_detached(ctx);
+        }
+        if self.steal_gain_sfx {
+            self.steal_gain_sfx = false;
+            let _ = self.sounds.steal_gain_sfx.play_detached(ctx);
+        }
 
         // Spatial audio: smooth the ambient King Crab train rumble AND pan it by the leader's
         // bearing, so a rival train is not just heard swelling with distance but *placed*
