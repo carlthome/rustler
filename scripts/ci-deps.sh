@@ -45,16 +45,22 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -qq
-# Mirrors the Linux buildInputs in default.nix, plus xvfb + a software GL driver
-# so bot mode can render offscreen.
+# Trimmed to what Cargo.lock actually links against, plus xvfb + a software GL
+# driver so bot mode can render offscreen. default.nix's buildInputs are wider
+# (glib/gtk3/cairo/pango/gdk-pixbuf/dbus/freetype/fontconfig/vulkan-loader) but
+# none of those have a corresponding -sys crate in Cargo.lock: text rendering
+# goes through the pure-Rust ab_glyph/glyph_brush stack, X11/Wayland access is
+# dlopen'd via x11-dl/wayland-client, and this cargo-only path forces the GL
+# backend (WGPU_BACKEND in scripts/playtest.sh), so Vulkan is never touched. Dropping them
+# here cuts a real chunk off "apt-get install" on every CI job — verified with
+# a full `cargo clean && cargo build && bash scripts/playtest.sh` after
+# uninstalling them locally.
 $SUDO apt-get install -y -qq \
   pkg-config \
-  libasound2-dev libudev-dev libdbus-1-dev \
+  libasound2-dev libudev-dev \
   libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxext-dev \
   libxinerama-dev libxxf86vm-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev \
-  libxkbcommon-dev libwayland-dev wayland-protocols libvulkan-dev \
-  libfreetype-dev libfontconfig1-dev zlib1g-dev \
-  libglib2.0-dev libgtk-3-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+  libxkbcommon-dev libwayland-dev wayland-protocols \
   libgl1-mesa-dev libgl1-mesa-dri xvfb
 
 echo "ci-deps: done."
