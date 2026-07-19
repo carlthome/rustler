@@ -299,6 +299,10 @@ Steps:
 5. This post is the thing the Game Designer agent (cron 6) reads reactions and replies from —
    it's the actual feedback channel to Carl, not just a status update. A failed post means 
    Carl gets no visibility into progress that run.
+
+**Note:** Never commit changes to AGENTS.md — prompt improvements you notice belong in your Slack
+post as a callout (e.g. "Note for Agent Engineer: step 4 needs X"), not a direct commit. AGENTS.md
+ownership is the Agent Engineer's; editing it yourself bypasses the review pipeline.
 ```
 
 ## Cron 4 — Build Engineer prompt
@@ -317,17 +321,18 @@ cheaper equivalent work — never from checking less.
 
 Steps:
 1. `git -C . pull --ff-only`
-1a. **Before picking new work, drain any open Build Engineer PRs from prior runs.**
-   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. Look for any open
-   PRs from prior Build Engineer runs.
-   **One open Build Engineer PR at a time.** If there are multiple open Build Engineer PRs:
-   pick the most-recent CI-green one and merge it (or fix it if failing); close ALL others as stale
-   with a note ("superseded, closing to unblock queue"). If there is exactly one open Build Engineer PR:
-   - CI green: mark it ready (`update_pull_request draft: false`), wait for new checks to settle
-     green, then squash-merge. The PR's own CI run is your before/after benchmark: confirm it's
-     genuinely faster AND still green before merging. That is your whole task this run — stop here.
-   - CI still running: wait for it to finish, then merge or fix. Still stop here.
-   - Superseded by a change already merged to main: close it with a note, then continue to new work.
+1a. **Before doing any new work, drain open Build Engineer PRs — this is step one, not optional.**
+   List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs
+   (CI surface / build-speed / provisioning topics in the title).
+   - **No open Build Engineer PRs:** proceed to step 2.
+   - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
+     required checks to settle green, squash-merge. The PR's CI run is your before/after benchmark:
+     confirm it's faster AND still green before merging. Stop here — merging is your whole task this run.
+   - **Exactly one open PR, CI still running:** wait for it to settle, then merge or fix. Stop here.
+   - **Any other case** (multiple PRs, stale base, CI failing you can't fix this run): close ALL open
+     Build Engineer PRs with "superseded, closing to unblock queue" and **STOP — do not open a new PR
+     this run**. Opening a new PR after closing stale ones just rebuilds the queue. Let the next run
+     start fresh with zero open PRs.
    **Before choosing your CI optimization target (step 5), scan all open PR titles.** If an open PR
    already implements the thing you were about to do, pick a different target — don't reimplement it.
 2. Read git log: `git -C . log --oneline -15`
@@ -372,16 +377,17 @@ undoing anyone else's work.
 
 Steps:
 1. `git -C . pull --ff-only`
-1a. **Before picking new work, drain any open perf PRs from prior runs.**
-   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. Look for any open
-   PRs from prior Performance Engineer runs.
-   **One open Performance Engineer PR at a time.** If there are multiple open perf PRs:
-   pick the most-recent CI-green one and merge it (or fix it if failing); close ALL others as stale
-   with a note ("superseded, closing to unblock queue"). If there is exactly one open perf PR:
-   - CI green: mark it ready (`update_pull_request draft: false`), wait for new checks to settle
-     green, then squash-merge. That is your whole task this run — stop here, don't open another PR.
-   - CI still running: wait for it to finish, then merge or fix. Still stop here.
-   - Superseded by a change already merged to main: close it with a note, then continue to new work.
+1a. **Before doing any new work, drain open Perf Engineer PRs — this is step one, not optional.**
+   List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs
+   (runtime perf / FPS / frame-time / caching / draw-call batching topics in the title).
+   - **No open Perf Engineer PRs:** proceed to step 2.
+   - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
+     checks to settle green, squash-merge. Stop here — merging is your whole task this run.
+   - **Exactly one open PR, CI still running:** wait for it to settle, then merge or fix. Stop here.
+   - **Any other case** (multiple PRs, stale base, CI failing you can't fix this run): close ALL open
+     Perf Engineer PRs with "superseded, closing to unblock queue" and **STOP — do not open a new PR
+     this run**. Opening a new PR after closing stale ones just rebuilds the queue. Let the next run
+     start fresh with zero open PRs.
    **Before choosing your optimization target (step 3), scan all open PR titles.** If an open PR
    already implements the thing you were about to fix, pick a different target — don't reimplement it.
 2. Read git log: `git -C . log --oneline -15`
@@ -453,8 +459,9 @@ thousands-of-lines files.
 Guidelines:
 - No file should be much more than 500 lines. Files over 800 need splitting. Files over 3000 lines
   are an **active crisis**: they get top priority every single run until they're under 2000 lines.
-  Right now `src/main.rs` (12k+ lines) and `src/graphics.rs` (8k+ lines) are both in crisis —
-  prioritise them above everything else until they come down.
+  Right now `src/main.rs` (~9400 lines) and `src/graphics.rs` (~8700 lines) are both in crisis —
+  prioritise them above everything else until they come down. (Run `wc -l src/main.rs src/graphics.rs`
+  to get the current count — these shrink as splits land, so check before picking your target.)
 - DRY only where it costs you nothing: don't create abstractions that require understanding the
   abstraction before the thing it abstracts. Prefer readable duplication over confusing unification.
 - Never change observable game behaviour. This is pure structural work — same binary, cleaner source.
