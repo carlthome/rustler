@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.18.0 — 2026-07-19
+
+### Features
+- Add distinct steal stings to the core steal moment
+
+### Performance
+- Trim ci-deps.sh apt install to packages Cargo.lock actually links
+
+### Fixes
+- Fix git tag generation with `--notes-from-tag` and `--generate-notes`
+
+### Refactoring
+- Split catch reward / boss arena effects out of main.rs into catch_effects.rs
+- Split NPC train simulation and rendering out of main.rs into npc_trains.rs
+
 ## v0.17.0 — 2026-07-19
 
 ### Features
