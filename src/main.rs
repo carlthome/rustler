@@ -9554,6 +9554,10 @@ impl MainState {
         };
         self.npc_trains[ni].leader_pos = target;
         self.npc_trains[ni].steal_cooldown = 0.0;
+        // Pre-arm the telegraph so the staged crossing splices this frame as documented — organic
+        // steals still have to wind the telegraph up over the reroute window, but the deterministic
+        // test shouldn't depend on the leader dwelling near the chain for 0.75s of headless budget.
+        self.npc_trains[ni].steal_telegraph = 10.0;
         self.npc_trains[ni].idle_timer = 0.0;
     }
 
@@ -9874,30 +9878,81 @@ impl MainState {
             self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
+                // A rival must loom this close to your line for a full TELEGRAPH_TIME window before
+                // it can actually splice — DANGER_RANGE is wider than STEAL_RANGE so the warning
+                // fires while the rival is still closing in, and the wind-up gives you time to turn
+                // your tail away and cancel the steal. Losing crabs becomes a legible, contestable
+                // event (INSPIRATION "Legible risk"), never a silent teleport-and-strip.
+                const DANGER_RANGE: f32 = 100.0;
+                const TELEGRAPH_TIME: f32 = 0.75;
                 let npc_pos = self.npc_trains[i].leader_pos;
                 // Early-out: if the NPC is far from the player and the chain tail, no chain crab
-                // can be within STEAL_RANGE. Use cached_tail_pos (the farthest link, already
+                // can be within DANGER_RANGE. Use cached_tail_pos (the farthest link, already
                 // computed by update_crabs) as a lower-bound proxy to avoid the O(n_crabs) scan.
                 // The chain spans between player_pos and cached_tail_pos; if the NPC is more than
-                // STEAL_RANGE beyond the tail it definitely can't reach any link.
+                // DANGER_RANGE beyond the tail it definitely can't reach any link.
                 let chain_span = self
                     .cached_tail_pos
                     .map_or(0.0_f32, |t| t.distance(self.player_pos));
                 let dist_to_chain = dist_to_player - chain_span;
-                if dist_to_chain > STEAL_RANGE {
-                    continue; // skip inner per-crab scan entirely this frame for this NPC
+                if dist_to_chain > DANGER_RANGE {
+                    // Out of reach — let any pending telegraph cool off (the reroute worked) and
+                    // skip the inner per-crab scan entirely this frame for this NPC.
+                    self.npc_trains[i].steal_telegraph =
+                        (self.npc_trains[i].steal_telegraph - dt * 3.0).max(0.0);
+                    continue;
                 }
-                // Find the earliest (closest-to-head) link the NPC is within range of.
-                // We splice there so a threading pass takes the maximum tail section.
-                let splice_at = self
+                // Single scan: the nearest threatenable link (drives the telegraph) and the
+                // earliest (closest-to-head) link within STEAL_RANGE (where the splice cuts, so a
+                // threading pass takes the maximum tail section).
+                let mut nearest_dist = f32::MAX;
+                let mut nearest_link_pos = npc_pos;
+                let mut splice_at: Option<usize> = None;
+                for c in self
                     .crabs
                     .iter()
                     .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
-                    .filter(|c| npc_pos.distance(c.pos) < STEAL_RANGE)
-                    .map(|c| c.chain_index.unwrap())
-                    .min();
+                {
+                    let d = npc_pos.distance(c.pos);
+                    if d < nearest_dist {
+                        nearest_dist = d;
+                        nearest_link_pos = c.pos;
+                    }
+                    if d < STEAL_RANGE {
+                        let idx = c.chain_index.unwrap();
+                        splice_at = Some(splice_at.map_or(idx, |m: usize| m.min(idx)));
+                    }
+                }
 
-                if let Some(splice_idx) = splice_at {
+                // Wind up (or cool down) the telegraph based on whether a link is in the danger ring.
+                if nearest_dist <= DANGER_RANGE {
+                    let prev = self.npc_trains[i].steal_telegraph;
+                    self.npc_trains[i].steal_telegraph = (prev + dt).min(TELEGRAPH_TIME + 0.25);
+                    // Kick a one-time warning the instant a rival starts threading your line.
+                    if prev <= 0.0 {
+                        let npc_name = self.npc_trains[i].name.clone();
+                        self.floating_texts.spawn(
+                            format!("⚠ {} is threading your line!", npc_name),
+                            nearest_link_pos - Vec2::new(80.0, 42.0),
+                            25.0,
+                            [1.0, 0.5, 0.15, 1.0],
+                        );
+                    }
+                    // Beat-flavored telegraph: pulse a warning ring at the threatened link on each
+                    // beat while the rival winds up, so the danger reads in time with the music.
+                    if self.on_beat_now() && self.catch_shockwaves.len() < 48 {
+                        self.catch_shockwaves
+                            .push((nearest_link_pos, 0.0, [1.0, 0.4, 0.1]));
+                    }
+                } else {
+                    self.npc_trains[i].steal_telegraph =
+                        (self.npc_trains[i].steal_telegraph - dt * 3.0).max(0.0);
+                }
+
+                // Splice only once the telegraph has fully wound up AND a link is in cut range: the
+                // player got a full reroute window and stayed too close, so the loss is earned.
+                let telegraph_ready = self.npc_trains[i].steal_telegraph >= TELEGRAPH_TIME;
+                if let Some(splice_idx) = splice_at.filter(|_| telegraph_ready) {
                     // Collect the stolen types before mutating crabs
                     let mut stolen_types: Vec<CrabType> = Vec::new();
                     let mut stolen_count = 0usize;
@@ -9923,6 +9978,7 @@ impl MainState {
                         self.crabs_stolen_by_npc += stolen_count;
                         self.npc_trains[i].follower_types.extend(stolen_types);
                         self.npc_trains[i].steal_cooldown = 2.2;
+                        self.npc_trains[i].steal_telegraph = 0.0; // spent — re-arm from scratch
                         // Visual + audio feedback — this is the key threat moment
                         let npc_name = self.npc_trains[i].name.clone();
                         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);

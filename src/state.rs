@@ -213,6 +213,11 @@ pub struct NpcCongaTrain {
     pub territory_center: Vec2,
     /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
     pub steal_cooldown: f32,
+    /// Wind-up timer for the steal telegraph: a rival must loom near your line for a full window
+    /// before it can splice, so losing crabs is a legible, contestable event (INSPIRATION "Legible
+    /// risk") — turn your tail away in time and the steal is cancelled. Builds while threatening,
+    /// decays fast when the line escapes range.
+    pub steal_telegraph: f32,
     /// Time since this NPC last caught a free crab (throttles free-crab collection).
     pub catch_cooldown: f32,
 }
@@ -357,6 +362,7 @@ impl NpcCongaTrain {
             idle_timer: 0.0,
             territory_center,
             steal_cooldown: 0.0,
+            steal_telegraph: 0.0,
             catch_cooldown: 0.0,
         }
     }
