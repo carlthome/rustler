@@ -397,6 +397,13 @@ Steps:
    - Add 1-2 items to "Now" per run at most — depth before breadth; check ROADMAP's own
      sequencing note before adding: is the freeze lifted? Is the scrolling world landed?
    - Keep it short and scannable; prune what no longer fits
+   - **Advance gates on git evidence alone.** When a Bugs entry describes a disabled test and
+     git log shows a "Fix and re-enable X" commit (and CI is green on main), close that bug —
+     don't wait for Carl to confirm what the tests already prove. When a gated item lists
+     prerequisites and those prerequisites appear in git log by their described feature (directional
+     pan, name banner, etc.), promote the gated item to "Now". The sequencing plan is Carl's;
+     executing it as prerequisites land is yours. Carl's input is needed for *direction changes*,
+     not for confirming completion of work the plan already called for.
 6. Commit with a short plain-English message — no Co-Authored-By lines
 7. `git -C . pull --ff-only` then push
 ```
