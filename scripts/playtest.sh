@@ -55,6 +55,7 @@ else
     run_script campaign_tutorial
     run_script npc_steal
     run_script player_steal
+    run_script steal_defense
 fi
 
 echo ""

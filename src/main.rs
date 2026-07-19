@@ -3673,6 +3673,7 @@ impl MainState {
         self.total_caught = 0;
         self.crabs_stolen_by_npc = 0;
         self.crabs_stolen_by_player = 0;
+        self.steals_parried = 0;
         self.player_steal_cooldown = 0.0;
         self.tail_run_len = 0;
         self.kelp_snag_warn = 0.0;
@@ -5895,6 +5896,86 @@ impl MainState {
     pub(crate) fn on_beat_now(&self) -> bool {
         self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW
     }
+    /// True on the first beat of the bar (the downbeat) while in the on-beat window — the big-hit
+    /// moment. `beat_count % 4 == 0` is beat 1 of a 4/4 bar (same convention as `bar_phase`).
+    fn on_downbeat_now(&self) -> bool {
+        self.on_beat_now() && self.beat_count % 4 == 0
+    }
+    /// Defensive counter to an armed rival steal — the skill half of the steal fight
+    /// (ROADMAP "make the defense a real on-beat play"). When a reach-out tool (Stomp/Wave) is cast
+    /// while a rival's splice is armed and its leader sits within `radius` of `center`:
+    ///   • ON-BEAT  → PARRY: the telegraph is cancelled, the rival is shoved back off your tail and
+    ///     put on a recovery cooldown so it can't instantly re-arm, and the save pays groove + juice.
+    ///     A DOWNBEAT cast is the big save — a longer shove and a fuller groove kick.
+    ///   • OFF-BEAT → GRAZE: no cancel, but the splice is nudged toward the tail (fewer crabs taken)
+    ///     and the rival gets a small shove — sloppy defense still helps, the clean cancel is on-beat.
+    /// Returns true if any armed steal was cancelled. "Keys as drum pads": defending is a timed hit.
+    fn try_defend_steal(&mut self, center: Vec2, radius: f32, label: &str) -> bool {
+        let on_beat = self.on_beat_now();
+        let downbeat = self.on_downbeat_now();
+        let mut parried = false;
+        let margin = 80.0;
+        for i in 0..self.npc_trains.len() {
+            if self.npc_trains[i].steal_threat <= 0.0 {
+                continue; // nothing armed on this rival
+            }
+            let lead = self.npc_trains[i].leader_pos;
+            if lead.distance(center) > radius {
+                continue; // out of reach of this cast
+            }
+            let away = (lead - center).normalize_or_zero();
+            if on_beat {
+                // PARRY: cancel the splice and repel the rival.
+                self.npc_trains[i].steal_threat = 0.0;
+                self.npc_trains[i].steal_cooldown = if downbeat { 3.4 } else { 2.6 };
+                let knock = if downbeat { 170.0 } else { 100.0 };
+                let mut pushed = lead + away * knock;
+                pushed.x = pushed.x.clamp(margin, self.world_width - margin);
+                pushed.y = pushed.y.clamp(margin, self.world_height - margin);
+                self.npc_trains[i].leader_pos = pushed;
+                self.npc_trains[i].leader_vel = away * (knock * 2.5);
+                self.npc_trains[i].idle_timer = if downbeat { 0.9 } else { 0.5 };
+                self.steals_parried += 1;
+                parried = true;
+                // Reward: a clean defensive read feeds the groove and streak, like an on-beat catch.
+                self.groove = (self.groove + if downbeat { 0.24 } else { 0.16 }).min(1.0);
+                self.beat_streak = (self.beat_streak + 1).min(99);
+                self.on_beat_flash = (self.on_beat_flash + if downbeat { 0.6 } else { 0.4 }).min(0.9);
+                self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+                self.zoom_punch = self.zoom_punch.max(if downbeat { 0.09 } else { 0.06 });
+                self.screen_shake = self.screen_shake.max(if downbeat { 12.0 } else { 8.0 });
+                let npc_name = self.npc_trains[i].name.clone();
+                let text = if downbeat {
+                    format!("BIG SAVE! {} repelled!", npc_name)
+                } else {
+                    format!("{} SAVE! {} off your tail!", label, npc_name)
+                };
+                self.floating_texts.spawn(
+                    text,
+                    center - Vec2::new(96.0, 72.0),
+                    if downbeat { 30.0 } else { 26.0 },
+                    [0.35, 1.0, 0.85, 1.0],
+                );
+                if self.catch_shockwaves.len() < 48 {
+                    self.catch_shockwaves.push((lead, 0.0, [0.35, 1.0, 0.85]));
+                }
+            } else {
+                // GRAZE: no cancel, but shove the splice deeper so the rival grabs less, plus a nudge.
+                self.npc_trains[i].steal_target = self.npc_trains[i].steal_target.saturating_add(2);
+                let mut pushed = lead + away * 34.0;
+                pushed.x = pushed.x.clamp(margin, self.world_width - margin);
+                pushed.y = pushed.y.clamp(margin, self.world_height - margin);
+                self.npc_trains[i].leader_pos = pushed;
+                self.floating_texts.spawn(
+                    "grazed!".to_string(),
+                    center - Vec2::new(42.0, 60.0),
+                    18.0,
+                    [0.7, 0.95, 0.85, 0.9],
+                );
+            }
+        }
+        parried
+    }
     /// A tool was fired on the beat: bank a "PERFECT!" flash, feed the groove meter, and punch up
     /// the juice (extra beat flash + a hair of zoom). Returns the on-beat multiplier the caller can
     /// apply to the tool's effect (radius/duration), so an on-beat cast simply hits harder.
@@ -6436,6 +6517,9 @@ impl MainState {
                 BotAction::ForcePlayerCross => {
                     self.force_player_cross();
                 }
+                BotAction::ForceStealDefense => {
+                    self.force_steal_defense();
+                }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                 }
@@ -6446,6 +6530,7 @@ impl MainState {
                         BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
                         BotAssert::StolenAtLeast(n) => self.crabs_stolen_by_npc >= *n,
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
+                        BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
@@ -9200,7 +9285,7 @@ fn main() -> GameResult {
     if let Some(ref name) = bot_script {
         use bot::{
             BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
-            script_npc_steal, script_player_steal,
+            script_npc_steal, script_player_steal, script_steal_defense,
         };
         // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
         // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
@@ -9209,7 +9294,8 @@ fn main() -> GameResult {
         // a ~30% on-beat rate); its script leaves a wide time margin so even an unlucky low-rate run
         // banks 3 on-beat catches and returns to the world map before the final assert.
         state.time_scale = match name.as_str() {
-            "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal" => 3.0,
+            "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
+            | "steal_defense" => 3.0,
             _ => 8.0,
         };
         state.bot = Some(match name.as_str() {
@@ -9217,6 +9303,7 @@ fn main() -> GameResult {
             "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
             "player_steal" => BotState::new(script_player_steal(), 58.0),
+            "steal_defense" => BotState::new(script_steal_defense(), 58.0),
             "groove_dash" => BotState::new(script_groove_dash(), 10.0),
             other => {
                 eprintln!("Unknown bot script: {}", other);

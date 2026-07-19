@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Each scenario gets its own runner so the four bot scripts run
+      # Each scenario gets its own runner so the bot scripts run
       # concurrently instead of back-to-back in one job — the slowest single
       # scenario sets the wall-clock instead of their sum. Same coverage,
       # same scripts, just fanned out.
@@ -29,6 +29,7 @@ jobs:
             campaign_tutorial,
             npc_steal,
             player_steal,
+            steal_defense,
           ]
     steps:
       - uses: actions/checkout@v4

@@ -74,6 +74,14 @@ pub const WHISTLE_PULL_SPEED: f32 = 240.0;
 pub const STOMP_COOLDOWN: f32 = 3.0;
 pub const STOMP_RING_SPEED: f32 = 900.0;
 pub const STOMP_MAX_RADIUS: f32 = 155.0;
+// Steal telegraph fuse (seconds): how long a rival's armed splice trembles before it snaps.
+// Shared by update_npc_trains (arming) and the bot defense test so the two can't drift apart.
+pub const STEAL_FUSE: f32 = 0.55;
+// Defensive parry reach: how close a rival leader must be to a tool cast to be repelled. Stomp is
+// the up-close bodyguard (short, punchy); the Beat Wave is the wide ranged save. This is the tool
+// identity — Stomp defends what's on top of you, the Wave sweeps a threat off from across the lane.
+pub const STOMP_DEFEND_RADIUS: f32 = 175.0;
+pub const WAVE_DEFEND_RADIUS: f32 = 300.0;
 pub const PEN_RADIUS: f32 = 90.0;
 pub const TIDE_CURRENT_DIR: Vec2 = Vec2::new(0.6, 0.8);
 pub const TIDE_CURRENT_STRENGTH: f32 = 46.0;

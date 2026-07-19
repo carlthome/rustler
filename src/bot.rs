@@ -28,6 +28,12 @@ pub enum BotAction {
     // frame. A no-op when the player has no train or no rival has followers left. Fired repeatedly so
     // at least one attempt lands while a chain is present.
     ForcePlayerCross,
+    // Guards the defensive parry (ROADMAP "make the defense a real on-beat play"): arm a rival's
+    // splice on a mid-chain link, force the beat into the on-beat window, then run the real
+    // try_defend_steal helper (the same one the Stomp/Wave casts call) and confirm it cancels the
+    // steal. A no-op when the player has no stealable chain. Deterministic — timing an on-beat tool
+    // cast against an RNG-armed steal inside a headless budget isn't reliable, so we stage it.
+    ForceStealDefense,
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +51,9 @@ pub enum BotAssert {
     /// Monotonic count of crabs the player has rustled back off a rival this run (see
     /// MainState::crabs_stolen_by_player). Asserts the "steal to win" steal-back path actually fired.
     StolenByPlayerAtLeast(usize),
+    /// Monotonic count of armed rival steals the player has parried this run (see
+    /// MainState::steals_parried). Asserts the on-beat defensive counter actually cancelled a steal.
+    ParriedAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -202,6 +211,35 @@ pub fn script_player_steal() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenByPlayerAtLeast(1)) });
+    script
+}
+
+pub fn script_steal_defense() -> Vec<BotEvent> {
+    // Guards the defensive parry — the skill half of the steal fight (ROADMAP headline "make the
+    // defense a real on-beat play"). An on-beat Stomp/Wave cast on a rival threading your tail cancels
+    // its armed splice (try_defend_steal). That counter-play had no coverage, so a refactor could
+    // silently break it. Mirrors script_npc_steal: build a real player chain with the seek-catch
+    // autopilot, then repeatedly stage "arm a steal, then parry it on-beat" (ForceStealDefense) and
+    // assert the parry fired (steals_parried rises) without crashing the run. Forcing keeps it
+    // deterministic — timing an on-beat cast against an RNG-armed steal isn't reliable headless. Runs
+    // at 3x time_scale like npc_steal so the autopilot's proximity catch grows a chain first.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting steal-defense (parry) test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Stage arm+parry every 0.9s across a wide window. Each attempt is a no-op unless a stealable
+    // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
+    // lands while the seek-catch chain is alive.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceStealDefense });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
     script
 }
 

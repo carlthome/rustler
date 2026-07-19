@@ -489,6 +489,10 @@ pub struct MainState {
     /// section snaps onto yours). Never drops, so the bot playtests can assert the steal-back fired
     /// without racing the live chain count.
     pub(crate) crabs_stolen_by_player: usize,
+    /// Monotonic count of armed rival steals the player has parried this run — an on-beat Stomp/Wave
+    /// cast on a threatened tail cancels the splice (see `try_defend_steal`). Never drops, so the bot
+    /// playtests can assert the defensive counter fired without racing the live chain count.
+    pub(crate) steals_parried: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1486,6 +1490,7 @@ impl MainState {
             total_caught: 0,
             crabs_stolen_by_npc: 0,
             crabs_stolen_by_player: 0,
+            steals_parried: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             beat_timer: detected_beat_interval,
