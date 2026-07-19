@@ -44,11 +44,18 @@ run_script() {
     fi
 }
 
-run_script groove_dash
-run_script menu_to_game
-run_script campaign_tutorial
-run_script npc_steal
-run_script player_steal
+# With no argument, run every scenario sequentially (local/cron use). With one
+# argument, run only that scenario — lets CI fan them out into parallel jobs
+# instead of paying their wall-clock cost one after another.
+if [ $# -gt 0 ]; then
+    run_script "$1"
+else
+    run_script groove_dash
+    run_script menu_to_game
+    run_script campaign_tutorial
+    run_script npc_steal
+    run_script player_steal
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
