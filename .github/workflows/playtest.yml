@@ -1,4 +1,5 @@
 name: Playtest
+
 on:
   push:
     branches: [main]
@@ -21,7 +22,14 @@ jobs:
       # scenario sets the wall-clock instead of their sum. Same coverage,
       # same scripts, just fanned out.
       matrix:
-        scenario: [groove_dash, menu_to_game, campaign_tutorial, npc_steal, player_steal]
+        scenario:
+          [
+            groove_dash,
+            menu_to_game,
+            campaign_tutorial,
+            npc_steal,
+            player_steal,
+          ]
     steps:
       - uses: actions/checkout@v4
 

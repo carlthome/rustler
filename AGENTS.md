@@ -26,7 +26,7 @@ environment.
 
 ## Playtests are the ground truth — keep them green
 
-The bot playtests (`scripts/playtest.sh`) are how we know the game still *works*, not
+The bot playtests (`scripts/playtest.sh`) are how we know the game still _works_, not
 just that it compiles. The **Playtest** GitHub Actions workflow now runs them on every
 push and PR to `main`, and it is green — keeping it green is a hard rule for every
 code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Software Architect, Issue Agent):
@@ -56,6 +56,7 @@ Multiple issues can be open simultaneously — each gets its own branch (`issue-
 its own isolated CI run, so they develop in parallel with no shared working directory.
 
 **To avoid merge conflicts between parallel issue PRs:**
+
 - Scope issues to a single subsystem (e.g. "enemies", "audio", "rendering", "spawning").
 - If you're planning refactors or modularisation that will move files, open that as its own
   issue and merge it before opening feature issues that touch the same area.
@@ -89,13 +90,13 @@ git -C . push origin main
 
 **Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
 (the harness enforces this, opening them as **drafts**). A code-writing routine's job isn't done
-when CI passes — it's done when the work is *in `main`*. There is no bot that merges for you (no
+when CI passes — it's done when the work is _in `main`_. There is no bot that merges for you (no
 `auto-merge.yml`; repo-native auto-merge is off), so **you** drive the draft to merged:
 
 1. **Feel done + CI green.** When you believe the change is complete and its checks on the draft are
    green (build + Playtest), don't stop there.
 2. **Mark it ready for review.** Flip the draft to ready (`update_pull_request` with `draft: false`).
-3. **Watch for additional checks.** Marking ready can queue *new* required checks (or re-run
+3. **Watch for additional checks.** Marking ready can queue _new_ required checks (or re-run
    existing ones) that a draft didn't trigger. Wait for those to settle green too — don't merge on
    the draft-era result alone.
 4. **Merge.** Once every required check is green on the ready PR, make sure the branch is current with
@@ -131,8 +132,8 @@ sandbox — the `SessionStart` hook provisions dependencies (see **Build** above
 7. Software Architect   — every 3 hours  — sonnet ← file splits / modularisation (was "Architect")
 ```
 
-Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the *game at runtime*
-(FPS, frame hitches) while 4 optimizes the *pipeline* (CI wall-clock, build/test speed). Keep them
+Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the _game at runtime_
+(FPS, frame hitches) while 4 optimizes the _pipeline_ (CI wall-clock, build/test speed). Keep them
 distinct — 4 never touches game logic for framerate, 5 never edits CI config.
 
 The old **Overnight Dev** (cron 4) is retired: the Gameplay Engineer now runs hourly around the
@@ -172,7 +173,7 @@ concurrent commits to main.
 ## How the agents work together
 
 1. **Gameplay Engineer** (cron 1) writes game code, checking ROADMAP.md first. It runs hourly around the clock (it absorbed the retired Overnight Dev's window).
-2. **Performance Engineer** (cron 5) keeps the *game* smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the *pipeline* fast — trims CI wall-clock and build/test time. Never touches game logic.
+2. **Performance Engineer** (cron 5) keeps the _game_ smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the _pipeline_ fast — trims CI wall-clock and build/test time. Never touches game logic.
 3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
 4. **Release Manager** (cron 2) tags a release once ≥5 non-chore commits have landed.
 5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a screenshot — the feedback channel Carl actually sees.
@@ -312,8 +313,7 @@ Steps:
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
    job is the long pole, which steps dominate, what re-runs from scratch that could be cached.
-4. Read the CI surface: `.github/workflows/*.yml` (ci.yml, playtest.yml, claude-code-review.yml,
-   copilot-setup-steps.yml, release.yml), `scripts/ci-deps.sh`, `scripts/playtest.sh`, and the
+4. Read the CI surface: `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh`, and the
    `[profile.*]` sections of `Cargo.toml`.
 5. Pick the SINGLE biggest lever and apply it. Typical wins, roughly in order:
    - **Cargo/target caching** across runs (e.g. Swatinem/rust-cache) so the long `build` job goes

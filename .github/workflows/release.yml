@@ -88,4 +88,6 @@ jobs:
           gh release create "${{ github.ref_name }}" rustler-*.tar.gz \
             --repo "${{ github.repository }}" \
             --title "Crab Rustler ${{ github.ref_name }}" \
-            --generate-notes
+            --generate-notes \
+            --notes-from-tag \
+            --discussion-category "General"

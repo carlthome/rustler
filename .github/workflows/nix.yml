@@ -1,8 +1,5 @@
-name: Nix package
+name: Nix
 
-# Verify the distributable Nix package still builds (used by `nix run github:...#rustler`).
-# This is the slow full release build, so it runs post-merge on main only — pull
-# requests are gated by the fast cargo CI (ci.yml) and Playtest (playtest.yml) jobs.
 on:
   push:
     branches: [main]
@@ -15,4 +12,4 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Build Nix package
-        run: nix build .#packages.x86_64-linux.default
+        run: nix build
