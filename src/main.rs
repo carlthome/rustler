@@ -1794,6 +1794,10 @@ impl MainState {
         // Cache for steal_chain_thief (called later this frame, after update_crabs returns) so it
         // doesn't need its own third O(n) scan over self.crabs for the same "current tail" lookup.
         self.cached_tail_pos = chain_tail_pos;
+        // Cache the same back-half thread point the boss aims at (~2/3 down from head) so the ambient
+        // rival NPC trains can route deliberately into the body of a long train instead of only nipping
+        // the tail — no extra scan, we just reuse splice_target_pos computed above. None on a short chain.
+        self.cached_steal_target_pos = splice_target_pos;
         // Cache the tail archetype for the draw-path CATCH-NEXT highlight (same snapshot, no extra scan).
         self.cached_tail_type = best_chain.map(|(_, _, ty)| ty);
         // The cycle preview marker is only meaningful with a real train (>= 2 links) and while the

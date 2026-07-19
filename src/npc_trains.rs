@@ -262,23 +262,31 @@ impl MainState {
             let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
             self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
 
-            // --- Pursuit: when the player has a train, bias steering toward their tail --------
-            // The NPC behaves like a rival player: it wants to get BEHIND the player's chain to
-            // thread through it for a steal, not charge the head where the player is watching.
+            // --- Pursuit: when the player has a train, deliberately route to thread the back half --
+            // The NPC behaves like a rival player with intent (INSPIRATION.md "Rivals route
+            // deliberately"): it wants to get INTO the body of the player's chain and slice the back
+            // half, not just nip the tail or charge the head where the player is watching. It aims at
+            // the same ~2/3-down thread point the boss uses (cached_steal_target_pos), falling back to
+            // the tail on a short chain. The longer the train, the juicier the prize — so the rival
+            // commits harder, which naturally means a lazy sprawling spiral gets sliced while a tight
+            // line trailing straight behind keeps the reachable links bunched at the far tail (small cut).
             const PURSUIT_RANGE: f32 = 550.0;
             if self.chain_count >= 2
                 && dist_to_player < PURSUIT_RANGE
                 && self.npc_trains[i].idle_timer <= 0.0
             {
-                // Use cached tail pos (updated once per frame in update_crabs) instead of
-                // an O(n_crabs) scan here — saves ~160 iterations × 3 NPCs every frame.
-                if let Some(tail_pos) = self.cached_tail_pos {
-                    // Blend the wander target toward the tail — NPC steers into range naturally
+                // Route toward the back-half thread point when the chain is long enough to have one,
+                // else the tail. Both are cached once per frame in update_crabs — no O(n_crabs) scan.
+                if let Some(steal_pos) = self.cached_steal_target_pos.or(self.cached_tail_pos) {
+                    // Base blend ramps as the rival closes in; a longer train adds up to +0.4 commit so
+                    // big trains get pursued with real intent instead of a lazy drift.
+                    let length_urge = ((self.chain_count as f32 - 2.0) / 8.0).clamp(0.0, 0.4);
                     let pursuit_blend =
-                        ((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE).clamp(0.0, 0.8);
+                        (((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE) + length_urge)
+                            .clamp(0.0, 1.0);
                     self.npc_trains[i].target = self.npc_trains[i]
                         .target
-                        .lerp(tail_pos, pursuit_blend * dt * 3.0);
+                        .lerp(steal_pos, pursuit_blend * dt * 3.0);
                 }
             }
 
