@@ -32,11 +32,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache downloaded .deb files so ci-deps.sh's apt-get install doesn't
+      # re-fetch the same packages every run (or from every job in the
+      # playtest matrix). Keyed on the script itself so a package list change
+      # busts the cache.
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
       # System libraries from default.nix via apt + a headless audio device, so
       # this gate runs on plain cargo (no Nix). The heavy `nix build` package
       # verification moved to nix.yml, which runs post-merge on main only.
       - name: Install system dependencies
         run: bash scripts/ci-deps.sh
+        env:
+          APT_CACHE_DIR: ~/apt-cache
 
       - name: Build
         run: cargo build

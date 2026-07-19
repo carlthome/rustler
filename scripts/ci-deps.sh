@@ -45,9 +45,22 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -qq
+
+# CI sets APT_CACHE_DIR to a cached, runner-owned directory so re-downloading
+# the same .deb files across the 6 build/playtest jobs (and across runs) is
+# skipped — apt still installs the same packages, just from a warm cache.
+APT_CACHE_ARGS=()
+if [ -n "${APT_CACHE_DIR:-}" ]; then
+  # Expand a leading `~` ourselves — unlike actions/cache's `path:` input,
+  # shell variable substitution below won't do it for us.
+  apt_cache_dir="${APT_CACHE_DIR/#\~/$HOME}"
+  mkdir -p "$apt_cache_dir"
+  APT_CACHE_ARGS=(-o "Dir::Cache::Archives=$apt_cache_dir")
+fi
+
 # Mirrors the Linux buildInputs in default.nix, plus xvfb + a software GL driver
 # so bot mode can render offscreen.
-$SUDO apt-get install -y -qq \
+$SUDO apt-get install -y -qq "${APT_CACHE_ARGS[@]}" \
   pkg-config \
   libasound2-dev libudev-dev libdbus-1-dev \
   libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxext-dev \

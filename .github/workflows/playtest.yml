@@ -37,10 +37,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache downloaded .deb files so ci-deps.sh's apt-get install doesn't
+      # re-fetch the same packages every run, or once per matrix job here.
+      # Keyed on the script itself so a package list change busts the cache.
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
       # Install the system libraries from default.nix via apt and configure a
       # headless null-audio device (no Nix in this job — see PR #16).
       - name: Install system dependencies
         run: bash scripts/ci-deps.sh
+        env:
+          APT_CACHE_DIR: ~/apt-cache
 
       # scripts/playtest.sh auto-detects the absence of Nix and falls back to
       # plain cargo, wrapping the bot in xvfb with a software GL backend.
