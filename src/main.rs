@@ -2187,6 +2187,7 @@ impl MainState {
                 prev_tail_type = Some(crab.crab_type);
                 prev_tail_pos = crab.pos;
                 self.chain_count += 1;
+                self.total_caught += 1;
                 let on_beat = self.beat_timer < BEAT_WINDOW
                     || self.beat_timer > self.beat_interval - BEAT_WINDOW;
                 // PERFECT: the catch landed inside the tight sub-window at the very center of the
@@ -5729,6 +5730,7 @@ impl MainState {
             self.position_history.push_back(center);
         }
         self.chain_count = 0;
+        self.total_caught = 0;
         self.tail_run_len = 0;
         self.kelp_snag_warn = 0.0;
         self.beat_timer = BEAT_INTERVAL;
@@ -9513,6 +9515,43 @@ impl MainState {
     fn whistle_pull_speed(&self) -> f32 {
         WHISTLE_PULL_SPEED * (1.0 + 0.2 * self.whistle_rank as f32)
     }
+    /// Position of the nearest free, catchable, non-boss crab, if any. The seek-catch bot autopilot
+    /// (see BotAction::SeekCatch) whistles this crab into range — driving a reliable catch through
+    /// the real game mechanics rather than a blind RNG-dependent sweep.
+    pub(crate) fn nearest_catchable_crab_pos(&self) -> Option<Vec2> {
+        let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        self.crabs
+            .iter()
+            .filter(|c| c.is_catchable() && !c.is_boss())
+            .min_by(|a, b| {
+                center
+                    .distance_squared(a.pos)
+                    .total_cmp(&center.distance_squared(b.pos))
+            })
+            .map(|c| c.pos)
+    }
+    /// Where the seek-catch autopilot should walk: a free catchable crab if any exist, otherwise the
+    /// nearest crackable shell (Armored / shelled Hermit) so a stomp can pop it open first. Guarantees
+    /// the bot always has a target even on the rare all-shelled early roll, so the catch test can't
+    /// stall out with nothing catchable in reach.
+    pub(crate) fn nearest_seek_target_pos(&self) -> Option<Vec2> {
+        self.nearest_catchable_crab_pos().or_else(|| {
+            let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            self.crabs
+                .iter()
+                .filter(|c| {
+                    !c.caught
+                        && c.boss_health > 0.0
+                        && (c.is_armored() || c.is_shelled_hermit())
+                })
+                .min_by(|a, b| {
+                    center
+                        .distance_squared(a.pos)
+                        .total_cmp(&center.distance_squared(b.pos))
+                })
+                .map(|c| c.pos)
+        })
+    }
     /// Reach of the stomp shockwave. Ranking the stomp lane turns a melee tap into a wide slam.
     fn stomp_max_radius(&self) -> f32 {
         STOMP_MAX_RADIUS * (1.0 + 0.3 * self.stomp_rank as f32)
@@ -10243,6 +10282,13 @@ impl EventHandler for MainState {
                         _ => {} // other actions handled in the in-game tick
                     }
                 }
+                // A bot drives input through controls::handle_key_down_event, which doesn't cover the
+                // upgrade overlay (its number-key handler lives in key_down_event). So once a catch
+                // spree pops the upgrade screen, the bot can't dismiss it and the run stalls here
+                // forever. Auto-pick the first upgrade to clear the overlay and let the script finish.
+                if self.pending_upgrade {
+                    self.apply_upgrade(1);
+                }
                 if let Some(bot) = self.bot.as_ref() {
                     if bot.done {
                         std::process::exit(if bot.failed.is_some() { 1 } else { 0 });
@@ -10381,6 +10427,9 @@ impl EventHandler for MainState {
                     BotAction::MouseMove(p) => {
                         self.bot.as_mut().unwrap().mouse_pos = p;
                     }
+                    BotAction::SeekCatch(on) => {
+                        self.bot.as_mut().unwrap().seek_catch = on;
+                    }
                     BotAction::Log(msg) => {
                         println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                     }
@@ -10388,6 +10437,7 @@ impl EventHandler for MainState {
                         let ok = match &check {
                             BotAssert::GameNotOver => !self.game_over,
                             BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
+                            BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
                             BotAssert::ScoreAtLeast(n) => self.score >= *n,
                             BotAssert::ShowWorldMap => self.show_world_map,
                             BotAssert::TutorialActive => self.tutorial.is_some(),
@@ -10404,6 +10454,41 @@ impl EventHandler for MainState {
                             println!("FAIL: {}", msg);
                             self.bot.as_mut().unwrap().failed = Some(msg);
                             self.bot.as_mut().unwrap().done = true;
+                        }
+                    }
+                }
+            }
+
+            // Seek-catch autopilot (see BotAction::SeekCatch): steering toward the nearest target is
+            // handled in handle_player_movement; here we fire the tools. The whistle charms a
+            // catchable crab out of its flee and yanks it into the player, and a stomp cracks any
+            // shell we've walked up to so it becomes catchable — together they drive a real catch
+            // through the actual game mechanics.
+            if self.bot.as_ref().map_or(false, |b| b.seek_catch)
+                && !self.show_instructions
+                && !self.game_over
+                && !self.show_world_map
+            {
+                let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                // Whistle the nearest catchable crab once it's close enough that the ~1.4 s charm
+                // window covers the final homing approach (player ~200 px/s), rather than burning the
+                // cast at long range and letting the 4.5 s cooldown lapse before we can close. A cast
+                // just outside the 220 px flee radius charms a wandering crab and reels it in before
+                // it ever bolts — the whole difference between a reliable catch and a hopeless chase.
+                if self.whistle_cooldown <= 0.0 {
+                    if let Some(target) = self.nearest_catchable_crab_pos() {
+                        if center.distance(target) < 260.0 {
+                            controls::handle_key_down_event(self, ctx, Some(KeyCode::E));
+                        }
+                    }
+                }
+                // Stomp anything within melee range: cracks a shelled crab we've homed onto (turning
+                // an Armored/Hermit into a catchable target) so an all-shelled roll can't leave the
+                // bot with nothing to catch.
+                if self.stomp_cooldown <= 0.0 {
+                    if let Some(target) = self.nearest_seek_target_pos() {
+                        if center.distance(target) < STOMP_MAX_RADIUS {
+                            controls::handle_key_down_event(self, ctx, Some(KeyCode::R));
                         }
                     }
                 }

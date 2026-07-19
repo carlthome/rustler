@@ -459,6 +459,10 @@ pub struct MainState {
     pub(crate) subtitle: String,       // Random subtitle for instructions screen
     pub(crate) position_history: VecDeque<Vec2>,
     pub(crate) chain_count: usize,
+    /// Monotonic count of every crab caught this run — unlike `chain_count`, it never drops when the
+    /// train is banked at the pen, snaps, or gets scattered by a King Crab hit. Used by the bot
+    /// playtests to assert "the catching verb produced a catch" without racing a chain reset.
+    pub(crate) total_caught: usize,
     pub(crate) beat_timer: f32,
     // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
     // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
@@ -1440,6 +1444,7 @@ impl MainState {
             subtitle,
             position_history,
             chain_count: 0,
+            total_caught: 0,
             beat_timer: detected_beat_interval,
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
