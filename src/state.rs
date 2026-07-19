@@ -213,6 +213,13 @@ pub struct NpcCongaTrain {
     pub territory_center: Vec2,
     /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
     pub steal_cooldown: f32,
+    /// Steal telegraph fuse: >0 while a splice is armed and building toward its on-beat snap.
+    /// Gives the player a brief, legible warning window (the threatened crabs tremble) before the
+    /// rival actually takes the tail — losing crabs reads as earned, and the snap lands on the beat.
+    pub steal_threat: f32,
+    /// Latched splice index while a steal is armed, so the snap still fires from the same link even
+    /// if the leader drifts a little off it during the telegraph window.
+    pub steal_target: usize,
     /// Time since this NPC last caught a free crab (throttles free-crab collection).
     pub catch_cooldown: f32,
 }
@@ -357,6 +364,8 @@ impl NpcCongaTrain {
             idle_timer: 0.0,
             territory_center,
             steal_cooldown: 0.0,
+            steal_threat: 0.0,
+            steal_target: 0,
             catch_cooldown: 0.0,
         }
     }
