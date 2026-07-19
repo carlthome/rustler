@@ -161,12 +161,19 @@ train of caught crabs. Goal: make it more fun and visually impressive.
 Steps:
 1. Read git log: `git -C . log --oneline -8`
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
-   `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
+   `cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
    If any test FAILs, that bug is your task this run — fix it before any feature work.
    **Disabled tests are also your bug.** If `scripts/playtest.sh` has any `run_script` line
-   commented out, treat that as a FAIL: re-enable it and fix the game code until it passes.
-   Never comment out a test as a workaround — fix the underlying game issue instead. Disabled
-   tests mask regressions and let crashes pile up in subsequent feature work.
+   commented out, treat that as a FAIL. Follow this debug path — do not skip straight to feature work:
+   a. Read `src/bot.rs` to understand exactly what the disabled test asserts and when.
+   b. Temporarily re-enable the commented `run_script` line and run the test to see the live
+      failure output: `bash scripts/playtest.sh 2>&1`. Read the output carefully.
+   c. Find the commit that originally disabled it (check the comment in playtest.sh for the
+      commit SHA or message) and inspect what changed: `git show <commit> -- src/main.rs src/state.rs`
+   d. With the failure mode understood, fix the root cause in the game code.
+   e. Run until the test passes, then commit with the re-enabled line included.
+   Never leave a `run_script` line commented out as a workaround — fix the underlying game issue.
+   Disabled tests mask regressions and let crashes pile up in subsequent feature work.
 3. Skim the tops of src/main.rs and src/graphics.rs to understand current state
 4. Read INSPIRATION.md (short file) — it's the design compass. Before picking any task, apply
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
@@ -259,10 +266,15 @@ so prefer smaller, safer, easily-reverted improvements over ambitious ones.
 Steps:
 1. `git -C . pull --ff-only`
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
-   `nix develop . --command cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
+   `cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
    If any test FAILs, that bug is your task this run — fix it before anything else.
    **Disabled tests are also your bug.** If `scripts/playtest.sh` has any `run_script` line
-   commented out, treat that as a FAIL: re-enable it and fix the game code until it passes.
+   commented out, treat that as a FAIL. Debug path (the catching regression is safe, focused
+   work — not the "risky overnight work" to avoid):
+   a. Read `src/bot.rs` to understand what the disabled test asserts.
+   b. Re-enable the `run_script` line and run to see the live failure: `bash scripts/playtest.sh 2>&1`
+   c. Inspect what changed at the disabling commit: `git show <commit> -- src/main.rs src/state.rs`
+   d. Fix the root cause; run until it passes; commit with the line re-enabled.
    Never comment out a test — fix the underlying issue instead.
 3. Read git log: `git -C . log --oneline -8`
 4. Skim the tops of src/main.rs and src/graphics.rs to understand current state
