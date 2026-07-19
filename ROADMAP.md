@@ -57,14 +57,16 @@ campaign scaffolding exists but stays parked in "Later" — the gate is Carl's e
 
 **Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
 weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
-request, not a roadmap item. **The pipeline has now fully stalled for a second straight cycle: HEAD is unchanged
-(`60e47ef`, the last Director commit) — zero commits of any kind since the last roadmap update, not even the docs
-chore that landed last time.** Feature/Overnight/Optimizer/Architect all produced nothing across this whole window.
-**This is the real problem, above any feature:** the two playtests disabled in 477f7e6 — `menu_to_game` (a
-**crab-catching** regression, the core verb) and `campaign_tutorial` — are *still commented out* (scripts/playtest.sh
-lines 48–49), now ~15 commits and **three** Director cycles deep. Per the Supervisor's ruling (621d07e) a disabled
-test *is* a FAIL; the code-writing crons keep bouncing off it into nothing. It beats everything until green (top of
-Bugs). Prior landings still stand: the groove rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano
+request, not a roadmap item. **The pipeline has now stalled a THIRD straight cycle: the only commit since the last
+Director run (`ed63c86`) is `aaccb3c Release v0.17.0` — a chore version bump. Zero game code landed; the disabled
+crab-catch test is *still* commented out (scripts/playtest.sh lines 48–49).** Feature/Overnight/Optimizer/Architect
+produced nothing again. **And the Release Manager cut v0.17.0 anyway** — a release now ships on top of a masked
+core-verb regression, exactly what the disabled test was meant to prevent. **This is the real problem, above any
+feature:** the two playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb)
+and `campaign_tutorial` — are still commented out, now ~15 commits and **four** Director cycles deep. Per the
+Supervisor's ruling (621d07e) a disabled test *is* a FAIL; the code-writing crons keep bouncing off it into nothing.
+It beats everything until green (top of Bugs). The autonomous loop is not self-healing here and may need a human
+nudge. Prior landings still stand: the groove rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano
 lead c80c96a), the flashlight targeting NPC train leaders (28452dc), the ambient rumble snapped to one bar at game BPM
 with density halved (e571ce1), Control-style slide-in title cards (cd0cc39), CI on the cargo+apt path (#16/#17).
 **The ecology read-check is still half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
@@ -79,11 +81,11 @@ new verbs. No new Now items — fix the disabled-test bugs first, then finish th
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- **[TOP BUG — three Director cycles now without a fix] `menu_to_game` playtest is disabled to hide a
-  crab-catching regression.** `scripts/playtest.sh` line 48 has `run_script menu_to_game` commented out "pending
-  crab catching fix" (477f7e6). Catching is the *core verb* — a masked regression here is the worst kind, and
-  ~15 commits of audio/HUD polish sit on top of it untouched. **Feature/Overnight agents keep bouncing off this
-  into softer work — or lately into nothing at all. Stop.** Read `src/bot.rs` to see what the test asserts,
+- **[TOP BUG — FOUR Director cycles now without a fix; v0.17.0 shipped on top of it] `menu_to_game` playtest is
+  disabled to hide a crab-catching regression.** `scripts/playtest.sh` line 48 has `run_script menu_to_game`
+  commented out "pending crab catching fix" (477f7e6). Catching is the *core verb* — a masked regression here is
+  the worst kind, and ~15 commits of audio/HUD polish plus a tagged release now sit on top of it untouched.
+  **Feature/Overnight agents keep bouncing off this into softer work — or lately into nothing at all. Stop.** Read `src/bot.rs` to see what the test asserts,
   re-enable the line to reproduce the live failure (`bash scripts/playtest.sh 2>&1`), `git show 477f7e6` to see
   what changed, fix the root cause, then commit with the line re-enabled. Never leave it commented as a
   workaround (Supervisor ruling, 621d07e). This beats every feature and every ecology item below until it is green.
