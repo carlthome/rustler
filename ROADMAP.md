@@ -57,19 +57,18 @@ campaign scaffolding exists but stays parked in "Later" — the gate is Carl's e
 
 **Signal (this cycle).** Still no new human signal on Slack — every post in #general is an auto Dev Diary,
 no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
-here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. This was a **polish/audio
-cycle that inched the ecology forward but left the core-verb regression untouched.** The landings: the groove engine
-grew a real rhythm bed — **kick/snare drums + a walking bass** (7598b14) on top of the electric-piano lead
-(c80c96a) — more BYO-music scaffolding. The ambient rival train got two concrete nudges toward its read-check: the
-**flashlight now targets NPC train leaders, not just boss crabs** (28452dc) — the first time a player *tool* reaches a
-rival leader at all — and its **rumble was tuned to snap to one bar at the game BPM with event density halved for a
-calmer, more musical swell** (e571ce1, plus an NDC coord fix + A-minor key, 5b9b3ee). Level transitions got the
-Control-style **slide-in title cards** Carl likes (cd0cc39), and the HUD tightened (1cce79d). CI moved off Nix to a
-cargo+apt path (#16/#17) and the mouse cursor is hidden in-window (6bef4f8). **The down side is unchanged and now
-glaring:** the two playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb) and
-`campaign_tutorial` — are *still commented out*, ~14 commits later. Per the Supervisor's ruling (621d07e) a disabled
-test *is* a FAIL; agents keep choosing softer audio/HUD work over it. It beats everything until green (top of Bugs).
-**The ecology read-check is now half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
+here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. **This cycle the
+pipeline effectively stalled: since the last roadmap update the *only* commit to land was a docs chore** (0a67383,
+"AGENTS.md: mandate keeping the Playtest CI green") — **zero game code, zero bug fixes.** The Feature/Overnight/
+Optimizer/Architect crons produced nothing this window. **That makes the top bug worse, not better:** the two
+playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb) and
+`campaign_tutorial` — are *still commented out* (scripts/playtest.sh lines 48–49), now ~15 commits and multiple
+Director cycles deep. Per the Supervisor's ruling (621d07e) a disabled test *is* a FAIL, and agents keep bouncing
+off it. It beats everything until green (top of Bugs). The prior cycle's landings still stand: the groove engine's
+rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano lead c80c96a), the flashlight now targeting
+NPC train leaders (28452dc), the ambient rumble snapped to one bar at game BPM with density halved (e571ce1),
+Control-style slide-in title cards (cd0cc39), and CI on the cargo+apt path (#16/#17).
+**The ecology read-check is still half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
 (e571ce1) — but it's still **mono**: no directional stereo pan, so you hear the train approach without hearing *which
 way* it is. The boss already has the pan-by-angle + rolloff machinery (2101cef); porting it onto the ambient train's
 rumble is the one remaining audio task for the radar, alongside the distinct name banner — and *it still has not been
