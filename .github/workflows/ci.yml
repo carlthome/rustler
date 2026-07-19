@@ -32,6 +32,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache the downloaded .deb archives so ci-deps.sh's apt-get install
+      # skips the network fetch on a cache hit — apt still resolves/unpacks,
+      # but the slow, flake-prone download is avoided.
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+
       # System libraries from default.nix via apt + a headless audio device, so
       # this gate runs on plain cargo (no Nix). The heavy `nix build` package
       # verification moved to nix.yml, which runs post-merge on main only.

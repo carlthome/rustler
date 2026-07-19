@@ -29,6 +29,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # Cache the downloaded .deb archives so ci-deps.sh's apt-get install
+      # skips the network fetch on a cache hit — apt still resolves/unpacks,
+      # but the slow, flake-prone download is avoided.
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+
       # Install the system libraries from default.nix via apt and configure a
       # headless null-audio device (no Nix in this job — see PR #16).
       - name: Install system dependencies
