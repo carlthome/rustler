@@ -1105,6 +1105,20 @@ pub struct MainState {
     pub(crate) perf_last_worst_ms: f32,
     #[cfg(debug_assertions)]
     pub(crate) perf_last_fps: f32,
+    // Split of the frame budget between simulation (update()'s own body, timed with an Instant
+    // wrapping just its logic — excludes ggez's vsync/present wait baked into ctx.time.delta())
+    // and rendering (draw()'s body, which under headless/software backends can itself be the
+    // dominant cost). Bot-mode playtests skip rendering entirely, so comparing this against the
+    // plain avg/worst above tells a future optimizer pass whether a slowdown is logic-side or
+    // present/swap-side instead of guessing from the whole-frame number alone.
+    #[cfg(debug_assertions)]
+    pub(crate) perf_update_accum_ms: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_draw_accum_ms: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_last_update_ms: f32,
+    #[cfg(debug_assertions)]
+    pub(crate) perf_last_draw_ms: f32,
 
     // Bot playtest harness: scripted inputs + time acceleration.
     pub(crate) bot: Option<BotState>,
@@ -1723,6 +1737,14 @@ impl MainState {
             perf_last_worst_ms: 0.0,
             #[cfg(debug_assertions)]
             perf_last_fps: 0.0,
+            #[cfg(debug_assertions)]
+            perf_update_accum_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_draw_accum_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_update_ms: 0.0,
+            #[cfg(debug_assertions)]
+            perf_last_draw_ms: 0.0,
             bot: None,
             time_scale: 1.0,
         })

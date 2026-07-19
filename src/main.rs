@@ -20,6 +20,8 @@ pub use hud_cache::*;
 pub use state::*;
 
 use std::{cell::RefCell, env, fs, path};
+#[cfg(debug_assertions)]
+use std::time::Instant;
 
 // Scratch buffer for count_chain_bonds — reused across calls to avoid a per-call heap alloc
 // every frame. The Vec is grown-but-not-shrunk, so it reaches steady state after the first
@@ -10568,8 +10570,12 @@ impl MainState {
     }
 }
 
-impl EventHandler for MainState {
-    fn update(&mut self, ctx: &mut Context) -> GameResult {
+impl MainState {
+    // Timed separately from draw_body below (debug builds only): bot-mode playtests skip
+    // rendering entirely (see draw()'s early return), so splitting sim time from render time
+    // tells a future optimizer pass whether a slowdown is logic-side or present/swap-side
+    // instead of guessing from the whole-frame avg/worst numbers alone.
+    fn update_body(&mut self, ctx: &mut Context) -> GameResult {
         if !self.fullscreen_applied {
             // current_monitor() can still be None on the very first tick, so keep retrying
             // until it resolves instead of only trying once.
@@ -10648,13 +10654,23 @@ impl EventHandler for MainState {
                 // since train follower count drives both path_history size and draw_npc_conga_train cost.
                 let npc_followers: usize =
                     self.npc_trains.iter().map(|n| n.follower_types.len()).sum();
+                // Sim-vs-render split, same window: reveals whether the frame budget above is
+                // spent in update_body (game logic) or draw_body (rendering) — the two are timed
+                // separately by the update()/draw() wrappers around them. In bot-mode playtests
+                // draw_body's own render calls are skipped (see its early return), so a wide gap
+                // here versus the whole-frame avg above also flags present/swap/vsync overhead
+                // that isn't attributable to either body.
+                let update_avg_ms = self.perf_update_accum_ms / self.perf_frame_count as f32;
+                let draw_avg_ms = self.perf_draw_accum_ms / self.perf_frame_count as f32;
                 println!(
-                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained, {} npc followers)",
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — sim {:.2}ms / render {:.2}ms — {} crabs ({} chained, {} npc followers)",
                     self.perf_frame_count,
                     self.perf_time_accum,
                     avg_ms,
                     1000.0 / avg_ms,
                     worst_ms,
+                    update_avg_ms,
+                    draw_avg_ms,
                     self.crabs.len(),
                     self.chain_count,
                     npc_followers,
@@ -10664,9 +10680,13 @@ impl EventHandler for MainState {
                 self.perf_last_avg_ms = avg_ms;
                 self.perf_last_worst_ms = worst_ms;
                 self.perf_last_fps = 1000.0 / avg_ms;
+                self.perf_last_update_ms = update_avg_ms;
+                self.perf_last_draw_ms = draw_avg_ms;
                 self.perf_frame_count = 0;
                 self.perf_time_accum = 0.0;
                 self.perf_worst_frame = 0.0;
+                self.perf_update_accum_ms = 0.0;
+                self.perf_draw_accum_ms = 0.0;
             }
         }
 
@@ -12888,7 +12908,7 @@ impl EventHandler for MainState {
         Ok(())
     }
 
-    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+    fn draw_body(&mut self, ctx: &mut Context) -> GameResult {
         // Bot mode: skip all rendering to run at maximum speed.
         if self.bot.is_some() {
             let mut canvas = Canvas::from_frame(ctx, ggez::graphics::Color::BLACK);
@@ -12934,6 +12954,30 @@ impl EventHandler for MainState {
         }
 
         Ok(())
+    }
+}
+
+impl EventHandler for MainState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
+        #[cfg(debug_assertions)]
+        let t0 = Instant::now();
+        let result = self.update_body(ctx);
+        #[cfg(debug_assertions)]
+        {
+            self.perf_update_accum_ms += t0.elapsed().as_secs_f32() * 1000.0;
+        }
+        result
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        #[cfg(debug_assertions)]
+        let t0 = Instant::now();
+        let result = self.draw_body(ctx);
+        #[cfg(debug_assertions)]
+        {
+            self.perf_draw_accum_ms += t0.elapsed().as_secs_f32() * 1000.0;
+        }
+        result
     }
 
     fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, _repeat: bool) -> GameResult {
