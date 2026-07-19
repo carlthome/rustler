@@ -22,6 +22,12 @@ pub enum BotAction {
     // player has no chain (chain_count < 2). Fired repeatedly across a window so at least one attempt
     // lands while a chain is present — the steal AI's natural pursuit is too RNG-dependent to time.
     ForceNpcCross,
+    // The mirror of ForceNpcCross for the player's "steal to win" splice: teleport the player's head
+    // onto the nearest rival NPC train's mid-follower and clear the steal-back cooldown, so the
+    // reciprocal splice (player rustles the rival's back section onto their own line) fires this
+    // frame. A no-op when the player has no train or no rival has followers left. Fired repeatedly so
+    // at least one attempt lands while a chain is present.
+    ForcePlayerCross,
 }
 
 #[derive(Clone, Debug)]
@@ -36,6 +42,9 @@ pub enum BotAssert {
     /// Monotonic count of crabs a rival NPC train has spliced away this run (see
     /// MainState::crabs_stolen_by_npc). Asserts the reverse-Snake steal path actually fired.
     StolenAtLeast(usize),
+    /// Monotonic count of crabs the player has rustled back off a rival this run (see
+    /// MainState::crabs_stolen_by_player). Asserts the "steal to win" steal-back path actually fired.
+    StolenByPlayerAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -161,6 +170,38 @@ pub fn script_npc_steal() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenAtLeast(1)) });
+    script
+}
+
+pub fn script_player_steal() -> Vec<BotEvent> {
+    // Guards the player's "steal to win" reverse-Snake steal-BACK — driving your train's head through
+    // a rival NPC King Crab's line rustles the rival's back section onto your own train (shipped in
+    // #32; see ROADMAP.md headline "before the player can steal back" and INSPIRATION.md "The core
+    // steal mechanic"). That mechanic landed with no bot coverage, so a refactor could silently break
+    // it. Mirrors script_npc_steal: build a real player chain with the seek-catch autopilot, then
+    // repeatedly force the player's head onto the nearest rival's mid-follower (ForcePlayerCross) and
+    // assert a steal-back actually fired (crabs_stolen_by_player rises) without crashing the run.
+    // Forcing keeps it deterministic — threading the head into a wandering rival by chance is too
+    // RNG-dependent for a headless budget. Runs at 3x time_scale like menu_to_game so the autopilot's
+    // proximity catch fires often enough to grow a chain first.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting player steal-back test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        // Same generous window menu_to_game proves reliable before asserting a catch has landed.
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Force a crossing every 0.9s across a wide window. Each attempt is a no-op unless the player has
+    // a train (>= 1 link) and a rival still has followers, so firing many times across ~30s makes it
+    // near-certain at least one lands while the seek-catch chain is alive.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForcePlayerCross });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenByPlayerAtLeast(1)) });
     script
 }
 

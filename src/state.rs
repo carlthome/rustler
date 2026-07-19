@@ -479,6 +479,11 @@ pub struct MainState {
     /// (the reverse-Snake steal). Like `total_caught` it never drops, so the bot playtests can assert
     /// "the steal path fired" without racing the live chain count, which the steal itself lowers.
     pub(crate) crabs_stolen_by_npc: usize,
+    /// Monotonic count of crabs the *player* has rustled back off a rival NPC train this run — the
+    /// reciprocal "steal to win" splice (drive your train's head through a rival's line and its back
+    /// section snaps onto yours). Never drops, so the bot playtests can assert the steal-back fired
+    /// without racing the live chain count.
+    pub(crate) crabs_stolen_by_player: usize,
     pub(crate) beat_timer: f32,
     // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
     // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
@@ -1468,6 +1473,7 @@ impl MainState {
             chain_count: 0,
             total_caught: 0,
             crabs_stolen_by_npc: 0,
+            crabs_stolen_by_player: 0,
             beat_timer: detected_beat_interval,
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
