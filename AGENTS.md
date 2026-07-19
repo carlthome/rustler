@@ -98,7 +98,9 @@ when CI passes — it's done when the work is *in `main`*. There is no bot that 
 3. **Watch for additional checks.** Marking ready can queue *new* required checks (or re-run
    existing ones) that a draft didn't trigger. Wait for those to settle green too — don't merge on
    the draft-era result alone.
-4. **Merge.** Once every required check is green on the ready PR, squash-merge it.
+4. **Merge.** Once every required check is green on the ready PR, make sure the branch is current with
+   `main` first — several routines merge in parallel, so yours may have fallen behind or now conflict;
+   update/rebase it and let CI re-run green if so — then squash-merge it.
 
 Never leave a green, ready PR sitting unmerged. A failing check at any step is the next task: fix and
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a

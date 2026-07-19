@@ -4,6 +4,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+# Cancel superseded runs on the same PR when new commits land; let main runs
+# complete so every merged commit is verified.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   playtest:
     runs-on: ubuntu-latest

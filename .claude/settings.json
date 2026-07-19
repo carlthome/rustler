@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd $HOME/Repos/carlthome/rustler && if command -v cargo &>/dev/null; then cargo check --message-format short 2>&1 | tail -20; else echo '⚠️  cargo not on PATH — enter: nix develop $HOME/Repos/carlthome/rustler'; fi"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-$HOME/Repos/carlthome/rustler}\" && if command -v cargo &>/dev/null; then cargo check --message-format short 2>&1 | tail -20; else echo '⚠️  cargo not on PATH'; fi"
           },
           {
             "type": "command",
