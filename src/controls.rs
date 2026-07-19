@@ -58,6 +58,19 @@ pub fn handle_player_movement(
         dir.x += 1.0;
     }
 
+    // Seek-catch autopilot (see BotAction::SeekCatch): steer straight at the nearest catchable crab,
+    // overriding the scripted keys. Paired with the auto-whistle in main.rs, this drives a reliable
+    // catch through the real movement/charm/pull loop instead of a blind RNG-dependent sweep.
+    if state.bot.as_ref().map_or(false, |b| b.seek_catch) {
+        if let Some(target) = state.nearest_seek_target_pos() {
+            let center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+            let toward = target - center;
+            if toward.length() > 1.0 {
+                dir = toward.normalize();
+            }
+        }
+    }
+
     let sprint_held = ctx.keyboard.is_key_pressed(KeyCode::LShift)
         || ctx.keyboard.is_key_pressed(KeyCode::RShift);
     let sprinting =

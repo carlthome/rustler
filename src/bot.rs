@@ -10,12 +10,23 @@ pub enum BotAction {
     MouseMove(Vec2),
     Assert(BotAssert),
     Log(&'static str),
+    // Closed-loop autopilot: while active the bot steers the player toward the nearest catchable
+    // crab, auto-whistles it into range, and stomps any shelled crab it walks up to, so a catch
+    // test exercises the real catching loop (movement + whistle charm/pull + stomp crack + proximity
+    // catch) without depending on where the RNG happened to scatter the handful of early crabs.
+    // `true` turns it on, `false` off.
+    SeekCatch(bool),
 }
 
 #[derive(Clone, Debug)]
 pub enum BotAssert {
     GameNotOver,
     ChainAtLeast(usize),
+    /// Monotonic total catches this run (see MainState::total_caught). Prefer this over ChainAtLeast
+    /// to assert "the catching verb works": the live chain drops to 0 whenever the train is banked,
+    /// snaps, or is scattered, so a ChainAtLeast(1) check can race a reset and flake even though the
+    /// bot caught plenty. total_caught never drops, so the assert is stable.
+    CaughtAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -38,6 +49,7 @@ pub struct BotState {
     pub tap_release_queue: Vec<KeyCode>,   // keys to release next frame
     pub failed: Option<String>,
     pub done: bool,
+    pub seek_catch: bool,                  // closed-loop autopilot toward the nearest catchable crab
 }
 
 impl BotState {
@@ -51,33 +63,31 @@ impl BotState {
             tap_release_queue: Vec::new(),
             failed: None,
             done: false,
+            seek_catch: false,
         }
     }
 }
 
 pub fn script_menu_to_game() -> Vec<BotEvent> {
-    // Sweep in all four directions and whistle periodically to pull crabs toward the player.
-    // Crabs flee from the player but the whistle (E) charms and pulls them into catching range.
-    // At 8× time_scale, each 1.5 s game-time segment = ~0.19 s wall-clock.
+    // Verifies the core catching verb still works from a cold start: enter the game, then hand the
+    // player to the seek-catch autopilot, which steers toward the nearest catchable crab and
+    // auto-whistles it into range. A blind fixed sweep can't reliably find one of only a handful of
+    // early crabs scattered randomly across the 2× scrolling world — the failure that had this test
+    // disabled — so we close the loop instead of gambling on RNG. This still exercises the real
+    // movement, whistle charm/pull, stomp crack, and proximity-catch code; only the pathfinding is
+    // automated. menu_to_game runs at 3× time_scale (see the setup in main.rs).
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0,  action: BotAction::HoldKey(KeyCode::Right) },
-        BotEvent { at: 2.1,  action: BotAction::TapKey(KeyCode::E) },   // whistle to pull crabs
-        BotEvent { at: 3.5,  action: BotAction::ReleaseKey(KeyCode::Right) },
-        BotEvent { at: 3.5,  action: BotAction::HoldKey(KeyCode::Down) },
-        BotEvent { at: 3.6,  action: BotAction::TapKey(KeyCode::E) },
-        BotEvent { at: 5.0,  action: BotAction::ReleaseKey(KeyCode::Down) },
-        BotEvent { at: 5.0,  action: BotAction::HoldKey(KeyCode::Left) },
-        BotEvent { at: 5.1,  action: BotAction::TapKey(KeyCode::E) },
-        BotEvent { at: 6.5,  action: BotAction::ReleaseKey(KeyCode::Left) },
-        BotEvent { at: 6.5,  action: BotAction::HoldKey(KeyCode::Up) },
-        BotEvent { at: 6.6,  action: BotAction::TapKey(KeyCode::E) },
-        BotEvent { at: 8.0,  action: BotAction::ReleaseKey(KeyCode::Up) },
-        BotEvent { at: 8.0,  action: BotAction::Assert(BotAssert::GameNotOver) },
-        BotEvent { at: 10.1, action: BotAction::TapKey(KeyCode::E) },
-        BotEvent { at: 15.0, action: BotAction::Assert(BotAssert::ChainAtLeast(1)) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 8.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        // Give the autopilot a generous window: the whistle recharges every 4.5 s, so 22 s of
+        // seeking guarantees several catch attempts even when the only reachable crab is a far,
+        // fast one on the far side of the scrolling world. (menu_to_game runs at 3× time_scale.)
+        // Assert on total_caught, not the live chain: by 22 s the autopilot has caught many crabs,
+        // but the chain resets to 0 on a bank/snap/scatter, so a ChainAtLeast check here flakes.
+        BotEvent { at: 22.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
     ]
 }
 
