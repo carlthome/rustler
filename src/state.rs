@@ -466,6 +466,10 @@ pub struct MainState {
     /// train is banked at the pen, snaps, or gets scattered by a King Crab hit. Used by the bot
     /// playtests to assert "the catching verb produced a catch" without racing a chain reset.
     pub(crate) total_caught: usize,
+    /// Monotonic count of crabs a rival NPC King Crab train has spliced away from the player this run
+    /// (the reverse-Snake steal). Like `total_caught` it never drops, so the bot playtests can assert
+    /// "the steal path fired" without racing the live chain count, which the steal itself lowers.
+    pub(crate) crabs_stolen_by_npc: usize,
     pub(crate) beat_timer: f32,
     // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
     // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
@@ -1451,6 +1455,7 @@ impl MainState {
             position_history,
             chain_count: 0,
             total_caught: 0,
+            crabs_stolen_by_npc: 0,
             beat_timer: detected_beat_interval,
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,

@@ -47,6 +47,7 @@ run_script() {
 run_script groove_dash
 run_script menu_to_game
 run_script campaign_tutorial
+run_script npc_steal
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
