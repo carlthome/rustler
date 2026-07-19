@@ -9725,6 +9725,10 @@ impl MainState {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
         self.player_steal_cooldown = (self.player_steal_cooldown - dt).max(0.0);
+        // Whether we're inside the on-beat window this frame — the rival's steal snaps ON the beat
+        // (see the splice block below) so losing crabs is rhythmic, a drum hit rather than a random grab.
+        let on_beat = self.beat_timer < BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
         for i in 0..self.npc_trains.len() {
             // --- Idle pause at destination -------------------------------------------------
             // When idle_timer > 0 the train has just arrived at a target and is "surveying"
@@ -9867,24 +9871,28 @@ impl MainState {
                 }
             }
 
-            // --- Reverse-Snake chain splice steal --------------------------------------------
-            // When the NPC leader draws close to a player chain link it splices the chain:
-            // everything from that link to the tail detaches from the player and joins the NPC.
-            // This is the core conga-ecology mechanic — rivals deliberately thread behind you.
+            // --- Reverse-Snake chain splice steal (telegraphed + beat-synced) ----------------
+            // When the NPC leader threads within range of an exposed tail link it ARMS a steal:
+            // a brief telegraph fuse ramps while the threatened crabs tremble in place, then the
+            // splice SNAPS on the beat (or when the fuse expires). Everything from the spliced link
+            // to the tail detaches from the player and joins the NPC. Making the grab telegraphed and
+            // rhythmic — never a silent instant strip — is what makes losing crabs read as *earned*
+            // (INSPIRATION.md "Legible risk") and land like a drum hit rather than random loss.
             self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
+                const STEAL_FUSE: f32 = 0.55; // telegraph window (~one beat) between arming and the snap
                 let npc_pos = self.npc_trains[i].leader_pos;
-                // Early-out: if the NPC is far from the player and the chain tail, no chain crab
-                // can be within STEAL_RANGE. Use cached_tail_pos (the farthest link, already
-                // computed by update_crabs) as a lower-bound proxy to avoid the O(n_crabs) scan.
-                // The chain spans between player_pos and cached_tail_pos; if the NPC is more than
-                // STEAL_RANGE beyond the tail it definitely can't reach any link.
+                let armed = self.npc_trains[i].steal_threat > 0.0;
+                // Early-out: if the NPC is far from the player and the chain tail — and nothing is
+                // already armed — no chain crab can be within STEAL_RANGE. Use cached_tail_pos (the
+                // farthest link, already computed by update_crabs) as a lower-bound proxy to avoid the
+                // O(n_crabs) scan. Once armed we fall through so the fuse still counts down to its snap.
                 let chain_span = self
                     .cached_tail_pos
                     .map_or(0.0_f32, |t| t.distance(self.player_pos));
                 let dist_to_chain = dist_to_player - chain_span;
-                if dist_to_chain > STEAL_RANGE {
+                if dist_to_chain > STEAL_RANGE && !armed {
                     continue; // skip inner per-crab scan entirely this frame for this NPC
                 }
                 // Find the earliest (closest-to-head) link the NPC is within range of.
@@ -9897,13 +9905,55 @@ impl MainState {
                     .map(|c| c.chain_index.unwrap())
                     .min();
 
-                if let Some(splice_idx) = splice_at {
-                    // Collect the stolen types before mutating crabs
-                    let mut stolen_types: Vec<CrabType> = Vec::new();
-                    let mut stolen_count = 0usize;
+                if !armed {
+                    // ARM the steal the moment a link comes into range: start the telegraph fuse and
+                    // latch the target link so the snap fires from here even if the leader drifts off it.
+                    if let Some(splice_idx) = splice_at {
+                        self.npc_trains[i].steal_threat = STEAL_FUSE;
+                        self.npc_trains[i].steal_target = splice_idx;
+                        let npc_name = self.npc_trains[i].name.clone();
+                        let warn_pos = self
+                            .crabs
+                            .iter()
+                            .find(|c| c.caught && c.chain_index.map_or(false, |idx| idx >= splice_idx))
+                            .map_or(npc_pos, |c| c.pos);
+                        // Peripheral threat language: a red warning callout + ring at the threatened tail.
+                        self.floating_texts.spawn(
+                            format!("⚠ {} is on your tail!", npc_name),
+                            warn_pos - Vec2::new(90.0, 42.0),
+                            26.0,
+                            [0.98, 0.40, 0.16, 1.0],
+                        );
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((warn_pos, 0.0, [0.98, 0.30, 0.14]));
+                        }
+                    }
+                } else {
+                    // Armed: creep the latched target forward if the NPC threaded closer to the head
+                    // (a deeper cut steals more), tremble the threatened crabs as the telegraph, and
+                    // snap on the beat once the warning has shown a moment — or when the fuse runs out.
+                    if let Some(splice_idx) = splice_at {
+                        self.npc_trains[i].steal_target =
+                            self.npc_trains[i].steal_target.min(splice_idx);
+                    }
+                    self.npc_trains[i].steal_threat -= dt;
+                    let splice_idx = self.npc_trains[i].steal_target;
                     for crab in self.crabs.iter_mut() {
-                        if crab.caught {
-                            if crab.chain_index.map_or(false, |idx| idx >= splice_idx) {
+                        if crab.caught && crab.chain_index.map_or(false, |idx| idx >= splice_idx) {
+                            crab.spooked_timer = crab.spooked_timer.max(0.22); // trembling "AT RISK" tell
+                        }
+                    }
+                    let telegraph_shown = self.npc_trains[i].steal_threat < STEAL_FUSE - 0.12;
+                    let fire = self.npc_trains[i].steal_threat <= 0.0 || (on_beat && telegraph_shown);
+                    if fire {
+                        self.npc_trains[i].steal_threat = 0.0;
+                        // Collect the stolen types before mutating crabs
+                        let mut stolen_types: Vec<CrabType> = Vec::new();
+                        let mut stolen_count = 0usize;
+                        for crab in self.crabs.iter_mut() {
+                            if crab.caught
+                                && crab.chain_index.map_or(false, |idx| idx >= splice_idx)
+                            {
                                 crab.caught = false;
                                 crab.chain_index = None;
                                 crab.fleeing = false;
@@ -9917,32 +9967,36 @@ impl MainState {
                                 stolen_count += 1;
                             }
                         }
-                    }
-                    if stolen_count > 0 {
-                        self.chain_count = self.chain_count.saturating_sub(stolen_count);
-                        self.crabs_stolen_by_npc += stolen_count;
-                        self.npc_trains[i].follower_types.extend(stolen_types);
-                        self.npc_trains[i].steal_cooldown = 2.2;
-                        // Visual + audio feedback — this is the key threat moment
-                        let npc_name = self.npc_trains[i].name.clone();
-                        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-                        self.floating_texts.spawn(
-                            format!("{} stole {} crabs!", npc_name, stolen_count),
-                            player_center - Vec2::new(110.0, 55.0),
-                            30.0,
-                            [0.96, 0.72, 0.16, 1.0],
-                        );
-                        self.screen_shake = self.screen_shake.max(10.0);
-                        self.zoom_punch = self.zoom_punch.max(0.08);
-                        self.groove = (self.groove - 0.15).max(0.0);
-                        self.beat_streak = self.beat_streak.saturating_sub(2);
-                        // Shockwave at the splice point so the cut reads on screen
-                        if self.catch_shockwaves.len() < 48 {
-                            self.catch_shockwaves
-                                .push((npc_pos, 0.0, [0.96, 0.72, 0.16]));
+                        if stolen_count > 0 {
+                            self.chain_count = self.chain_count.saturating_sub(stolen_count);
+                            self.crabs_stolen_by_npc += stolen_count;
+                            self.npc_trains[i].follower_types.extend(stolen_types);
+                            self.npc_trains[i].steal_cooldown = 2.2;
+                            // Visual + audio feedback — this is the key threat moment
+                            let npc_name = self.npc_trains[i].name.clone();
+                            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                            self.floating_texts.spawn(
+                                format!("{} stole {} crabs!", npc_name, stolen_count),
+                                player_center - Vec2::new(110.0, 55.0),
+                                30.0,
+                                [0.96, 0.72, 0.16, 1.0],
+                            );
+                            self.screen_shake = self.screen_shake.max(10.0);
+                            self.zoom_punch = self.zoom_punch.max(0.08);
+                            self.groove = (self.groove - 0.15).max(0.0);
+                            self.beat_streak = self.beat_streak.saturating_sub(2);
+                            // Shockwave at the splice point so the cut reads on screen
+                            if self.catch_shockwaves.len() < 48 {
+                                self.catch_shockwaves
+                                    .push((npc_pos, 0.0, [0.96, 0.72, 0.16]));
+                            }
                         }
                     }
                 }
+            } else if self.npc_trains[i].steal_threat > 0.0 {
+                // Cooldown started, or the chain was banked/snapped out from under the threat —
+                // let any armed telegraph lapse cleanly so a stale target can't fire later.
+                self.npc_trains[i].steal_threat = 0.0;
             }
 
             // --- Steal to win: thread YOUR head through a rival's line to rustle it back --------
