@@ -10331,18 +10331,18 @@ impl MainState {
             //   • Distance-scaled alpha — a distant rival's name burns in at full opacity so you
             //     can read who's approaching; it eases off as they close on you and the crab
             //     itself is plainly visible.
-            // Glyphs are shaped once (cached at a large baseline) and the per-tier size comes from
-            // the draw scale, so this stays allocation-free per frame.
+            // Glyphs are shaped once per distinct train name (cached at a large baseline, keyed by
+            // name) and the per-tier size comes from the draw scale, so this stays allocation-free
+            // per frame once every live train's name has been shaped a first time.
             let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
-                let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
-                if needs_rebuild {
+                if !cache.contains_key(&npc.name) {
                     let mut text = Text::new(npc.name.as_str());
                     text.set_scale(24.0);
                     let w = text.measure(ctx)?.x;
-                    *cache = Some((npc.name.clone(), text, w));
+                    cache.insert(npc.name.clone(), (text, w));
                 }
-                Ok(cache.as_ref().unwrap().2)
+                Ok(cache.get(&npc.name).unwrap().1)
             })?;
             // Tier styling from the leader's base size.
             let tier_scale = 0.8 + (npc.base_scale - 1.2) * 0.33;
@@ -10360,7 +10360,7 @@ impl MainState {
             let name_off = 45.0 + npc.leader_scale * 10.0 + leader_bob;
             NPC_NAME_CACHE.with(|c| {
                 let cache = c.borrow();
-                if let Some((_, text, _)) = cache.as_ref() {
+                if let Some((text, _)) = cache.get(&npc.name) {
                     let name_pos = npc.leader_pos - Vec2::new(draw_w / 2.0, name_off);
                     // Drop shadow (scaled with the banner so it tracks tier size)
                     canvas.draw(
