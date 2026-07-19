@@ -2,9 +2,9 @@
 
 Rust game (ggez 0.9.3), reverse Vampire Survivors: player builds a conga train of caught crabs.
 
-**INSPIRATION.md** — read before making design decisions. Captures Carl's stated influences and design principles. Game Director and Feature Developer agents treat it as the design compass.
+**INSPIRATION.md** — read before making design decisions. Captures Carl's stated influences and design principles. Game Director and Gameplay Engineer agents treat it as the design compass.
 
-**ROADMAP.md** — maintained by the Game Director agent (Cron 6). The Feature Developer reads it for direction; it doesn't edit it.
+**ROADMAP.md** — maintained by the Game Director agent (Cron 6). The Gameplay Engineer reads it for direction; it doesn't edit it.
 
 ## Build
 
@@ -29,7 +29,7 @@ environment.
 The bot playtests (`scripts/playtest.sh`) are how we know the game still *works*, not
 just that it compiles. The **Playtest** GitHub Actions workflow now runs them on every
 push and PR to `main`, and it is green — keeping it green is a hard rule for every
-code-writing agent (Feature Developer, Optimizer, CI Optimizer, Architect, Issue Agent):
+code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Software Architect, Issue Agent):
 
 - **Run playtests before you push, every time.** `cargo build && bash scripts/playtest.sh`
   must pass locally before you commit. A change that builds but fails a playtest is a broken
@@ -59,7 +59,7 @@ its own isolated CI run, so they develop in parallel with no shared working dire
 - Scope issues to a single subsystem (e.g. "enemies", "audio", "rendering", "spawning").
 - If you're planning refactors or modularisation that will move files, open that as its own
   issue and merge it before opening feature issues that touch the same area.
-- The Architect agent (cron 7) continuously splits large files into subsystem modules —
+- The Software Architect agent (cron 7) continuously splits large files into subsystem modules —
   smaller, well-named modules make parallel issue PRs far less likely to conflict.
 
 **Issue Agent coordination:** Before implementing, check open PRs with `gh pr list` to see
@@ -71,8 +71,8 @@ sharing and why, and look for opportunities to reuse or consolidate rather than 
 ## File ownership (parallel agent splits)
 
 - `ROADMAP.md` — owned by Game Director (cron 6) only.
-- The Optimizer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
-- The CI Optimizer (cron 4) owns the CI surface — `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh` provisioning, and `[profile.*]` in `Cargo.toml`. It stays out of game source; the game agents stay out of the CI surface. This keeps the two optimizers from colliding.
+- The Performance Engineer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
+- The Build Engineer (cron 4) owns the CI surface — `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh` provisioning, and `[profile.*]` in `Cargo.toml`. It stays out of game source; the game agents stay out of the CI surface. This keeps the Build Engineer and the Performance Engineer from colliding.
 - Issue Agent PRs each live on their own branch — they never share a working directory with
   each other or with the local crons. If two issue PRs touch the same file, the second to
   merge will need a rebase; GitHub will flag the conflict.
@@ -125,22 +125,22 @@ sandbox — the `SessionStart` hook provisions dependencies (see **Build** above
 **Code-writing routines (cargo build + playtest in the sandbox):**
 
 ```text
-1. Feature Developer — hourly, 24/7    — opus   ← main gameplay driver (also covers overnight)
-4. CI Optimizer      — every 6 hours   — sonnet ← keeps CI lean & fast (build/test speed)
-5. Optimizer         — every 2 hours   — sonnet ← game runtime perf fixes (FPS / frame time)
-7. Architect         — every 3 hours   — sonnet ← file splits
+1. Gameplay Engineer    — hourly, 24/7   — opus   ← main gameplay driver, also covers overnight (was "Feature Developer")
+4. Build Engineer       — every 6 hours  — sonnet ← keeps CI lean & fast: build/test speed (was "CI Optimizer")
+5. Performance Engineer — every 2 hours  — sonnet ← game runtime perf: FPS / frame time (was "Optimizer")
+7. Software Architect   — every 3 hours  — sonnet ← file splits / modularisation (was "Architect")
 ```
 
 Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the *game at runtime*
 (FPS, frame hitches) while 4 optimizes the *pipeline* (CI wall-clock, build/test speed). Keep them
 distinct — 4 never touches game logic for framerate, 5 never edits CI config.
 
-The old **Overnight Dev** (cron 4) is retired: the Feature Developer now runs hourly around the
+The old **Overnight Dev** (cron 4) is retired: the Gameplay Engineer now runs hourly around the
 clock and covers that window itself. (Its old caution — nobody's watching overnight — is folded into
-the Feature Developer prompt.)
+the Gameplay Engineer prompt.)
 
 > Cadence note: remote routines fire at most hourly, so the old sub-hourly
-> cadences (Feature Dev every 12 min, Optimizer every 30 min) were raised to the
+> cadences (Gameplay Engineer every 12 min, Performance Engineer every 30 min) were raised to the
 > hourly minimum. Minutes are staggered so concurrent pushes to main don't collide.
 
 Manage all of them at: [claude.ai/code/routines](https://claude.ai/code/routines)
@@ -171,16 +171,16 @@ concurrent commits to main.
 
 ## How the agents work together
 
-1. **Feature Developer** (cron 1) writes game code, checking ROADMAP.md first. It runs hourly around the clock (it absorbed the retired Overnight Dev's window).
-2. **Optimizer** (cron 5) keeps the *game* smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **CI Optimizer** (cron 4) is its sibling: it keeps the *pipeline* fast — trims CI wall-clock and build/test time. Never touches game logic.
-3. **Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
+1. **Gameplay Engineer** (cron 1) writes game code, checking ROADMAP.md first. It runs hourly around the clock (it absorbed the retired Overnight Dev's window).
+2. **Performance Engineer** (cron 5) keeps the *game* smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the *pipeline* fast — trims CI wall-clock and build/test time. Never touches game logic.
+3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
 4. **Release Manager** (cron 2) tags a release once ≥5 non-chore commits have landed.
 5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a screenshot — the feedback channel Carl actually sees.
 6. **Game Director** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md — which feeds back into step 1.
 
 If editing a cron's prompt, check whether another cron reads its output before assuming the change is isolated.
 
-## Cron 1 — Feature Developer prompt
+## Cron 1 — Gameplay Engineer prompt
 
 ```text
 You are a game developer working on "Crab Rustler".
@@ -292,11 +292,11 @@ Steps:
    it's the actual feedback channel to Carl, not just a status update.
 ```
 
-## Cron 4 — CI Optimizer prompt
+## Cron 4 — Build Engineer prompt
 
 ```text
-You are the CI Optimizer for "Crab Rustler" — a Rust game (ggez 0.9.3). You are the sibling of the
-game-performance Optimizer (cron 5): it keeps the *game* fast at runtime; you keep the *pipeline*
+You are the Build Engineer for "Crab Rustler" — a Rust game (ggez 0.9.3). You are the sibling of the
+Performance Engineer (cron 5, game runtime): it keeps the *game* fast at runtime; you keep the *pipeline*
 fast. Your one job is to make CI (the GitHub Actions workflows: build, Playtest, claude-review) as
 lean and fast as possible — shorter wall-clock, less wasted work — WITHOUT ever weakening what CI
 actually verifies. You do not write game code or change game behaviour.
@@ -337,11 +337,11 @@ Steps:
    failed check is your next task.
 
 If nothing obvious stands out this run, add lightweight timing visibility (e.g. per-step timing in a
-job summary) so future runs have real data instead of guesses — same spirit as the perf Optimizer's
+job summary) so future runs have real data instead of guesses — same spirit as the Performance Engineer's
 frame-time instrumentation.
 ```
 
-## Cron 5 — Optimizer prompt
+## Cron 5 — Performance Engineer prompt
 
 ```text
 You are a performance engineer working on "Crab Rustler".
@@ -401,7 +401,7 @@ Steps:
 7. `git -C . pull --ff-only` then push
 ```
 
-## Cron 7 — Architect prompt
+## Cron 7 — Software Architect prompt
 
 ```text
 You are a software architect working on "Crab Rustler".
@@ -496,7 +496,7 @@ Steps:
 
 6. Make minimal, high-signal edits. Don't change game direction (Game Director's job) or
    restructure the whole pipeline in one run — one clear improvement per cycle.
-7. Commit with a message explaining *why*, not just what: e.g. "Supervisor: Optimizer prompt
+7. Commit with a message explaining *why*, not just what: e.g. "Supervisor: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
    — no Co-Authored-By lines
 8. `git -C . pull --ff-only` then push
