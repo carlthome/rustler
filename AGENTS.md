@@ -63,8 +63,9 @@ its own isolated CI run, so they develop in parallel with no shared working dire
 - The Software Architect agent (cron 7) continuously splits large files into subsystem modules —
   smaller, well-named modules make parallel issue PRs far less likely to conflict.
 
-**Issue Agent coordination:** Before implementing, check open PRs with `gh pr list` to see
-what other issue agents are already working on. If a concurrent PR touches the same file,
+**Issue Agent coordination:** Before implementing, check open PRs using the GitHub MCP
+`list_pull_requests` tool (not `gh pr list` — `gh` may not be available in the remote sandbox)
+to see what other issue agents are already working on. If a concurrent PR touches the same file,
 either rebase on it or narrow your change to avoid the overlap and note the dependency in
 your PR description. When in doubt, coordinate via the PR description — note what you're
 sharing and why, and look for opportunities to reuse or consolidate rather than duplicate.
@@ -351,6 +352,14 @@ undoing anyone else's work.
 
 Steps:
 1. `git -C . pull --ff-only`
+1a. **Before picking new work, drain any open perf PRs from prior runs.**
+   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. If there is an
+   open PR from a prior Performance Engineer run:
+   - CI green: mark it ready (`update_pull_request draft: false`), wait for new checks to settle
+     green, then squash-merge. Done for this run.
+   - CI still running: wait for it to finish, then merge or fix.
+   - Superseded by a change already merged to main: close it with a note, then continue to new work.
+   Never stack a second perf PR on top of an open first one.
 2. Read git log: `git -C . log --oneline -15`
 3. Skim per-frame update/draw loops in src/main.rs and src/graphics.rs for:
    - Per-frame heap allocations (Vec::new/clone, format!/String inside update()/draw())
@@ -429,6 +438,20 @@ Guidelines:
 
 Steps:
 1. `git -C . pull --ff-only`
+1a. **Before doing any new extraction work, drain the open-PR queue.**
+   Use the GitHub MCP `list_pull_requests` tool (not `gh`, which may not be available in the
+   remote sandbox) to list open PRs into `main`. Look for any open structural/module-split PRs
+   (prior Architect runs each open one):
+   - **CI green on the PR**: mark it ready for review (`update_pull_request` with `draft: false`),
+     wait for any new required checks that readying triggers to settle green, then squash-merge it.
+     That is your whole task this run — stop here, don't open another PR.
+   - **CI still running**: wait for it to finish, then merge or fix as above. Still stop here.
+   - **Stale base** (the source file it extracted has since been modified by a merged PR, making this
+     one conflict): close the PR with a short note ("superseded by merged refactors, needs rebase"),
+     so the queue stays clean. Then continue to new work below.
+   **One open Architect PR at a time.** If the queue has multiple open PRs: pick the most-recent one
+   that's CI-green and merge it, or close the others as stale. Never open a new extraction PR while a
+   prior one is still open and mergeable.
 2. Check line counts: `wc -l ./src/*.rs`
 3. For each file over 1000 lines, get a structural map before reading anything:
    `grep -n "^pub fn \|^fn \|^impl \|^pub struct \|^struct \|^pub enum \|^mod " src/<file>.rs | head -80`
