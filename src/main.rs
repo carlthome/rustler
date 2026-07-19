@@ -10607,8 +10607,18 @@ impl EventHandler for MainState {
                 // since train follower count drives both path_history size and draw_npc_conga_train cost.
                 let npc_followers: usize =
                     self.npc_trains.iter().map(|n| n.follower_types.len()).sum();
+                // How many rival trains currently have an armed steal telegraph (see
+                // update_npc_trains): each armed train runs an extra full self.crabs scan every
+                // frame to tremble the threatened links. Correlating this with frame time lets a
+                // future pass tell at a glance whether the newest steal-telegraph mechanic is
+                // actually costing anything, instead of guessing from code inspection.
+                let armed_trains = self
+                    .npc_trains
+                    .iter()
+                    .filter(|n| n.steal_threat > 0.0)
+                    .count();
                 println!(
-                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained, {} npc followers)",
+                    "[perf] {} frames in {:.1}s — avg {:.2}ms ({:.0} fps), worst {:.2}ms — {} crabs ({} chained, {} npc followers, {} armed steals)",
                     self.perf_frame_count,
                     self.perf_time_accum,
                     avg_ms,
@@ -10617,6 +10627,7 @@ impl EventHandler for MainState {
                     self.crabs.len(),
                     self.chain_count,
                     npc_followers,
+                    armed_trains,
                 );
                 // Stash for the on-screen overlay (see draw()) so the number is visible during
                 // play too, not just in a terminal that may not be in view.
