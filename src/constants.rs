@@ -77,6 +77,13 @@ pub const STOMP_MAX_RADIUS: f32 = 155.0;
 // Steal telegraph fuse (seconds): how long a rival's armed splice trembles before it snaps.
 // Shared by update_npc_trains (arming) and the bot defense test so the two can't drift apart.
 pub const STEAL_FUSE: f32 = 0.55;
+// Cap on how many crabs a single rival splice can rustle away. A steal takes at most this many
+// links off the tail (and never more than half the chain — see update_npc_trains), so losing
+// crabs stays a recoverable bite you can steal back, not a one-hit train-wipe. This is the
+// "tune so it's fun, not punishing" lever (ROADMAP steal headline): the loop should feel like a
+// tense back-and-forth, not a random tax. Shared with the npc_steal bot test so the cap can't
+// silently regress.
+pub const STEAL_MAX_LINKS: usize = 5;
 // Defensive parry reach: how close a rival leader must be to a tool cast to be repelled. Stomp is
 // the up-close bodyguard (short, punchy); the Beat Wave is the wide ranged save. This is the tool
 // identity — Stomp defends what's on top of you, the Wave sweeps a threat off from across the lane.

@@ -484,6 +484,11 @@ pub struct MainState {
     /// (the reverse-Snake steal). Like `total_caught` it never drops, so the bot playtests can assert
     /// "the steal path fired" without racing the live chain count, which the steal itself lowers.
     pub(crate) crabs_stolen_by_npc: usize,
+    /// Largest number of crabs a rival stole in a *single* splice this run. The steal is capped to a
+    /// recoverable bite (`STEAL_MAX_LINKS`, and never more than half the chain — see
+    /// `update_npc_trains`), so this stays low; the `npc_steal` bot test asserts it never exceeds the
+    /// cap, guarding the "fun, not punishing" tuning against silent regression. Never drops.
+    pub(crate) max_single_steal_by_npc: usize,
     /// Monotonic count of crabs the *player* has rustled back off a rival NPC train this run — the
     /// reciprocal "steal to win" splice (drive your train's head through a rival's line and its back
     /// section snaps onto yours). Never drops, so the bot playtests can assert the steal-back fired
@@ -1490,6 +1495,7 @@ impl MainState {
             chain_count: 0,
             total_caught: 0,
             crabs_stolen_by_npc: 0,
+            max_single_steal_by_npc: 0,
             crabs_stolen_by_player: 0,
             steals_parried: 0,
             steal_loss_sfx: false,

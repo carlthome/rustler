@@ -3676,6 +3676,7 @@ impl MainState {
         self.chain_count = 0;
         self.total_caught = 0;
         self.crabs_stolen_by_npc = 0;
+        self.max_single_steal_by_npc = 0;
         self.crabs_stolen_by_player = 0;
         self.steals_parried = 0;
         self.player_steal_cooldown = 0.0;
@@ -6533,6 +6534,7 @@ impl MainState {
                         BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
                         BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
                         BotAssert::StolenAtLeast(n) => self.crabs_stolen_by_npc >= *n,
+                        BotAssert::MaxSingleStealAtMost(n) => self.max_single_steal_by_npc <= *n,
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
                         BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
