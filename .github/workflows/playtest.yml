@@ -14,6 +14,14 @@ concurrency:
 jobs:
   playtest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Each scenario gets its own runner so the four bot scripts run
+      # concurrently instead of back-to-back in one job — the slowest single
+      # scenario sets the wall-clock instead of their sum. Same coverage,
+      # same scripts, just fanned out.
+      matrix:
+        scenario: [groove_dash, menu_to_game, campaign_tutorial, npc_steal, player_steal]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,5 +44,5 @@ jobs:
 
       # scripts/playtest.sh auto-detects the absence of Nix and falls back to
       # plain cargo, wrapping the bot in xvfb with a software GL backend.
-      - name: Build and run playtests
-        run: bash scripts/playtest.sh
+      - name: Build and run playtest
+        run: bash scripts/playtest.sh ${{ matrix.scenario }}
