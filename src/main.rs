@@ -10198,35 +10198,61 @@ impl MainState {
                 );
             }
 
-            // Name plate floating above the King Crab — cached so glyphs aren't reshaped every frame.
+            // Name banner floating above the King Crab — a distinct, readable-across-the-field
+            // label so rivals tell apart at a glance (agar.io: spot the big one creeping in from
+            // the edge). Three signals stack:
+            //   • Size by tier — elders' banners are noticeably bigger than scouts', scaled off
+            //     base_scale (scout 1.2 / wanderer 1.8 / elder 2.4).
+            //   • Colour by tier — pale lime scout, regal gold wanderer, deep-amber apex elder.
+            //   • Distance-scaled alpha — a distant rival's name burns in at full opacity so you
+            //     can read who's approaching; it eases off as they close on you and the crab
+            //     itself is plainly visible.
+            // Glyphs are shaped once (cached at a large baseline) and the per-tier size comes from
+            // the draw scale, so this stays allocation-free per frame.
             let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
                 let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
                 if needs_rebuild {
                     let mut text = Text::new(npc.name.as_str());
-                    text.set_scale(16.0);
+                    text.set_scale(24.0);
                     let w = text.measure(ctx)?.x;
                     *cache = Some((npc.name.clone(), text, w));
                 }
                 Ok(cache.as_ref().unwrap().2)
             })?;
+            // Tier styling from the leader's base size.
+            let tier_scale = 0.8 + (npc.base_scale - 1.2) * 0.33;
+            let (nr, ng, nb) = if npc.base_scale >= 2.2 {
+                (1.0, 0.5, 0.12) // elder — deep amber, the apex train
+            } else if npc.base_scale >= 1.6 {
+                (0.98, 0.78, 0.28) // wanderer — regal gold
+            } else {
+                (0.72, 0.95, 0.5) // scout — pale lime, small and fast
+            };
+            // Distance ramp: far rivals read at full opacity, near ones ease back.
+            let dist = (npc.leader_pos - self.player_pos).length();
+            let dist_alpha = (0.5 + dist / 1000.0 * 0.5).clamp(0.5, 1.0);
+            let draw_w = name_w * tier_scale;
+            let name_off = 45.0 + npc.leader_scale * 10.0 + leader_bob;
             NPC_NAME_CACHE.with(|c| {
                 let cache = c.borrow();
                 if let Some((_, text, _)) = cache.as_ref() {
-                    let name_pos = npc.leader_pos - Vec2::new(name_w / 2.0, 55.0 + leader_bob);
-                    // Drop shadow
+                    let name_pos = npc.leader_pos - Vec2::new(draw_w / 2.0, name_off);
+                    // Drop shadow (scaled with the banner so it tracks tier size)
                     canvas.draw(
                         text,
                         DrawParam::default()
-                            .dest(name_pos + Vec2::splat(1.5))
-                            .color(Color::from_rgba(0, 0, 0, 180)),
+                            .dest(name_pos + Vec2::splat(2.0 * tier_scale))
+                            .scale(Vec2::splat(tier_scale))
+                            .color(Color::new(0.0, 0.0, 0.0, 0.7 * dist_alpha)),
                     );
-                    // Name in regal gold
+                    // Name in its tier colour
                     canvas.draw(
                         text,
                         DrawParam::default()
                             .dest(name_pos)
-                            .color(Color::new(0.96, 0.82, 0.3, 0.95)),
+                            .scale(Vec2::splat(tier_scale))
+                            .color(Color::new(nr, ng, nb, dist_alpha)),
                     );
                 }
             });
