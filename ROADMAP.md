@@ -52,49 +52,40 @@ a **Zelda-style 5-slot tool-roster HUD** with cooldowns (4dbfd84), a **minimap +
 trails followers and roams the world on its own, *heard before seen* via a spatial-audio rumble that swells as it
 nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now **three visually distinct tiers**
 (scout/wanderer/elder — size, speed, territory, idle pauses, d046ae7) so a small train reads differently from a huge
-one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
+one at a glance. **The read-check is now cleared:** the rumble pans left/right by the leader's bearing (#25) and each
+rival wears a distinct, tier-styled name banner you can read across the field (#26) — so the ambient train reads *and*
+sounds like a rival from a distance. Still visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
 **Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
 weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
-request, not a roadmap item. **The only commit since my last cycle is `aaccb3c` — the Release Manager tagging
-v0.17.0.** Read that as a *warning, not progress*: we cut a versioned release while the core-verb playtest is still
-red, so v0.17.0 ships a game whose catching regression is masked, not fixed. Feature/Overnight/Optimizer/Architect
-again produced no game code across this whole window. **This remains the real problem, above any feature:** the two
-playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb) and
-`campaign_tutorial` — are *still commented out* (scripts/playtest.sh lines 48–49), now ~16 commits and **four**
-Director cycles deep. Per the Supervisor's ruling (621d07e) a disabled test *is* a FAIL; the code-writing crons keep
-bouncing off it into nothing. It beats everything until green (top of Bugs). Prior landings still stand: the groove rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano
-lead c80c96a), the flashlight targeting NPC train leaders (28452dc), the ambient rumble snapped to one bar at game BPM
-with density halved (e571ce1), Control-style slide-in title cards (cd0cc39), CI on the cargo+apt path (#16/#17).
-**The ecology read-check is still half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
-(e571ce1) but still **mono** — you hear the train approach without hearing *which way*. Porting the boss's
-pan-by-angle + rolloff (2101cef) onto the ambient rumble is the one remaining audio task, alongside the distinct name
-banner — and *it still has not been playtested in motion*. The **core steal rule** stays parked until that read-check
-passes. Mechanics-freeze is **lifted** (2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on
-new verbs. No new Now items — fix the disabled-test bugs first, then finish the radar's directional pan.
+request, not a roadmap item. **But the pipeline broke its stall and this is the biggest cycle in weeks.** The
+four-cycle top bug is *fixed*: `menu_to_game` — the core crab-catching verb — was re-enabled with a closed-loop
+autopilot (#20), and `campaign_tutorial` was fixed and re-enabled too (#24). Both disabled tests are green;
+scripts/playtest.sh lines 47–49 are all live `run_script` calls again. **The Bugs section is now empty for the first
+time in a month.** On top of that, both remaining ecology read-check tasks landed: the ambient rumble now
+**pans by the leader's bearing** (#25, porting the boss's pan-by-angle + rolloff 2101cef) and each rival wears a
+**distinct tier-styled name banner** (#26). Add the fleet-safety CI hardening (#27, concurrency + merge-freshness),
+and the groove bed, flashlight-targets-leader, and Control title cards that already stood.
+**This clears the gate the whole roadmap has been sequenced around.** Per the plan, "passing this read-check unblocks
+the steal rule" — so the **core steal rule (train-vs-train splice)** is promoted into Now this cycle as the new
+headline. Mechanics-freeze is **lifted** (2026-07-16), and the steal rule isn't a bolt-on verb — it's the destination
+the prototype has been scaffolding toward. One caveat: nobody has *watched* the tiers/pan/banner read in motion yet,
+so the steal-rule item carries a quick "confirm it reads while moving" pre-flight before the splice work begins.
 
 ## Bugs (fix before anything else in Now)
 
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- **[TOP BUG — four Director cycles now without a fix; v0.17.0 shipped on top of it] `menu_to_game` playtest is
-  disabled to hide a crab-catching regression.** `scripts/playtest.sh` line 48 has `run_script menu_to_game`
-  commented out "pending crab catching fix" (477f7e6). Catching is the *core verb* — a masked regression here is the
-  worst kind, and ~16 commits of audio/HUD polish (plus a *released* version tag, aaccb3c) sit on top of it untouched. **Feature/Overnight agents keep bouncing off this
-  into softer work — or lately into nothing at all. Stop.** Read `src/bot.rs` to see what the test asserts,
-  re-enable the line to reproduce the live failure (`bash scripts/playtest.sh 2>&1`), `git show 477f7e6` to see
-  what changed, fix the root cause, then commit with the line re-enabled. Never leave it commented as a
-  workaround (Supervisor ruling, 621d07e). This beats every feature and every ecology item below until it is green.
-- **[BUG] `campaign_tutorial` playtest is disabled pending a tutorial→world-map bug.** Same file, line 49,
-  commented "enable once tutorial->world-map bug is fixed." Re-enable and fix once the crab-catching bug above
-  is cleared (they may share a root cause in the menu/level transition).
-- Fixed this cycle: the flashlight/wgpu crash (draw-order fix — flashlight drawn last, after all instanced
-  meshes, a375f52 / 53b23c3). Previously fixed: upgrade screen fired at the wrong time / popped back-to-back
-  (c01b922 loops the threshold past the current banked score, 3b17573 fires the check at the pen); the
-  start-of-run `InstanceArray capacity > 0` crash; the windowed-instead-of-fullscreen bug. If you hit a panic
-  or a wrong-looking frame while testing, log it here before shipping anything new.
+- **None open.** For the first time in a month the disabled-test crisis is fully cleared: `menu_to_game`
+  (the core crab-catching verb) was re-enabled with a closed-loop autopilot (#20) and `campaign_tutorial`
+  was fixed and re-enabled (#24). All three `run_script` lines in scripts/playtest.sh are live and the
+  Playtest CI is green. **Keep it green — a red Playtest is an instant top-priority bug (AGENTS.md rule).**
+- Fixed this cycle: the two disabled playtests above (#20, #24). Previously fixed: the flashlight/wgpu crash
+  (draw-order fix, a375f52 / 53b23c3); the upgrade screen firing at the wrong time / popping back-to-back
+  (c01b922, 3b17573); the start-of-run `InstanceArray capacity > 0` crash; the windowed-instead-of-fullscreen
+  bug. If you hit a panic or a wrong-looking frame while testing, log it here before shipping anything new.
 
 ## Now
 
@@ -110,7 +101,27 @@ item in "Now" below.
   of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
   beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
-- **[TOP PRIORITY] Sharpen archetype-tool matchups into a readable soft RPS system.** *Momentum is real:* six pairs
+- **[★ HEADLINE — CORE GAME, the gate is cleared] Train-vs-train stealing via the reverse-Snake crossing rule.**
+  Per the roadmap's own sequencing, passing the ambient-train read-check unblocks the steal rule — and this cycle it
+  passed: the rival train now reads *and* sounds like a rival from across the field (tiers d046ae7, directional pan #25,
+  name banner #26, flashlight-targets-leader 28452dc all shipped). This is the moment the whole prototype has been
+  scaffolding toward (see thesis at top + INSPIRATION.md "The core steal mechanic"). It **beats the polish items below** —
+  build the **first slice of the splice**, one clean rule, incrementally:
+  1. **Pre-flight (do this first, it's cheap):** run the game and confirm the tiers, rumble pan, and name banner
+     actually read while everything is *moving* — not just parked. If any of the three doesn't read in motion, that's a
+     quick fix and it comes before the splice work. Nobody has watched it live yet.
+  2. **The rule (INSPIRATION.md):** your own conga line may cross itself freely, but when a *rival* King Crab train
+     crosses your line it **splices at the crossing point** — the back section detaches and magnetically snaps onto the
+     rival's train as stolen crabs. Start with the detection + detachment against the existing ambient train; the rival
+     doesn't need clever routing yet, just the crossing → splice → snap.
+  3. **Make it read and make it rhythmic:** the splice must be *legible* (you see which crabs were taken and by whom —
+     reuse the AT RISK / chain-heat language) and *beat-flavored* (the snap lands on the beat, an on-beat defensive
+     reroute or tool hit can contest it). Losing crabs should feel earned, never random (INSPIRATION.md "Legible risk").
+  Keep it a small, safe, well-playtested first slice — detection + one-directional steal (rival takes from you) before
+  the player can steal back. Extend the `menu_to_game`/bot coverage so the new steal path can't silently regress.
+
+- **Sharpen archetype-tool matchups into a readable soft RPS system.** *(Polish lane — do the steal slice above first.)*
+  *Momentum is real:* six pairs
   now draw their moment — the three flagship strong-matches beam/Hermit, stomp/Dancer, lasso/Thief (e819849), plus
   Magnet-vs-herd-cluster (01b8573) and lasso-vs-Magnet (b35db97), plus the first *negative* tell: a grey-steel
   ricochet when the lasso slips off a shelled crab, so "wrong tool" reads as clearly as a strong match (01c7877).
@@ -125,20 +136,6 @@ item in "Now" below.
   distinct effect bursts for: archetype-tool strong matches, chain crossover triggers, bond-forming catches,
   boss phase transitions. Each effect should be *brief, distinctive, and informative* — the player learns
   the system by watching it, not by reading a tutorial.
-
-- **[ECOLOGY — validate the first slice] Make the ambient King Crab train read as a genuine rival.** The ambient
-  wandering train (6a17026 + spatial rumble 2200964 + names 38201e5) reads in **three visually distinct tiers** —
-  scout/wanderer/elder differ in size, speed, territory, and idle pauses (d046ae7) — and the flashlight now *targets*
-  its leader (28452dc), the first player-tool contact with a rival. The music-swell radar is **half done**: the
-  distance swell is smooth and tuned (e571ce1), but the rumble is **still mono** — you hear the train approach without
-  hearing *which way* it is. Two concrete tasks remain, no new player verb:
-  1. **Directional pan (the one remaining audio task).** Port the boss's stereo-pan-by-angle + rolloff (2101cef) onto
-     the ambient train's rumble so it pans left/right by the leader's bearing, agar.io-style. Distance swell is
-     already there; this adds the *direction*.
-  2. **Distinct name banner.** A larger, distance-scaled-alpha name label you can read across the field to tell
-     rivals apart.
-  Then **playtest it in motion** — nobody has yet confirmed the tiers and rumble actually read while moving. Still
-  visual-only: does NOT steal, splice, or react to you. Passing this read-check unblocks the steal rule below.
 
 ## Later (outer loop — not yet)
 
@@ -219,10 +216,11 @@ item in "Now" below.
   *steal* crabs from the player's train and each other; the beach is a living ecosystem of rival conga
   leaders. The player starts smallest and must **out-arrange, not just out-catch** — a well-arranged short
   train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs — **✅ ambient slice shipped
-  (6a17026), now legible in tiers (d046ae7) and being validated in Now**; (2) train-vs-train stealing (the reverse-Snake crossing rule in INSPIRATION)
-  — **next up, promote to Now once the ambient train passes its read-check**; (3) ecology from simple per-creature rules
-  à la Rain World (see INSPIRATION.md); (4) human-vs-human Rustlers competing for the largest, best-arranged train.
-  The scrolling-world gate has landed; step (2) is now gated only on the ambient train reading right first.
+  (6a17026), legible in tiers (d046ae7), and read-check cleared — pan (#25) + banner (#26) landed**; (2) train-vs-train
+  stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ promoted to Now this cycle; the read-check gate is
+  passed, first splice slice is the headline task**; (3) ecology from simple per-creature rules à la Rain World (see
+  INSPIRATION.md); (4) human-vs-human Rustlers competing for the largest, best-arranged train.
+  The scrolling-world gate and the ambient-train read-check have both landed; step (2) is now active work in Now.
 
 - **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
   the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
