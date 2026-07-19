@@ -310,6 +310,19 @@ cheaper equivalent work — never from checking less.
 
 Steps:
 1. `git -C . pull --ff-only`
+1a. **Before picking new work, drain any open Build Engineer PRs from prior runs.**
+   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. Look for any open
+   PRs from prior Build Engineer runs.
+   **One open Build Engineer PR at a time.** If there are multiple open Build Engineer PRs:
+   pick the most-recent CI-green one and merge it (or fix it if failing); close ALL others as stale
+   with a note ("superseded, closing to unblock queue"). If there is exactly one open Build Engineer PR:
+   - CI green: mark it ready (`update_pull_request draft: false`), wait for new checks to settle
+     green, then squash-merge. The PR's own CI run is your before/after benchmark: confirm it's
+     genuinely faster AND still green before merging. That is your whole task this run — stop here.
+   - CI still running: wait for it to finish, then merge or fix. Still stop here.
+   - Superseded by a change already merged to main: close it with a note, then continue to new work.
+   **Before choosing your CI optimization target (step 5), scan all open PR titles.** If an open PR
+   already implements the thing you were about to do, pick a different target — don't reimplement it.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
@@ -353,13 +366,17 @@ undoing anyone else's work.
 Steps:
 1. `git -C . pull --ff-only`
 1a. **Before picking new work, drain any open perf PRs from prior runs.**
-   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. If there is an
-   open PR from a prior Performance Engineer run:
+   Use the GitHub MCP `list_pull_requests` tool to list open PRs into `main`. Look for any open
+   PRs from prior Performance Engineer runs.
+   **One open Performance Engineer PR at a time.** If there are multiple open perf PRs:
+   pick the most-recent CI-green one and merge it (or fix it if failing); close ALL others as stale
+   with a note ("superseded, closing to unblock queue"). If there is exactly one open perf PR:
    - CI green: mark it ready (`update_pull_request draft: false`), wait for new checks to settle
-     green, then squash-merge. Done for this run.
-   - CI still running: wait for it to finish, then merge or fix.
+     green, then squash-merge. That is your whole task this run — stop here, don't open another PR.
+   - CI still running: wait for it to finish, then merge or fix. Still stop here.
    - Superseded by a change already merged to main: close it with a note, then continue to new work.
-   Never stack a second perf PR on top of an open first one.
+   **Before choosing your optimization target (step 3), scan all open PR titles.** If an open PR
+   already implements the thing you were about to fix, pick a different target — don't reimplement it.
 2. Read git log: `git -C . log --oneline -15`
 3. Skim per-frame update/draw loops in src/main.rs and src/graphics.rs for:
    - Per-frame heap allocations (Vec::new/clone, format!/String inside update()/draw())
