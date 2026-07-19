@@ -90,6 +90,48 @@ impl MainState {
         }
     }
 
+    /// Bot-test helper (see BotAction::ForceStealDefense): deterministically stage the defensive
+    /// parry. Arm a rival's splice on a mid-chain link, snap the beat into the on-beat window, then
+    /// run the real `try_defend_steal` helper (the exact path the Stomp/Wave casts drive) centred on
+    /// the rival's leader so the cancel fires this frame. A no-op when there's nothing stealable
+    /// (no NPC trains, or a chain shorter than 2). Exercises the real arm → on-beat cancel path; only
+    /// the player's tool timing (RNG-fragile headless) is shortcut.
+    pub fn force_steal_defense(&mut self) {
+        if self.npc_trains.is_empty() || self.chain_count < 2 {
+            return;
+        }
+        // Aim for a mid-chain link (never the head, index 0) — same target the rival's real splice
+        // seeks, so the staged threat reads like a genuine tail-thread.
+        let mid = self.chain_count / 2;
+        let target = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
+            .min_by_key(|c| c.chain_index.unwrap().abs_diff(mid))
+            .map(|c| (c.pos, c.chain_index.unwrap()));
+        let Some((target_pos, target_idx)) = target else {
+            return;
+        };
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Arm a splice on this rival at the mid link (as update_npc_trains would once threaded).
+        self.npc_trains[ni].leader_pos = target_pos;
+        self.npc_trains[ni].steal_threat = STEAL_FUSE;
+        self.npc_trains[ni].steal_target = target_idx;
+        self.npc_trains[ni].steal_cooldown = 0.0;
+        // Force the beat into the on-beat window and run the real parry helper centred on the rival.
+        self.beat_timer = 0.0;
+        let center = self.npc_trains[ni].leader_pos;
+        self.try_defend_steal(center, 400.0, "STOMP");
+    }
+
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
@@ -250,7 +292,8 @@ impl MainState {
             self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
-                const STEAL_FUSE: f32 = 0.55; // telegraph window (~one beat) between arming and the snap
+                // STEAL_FUSE (telegraph window, ~one beat between arming and the snap) lives in
+                // constants.rs so the bot defense test arms with the exact same fuse.
                 let npc_pos = self.npc_trains[i].leader_pos;
                 let armed = self.npc_trains[i].steal_threat > 0.0;
                 // Early-out: if the NPC is far from the player and the chain tail — and nothing is
