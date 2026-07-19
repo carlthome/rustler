@@ -546,5 +546,9 @@ Steps:
 7. Commit with a message explaining *why*, not just what: e.g. "Agent Engineer: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
    — no Co-Authored-By lines
-8. `git -C . pull --ff-only` then push
+8. Push your branch and open a draft PR into `main`.
+9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
+   are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
+   triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failing check is
+   your next task.
 ```
