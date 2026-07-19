@@ -9515,6 +9515,103 @@ impl MainState {
     fn whistle_pull_speed(&self) -> f32 {
         WHISTLE_PULL_SPEED * (1.0 + 0.2 * self.whistle_rank as f32)
     }
+    /// Fire every bot-script event whose timestamp has arrived, releasing last frame's tap keys
+    /// first and auto-dismissing any upgrade overlay after. Shared verbatim by the paused-screen
+    /// tick (title / world map / game over) and the in-game tick, so assertions and every action
+    /// behave identically on every screen. The paused-screen tick used to run a stripped-down copy
+    /// that silently dropped Assert events (and never terminated), which hung campaign_tutorial the
+    /// instant its tutorial passed and handed control back to the world map.
+    fn bot_fire_events(&mut self, ctx: &mut Context) {
+        use crate::bot::{BotAction, BotAssert};
+        // Release tap keys queued last frame.
+        let taps: Vec<_> = self.bot.as_mut().unwrap().tap_release_queue.drain(..).collect();
+        for k in taps {
+            self.bot.as_mut().unwrap().keys_held.remove(&k);
+        }
+        // Fire all events whose timestamp has arrived.
+        loop {
+            let cursor = self.bot.as_ref().unwrap().cursor;
+            let len = self.bot.as_ref().unwrap().script.len();
+            if cursor >= len {
+                break;
+            }
+            let ev = self.bot.as_ref().unwrap().script[cursor].clone();
+            if ev.at > self.time_elapsed {
+                break;
+            }
+            self.bot.as_mut().unwrap().cursor += 1;
+            match ev.action {
+                BotAction::HoldKey(k) => {
+                    self.bot.as_mut().unwrap().keys_held.insert(k);
+                }
+                BotAction::ReleaseKey(k) => {
+                    self.bot.as_mut().unwrap().keys_held.remove(&k);
+                }
+                BotAction::TapKey(k) => {
+                    self.bot.as_mut().unwrap().keys_held.insert(k);
+                    self.bot.as_mut().unwrap().tap_release_queue.push(k);
+                    // Fire as a synthetic key-down event for menu/dash/campaign actions.
+                    controls::handle_key_down_event(self, ctx, Some(k));
+                }
+                BotAction::MouseMove(p) => {
+                    self.bot.as_mut().unwrap().mouse_pos = p;
+                }
+                BotAction::SeekCatch(on) => {
+                    self.bot.as_mut().unwrap().seek_catch = on;
+                }
+                BotAction::Log(msg) => {
+                    println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
+                }
+                BotAction::Assert(check) => {
+                    let ok = match &check {
+                        BotAssert::GameNotOver => !self.game_over,
+                        BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
+                        BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
+                        BotAssert::ScoreAtLeast(n) => self.score >= *n,
+                        BotAssert::ShowWorldMap => self.show_world_map,
+                        BotAssert::TutorialActive => self.tutorial.is_some(),
+                        BotAssert::TutorialDone => self.tutorial.is_none() && self.show_world_map,
+                        BotAssert::InGame => {
+                            !self.show_instructions && !self.game_over && !self.show_world_map
+                        }
+                    };
+                    if !ok {
+                        let msg = format!("ASSERT FAILED at t={:.1}: {:?}", self.time_elapsed, check);
+                        println!("FAIL: {}", msg);
+                        self.bot.as_mut().unwrap().failed = Some(msg);
+                        self.bot.as_mut().unwrap().done = true;
+                    }
+                }
+            }
+        }
+        // A bot drives input through controls::handle_key_down_event, which doesn't cover the
+        // upgrade overlay (its number-key handler lives in key_down_event). So once a catch spree
+        // pops the upgrade screen, the bot can't dismiss it and the run stalls. Auto-pick the first
+        // upgrade to clear the overlay and let the script finish.
+        if self.pending_upgrade {
+            self.apply_upgrade(1);
+        }
+    }
+
+    /// Terminate the bot run: PASS once the script is exhausted, FAIL once the time budget is spent.
+    /// Exits the process when done, so it never returns in that case. Shared by both bot ticks.
+    fn bot_check_done(&mut self) {
+        let t = self.time_elapsed;
+        let bot = self.bot.as_mut().unwrap();
+        if bot.cursor >= bot.script.len() && !bot.done {
+            println!("PASS: script complete at t={:.1}", t);
+            bot.done = true;
+        }
+        if t >= bot.time_limit && !bot.done {
+            println!("FAIL: time limit {:.1}s reached", bot.time_limit);
+            bot.failed = Some("time limit exceeded".into());
+            bot.done = true;
+        }
+        if bot.done {
+            std::process::exit(if bot.failed.is_some() { 1 } else { 0 });
+        }
+    }
+
     /// Position of the nearest free, catchable, non-boss crab, if any. The seek-catch bot autopilot
     /// (see BotAction::SeekCatch) whistles this crab into range — driving a reliable catch through
     /// the real game mechanics rather than a blind RNG-dependent sweep.
@@ -10253,47 +10350,17 @@ impl EventHandler for MainState {
             // is paused here.
             let mdt = ctx.time.delta().as_secs_f32();
             self.menu_time += mdt;
-            // In bot mode, time_elapsed must advance and bot events must fire even while
-            // the menu is showing — e.g. TapKey(Space) at t=0.5 dismisses the title screen.
-            // We run a stripped-down bot tick here (advance clock, fire due events, handle
-            // done/failed), then fall through to the normal return.
+            // In bot mode, time_elapsed must advance and bot events must fire even while a paused
+            // screen is showing — e.g. TapKey(Space) at t=0.5 dismisses the title screen, and a
+            // tutorial that passes hands control back to the world map where the script's remaining
+            // asserts still need to run and terminate. This uses the SAME bot tick as the in-game
+            // path (fire events incl. asserts, then check done), so completion behaves identically on
+            // every screen — the old stripped-down tick here dropped asserts and never terminated,
+            // which hung campaign_tutorial the instant its tutorial returned to the world map.
             if self.bot.is_some() {
                 self.time_elapsed += mdt.min(0.1) * self.time_scale;
-                // Fire events (same logic as the in-game bot tick below).
-                use crate::bot::{BotAction, BotAssert};
-                loop {
-                    let cursor = self.bot.as_ref().unwrap().cursor;
-                    if cursor >= self.bot.as_ref().unwrap().script.len() {
-                        break;
-                    }
-                    let ev = self.bot.as_ref().unwrap().script[cursor].clone();
-                    if ev.at > self.time_elapsed {
-                        break;
-                    }
-                    self.bot.as_mut().unwrap().cursor += 1;
-                    match ev.action {
-                        BotAction::TapKey(k) => {
-                            self.bot.as_mut().unwrap().keys_held.insert(k);
-                            self.bot.as_mut().unwrap().tap_release_queue.push(k);
-                            // Simulate the key press directly.
-                            crate::controls::handle_key_down_event(self, ctx, Some(k));
-                        }
-                        BotAction::Log(msg) => println!("[BOT t={:.1}] {}", self.time_elapsed, msg),
-                        _ => {} // other actions handled in the in-game tick
-                    }
-                }
-                // A bot drives input through controls::handle_key_down_event, which doesn't cover the
-                // upgrade overlay (its number-key handler lives in key_down_event). So once a catch
-                // spree pops the upgrade screen, the bot can't dismiss it and the run stalls here
-                // forever. Auto-pick the first upgrade to clear the overlay and let the script finish.
-                if self.pending_upgrade {
-                    self.apply_upgrade(1);
-                }
-                if let Some(bot) = self.bot.as_ref() {
-                    if bot.done {
-                        std::process::exit(if bot.failed.is_some() { 1 } else { 0 });
-                    }
-                }
+                self.bot_fire_events(ctx);
+                self.bot_check_done();
             }
             // Decay the perk-shop buy/deny flashes so they're a brief pop, not a stuck glow.
             self.shop_flash = (self.shop_flash - mdt * 2.5).max(0.0);
@@ -10385,79 +10452,7 @@ impl EventHandler for MainState {
 
         // Bot playtest harness tick: fire scripted events, check assertions, exit on completion.
         if self.bot.is_some() {
-            use crate::bot::{BotAction, BotAssert};
-
-            // Release tap keys from previous frame.
-            let taps: Vec<_> = self
-                .bot
-                .as_mut()
-                .unwrap()
-                .tap_release_queue
-                .drain(..)
-                .collect();
-            for k in taps {
-                self.bot.as_mut().unwrap().keys_held.remove(&k);
-            }
-
-            // Fire all events whose timestamp has arrived.
-            loop {
-                let cursor = self.bot.as_ref().unwrap().cursor;
-                let len = self.bot.as_ref().unwrap().script.len();
-                if cursor >= len {
-                    break;
-                }
-                let ev = self.bot.as_ref().unwrap().script[cursor].clone();
-                if ev.at > self.time_elapsed {
-                    break;
-                }
-                self.bot.as_mut().unwrap().cursor += 1;
-                match ev.action {
-                    BotAction::HoldKey(k) => {
-                        self.bot.as_mut().unwrap().keys_held.insert(k);
-                    }
-                    BotAction::ReleaseKey(k) => {
-                        self.bot.as_mut().unwrap().keys_held.remove(&k);
-                    }
-                    BotAction::TapKey(k) => {
-                        self.bot.as_mut().unwrap().keys_held.insert(k);
-                        self.bot.as_mut().unwrap().tap_release_queue.push(k);
-                        // Fire as a synthetic key-down event for menu/dash/campaign actions.
-                        controls::handle_key_down_event(self, ctx, Some(k));
-                    }
-                    BotAction::MouseMove(p) => {
-                        self.bot.as_mut().unwrap().mouse_pos = p;
-                    }
-                    BotAction::SeekCatch(on) => {
-                        self.bot.as_mut().unwrap().seek_catch = on;
-                    }
-                    BotAction::Log(msg) => {
-                        println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
-                    }
-                    BotAction::Assert(check) => {
-                        let ok = match &check {
-                            BotAssert::GameNotOver => !self.game_over,
-                            BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
-                            BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
-                            BotAssert::ScoreAtLeast(n) => self.score >= *n,
-                            BotAssert::ShowWorldMap => self.show_world_map,
-                            BotAssert::TutorialActive => self.tutorial.is_some(),
-                            BotAssert::TutorialDone => {
-                                self.tutorial.is_none() && self.show_world_map
-                            }
-                            BotAssert::InGame => {
-                                !self.show_instructions && !self.game_over && !self.show_world_map
-                            }
-                        };
-                        if !ok {
-                            let msg =
-                                format!("ASSERT FAILED at t={:.1}: {:?}", self.time_elapsed, check);
-                            println!("FAIL: {}", msg);
-                            self.bot.as_mut().unwrap().failed = Some(msg);
-                            self.bot.as_mut().unwrap().done = true;
-                        }
-                    }
-                }
-            }
+            self.bot_fire_events(ctx);
 
             // Seek-catch autopilot (see BotAction::SeekCatch): steering toward the nearest target is
             // handled in handle_player_movement; here we fire the tools. The whistle charms a
@@ -10494,26 +10489,7 @@ impl EventHandler for MainState {
                 }
             }
 
-            // Check completion / time limit.
-            {
-                let bot = self.bot.as_mut().unwrap();
-                if bot.cursor >= bot.script.len() && !bot.done {
-                    println!("PASS: script complete at t={:.1}", self.time_elapsed);
-                    bot.done = true;
-                }
-                if self.time_elapsed >= bot.time_limit && !bot.done {
-                    println!("FAIL: time limit {:.1}s reached", bot.time_limit);
-                    bot.failed = Some("time limit exceeded".into());
-                    bot.done = true;
-                }
-                if bot.done {
-                    if bot.failed.is_some() {
-                        std::process::exit(1);
-                    } else {
-                        std::process::exit(0);
-                    }
-                }
-            }
+            self.bot_check_done();
         }
 
         // Weather + day/night ambience. Runs on REAL delta (not the slowmo-dilated dt) so the
@@ -12870,15 +12846,19 @@ fn main() -> GameResult {
 
     if let Some(ref name) = bot_script {
         use bot::{BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game};
-        // menu_to_game runs at 3× so the proximity catch check fires frequently enough for
-        // the bot walk to register catches (at 8× the player teleports past crabs between frames).
+        // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
+        // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
+        // crabs between frames, catching nothing). campaign_tutorial's BeatTiming lesson clears on
+        // ON-BEAT catches, which the autopilot lands by volume (a steady stream of whistle catches at
+        // a ~30% on-beat rate); its script leaves a wide time margin so even an unlucky low-rate run
+        // banks 3 on-beat catches and returns to the world map before the final assert.
         state.time_scale = match name.as_str() {
-            "menu_to_game" => 3.0,
+            "menu_to_game" | "campaign_tutorial" => 3.0,
             _ => 8.0,
         };
         state.bot = Some(match name.as_str() {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
-            "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 30.0),
+            "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
             "groove_dash" => BotState::new(script_groove_dash(), 10.0),
             other => {
                 eprintln!("Unknown bot script: {}", other);
