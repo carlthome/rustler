@@ -37,10 +37,16 @@ jobs:
       # cold run — see the Playtest job's equivalent step). apt still detects
       # version mismatches and re-fetches when needed, so a stale cache just
       # falls back to today's behavior, never breaking the install.
+      #
+      # Only cache the *.deb files, not the whole archives dir: apt-get leaves
+      # behind archives/lock (root:root, mode 640) and archives/partial/
+      # (_apt:root, mode 700), both unreadable by the non-root runner user, so
+      # caching the directory made every save fail with "Permission denied"
+      # and the restore always miss — this cache never actually worked.
       - name: Cache apt packages
         uses: actions/cache@v4
         with:
-          path: /var/cache/apt/archives
+          path: /var/cache/apt/archives/*.deb
           key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
 
       # System libraries from default.nix via apt + a headless audio device, so
