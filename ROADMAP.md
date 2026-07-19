@@ -55,40 +55,38 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 one at a glance. Visual-only — it doesn't yet steal or react. A first slice of meta-progression +
 campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** Still no new human signal on Slack — every post in #general is an auto Dev Diary,
-no replies, no reactions to weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos
-here") is a Dev Diary *format* request, not a roadmap item, and belongs to the diary agent. **This cycle the
-pipeline effectively stalled: since the last roadmap update the *only* commit to land was a docs chore** (0a67383,
-"AGENTS.md: mandate keeping the Playtest CI green") — **zero game code, zero bug fixes.** The Feature/Overnight/
-Optimizer/Architect crons produced nothing this window. **That makes the top bug worse, not better:** the two
-playtests disabled in 477f7e6 — `menu_to_game` (a **crab-catching** regression, the core verb) and
-`campaign_tutorial` — are *still commented out* (scripts/playtest.sh lines 48–49), now ~15 commits and multiple
-Director cycles deep. Per the Supervisor's ruling (621d07e) a disabled test *is* a FAIL, and agents keep bouncing
-off it. It beats everything until green (top of Bugs). The prior cycle's landings still stand: the groove engine's
-rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano lead c80c96a), the flashlight now targeting
-NPC train leaders (28452dc), the ambient rumble snapped to one bar at game BPM with density halved (e571ce1),
-Control-style slide-in title cards (cd0cc39), and CI on the cargo+apt path (#16/#17).
+**Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
+weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
+request, not a roadmap item. **The pipeline has now fully stalled for a second straight cycle: HEAD is unchanged
+(`60e47ef`, the last Director commit) — zero commits of any kind since the last roadmap update, not even the docs
+chore that landed last time.** Feature/Overnight/Optimizer/Architect all produced nothing across this whole window.
+**This is the real problem, above any feature:** the two playtests disabled in 477f7e6 — `menu_to_game` (a
+**crab-catching** regression, the core verb) and `campaign_tutorial` — are *still commented out* (scripts/playtest.sh
+lines 48–49), now ~15 commits and **three** Director cycles deep. Per the Supervisor's ruling (621d07e) a disabled
+test *is* a FAIL; the code-writing crons keep bouncing off it into nothing. It beats everything until green (top of
+Bugs). Prior landings still stand: the groove rhythm bed (kick/snare + walking bass 7598b14 over the electric-piano
+lead c80c96a), the flashlight targeting NPC train leaders (28452dc), the ambient rumble snapped to one bar at game BPM
+with density halved (e571ce1), Control-style slide-in title cards (cd0cc39), CI on the cargo+apt path (#16/#17).
 **The ecology read-check is still half-cleared:** the music-swell radar's *smooth distance swell* is in and tuned
-(e571ce1) — but it's still **mono**: no directional stereo pan, so you hear the train approach without hearing *which
-way* it is. The boss already has the pan-by-angle + rolloff machinery (2101cef); porting it onto the ambient train's
-rumble is the one remaining audio task for the radar, alongside the distinct name banner — and *it still has not been
-playtested in motion*. The **core steal rule** stays parked in "Also on our mind" (reverse-Snake crossing in
-INSPIRATION) until that read-check passes. Carl's mechanics-freeze is **lifted** (2026-07-16) but its spirit holds:
-sharpen/distinguish/interact, don't bolt on a pile of new player verbs. No new Now items this run — fix the
-disabled-test bugs first, then finish the radar's directional pan.
+(e571ce1) but still **mono** — you hear the train approach without hearing *which way*. Porting the boss's
+pan-by-angle + rolloff (2101cef) onto the ambient rumble is the one remaining audio task, alongside the distinct name
+banner — and *it still has not been playtested in motion*. The **core steal rule** stays parked until that read-check
+passes. Mechanics-freeze is **lifted** (2026-07-16) but its spirit holds: sharpen/distinguish/interact, don't bolt on
+new verbs. No new Now items — fix the disabled-test bugs first, then finish the radar's directional pan.
 
 ## Bugs (fix before anything else in Now)
 
 Stability beats new features — an agent picking a task should check here first, before any
 item in "Now" below.
 
-- **[TOP BUG — a full feature cycle has passed without a fix] `menu_to_game` playtest is disabled to hide a
+- **[TOP BUG — three Director cycles now without a fix] `menu_to_game` playtest is disabled to hide a
   crab-catching regression.** `scripts/playtest.sh` line 48 has `run_script menu_to_game` commented out "pending
   crab catching fix" (477f7e6). Catching is the *core verb* — a masked regression here is the worst kind, and
-  ~14 commits of audio/HUD polish have landed on top of it without touching it. **Feature/Overnight agents keep
-  bouncing off this into softer work — stop.** Fix the underlying catch detection until the test passes, then
-  re-enable the line. Never leave it commented as a workaround (Supervisor ruling, 621d07e). This beats every
-  feature and every ecology item below until it is green.
+  ~15 commits of audio/HUD polish sit on top of it untouched. **Feature/Overnight agents keep bouncing off this
+  into softer work — or lately into nothing at all. Stop.** Read `src/bot.rs` to see what the test asserts,
+  re-enable the line to reproduce the live failure (`bash scripts/playtest.sh 2>&1`), `git show 477f7e6` to see
+  what changed, fix the root cause, then commit with the line re-enabled. Never leave it commented as a
+  workaround (Supervisor ruling, 621d07e). This beats every feature and every ecology item below until it is green.
 - **[BUG] `campaign_tutorial` playtest is disabled pending a tutorial→world-map bug.** Same file, line 49,
   commented "enable once tutorial->world-map bug is fixed." Re-enable and fix once the crab-catching bug above
   is cleared (they may share a root cause in the menu/level transition).
