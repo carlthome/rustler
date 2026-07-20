@@ -247,6 +247,18 @@ pub struct NpcCongaTrain {
     /// decays back to 0 when it's just wandering. Drives the early-warning threat-line tell so the
     /// player reads a committed rival in time to reroute — the legible-risk read the steal fight wants.
     pub hunt_intent: f32,
+    /// When this train commits to hunting a *smaller rival* (not the player), the leader position of
+    /// that prey — else `None`. Kept separate from `hunt_intent` (which is the player-hunt tell) on
+    /// purpose: a rival chasing another rival must NOT paint a red "you're being hunted" line across
+    /// the player's train. Instead it drives a distinct *gold* "predator closing" telegraph between the
+    /// two Kings so the player can read an impending rival-vs-rival clash from afar and pre-position to
+    /// swoop the spilled crumbs (ROADMAP step 3 "make it legible and swoopable"; agar.io "watch the big
+    /// one creep toward the small one, lurk for the aftermath"). Set/cleared every frame in the hunt
+    /// block, so it only shows while the urge is genuinely live and imminent.
+    pub rival_hunt_target_pos: Option<Vec2>,
+    /// 0..1 commitment behind `rival_hunt_target_pos` — the blend the hunt urge applied this frame,
+    /// used to fade the gold telegraph up as the predator commits harder to the closing prey.
+    pub rival_hunt_intensity: f32,
 }
 
 /// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
@@ -395,6 +407,8 @@ impl NpcCongaTrain {
             catch_cooldown: 0.0,
             revenge_timer: 0.0,
             hunt_intent: 0.0,
+            rival_hunt_target_pos: None,
+            rival_hunt_intensity: 0.0,
         }
     }
 }
@@ -540,6 +554,12 @@ pub struct MainState {
     /// the world instead of all transferring to the winner, so the player can swoop in and rustle them.
     /// Never drops, so the bot playtest can assert the spill fired without racing the live crab count.
     pub(crate) rival_spill_crabs: usize,
+    /// Monotonic count of frames a rival-vs-rival "predator closing" hunt telegraph was drawn (ROADMAP
+    /// step 3 "make it legible and swoopable"): the gold beat-marching line shown from a bigger King
+    /// toward the smaller rival it's committed to hunting, so the player can read the impending clash
+    /// and pre-position to swoop the spoils. Never drops, so the bot playtest can assert the anticipatory
+    /// tell fired without racing the live hunt state, which flickers as trains close and separate.
+    pub(crate) rival_hunt_telegraphs: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1576,6 +1596,7 @@ impl MainState {
             revenge_steals: 0,
             rival_vs_rival_steals: 0,
             rival_spill_crabs: 0,
+            rival_hunt_telegraphs: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             rival_steal_sfx: None,

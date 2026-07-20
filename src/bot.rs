@@ -55,6 +55,10 @@ pub enum BotAction {
     // wandered far enough for its mid-follower path slot to exist. Deterministic — lining two wandering
     // leaders up by chance inside a headless budget isn't reliable, so we stage it.
     ForceRivalCross,
+    /// Deterministically park a bigger train within hunt range of a smaller rival (far from the player)
+    /// so the natural rival-hunt urge arms the gold "predator closing" telegraph this frame. Guards the
+    /// anticipatory tell that lets the player read an impending rival-vs-rival clash (ROADMAP step 3).
+    ForceRivalHunt,
 }
 
 #[derive(Clone, Debug)]
@@ -94,6 +98,10 @@ pub enum BotAssert {
     /// MainState::rival_spill_crabs). Asserts the "eat the crumbs" spill fired — a rival-vs-rival
     /// steal scattered catchable crabs into the world for the player to swoop in on.
     RivalSpillAtLeast(usize),
+    /// Monotonic count of frames a rival-vs-rival "predator closing" hunt telegraph was drawn (see
+    /// MainState::rival_hunt_telegraphs). Asserts the anticipatory gold King→King tell fired — a bigger
+    /// train visibly committed to a smaller rival, so the player can read the impending clash and swoop.
+    RivalHuntTelegraphAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -383,6 +391,9 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     let mut t = 10.0_f32;
     while t < 44.0 {
         script.push(BotEvent { at: t, action: BotAction::ForceRivalCross });
+        // Interleave a deterministic hunt setup so the anticipatory "predator closing" telegraph arms
+        // on the same frames (both read live positions through the real update path).
+        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRivalHunt });
         t += 0.9;
     }
     script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::GameNotOver) });
@@ -393,6 +404,12 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     // onto mid-followers of multi-crab rivals makes at least one qualifying cut near-certain, so this
     // guards the spill path can't silently regress to a clean pickpocket.
     script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalSpillAtLeast(1)) });
+    // ...and that the anticipatory "predator closing" telegraph fired (ROADMAP step 3 "make it legible
+    // and swoopable"): a bigger King committing to a smaller rival paints a gold King→King line so the
+    // player reads the impending clash from afar and pre-positions to swoop the spilled crumbs. Repeatedly
+    // forcing the biggest train onto a smaller rival leaves the two leaders adjacent, so the natural
+    // hunt urge arms the telegraph on the following frames — guarding the tell can't silently regress.
+    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalHuntTelegraphAtLeast(1)) });
     script
 }
 
