@@ -108,6 +108,18 @@ Never leave a green, ready PR sitting unmerged. A failing check at any step is t
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
 couple of honest tries, say so in a PR comment rather than force-merging.
 
+> **Root cause of the recurring PR pileup — needs a one-time human fix, not another prose patch.**
+> The drain-queue rules below (and the "identify your own PRs" note) have been rewritten six times to stop
+> Perf/Build PRs accumulating, and the queue still floods (15+ open bot PRs, the same NPC name-cache fix
+> shipped as #36/#46/#64, the same instrumentation as #42/#47/#61). The reason isn't the prose: it's that
+> merging depends on the *opening* agent successfully returning to a green draft and finishing the multi-step
+> mark-ready→wait→merge dance — unreliable across stateless routine runs on throwaway branches. The
+> structural fix is **auto-merge**: if Carl turns on repo-native auto-merge (Settings → General → "Allow
+> auto-merge"), an agent can, right after marking the PR ready, call the GitHub MCP `enable_pr_auto_merge`
+> tool and walk away — GitHub squash-merges the instant checks go green, with no return trip. That dissolves
+> the whole drain-queue problem the last six Agent Engineer runs kept re-patching. Until it's enabled, the
+> manual rules below stand; agents should keep draining as instructed.
+
 **Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
 tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
 per-routine branch prefix (a `claude/<adjective>-<name>-<suffix>` stem that's constant across your runs and
