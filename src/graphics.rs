@@ -8798,6 +8798,47 @@ pub fn draw_lasso_shell_deflect(
     Ok(())
 }
 
+/// Cold grey-steel "shell ping" when the whistle's sonic pulse sweeps over a still-shelled crab
+/// (Armored / shelled Hermit) and shrugs off — the whistle only "barely nudges it" (enemies.rs).
+/// The whistle-side mirror of draw_lasso_shell_deflect: same matte grey-steel "wrong-tool / shelled"
+/// vocabulary, so the player learns one read — "grey ping = the shell shrugged the tool, crack it
+/// first (Stomp)." Styled distinctly from the lasso version (which throws ricochet ticks *outward*):
+/// here the sound waves fold *inward*, arrested at the shell, to read as a pulse repelled rather than
+/// a rope snapping back. Teach, don't punish — no scolding "X", just "try another tool."
+pub fn draw_whistle_shell_deflect(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[Vec2],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &pos in hits {
+        // Matte (non-additive) so it reads as a hard deflection, not a glowing catch.
+        // Faint outer sonic ring — the whistle pulse arriving, about to be repelled.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(38.0))
+            .color(Color::new(0.70, 0.74, 0.80, 0.22)));
+        // Hard steel shell dome the pulse pings off.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(26.0))
+            .color(Color::new(0.68, 0.72, 0.78, 0.55)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(19.0))
+            .color(Color::new(0.20, 0.22, 0.26, 0.80)));
+        // 5 short sonic chevrons folding INWARD — the sound waves arrested at the shell and
+        // bouncing back toward their source, the opposite of the lasso deflect's outward ticks.
+        for i in 0..5u32 {
+            let angle = i as f32 * std::f32::consts::TAU / 5.0 + 0.3;
+            let outer = 34.0_f32;
+            let len = 11.0_f32;
+            let tip = pos + Vec2::new(angle.cos(), angle.sin()) * outer;
+            canvas.draw(sq, DrawParam::default()
+                .dest(tip).scale(Vec2::new(len, 2.4))
+                .rotation(angle + std::f32::consts::PI) // point back toward center
+                .offset(Vec2::new(0.0, 0.5))
+                .color(Color::new(0.80, 0.83, 0.88, 0.65)));
+        }
+    }
+    Ok(())
+}
+
 pub fn draw_magnet_cluster_pull(
     ctx: &mut Context,
     canvas: &mut Canvas,

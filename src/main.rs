@@ -117,7 +117,7 @@ use crate::graphics::{
     draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
-    draw_whistle_golden_pull,
+    draw_whistle_golden_pull, draw_whistle_shell_deflect,
 };
 use crate::hud_cache::{
     CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
@@ -4872,6 +4872,9 @@ impl MainState {
         if !self.lasso_shell_deflect_hits_buf.is_empty() {
             draw_lasso_shell_deflect(ctx, canvas, &self.lasso_shell_deflect_hits_buf)?;
         }
+        if !self.whistle_shell_deflect_hits_buf.is_empty() {
+            draw_whistle_shell_deflect(ctx, canvas, &self.whistle_shell_deflect_hits_buf)?;
+        }
         if !self.magnet_cluster_hits_buf.is_empty() {
             draw_magnet_cluster_pull(ctx, canvas, &self.magnet_cluster_hits_buf)?;
         }
@@ -6043,6 +6046,7 @@ impl EventHandler for MainState {
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();
         self.lasso_shell_deflect_hits_buf.clear();
+        self.whistle_shell_deflect_hits_buf.clear();
         self.magnet_cluster_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
@@ -7584,6 +7588,10 @@ impl EventHandler for MainState {
             self.whistle_active = (self.whistle_active - dt).max(0.0);
             self.whistle_radius =
                 (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
+            // Where the ring's leading edge sat last frame — a crab in the thin band between this and
+            // whistle_radius was just swept by the front, so the shell-deflect ping fires once (crisp,
+            // not a per-frame smear) as the pulse passes it. Zero-width once the ring clamps to max.
+            let whistle_ring_prev = (self.whistle_radius - WHISTLE_RING_SPEED * dt).max(0.0);
             let center = self.whistle_center;
             // The whistle doubles as crowd control: sweeping it over a panicking herd soothes the
             // fear. Charm lasts a beat or two (longer as the whistle lane is ranked up) and blocks
@@ -7620,6 +7628,18 @@ impl EventHandler for MainState {
                     // Dancer pulled by whistle — rhythm tool meets rhythm crab, show the harmony.
                     if crab.is_dancer() && self.whistle_dancer_hits_buf.len() < 10 {
                         self.whistle_dancer_hits_buf.push(crab.pos);
+                    }
+                    // WRONG-TOOL tell: the sonic pulse pings off a still-shelled crab (Armored /
+                    // shelled Hermit) instead of charming it — pull is only a token 0.3 ("barely
+                    // nudges it", enemies.rs). Mirror of the lasso/shell deflect: teaches "the shell
+                    // shrugs the whistle — crack it first (Stomp), then herd it." Fired once from the
+                    // ring's leading edge so it reads as a crisp shell-ping, not a lingering glow.
+                    if crab.boss_health > 0.0
+                        && (crab.is_armored() || crab.is_shelled_hermit())
+                        && dist >= whistle_ring_prev
+                        && self.whistle_shell_deflect_hits_buf.len() < 12
+                    {
+                        self.whistle_shell_deflect_hits_buf.push(crab.pos);
                     }
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);
