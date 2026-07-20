@@ -90,6 +90,10 @@ pub enum BotAssert {
     /// MainState::rival_vs_rival_steals). Asserts the whole-beach ecology steal fired — a bigger
     /// train spliced a smaller rival's back half onto itself, no player involved.
     RivalStealAtLeast(usize),
+    /// Monotonic count of crabs knocked loose as free spoils by rival-vs-rival collisions (see
+    /// MainState::rival_spill_crabs). Asserts the "eat the crumbs" spill fired — a rival-vs-rival
+    /// steal scattered catchable crabs into the world for the player to swoop in on.
+    RivalSpillAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -383,6 +387,12 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalStealAtLeast(1)) });
+    // ...and that the collision spilled catchable crumbs into the world (ROADMAP step 3, agar.io
+    // "eat the crumbs"): a fraction of each rival-vs-rival cut of ≥2 breaks loose as free crabs the
+    // player can swoop in and rustle, instead of all transferring to the winner. Forcing ~38 crossings
+    // onto mid-followers of multi-crab rivals makes at least one qualifying cut near-certain, so this
+    // guards the spill path can't silently regress to a clean pickpocket.
+    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalSpillAtLeast(1)) });
     script
 }
 
