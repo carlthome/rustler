@@ -8281,6 +8281,50 @@ pub fn draw_lasso_magnet_match(
     Ok(())
 }
 
+/// Warm amber "cinch and heave" burst when the lasso hauls in a heavy Big crab — the Big crab's
+/// flagship soft-RPS match. The whistle "shrugs most off" (whistle_pull 0.4), so the loop's physical
+/// drag is its intended counter, and this tell says "yes, the lasso is what hauls the heavy one."
+/// Deliberately styled HEAVY and earthy — thick amber bars, a tightening double cinch-ring around the
+/// big body — so it reads as WEIGHT, distinct from the light spinning magnet field-lines and the
+/// converging Sneaky reel-in. `on_beat` throws flare it brighter and wider (an on-beat haul lands
+/// like a drum hit).
+pub fn draw_lasso_big_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        let flare = if on_beat { 1.35 } else { 1.0 };
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Warm amber inner bloom — the heavy crab caught in the tightening loop.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(17.0 * flare))
+            .color(Color::new(1.0, 0.72, 0.30, 0.85)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(34.0 * flare))
+            .color(Color::new(0.95, 0.6, 0.22, 0.24)));
+        // Double cinch-ring — two concentric rope loops drawn as short chunky arc segments biting
+        // in around the big body, the outer slightly wider so it reads as the loop tightening.
+        for (ring_r, seg_len, alpha) in [
+            (26.0_f32 * flare, 11.0_f32 * flare, 0.85_f32),
+            (36.0_f32 * flare, 9.0_f32 * flare, 0.45_f32),
+        ] {
+            for k in 0..8u32 {
+                let angle = k as f32 * std::f32::consts::TAU / 8.0;
+                // Tangential segments (rotated +90°) so they trace the ring, not spokes.
+                let tip = pos + Vec2::new(angle.cos(), angle.sin()) * ring_r;
+                canvas.draw(sq, DrawParam::default()
+                    .dest(tip).scale(Vec2::new(seg_len, 3.5))
+                    .rotation(angle + std::f32::consts::FRAC_PI_2)
+                    .offset(Vec2::new(0.5, 0.5))
+                    .color(Color::new(1.0, 0.66, 0.26, alpha)));
+            }
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 /// Hard grey-steel ricochet burst when a lasso throw lands on a still-shelled crab (Armored /
 /// shelled Hermit) and the loop slips straight off. This is a WRONG-TOOL "denied" cue — the mirror
 /// of the additive-glow strong-match tells: instead of a warm bloom that says "yes, this pairing

@@ -314,6 +314,13 @@ impl EnemyCrab {
         matches!(self.crab_type, CrabType::Magnet)
     }
 
+    /// A "Big" crab: an oversized, heavy, slow trundler. The whistle "shrugs most off" (whistle_pull
+    /// 0.4), so herding it barely works — the lasso is its intended counter: the loop physically
+    /// snags and *hauls* the heavy crab in where a sonic nudge can't. That's its soft-RPS role.
+    pub fn is_big(&self) -> bool {
+        matches!(self.crab_type, CrabType::Big)
+    }
+
     /// A "Thief" crab: a skittish parasite that ignores the herd and darts straight for your conga
     /// tail. Once it reaches the tail it latches on (`latch_timer` counts down) and peels a link
     /// loose every time the timer fires — pressuring the train you've already built rather than the

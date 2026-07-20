@@ -116,7 +116,7 @@ use crate::graphics::{
 use crate::graphics::{
     draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_beam_sneaky_pin,
     draw_day_weather_hud,
-    draw_lasso_magnet_match,
+    draw_lasso_big_match, draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
     draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
@@ -4956,6 +4956,9 @@ impl MainState {
         if !self.lasso_magnet_hits_buf.is_empty() {
             draw_lasso_magnet_match(ctx, canvas, &self.lasso_magnet_hits_buf)?;
         }
+        if !self.lasso_big_hits_buf.is_empty() {
+            draw_lasso_big_match(ctx, canvas, &self.lasso_big_hits_buf)?;
+        }
         if !self.lasso_shell_deflect_hits_buf.is_empty() {
             draw_lasso_shell_deflect(ctx, canvas, &self.lasso_shell_deflect_hits_buf)?;
         }
@@ -6141,6 +6144,7 @@ impl EventHandler for MainState {
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();
+        self.lasso_big_hits_buf.clear();
         self.lasso_shell_deflect_hits_buf.clear();
         self.whistle_shell_deflect_hits_buf.clear();
         self.magnet_cluster_hits_buf.clear();
@@ -8054,6 +8058,15 @@ impl EventHandler for MainState {
                             // Show a magnetic surge burst so the player reads "lasso + Magnet = cluster pull."
                             if self.crabs[i].is_magnet() {
                                 self.lasso_magnet_hits_buf.push(self.crabs[i].pos);
+                            }
+                            // Strong-match: lasso hauling in a heavy Big crab. The whistle "shrugs
+                            // most off" (whistle_pull 0.4), so the loop's physical drag is the Big
+                            // crab's intended counter — show a straining "heave" so the pairing reads.
+                            // On-beat throws (lasso_on_beat_bonus > 1.0) flare it brighter and wider,
+                            // so timing the haul to the beat lands like a drum hit.
+                            if self.crabs[i].is_big() && self.lasso_big_hits_buf.len() < 8 {
+                                let on_beat = self.lasso_on_beat_bonus > 1.0;
+                                self.lasso_big_hits_buf.push((self.crabs[i].pos, on_beat));
                             }
                             self.crabs[i].caught = true;
                             if let Some(t) = self.tutorial.as_mut() {
