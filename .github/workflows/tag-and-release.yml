@@ -105,3 +105,42 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.tag.outputs.tag }}
+
+  # Make a silent release failure LOUD: if tagging or publishing fails, open a
+  # tracked issue so it surfaces as a red item instead of a version bump landing
+  # on main with no GitHub Release (how v0.18–v0.21 went unnoticed for weeks).
+  # Cancelled runs (concurrency dedup) are not failures, so they don't trigger this.
+  notify-failure:
+    needs: [tag, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = ${{ toJSON(needs.tag.outputs.tag) }} || '(unknown version)';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const title = `Release failed to publish: ${tag}`;
+            // De-dupe: don't stack duplicate issues while the failure persists.
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            if (open.some((i) => i.title === title)) {
+              core.info('A release-failure issue is already open; not duplicating.');
+              return;
+            }
+            await github.rest.issues.create({
+              owner, repo, title,
+              body: [
+                `The **Tag and Release** workflow failed for \`${tag}\`.`,
+                '',
+                'The version bump is on `main` but the GitHub Release was **not** published.',
+                'This is a top-priority Build Engineer fix (CI correctness before speed).',
+                '',
+                `Failed run: ${runUrl}`,
+              ].join('\n'),
+            });
+            core.setFailed(`Release failed for ${tag} — opened tracking issue.`);
