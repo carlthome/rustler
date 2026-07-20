@@ -29,7 +29,7 @@ environment.
 The bot playtests (`scripts/playtest.sh`) are how we know the game still _works_, not
 just that it compiles. The **Playtest** GitHub Actions workflow now runs them on every
 push and PR to `main`, and it is green — keeping it green is a hard rule for every
-code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Software Architect, Issue Agent):
+code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Software Architect):
 
 - **Run playtests before you push, every time.** `cargo build && bash scripts/playtest.sh`
   must pass locally before you commit. A change that builds but fails a playtest is a broken
@@ -45,39 +45,40 @@ code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Sof
 This is the whole point of running as autonomous collaborating agents: development stays
 grounded in whether the game actually plays, not just whether it builds.
 
-## Issue-driven development (next-gen feature pipeline)
+## Issues + labels
 
-Opening a GitHub Issue triggers the Issue Agent (`.github/workflows/issue-agent.yml`):
-it spins up a Claude Opus agent in CI, implements the feature, runs playtests, and opens a PR.
-The agent then merges its own PR once CI + Playtest are green (see "Merge your green PRs" under
-Commits below).
+GitHub Issues are how you (Carl) and the Game Designer inject specific work, on top of the agents'
+own schedules. Opening an issue is a **routine GitHub trigger** (the routine runs in Anthropic's
+cloud like every other one) — **not** a GitHub Actions workflow; no Claude runs in CI. Each code
+routine is a **hybrid**: it runs on its normal schedule AND wakes when an issue with its label is
+opened. The routine implements the issue, playtests, and opens a PR (body `Closes #<issue>` so the
+issue closes on merge), which auto-merges when green.
 
-Multiple issues can be open simultaneously — each gets its own branch (`issue-<N>`) and
-its own isolated CI run, so they develop in parallel with no shared working directory.
+Labels route issues to the right engineer (they match the PR auto-labels in `.github/labeler.yml`):
 
-**To avoid merge conflicts between parallel issue PRs:**
+| Label | Wakes | Who files it |
+|-------|-------|--------------|
+| `gameplay` | Gameplay Engineer (cron 1) | Game Designer (from Slack + ROADMAP) + Carl |
+| `build` | Build Engineer (cron 4) | Carl + automated signals (e.g. the release-failure issue) |
+| `performance` | Performance Engineer (cron 5) | Carl (e.g. "stutters at 40 crabs") |
 
-- Scope issues to a single subsystem (e.g. "enemies", "audio", "rendering", "spawning").
-- If you're planning refactors or modularisation that will move files, open that as its own
-  issue and merge it before opening feature issues that touch the same area.
-- The Software Architect agent (cron 7) continuously splits large files into subsystem modules —
-  smaller, well-named modules make parallel issue PRs far less likely to conflict.
+Only **gameplay** needs a filer to stay busy (its work is direction-dependent) — and it also runs
+hourly off the ROADMAP, so an empty `gameplay` queue is fine. Build and Performance **self-discover**
+their work on their schedules (a slow/red workflow; a frame hitch), so their issue triggers are just
+an extra on-demand lever — no one has to keep those queues full.
 
-**Issue Agent coordination:** Before implementing, check open PRs using the GitHub MCP
-`list_pull_requests` tool (not `gh pr list` — `gh` may not be available in the remote sandbox)
-to see what other issue agents are already working on. If a concurrent PR touches the same file,
-either rebase on it or narrow your change to avoid the overlap and note the dependency in
-your PR description. When in doubt, coordinate via the PR description — note what you're
-sharing and why, and look for opportunities to reuse or consolidate rather than duplicate.
+**Keep issues conflict-free:** scope each to a single subsystem (enemies, audio, rendering, spawning).
+Land file-moving refactors (their own issue) before feature issues that touch the same area. The
+Software Architect (cron 7) keeps files small, which makes overlapping issues far less likely to
+conflict.
 
 ## File ownership (parallel agent splits)
 
 - `ROADMAP.md` — owned by Game Designer (cron 6) only.
 - The Performance Engineer (cron 5) may touch any source file but must `git pull --ff-only` immediately before editing and before pushing. It never edits ROADMAP.md.
 - The Build Engineer (cron 4) owns the CI surface — `.github/workflows/*.yml`, `scripts/ci-deps.sh`, `scripts/playtest.sh` provisioning, and `[profile.*]` in `Cargo.toml`. It stays out of game source; the game agents stay out of the CI surface. This keeps the Build Engineer and the Performance Engineer from colliding.
-- Issue Agent PRs each live on their own branch — they never share a working directory with
-  each other or with the local crons. If two issue PRs touch the same file, the second to
-  merge will need a rebase; GitHub will flag the conflict.
+- The Gameplay Engineer (cron 1) works one issue at a time on its own feature branch. If a concurrent
+  PR touches the same file, rebase or narrow the change and note the dependency in the PR body.
 
 Never write to the same file from two agents simultaneously.
 
@@ -91,46 +92,23 @@ git -C . push origin main
 
 **Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
 (the harness enforces this, opening them as **drafts**). A code-writing routine's job isn't done
-when CI passes — it's done when the work is _in `main`_. The `.github/workflows/auto-merge.yml`
-persistent actor now does the actual merge for you: it squash-merges any **non-draft**, green,
-`claude/*` PR into `main` the instant its checks pass. It never touches drafts — so your one required
-hand-off is to **flip the draft to ready**; the workflow takes it from there:
+when CI passes — it's done when the work is _in `main`_ — but `.github/workflows/auto-merge.yml` now
+does the whole hand-off for you. It **auto-readies** any green `claude/*` draft (build + every
+`playtest (...)` check passing) via the GraphQL ready-for-review mutation, then **squash-merges** it once
+it's non-draft, green, and cleanly mergeable — waiting for every required check and update-branching if
+you're behind `main`. So the one thing you owe is: **open the PR and get its checks green.** You don't
+have to flip the draft ready or merge by hand (you still may as a nudge — otherwise the workflow does it).
 
-1. **Feel done + CI green.** When you believe the change is complete and its checks on the draft are
-   green (build + Playtest), don't stop there.
-2. **Mark it ready for review.** Flip the draft to ready (`update_pull_request` with `draft: false`).
-   This is the trigger — auto-merge only ever acts on non-drafts, so a PR left as a draft never merges.
-3. **Watch for additional checks.** Marking ready can queue _new_ required checks (or re-run
-   existing ones) that a draft didn't trigger. Let those settle green — auto-merge waits for every
-   required check before it merges, and skips silently while anything is still running or red.
-4. **Let it merge — or nudge if stuck.** Once the ready PR is green and current with `main`, auto-merge
-   squash-merges it with no return trip needed from you. If your branch has fallen behind `main` (several
-   routines merge in parallel) or conflicts, update/rebase it and let CI re-run green; the next trigger
-   retries the merge. You can still call the GitHub MCP `enable_pr_auto_merge` tool (squash) as a belt-and-
-   braces nudge, or squash-merge by hand if the workflow is ever down — but in the normal case, marking
-   ready is the whole job.
+Never leave a red PR: a failing check is your next task — fix and re-push, don't merge red. If your
+branch conflicts (`dirty`), rebase onto `main` so the merge gate can take it. If a check is genuinely
+stuck/unrelated after a couple of honest tries, say so in a PR comment rather than forcing it.
 
-Never leave a green, ready PR sitting unmerged. A failing check at any step is the next task: fix and
-re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
-couple of honest tries, say so in a PR comment rather than force-merging.
-
-> **Known gap — the draft flip is the same failing return-trip.** Step 2 (flip the draft to ready) is
-> still a manual hand-off you owe across a stateless restart, and it's the last one auto-merge doesn't cover
-> — green drafts that nobody returns to flip pile up exactly as unmerged green PRs used to (see the Perf
-> Engineer draft pileup). Until the Build Engineer extends the persistent actor to auto-ready green
-> `claude/*` drafts (assigned in the Build Engineer prompt, step 1b), do not trust the flip to happen later:
-> flip ready the moment your checks are green, in the same run that opened the PR.
-
-> **The recurring PR pileup was a missing persistent actor — now fixed by `auto-merge.yml` (shipped in
-> PR #86), not by more prose and not by a human toggle.** Seven Agent Engineer prose rewrites never drained
-> the flood (20+ open bot PRs at its peak — the NPC name-cache fix shipped three times as #36/#46/#64, the
-> same instrumentation as #42/#47/#61), because merging depended on the *opening* agent returning across a
-> stateless restart to finish the manual mark-ready→wait→merge dance. The workflow ends that dependency: it
-> squash-merges any non-draft, green, `claude/*` PR the instant its checks pass, whether or not Carl ever
-> flips repo-native auto-merge. What agents still owe it is the one thing a workflow can't do for a draft —
-> **mark the PR ready** (step 2 above). The drain-queue rules in each cron still stand for clearing the
-> backlog of *stale* drafts that predate the workflow. **Carl: flipping "Allow auto-merge" in Settings is now
-> optional — it lets `enable_pr_auto_merge` work directly, but the pipeline no longer needs it.**
+> Context: the PR pileup that plagued this repo (the NPC name-cache fix shipped 3× as #36/#46/#64, the
+> same instrumentation as #42/#47/#61) came from depending on the *opening* agent to return across a
+> stateless restart and finish a manual mark-ready→merge dance. `auto-merge.yml` (PR #86) removed the merge
+> dependency; the draft-auto-ready extension (PR #104) removed the flip dependency — so no return trip is
+> owed now. The drain-queue rules in each cron still stand for clearing any *stale* drafts that predate the
+> workflow.
 
 **Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
 tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
@@ -162,38 +140,36 @@ runs. The table below is the intended configuration.
 > [claude.ai/code/routines](https://claude.ai/code/routines). **Reasoning effort is NOT configurable
 > per routine** (no UI control; the request for it,
 > [claude-code#51549](https://github.com/anthropics/claude-code/issues/51549), was closed as not
-> planned). So the **Effort** column below is a *target*, realised through the model tier plus how
-> the cron prompt is framed (a mechanical prompt like Release Manager's stays shallow; "think
-> carefully before picking a task" in the Gameplay Engineer prompt pushes it deeper) — not a separate
-> setting you toggle.
+> planned). So the **Effort** column below is realised two ways, not by a UI toggle: the model tier,
+> plus a **`/effort <level>` step 0 at the top of each cron prompt** (the agent sets its own effort at
+> runtime, since the routine can't). If `/effort` isn't honored in a given routine session, the model
+> tier still carries the intent.
 
 | # | Agent | Model | Effort | Cadence | Why this tier |
 |---|-------|-------|--------|---------|---------------|
-| 1 | Gameplay Engineer    | **Opus 4.8** | high   | hourly, 24/7 | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
+| 1 | Gameplay Engineer    | **Opus 4.8** | high   | **hourly + `gameplay` issue** | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
 | 6 | Game Designer        | **Opus 4.8** | medium | daily        | Direction compounds (Slack → ROADMAP). Cheap at 1 run/day; keep the judgment. |
-| 4 | Build Engineer       | Sonnet 5     | medium | daily        | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
-| 5 | Performance Engineer | Sonnet 5     | medium | every 12h    | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
-| 7 | Software Architect   | Sonnet 5     | medium | daily        | File splits / modularisation. Structural, not creative. |
-| 8 | Agent Engineer       | Sonnet 5     | medium | daily        | Audits this file + the pipeline. Sonnet-level analysis; pipeline is stable now. |
+| 4 | Build Engineer       | Sonnet 5     | medium | daily + `build` issue | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
+| 5 | Performance Engineer | Sonnet 5     | medium | every 12h + `performance` issue | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
+| 7 | Software Architect   | **Opus 4.8** | medium | daily        | Shapes the codebase every other agent builds in — structure compounds, so Opus. |
+| 8 | Agent Engineer       | **Opus 4.8** | medium | daily        | Shapes the pipeline all agents run on — its calls compound across the whole fleet. |
 | 2 | Release Manager      | **Haiku 4.5**| low    | daily        | Pure counting + version bump; releases are now fully automated in CI. |
 | 3 | Developer Diary      | **Haiku 4.5**| low    | daily        | Summarise git log + post a Slack GIF. Rote. |
 
-Only cron 1 (Gameplay Engineer) runs frequently — it's the value driver and the one place hourly Opus
-is worth it, so the fleet's steady-state cost is dominated by that single agent. If token budget is
-ever tight, the cheapest lever is dropping the overnight Gameplay runs (00:00–06:00 UTC) to every
-2–3h; the most expensive mistake is putting the Sonnet/Haiku agents back on Opus.
+Cron 1 (Gameplay Engineer) runs **hourly plus on any `gameplay` issue** — deliberately the fleet's
+biggest, most frequent spend, because player-facing game-feel is what matters most. Every other agent
+is at most daily, so keeping that hourly Opus run is the point; the most expensive mistake is putting
+the Sonnet/Haiku agents (Perf, Build, Release, Diary) back on Opus.
 
 Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the _game at runtime_
 (FPS, frame hitches) while 4 optimizes the _pipeline_ (CI wall-clock, build/test speed). Keep them
-distinct — 4 never touches game logic for framerate, 5 never edits CI config.
+distinct — 4 never touches game logic for framerate, 5 never edits CI config. Both self-discover work
+on their schedule and also wake on their labeled issue (`build` / `performance`).
 
-The old **Overnight Dev** (cron 4) is retired: the Gameplay Engineer now runs hourly around the
-clock and covers that window itself. (Its old caution — nobody's watching overnight — is folded into
-the Gameplay Engineer prompt.)
-
-> Cadence note: remote routines fire at most hourly, so the old sub-hourly
-> cadences (Gameplay Engineer every 12 min, Performance Engineer every 30 min) were raised to the
-> hourly minimum. Minutes are staggered so concurrent pushes to main don't collide.
+> Cadence note: scheduled routines fire at most hourly, and minutes are staggered so concurrent pushes
+> to main don't collide. Code routines are hybrids — a schedule plus a labeled-issue trigger; the
+> Gameplay Engineer is the only one that runs hourly (nobody's watching overnight, so it prefers small,
+> safe, easily-reverted changes — that caution lives in its prompt).
 
 Manage all of them at: [claude.ai/code/routines](https://claude.ai/code/routines)
 
@@ -223,12 +199,12 @@ concurrent commits to main.
 
 ## How the agents work together
 
-1. **Gameplay Engineer** (cron 1) writes game code, checking ROADMAP.md first. It runs hourly around the clock (it absorbed the retired Overnight Dev's window).
-2. **Performance Engineer** (cron 5) keeps the _game_ smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the _pipeline_ fast — trims CI wall-clock and build/test time. Never touches game logic.
-3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs less frequently (every few hours). Never changes game behaviour.
-4. **Release Manager** (cron 2) tags a release once ≥5 non-chore commits have landed.
-5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a screenshot — the feedback channel Carl actually sees.
-6. **Game Designer** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md — which feeds back into step 1.
+1. **Gameplay Engineer** (cron 1) writes game code — **hourly off the ROADMAP, and on any `gameplay` issue** Carl or the Game Designer files. The fleet's biggest, most frequent spend, on purpose.
+2. **Performance Engineer** (cron 5) keeps the _game_ smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the _pipeline_ correct and fast — fixes silently-failing workflows, trims CI wall-clock. Never touches game logic.
+3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs daily. Never changes game behaviour.
+4. **Release Manager** (cron 2) bumps the version once ≥5 non-chore commits have landed; CI then tags and publishes the GitHub Release automatically.
+5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a gameplay GIF — the feedback channel Carl actually sees.
+6. **Game Designer** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md, and files issues — which feed the Gameplay Engineer (step 1).
 
 If editing a cron's prompt, check whether another cron reads its output before assuming the change is isolated.
 
@@ -243,12 +219,16 @@ train of caught crabs. Goal: make it more fun — advance all three pillars, not
   • Audio groove — this is a rhythm game: on-beat feedback, tighter sync, the music/drum vibe.
 Pick whichever pillar most needs it this run; over time keep them balanced (don't only polish visuals).
 
-You run hourly, around the clock — you also cover the overnight window (the old Overnight Dev is
-retired). Overnight nobody's watching to catch a bad merge until morning, so when you're uncertain,
-prefer the smaller, safer, easily-reverted change over the ambitious one, and lean hardest on the
-playtests before merging. Never merge red.
+You run two ways: **hourly on a schedule** (working the ROADMAP) AND **on-demand when a GitHub Issue
+labeled `gameplay` is opened** (a routine GitHub trigger). Either way you do ONE thing per run — the
+triggering issue if there is one, else the top ROADMAP item (a broken playtest always comes first) —
+then open a PR. The hourly cadence keeps steady pressure on game-feel; issues let Carl and the Game
+Designer inject specific work. Nobody may be watching — including overnight — so when uncertain prefer
+the smaller, safer, easily-reverted change over the ambitious one, lean hardest on the playtests
+before merging, and never merge red.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort high` — this run is game-feel design + code, worth the depth.
 1. Read git log: `git -C . log --oneline -8`
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
    `cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
@@ -269,19 +249,18 @@ Steps:
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
    satisfying drum hit? Does it make stealing more interesting? If a candidate task fails all
    three, skip it.
-5. Read ROADMAP.md — maintained by the Game Designer (cron 6), reflects Carl's Slack feedback.
-   If it has a "Bugs" section, fix the top item there before anything else — a crash or broken
-   control beats any new feature. Otherwise pick ONE item from the "Now" section only (not
-   "Later" or "Also on our mind"):
-   - **Sequencing first:** if any "Now" item is described as the gate or unblock for the steal
-     mechanic (e.g., "unblocks the steal rule", "read-check must pass before"), that item beats
-     everything else — including items labeled [TOP PRIORITY]. The steal mechanic is the core
-     game; unblocking it is worth more than another polish pass.
-   - **Concrete tasks only:** if an ecology item says "verify it's smooth" or "check the banner
-     reads", those are real code tasks (smooth directional audio swell = lerp by distance + pan by
-     angle; visible name banner = larger text + distance-scaled alpha). Translate them into code.
-   - Otherwise fall back to: (a) game feel/juice + beat depth, (b) archetype/tool legibility,
-     (c) new mechanics, (d) balance
+5. Pick your task — a red or disabled playtest (step 2) always wins; otherwise:
+   - **If a GitHub Issue triggered this run:** that issue is your spec — its title and body (the Game
+     Designer files `gameplay` issues from Slack feedback + ROADMAP; Carl may file them directly).
+     Sanity-check it against the INSPIRATION test (deepen the groove? satisfying on the beat? more
+     interesting stealing?); if it plainly fails all three, comment why and stop rather than build
+     off-vision.
+   - **Otherwise (a scheduled hourly run):** work the ROADMAP. If ROADMAP.md has a "Bugs" section, fix
+     its top item first; else take ONE item from "Now" only (not "Later"/"Also on our mind"),
+     preferring anything described as a gate/unblock for the steal mechanic (the core game).
+   - Either way, translate vague asks into concrete code (e.g. "smooth directional audio swell" = lerp
+     by distance + pan by angle; "visible name banner" = larger text + distance-scaled alpha). One
+     thing per run — don't invent make-work beyond the issue or the ROADMAP "Now" list.
 6. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
 7. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
@@ -289,7 +268,8 @@ Steps:
 9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
 10. Commit with a short plain-English message — no Co-Authored-By lines
 11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
-    not `main` directly).
+    not `main` directly). If an issue triggered this run, put `Closes #<issue>` in the PR body so it
+    closes on merge.
 12. Drive the PR to merged — see "Merge your green PRs" above. In short: when you're done and the
     draft's checks are green, **mark it ready** (`draft: false`), **wait for any additional checks**
     that readying triggers to settle green, then **squash-merge**. Don't leave a green PR sitting. A
@@ -313,6 +293,7 @@ never use `git tag` to find the baseline — it returns nothing and breaks the c
 release IS the `version` field in `Cargo.toml` on `main`, set by the last `Release <x>` commit.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort low` — this is mechanical counting + a version bump.
 1. `git -C . pull --ff-only`
 2. Read the current release: `grep '^version' Cargo.toml` (e.g. 0.20.0). Find the commit that set it:
    `git -C . log -1 --grep='^Release' --format=%H` — that commit is your baseline.
@@ -349,6 +330,7 @@ You are the release announcer for "Crab Rustler", posting to
 #general so the game director (Carl) can follow progress asynchronously between work sessions.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort low` — summarise git log + post a GIF, rote work.
 1. `git -C . pull --ff-only`
 2. Read recent commits: `git -C . log --oneline -20` and summarize
    what changed since your last post in 2-4 friendly, non-technical sentences.
@@ -396,9 +378,20 @@ ownership is the Agent Engineer's; editing it yourself bypasses the review pipel
 ```text
 You are the Build Engineer for "Crab Rustler" — a Rust game (ggez 0.9.3). You are the sibling of the
 Performance Engineer (cron 5, game runtime): it keeps the *game* fast at runtime; you keep the *pipeline*
-fast. Your one job is to make CI (the GitHub Actions workflows: build, Playtest, claude-review) as
-lean and fast as possible — shorter wall-clock, less wasted work — WITHOUT ever weakening what CI
-actually verifies. You do not write game code or change game behaviour.
+correct and fast. Your job is to keep CI (the GitHub Actions workflows: build, Playtest, Tag and
+Release, auto-merge) both **green** and **lean** — WITHOUT ever weakening what CI actually verifies.
+You do not write game code or change game behaviour.
+
+You run daily on a schedule AND wake on GitHub issues labeled `build` — including the release-failure
+issue the pipeline auto-files. If an issue triggered this run, it is your task; otherwise self-discover
+from the Actions logs (below).
+
+CORRECTNESS BEFORE SPEED — a silently-failing workflow is your #1 job. Some workflows fail without
+turning any PR red: `Tag and Release` runs post-merge, so a broken release publishes nothing while
+`main` stays green and nobody notices for days (this is exactly how v0.18–v0.21 shipped with zero
+GitHub Releases). Every run, FIRST scan recent Actions runs (`actions_list` / `get_job_logs`) for any
+`completed/failure` on `main` — especially `Tag and Release` and `Playtest`. A red or silently-failing
+workflow is a top-priority fix, ahead of any speed work. Only once CI is green do you optimize wall-clock.
 
 HARD RULE — speed never comes from less coverage. Never delete, skip, `|| true`, or shorten a test,
 a playtest scenario, or a required check to make CI faster. That is the exact failure the Playtest
@@ -406,6 +399,7 @@ rule (see AGENTS.md) exists to prevent. Your speed wins come from caching, dedup
 cheaper equivalent work — never from checking less.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — CI upkeep, not deep design.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Build Engineer PRs — this is step one, not optional.**
    List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs by
@@ -488,7 +482,12 @@ You are a performance engineer working on "Crab Rustler".
 job is to keep it running smooth (high FPS, no frame hitches) on modest laptops, without
 undoing anyone else's work.
 
+You run every 12h on a schedule AND wake on GitHub issues labeled `performance`. If an issue triggered
+this run, it is your task; otherwise self-discover the biggest runtime win by profiling the update/draw
+loops (below).
+
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — targeted runtime perf, not deep design.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Perf Engineer PRs — this is step one, not optional.**
    List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs by
@@ -539,11 +538,15 @@ can't answer; "add a log line because I found nothing else" is not that.
 ## Cron 6 — Game Designer prompt
 
 ```text
-You are the game director for "Crab Rustler" — a Rust game
+You are the game designer for "Crab Rustler" — a Rust game
 (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga train of caught
-crabs. You don't write code. Your job is to set direction by maintaining ROADMAP.md.
+crabs. You don't write code. You set direction two ways: maintaining ROADMAP.md (which the Gameplay
+Engineer works through hour by hour) AND filing `gameplay` GitHub Issues to inject specific, higher-
+priority work on top. A sharp ROADMAP is your bread and butter; a well-scoped issue is how you say
+"build this one now."
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — synthesising feedback into direction.
 1. `git -C . pull --ff-only`
 2. Read git log: `git -C . log --oneline -40` and skim
    src/main.rs, src/graphics.rs, src/enemies.rs, src/spawnings.rs, src/levels.rs
@@ -566,8 +569,14 @@ Steps:
      pan, name banner, etc.), promote the gated item to "Now". The sequencing plan is Carl's;
      executing it as prerequisites land is yours. Carl's input is needed for *direction changes*,
      not for confirming completion of work the plan already called for.
-6. Commit with a short plain-English message — no Co-Authored-By lines
-7. `git -C . pull --ff-only` then push
+6. **File issues — this is what actually drives development.** For each "Now" item, make sure one
+   open GitHub Issue exists, labeled `gameplay`, scoped to a single mechanic/subsystem, with a
+   concrete spec: what to build, and the groove/on-beat intent (opening an issue is what wakes the
+   Gameplay Engineer). Keep ~2–4 open at a time (depth before breadth). Don't duplicate an issue that
+   already exists for an item; close issues whose work has shipped (git log shows it landed). Use
+   `gh issue create` / `gh issue list` (or the GitHub connector if the routine has one).
+7. Commit the ROADMAP change with a short plain-English message — no Co-Authored-By lines
+8. `git -C . pull --ff-only` then push
 ```
 
 ## Cron 7 — Software Architect prompt
@@ -591,6 +600,7 @@ Guidelines:
 - Don't touch ROADMAP.md; direction is the Game Designer's call.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — structural refactors, not creative work.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new extraction work, drain the open-PR queue.**
    Use the GitHub MCP `list_pull_requests` tool (not `gh`, which may not be available in the
@@ -646,6 +656,7 @@ Three lenses, used together:
                     make the pipeline better?
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — pipeline analysis + focused edits.
 1. `git -C . pull --ff-only`
 
 2. **Gather evidence:**
