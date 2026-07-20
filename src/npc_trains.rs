@@ -808,6 +808,7 @@ impl MainState {
             // Rhythmic: crossing ON the beat pays a groove surge + bigger score (skill ceiling).
             if self.player_steal_cooldown <= 0.0 && !self.npc_trains[i].follower_types.is_empty() {
                 const P_STEAL_RANGE: f32 = 54.0;
+                const P_STEAL_RANGE_SQ: f32 = P_STEAL_RANGE * P_STEAL_RANGE;
                 // Follower fi sits at path_history[(fi+1)*STEPS] (same layout draw_npc_conga_train
                 // uses). Find the earliest (closest-to-leader) follower the player head is within
                 // range of — splicing there takes the largest tail section, like the rival does.
@@ -816,7 +817,7 @@ impl MainState {
                 let mut splice_at: Option<usize> = None;
                 for fi in 0..self.npc_trains[i].follower_types.len() {
                     if let Some(&fpos) = self.npc_trains[i].path_history.get((fi + 1) * STEPS) {
-                        if player_center.distance(fpos) < P_STEAL_RANGE {
+                        if player_center.distance_squared(fpos) < P_STEAL_RANGE_SQ {
                             splice_at = Some(fi);
                             break;
                         }
@@ -1055,6 +1056,7 @@ impl MainState {
         {
             const STEPS: usize = 14; // matches draw_npc_conga_train / player-steal follower spacing
             const RIVAL_STEAL_RANGE: f32 = 56.0;
+            const RIVAL_STEAL_RANGE_SQ: f32 = RIVAL_STEAL_RANGE * RIVAL_STEAL_RANGE;
             let n_trains = self.npc_trains.len();
             for thief in 0..n_trains {
                 // --- Armed: wind the telegraph down, then SNAP on the beat ----------------------
@@ -1178,7 +1180,7 @@ impl MainState {
                         if let Some(&fpos) =
                             self.npc_trains[victim].path_history.get((fi + 1) * STEPS)
                         {
-                            if thief_pos.distance(fpos) < RIVAL_STEAL_RANGE {
+                            if thief_pos.distance_squared(fpos) < RIVAL_STEAL_RANGE_SQ {
                                 hit = Some((victim, fi));
                                 break;
                             }
