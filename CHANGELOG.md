@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.24.0 — 2026-07-20
+
+### Features
+- Whistle-vs-Thief strong-match tell: snap the tail-parasite off on the beat
+- Rival-vs-rival hunt telegraph: read the impending clash and swoop the spoils
+- Whistle-vs-Sneaky strong-match tell: flush the skittish crab out on the beat
+- Beam spotlights fleeing Golden crabs — the flashlight's soft-RPS match against the prize
+
+### Refactoring
+- CI: drop dead docs-only waiver from auto-merge
+- CI: unblock docs PRs (step-gate instead of paths-ignore) + build labels
+
 ## v0.23.0 — 2026-07-20
 
 ### Features
