@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.26.0 — 2026-07-20
+
+### Features
+- Add beat-reactive conga rope ribbon with risk heat
+- Lasso vs Big crab strong-match tell: amber cinch-and-heave burst
+- Add discoverable Desktop level: window-rectangle terrain and threshold entry
+
+### Performance
+- Skip the trail accumulation pass when it's a no-op
+- Avoid sqrt in per-follower steal-range checks
+
 ## v0.25.0 — 2026-07-20
 
 ### Features
