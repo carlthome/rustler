@@ -188,7 +188,13 @@ pub fn handle_player_movement(
     // the *low* rocks (see MainState::rock_is_low) are submerged — they stop blocking and instead
     // wade-drag the player like shallow water, opening a beat-timed shortcut through the chokepoint.
     // High rocks stay solid regardless, so there's always a wall to route around.
-    if terrain == TerrainKind::Rock {
+    //
+    // The Desktop biome reuses this exact push-out collision: its "window" panels are solid walls the
+    // player (and so the conga train they lead) routes around, just like rocks. It has no tide, so
+    // `rock_tide_open()` stays false there (update_rock_tide only ticks on Rock, leaving rock_tide_fill
+    // at 0) — every window is always solid, no submerge shortcut. Sharing this branch is why the
+    // Desktop level needs no new physics.
+    if matches!(terrain, TerrainKind::Rock | TerrainKind::Desktop) {
         let tide_open = state.rock_tide_open();
         // First resolve solid collisions, skipping any low rock that's currently under water.
         let mut center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);

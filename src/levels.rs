@@ -23,6 +23,14 @@ pub enum TerrainKind {
     /// Clinging kelp that snags the conga tail: crossing a patch slows the player *and* risks
     /// stripping a trailing crab loose, adding chain-snap tension to the route.
     Kelp,
+    /// The fourth-wall "Desktop" biome: the patch geometry renders as rectangular OS-style window
+    /// panels that are SOLID WALLS. Crabs and the conga train route around them exactly the way they
+    /// route around Rock chokepoints — it reuses that same push-out collision, so there's no new
+    /// physics here (see controls.rs). For now the wink is purely presentational: a flat neutral
+    /// wallpaper (main.rs) plus draggable-looking windows (graphics::terrain). Once the ggez 0.10
+    /// migration lands, the real game window can go transparent and these panels become the player's
+    /// actual OS windows — see the `TODO(ggez-0.10)` seams.
+    Desktop,
 }
 
 /// A visual "zone" a level takes place in. Gives each level a distinct read so runs feel like
@@ -223,6 +231,44 @@ pub fn get_levels() -> Vec<Level> {
                     count: 38,
                     duration: 22.4,
                     centroid: (0.5, 0.5),
+                },
+            ],
+        },
+        // The fourth-wall surprise (Inscryption / old Windows PowerToys): a special level that
+        // "shouldn't be in the game." The playfield becomes a flat OS wallpaper and the terrain
+        // patches render as rectangular application windows you route the conga train around. It
+        // sits last so it's *discovered* by getting this far, per INSPIRATION — the big Control-style
+        // title card does the wink. For this first slice the windows are solid walls (reusing the
+        // Rock push-out collision); the real transparent-window hookup is deferred to ggez 0.10.
+        Level {
+            title: "The Desktop".to_string(),
+            description: "Wait — this isn't part of the game. Route the train around the windows."
+                .to_string(),
+            difficulty: 5,
+            biome: Biome {
+                name: "You Shouldn't Be Here",
+                // Flat neutral desktop wallpaper (classic teal). main.rs paints this opaque over the
+                // ground so the beach texture reads as a plain screen — the transparency seam.
+                tint: (58, 110, 128),
+                // Cool window-highlight blue for the on-beat pulse / accents.
+                pulse: (150, 190, 235),
+                terrain: TerrainKind::Desktop,
+            },
+            // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
+            // (the windows) is what reads as different, not the crabs.
+            emphasis: None,
+            patterns: vec![
+                LevelPattern {
+                    pattern: SpawnPattern::UniformRandom,
+                    count: 16,
+                    duration: 16.8,
+                    centroid: (0.5, 0.5),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::Cluster,
+                    count: 22,
+                    duration: 19.6,
+                    centroid: (0.3, 0.4),
                 },
             ],
         },

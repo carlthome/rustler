@@ -52,6 +52,9 @@ pub fn draw_tide_pools(
         TerrainKind::Kelp => {
             return draw_kelp_patches(ctx, canvas, pools, unit_circle, time, beat, player_center);
         }
+        TerrainKind::Desktop => {
+            return draw_window_panels(ctx, canvas, pools, unit_circle, time, beat);
+        }
         _ => {}
     }
 
@@ -815,6 +818,120 @@ fn draw_kelp_patches(
     })?;
 
     canvas.set_blend_mode(orig);
+    Ok(())
+}
+
+/// Desktop biome terrain: draw each solid patch as a rectangular OS-style application "window" —
+/// a flat light panel with a coloured title bar, three traffic-light buttons, a few faint content
+/// lines, and a hard border. These are the walls the conga train routes around; the collision is
+/// still the shared circular push-out (see controls.rs), so each rectangle is drawn *inscribed*
+/// inside its blocking circle (corner distance ~0.91·radius) — the crab never visually overlaps a
+/// window. The panels drift a hair on the beat so the desktop feels live without pulling focus from
+/// the crabs.
+///
+/// TODO(ggez-0.10): this whole function is the presentational stand-in for the real fourth-wall
+/// effect. Once the ggez 0.10 migration lands (transparent game window + OS window enumeration),
+/// replace the drawn panels here with the player's ACTUAL desktop windows — detect their screen
+/// rects, feed them in as `pools`, and let this become just the border/handle overlay on top of the
+/// real windows showing through the transparent frame. The collision seam (controls.rs) and the
+/// opaque-wallpaper seam (main.rs draw_scene) are the other two halves of that hookup.
+fn draw_window_panels(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    pools: &[(Vec2, f32)],
+    unit_circle: &Mesh,
+    time: f32,
+    beat: f32,
+) -> ggez::GameResult {
+    if pools.is_empty() {
+        return Ok(());
+    }
+    let square = unit_square(ctx)?.clone();
+
+    for (i, (center, radius)) in pools.iter().enumerate() {
+        let center = *center;
+        let radius = *radius;
+        // Rectangle half-extents, kept inside the blocking circle: sqrt(0.70^2 + 0.58^2) ~ 0.91 < 1.
+        let hw = radius * 0.70;
+        let hh = radius * 0.58;
+        // A tiny per-window bob so the desktop breathes gently on the beat (a couple of px, no more).
+        let phase = i as f32 * 1.7;
+        let bob = Vec2::new(
+            (time * 0.7 + phase).sin() * 1.5,
+            (time * 0.9 + phase * 1.3).cos() * 1.5,
+        );
+        let top_left = center - Vec2::new(hw, hh) + bob;
+        let w = hw * 2.0;
+        let h = hh * 2.0;
+        let title_h = (h * 0.22).clamp(10.0, 34.0);
+
+        // Drop shadow — offset down-right so the window reads as floating above the wallpaper.
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .dest(top_left + Vec2::new(5.0, 6.0))
+                .scale(Vec2::new(w, h))
+                .color(Color::new(0.0, 0.0, 0.0, 0.32)),
+        );
+        // Window body — flat light panel, near-opaque so it reads as a solid application.
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .dest(top_left)
+                .scale(Vec2::new(w, h))
+                .color(Color::new(0.90, 0.92, 0.95, 0.98)),
+        );
+        // Faint "content" lines under the title bar, so the panel reads as a window with text in it.
+        let line_x = top_left.x + w * 0.10;
+        let line_w = w * 0.62;
+        for k in 0..3 {
+            let ly = top_left.y + title_h + (h - title_h) * (0.22 + k as f32 * 0.24);
+            if ly < top_left.y + h - 4.0 {
+                canvas.draw(
+                    &square,
+                    DrawParam::default()
+                        .dest(Vec2::new(line_x, ly))
+                        .scale(Vec2::new(line_w * (1.0 - k as f32 * 0.18), 2.0))
+                        .color(Color::new(0.62, 0.66, 0.72, 0.55)),
+                );
+            }
+        }
+        // Title bar — coloured strip across the top, brightening a touch on the beat.
+        let tb = 0.55 + 0.25 * beat;
+        canvas.draw(
+            &square,
+            DrawParam::default()
+                .dest(top_left)
+                .scale(Vec2::new(w, title_h))
+                .color(Color::new(0.24 * tb + 0.10, 0.42 * tb + 0.12, 0.72 * tb + 0.18, 1.0)),
+        );
+        // Traffic-light buttons at the top-right of the title bar (close / minimise / maximise).
+        let btn_r = (title_h * 0.20).clamp(2.0, 6.0);
+        let btn_y = top_left.y + title_h * 0.5;
+        let btn_cols = [
+            Color::new(0.95, 0.40, 0.38, 1.0),
+            Color::new(0.98, 0.78, 0.32, 1.0),
+            Color::new(0.42, 0.82, 0.45, 1.0),
+        ];
+        for (b, col) in btn_cols.iter().enumerate() {
+            let bx = top_left.x + w - (btn_r * 2.6) * (b as f32 + 1.0);
+            canvas.draw(
+                unit_circle,
+                DrawParam::default()
+                    .dest(Vec2::new(bx, btn_y))
+                    .scale(Vec2::splat(btn_r))
+                    .color(*col),
+            );
+        }
+        // Hard border so the window edge reads crisply against the wallpaper.
+        let border = cached_stroke_rect(ctx, w, h, 2.0)?;
+        canvas.draw(
+            &border,
+            DrawParam::default()
+                .dest(top_left)
+                .color(Color::new(0.16, 0.18, 0.22, 0.92)),
+        );
+    }
     Ok(())
 }
 

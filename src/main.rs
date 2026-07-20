@@ -4162,6 +4162,26 @@ impl MainState {
             )?;
         }
 
+        // Desktop biome: paint a flat, opaque OS wallpaper over the whole world so the beach texture
+        // (grass/sand, zones, motes) reads as a plain neutral screen — the fourth-wall stage on which
+        // the window panels sit. Drawn here, after the ground/atmosphere but before the terrain
+        // patches, so the windows and all the action land on top of it.
+        //
+        // TODO(ggez-0.10): this opaque fill is the transparency seam. Once the game window itself can
+        // go transparent (ggez 0.10), delete this fill so the player's REAL desktop shows through the
+        // frame here instead of a painted wallpaper — the drawn window panels (graphics::terrain)
+        // then become handles over the actual OS windows behind the transparent game window.
+        if biome.terrain == crate::levels::TerrainKind::Desktop {
+            // Use the raw biome tint (not the day/night-graded ground color) so the wallpaper stays
+            // constant like a real screen, indifferent to the beach's dawn/dusk cycle.
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .scale(Vec2::new(world_w, world_h))
+                    .color(Color::from_rgb(tr, tg, tb)),
+            );
+        }
+
         // Tide pools — terrain hazards on the ground layer, under the crabs/rope, so the train
         // visibly wades through the water it's being routed around. When a Tide Boss has flooded the
         // arena, the last `boss_flood_pools` entries are its surge water: they always read as water
