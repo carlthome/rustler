@@ -58,6 +58,7 @@ else
     run_script steal_defense
     run_script steal_dodge
     run_script revenge
+    run_script npc_vs_npc
 fi
 
 echo ""

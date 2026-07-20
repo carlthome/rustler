@@ -681,6 +681,9 @@ impl MainState {
                 BotAction::ForceStealDodge => {
                     self.force_steal_dodge();
                 }
+                BotAction::ForceRivalCross => {
+                    self.force_rival_cross();
+                }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                 }
@@ -695,6 +698,7 @@ impl MainState {
                         BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
                         BotAssert::DodgedAtLeast(n) => self.steals_dodged >= *n,
                         BotAssert::RevengeStealAtLeast(n) => self.revenge_steals >= *n,
+                        BotAssert::RivalStealAtLeast(n) => self.rival_vs_rival_steals >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),

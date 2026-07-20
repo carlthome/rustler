@@ -231,6 +231,44 @@ impl MainState {
         self.npc_trains[ni].leader_pos = pushed;
     }
 
+    /// Bot-test helper (see BotAction::ForceRivalCross): deterministically stage the rival-vs-rival
+    /// splice. Pick the train with the most followers as the thief and teleport its leader onto a
+    /// mid-follower of a strictly-smaller rival, clearing the thief's rival-steal cooldown so the
+    /// whole-beach splice in update_npc_trains fires this frame. A no-op until a smaller rival has
+    /// wandered far enough for its mid-follower path slot to exist. Mirrors force_player_cross,
+    /// pointed rival→rival: it exercises the real detection + split_off + transfer path; only the
+    /// RNG-timed wander that would otherwise have to line the two leaders up is shortcut.
+    pub fn force_rival_cross(&mut self) {
+        if self.npc_trains.len() < 2 {
+            return;
+        }
+        const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
+        let thief = (0..self.npc_trains.len())
+            .max_by_key(|&i| self.npc_trains[i].follower_types.len());
+        let Some(thief) = thief else {
+            return;
+        };
+        let thief_len = self.npc_trains[thief].follower_types.len();
+        // Aim the thief's leader at a smaller rival's mid-follower so the splice takes a meaningful
+        // tail section, not one crab. Skip victims whose mid slot hasn't been sampled into path
+        // history yet — a later ForceRivalCross lands once they've wandered enough.
+        for victim in 0..self.npc_trains.len() {
+            if victim == thief {
+                continue;
+            }
+            let vlen = self.npc_trains[victim].follower_types.len();
+            if vlen == 0 || vlen >= thief_len {
+                continue;
+            }
+            let mid_fi = vlen / 2;
+            if let Some(&fpos) = self.npc_trains[victim].path_history.get((mid_fi + 1) * STEPS) {
+                self.npc_trains[thief].leader_pos = fpos;
+                self.npc_trains[thief].rival_steal_cooldown = 0.0;
+                return;
+            }
+        }
+    }
+
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
@@ -412,6 +450,10 @@ impl MainState {
             // rhythmic — never a silent instant strip — is what makes losing crabs read as *earned*
             // (INSPIRATION.md "Legible risk") and land like a drum hit rather than random loss.
             self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
+            // Rival-vs-rival steal cooldown burns down independently (see the whole-beach splice pass
+            // after this loop) so a train churns crabs with other rivals at its own pace.
+            self.npc_trains[i].rival_steal_cooldown =
+                (self.npc_trains[i].rival_steal_cooldown - dt).max(0.0);
             // Revenge marker burns down: once it lapses the "chase me" ring fades and a steal-back
             // off this rival is just a normal rustle, not a revenge bonus.
             self.npc_trains[i].revenge_timer = (self.npc_trains[i].revenge_timer - dt).max(0.0);
@@ -872,6 +914,88 @@ impl MainState {
                 );
                 self.particle_system
                     .spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
+            }
+        }
+
+        // --- Rival-vs-rival splicing: the bigger train slices a smaller rival's back half -----
+        // The whole-beach ecology step (ROADMAP ★ headline): the same reverse-Snake crossing rule
+        // that lets a rival splice YOUR back half now lets the bigger train splice a *smaller* rival's
+        // back half when its leader threads through the smaller one's follower line. No new verb — it
+        // reuses the player-steal geometry (leader within range of a follower slot on path_history)
+        // and the same recoverable-bite cap, so the beach churns on its own: trains gain and lose
+        // crabs without the player, a genuine ecosystem (agar.io + Rain World). The pecking order
+        // emerges from a purely local rule — only a train with MORE followers can bully a smaller one,
+        // so big trains visibly eat small ones. It's made legible (a callout + shockwave at the splice)
+        // so the player can read the fight and swoop in to rustle the winner later.
+        {
+            const STEPS: usize = 14; // matches draw_npc_conga_train / player-steal follower spacing
+            const RIVAL_STEAL_RANGE: f32 = 56.0;
+            let n_trains = self.npc_trains.len();
+            for thief in 0..n_trains {
+                if self.npc_trains[thief].rival_steal_cooldown > 0.0 {
+                    continue;
+                }
+                let thief_pos = self.npc_trains[thief].leader_pos;
+                let thief_len = self.npc_trains[thief].follower_types.len();
+                // Find a smaller victim whose follower line the thief's leader is threading. Take the
+                // earliest (closest-to-leader) follower in range so the cut takes the largest section,
+                // exactly like the player's steal-back does against a rival.
+                let mut hit: Option<(usize, usize)> = None; // (victim, splice_fi)
+                for victim in 0..n_trains {
+                    if victim == thief {
+                        continue;
+                    }
+                    let vlen = self.npc_trains[victim].follower_types.len();
+                    if vlen == 0 || vlen >= thief_len {
+                        continue; // only a strictly bigger train bullies a smaller one
+                    }
+                    for fi in 0..vlen {
+                        if let Some(&fpos) =
+                            self.npc_trains[victim].path_history.get((fi + 1) * STEPS)
+                        {
+                            if thief_pos.distance(fpos) < RIVAL_STEAL_RANGE {
+                                hit = Some((victim, fi));
+                                break;
+                            }
+                        }
+                    }
+                    if hit.is_some() {
+                        break;
+                    }
+                }
+                if let Some((victim, fi)) = hit {
+                    // Cap the cut to a recoverable bite (STEAL_MAX_LINKS, the same cap the rival uses
+                    // against you) so the beach churns without collapsing into one mega-train — the
+                    // front of the victim's line always survives. cut_from clamps toward the tail.
+                    let vlen = self.npc_trains[victim].follower_types.len();
+                    let cut_from = fi.max(vlen.saturating_sub(STEAL_MAX_LINKS));
+                    let splice_pos = self.npc_trains[victim]
+                        .path_history
+                        .get((cut_from + 1) * STEPS)
+                        .copied()
+                        .unwrap_or(thief_pos);
+                    let stolen = self.npc_trains[victim].follower_types.split_off(cut_from);
+                    let stolen_count = stolen.len();
+                    if stolen_count > 0 {
+                        self.npc_trains[thief].follower_types.extend(stolen);
+                        self.npc_trains[thief].rival_steal_cooldown = 3.0;
+                        self.rival_vs_rival_steals += stolen_count;
+                        // Legibility (ROADMAP step 3 "make it legible and swoopable"): name the theft
+                        // at the splice point and pop a golden shockwave so the player reads which train
+                        // just grew, then can swoop in and rustle the fattened winner.
+                        let thief_name = self.npc_trains[thief].name.clone();
+                        let victim_name = self.npc_trains[victim].name.clone();
+                        self.floating_texts.spawn(
+                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name),
+                            splice_pos - Vec2::new(90.0, 30.0),
+                            22.0,
+                            [1.0, 0.78, 0.25, 1.0],
+                        );
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((splice_pos, 0.0, [1.0, 0.78, 0.25]));
+                        }
+                    }
+                }
             }
         }
 

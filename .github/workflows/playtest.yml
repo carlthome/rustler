@@ -32,6 +32,7 @@ jobs:
             steal_defense,
             steal_dodge,
             revenge,
+            npc_vs_npc,
           ]
     steps:
       - uses: actions/checkout@v4
