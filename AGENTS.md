@@ -91,40 +91,39 @@ git -C . push origin main
 
 **Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
 (the harness enforces this, opening them as **drafts**). A code-writing routine's job isn't done
-when CI passes — it's done when the work is _in `main`_. Until `.github/workflows/auto-merge.yml` lands
-(the Build Engineer's top-priority task — see Cron 4 step 1b), no bot merges for you, so **you** drive the
-draft to merged — via `enable_pr_auto_merge` where the repo allows it, by hand otherwise:
+when CI passes — it's done when the work is _in `main`_. The `.github/workflows/auto-merge.yml`
+persistent actor now does the actual merge for you: it squash-merges any **non-draft**, green,
+`claude/*` PR into `main` the instant its checks pass. It never touches drafts — so your one required
+hand-off is to **flip the draft to ready**; the workflow takes it from there:
 
 1. **Feel done + CI green.** When you believe the change is complete and its checks on the draft are
    green (build + Playtest), don't stop there.
 2. **Mark it ready for review.** Flip the draft to ready (`update_pull_request` with `draft: false`).
+   This is the trigger — auto-merge only ever acts on non-drafts, so a PR left as a draft never merges.
 3. **Watch for additional checks.** Marking ready can queue _new_ required checks (or re-run
-   existing ones) that a draft didn't trigger. Wait for those to settle green too — don't merge on
-   the draft-era result alone.
-4. **Merge — prefer auto-merge over a manual return trip.** First make sure the branch is current with
-   `main` — several routines merge in parallel, so yours may have fallen behind or now conflict;
-   update/rebase it and let CI re-run green if so. Then **call the GitHub MCP `enable_pr_auto_merge`
-   tool (squash) and you're done** — GitHub squash-merges the instant every required check is green,
-   with no fragile return trip across a stateless restart. If that tool errors because repo-native
-   auto-merge isn't enabled yet, fall back to the manual path: wait for every required check to go
-   green on the ready PR, then squash-merge it yourself.
+   existing ones) that a draft didn't trigger. Let those settle green — auto-merge waits for every
+   required check before it merges, and skips silently while anything is still running or red.
+4. **Let it merge — or nudge if stuck.** Once the ready PR is green and current with `main`, auto-merge
+   squash-merges it with no return trip needed from you. If your branch has fallen behind `main` (several
+   routines merge in parallel) or conflicts, update/rebase it and let CI re-run green; the next trigger
+   retries the merge. You can still call the GitHub MCP `enable_pr_auto_merge` tool (squash) as a belt-and-
+   braces nudge, or squash-merge by hand if the workflow is ever down — but in the normal case, marking
+   ready is the whole job.
 
 Never leave a green, ready PR sitting unmerged. A failing check at any step is the next task: fix and
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
 couple of honest tries, say so in a PR comment rather than force-merging.
 
-> **The recurring PR pileup is a missing persistent actor — now assigned to the Build Engineer as
-> `auto-merge.yml` (Cron 4 step 1b), not another prose patch and not a human toggle.** Seven Agent Engineer
-> prose rewrites did not stop the flood (20+ open bot PRs as of this writing — the NPC name-cache fix
-> shipped three times as #36/#46/#64, the same instrumentation as #42/#47/#61), because merging depends on
-> the *opening* agent returning across a stateless restart to finish the manual mark-ready→wait→merge dance
-> — and the one-line human fix (Carl enabling repo-native auto-merge in Settings → General) has sat un-flipped
-> across all seven of those runs. A stateless agent instruction cannot fix a coordination problem that needs
-> a persistent actor, so the fix is a workflow the Build Engineer owns and can ship: it squash-merges any
-> ready, green, `claude/*` PR the instant its checks pass, ending the return-trip dependency whether or not
-> the toggle is ever flipped. Until that workflow lands, agents fall back to the manual path in step 4 and
-> the drain-queue rules below still stand. **Carl: flipping "Allow auto-merge" still helps — it lets step 4's
-> `enable_pr_auto_merge` work directly — but the pipeline no longer waits on it.**
+> **The recurring PR pileup was a missing persistent actor — now fixed by `auto-merge.yml` (shipped in
+> PR #86), not by more prose and not by a human toggle.** Seven Agent Engineer prose rewrites never drained
+> the flood (20+ open bot PRs at its peak — the NPC name-cache fix shipped three times as #36/#46/#64, the
+> same instrumentation as #42/#47/#61), because merging depended on the *opening* agent returning across a
+> stateless restart to finish the manual mark-ready→wait→merge dance. The workflow ends that dependency: it
+> squash-merges any non-draft, green, `claude/*` PR the instant its checks pass, whether or not Carl ever
+> flips repo-native auto-merge. What agents still owe it is the one thing a workflow can't do for a draft —
+> **mark the PR ready** (step 2 above). The drain-queue rules in each cron still stand for clearing the
+> backlog of *stale* drafts that predate the workflow. **Carl: flipping "Allow auto-merge" in Settings is now
+> optional — it lets `enable_pr_auto_merge` work directly, but the pipeline no longer needs it.**
 
 **Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
 tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
@@ -366,23 +365,12 @@ Steps:
      start fresh with zero open PRs.
    **Before choosing your CI optimization target (step 5), scan all open PR titles.** If an open PR
    already implements the thing you were about to do, pick a different target — don't reimplement it.
-1b. **TOP PRIORITY until it exists: ship `.github/workflows/auto-merge.yml`.** The recurring bot-PR
-   pileup (see "Merge your green PRs") is not a prose problem — it's a *missing persistent actor*. Seven
-   Agent Engineer prose rewrites and a standing ask for Carl to flip repo-native auto-merge have not
-   drained the queue, because merging still depends on each routine finishing a mark-ready→wait→merge
-   dance across a stateless restart. A workflow is the persistent actor that ends that dependency, and it's
-   yours (you own the workflow surface). Until this file exists, it beats every speed lever below — build it
-   this run. Requirements, kept conservative so it can never merge something it shouldn't:
-   - Trigger on `pull_request` (`ready_for_review`, `synchronize`) and on CI completion (`workflow_run`/
-     `check_suite` `completed`) so it re-evaluates when a PR goes ready OR when its checks finish.
-   - Act ONLY on a PR that is: **not a draft**, base `main`, head-ref starts with **`claude/`** (the routine
-     harness's branch prefix — this is the safety gate that keeps it off Carl's and Copilot's PRs), and has
-     **every required check green** (build + Playtest). Skip anything else silently.
-   - **Squash-merge** only. If the branch is behind `main` or conflicts, update-branch (or skip and let the
-     next trigger retry) — never force-merge a red or stale PR.
-   - This does exactly what repo-native auto-merge would, via a path agents can actually execute, so it
-     auto-heals whether or not Carl ever flips the toggle. Prove the YAML parses and dry-reason the gate
-     before pushing. Once it's merged and observed draining a real PR, this task is done — don't rebuild it.
+1b. **`.github/workflows/auto-merge.yml` has landed (PR #86) — it exists; do NOT rebuild it.** This is the
+   persistent actor that drains the bot-PR queue: it squash-merges any non-draft, green, `claude/*` PR into
+   `main` the instant its checks pass, so no routine has to finish the mark-ready→wait→merge dance across a
+   stateless restart. It's a one-time structural fix and it's done. Your only job here now is **upkeep**: if
+   a real CI change (e.g. a renamed required check, a new matrix leg) would break the workflow's gate, fix
+   the gate as part of that change — otherwise leave it alone. Never re-author it from scratch.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
@@ -410,9 +398,7 @@ Steps:
    confirm it's genuinely faster AND still green before merging. Don't leave a green PR sitting; a
    failed check is your next task.
 
-If nothing obvious stands out this run, **do nothing this cycle — open no PR.** (This empty-run rule
-does NOT apply to the step 1b `auto-merge.yml` task: that's a one-time structural fix, not a speed lever,
-and is worth shipping whether or not there's a speed win this run — until the file exists it takes priority.)
+If nothing obvious stands out this run, **do nothing this cycle — open no PR.**
 A run with no genuine CI win is a valid empty run, exactly like the Release Manager's "fewer than 5 commits
 → do nothing" and the Performance Engineer's identical rule. Do NOT fall back to "add lightweight timing visibility (per-step
 job-summary timing)" as filler: that is the same make-work trap that produced the Performance Engineer's
