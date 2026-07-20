@@ -239,6 +239,16 @@ thread_local! {
     static RADAR_ARROW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static RADAR_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
+    // `crabs` holds every crab caught this run (never removed, only flagged `caught`), so the old
+    // per-crab canvas.draw() loop issued one GPU submission per crab per frame with unbounded
+    // growth over a run's lifetime — the one entity-draw loop in this file that hadn't been
+    // batched yet. All these dots share the same unit-circle mesh and only differ in
+    // dest/scale/color, so one InstanceArray fill + draw_instanced_mesh handles them all, same
+    // draw order (and thus same overlap blending) as the original sequential calls.
+    static MINIMAP_DOT_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static MINIMAP_DOT_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Magnet aura batching: collect per-ring (mesh_key, DrawParam) pairs from draw_magnet_aura()
     // calls during the per-crab aura pass, then flush them all as instanced batches grouped by
     // mesh key in flush_magnet_auras(). In the Water biome (which now bias-spawns Magnets at
@@ -8221,23 +8231,35 @@ pub fn draw_minimap(
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 2.0, map_y - 2.0)).scale(Vec2::new(map_w + 4.0, map_h + 4.0)).color(Color::from_rgba(0, 0, 0, 150)));
-    for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
-        let [r, g, b] = crab.crab_color();
-        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
-    }
-    for crab in crabs.iter().filter(|c| c.caught) {
-        let [r, g, b] = crab.crab_color();
-        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
-    }
-    for &pos in npc_followers {
-        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
-    }
-    for &(pos, ls) in npc_leaders {
-        let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
-        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
-    }
-    canvas.draw(dot, DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
-    canvas.draw(dot, DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+    MINIMAP_DOT_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        params.clear();
+        for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
+            let [r, g, b] = crab.crab_color();
+            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
+        }
+        for crab in crabs.iter().filter(|c| c.caught) {
+            let [r, g, b] = crab.crab_color();
+            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
+        }
+        for &pos in npc_followers {
+            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
+        }
+        for &(pos, ls) in npc_leaders {
+            let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
+            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
+        }
+        params.push(DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
+        params.push(DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+
+        MINIMAP_DOT_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(dot.clone(), instances, DrawParam::default());
+            Ok(())
+        })
+    })?;
     let vx = map_x + (camera_origin.x / world_w) * map_w;
     let vy = map_y + (camera_origin.y / world_h) * map_h;
     let vw = (viewport_w / world_w) * map_w;
