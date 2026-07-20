@@ -165,6 +165,10 @@ pub fn draw_menu(
         surge_timer: 0.0,
     };
 
+    // Only a handful of decorative crabs on the menu, so render them at full detail (reset the LOD
+    // hint in case a prior gameplay pass left a high crowd count set).
+    crate::graphics::set_crab_lod_hint(0);
+
     // Train A: marches right at the bottom, led by a large King Crab
     {
         let speed = 72.0_f32;
