@@ -7524,6 +7524,56 @@ pub fn draw_beam_golden_spotlight(
     Ok(())
 }
 
+/// Beam-vs-Sneaky STRONG-match tell: the flashlight *exposing the sneak*. The Fast pin clamps icy-cyan
+/// brackets INWARD (a reticle trapping a sprinter) and the Golden spotlight draws rays inward (revealing
+/// the prize); the Sneaky tell instead reads as a skittish evader caught in the act — teal (its signature
+/// colour) short dashes recoiling OUTWARD over a bright exposure flash, so it never reads as the cyan Fast
+/// clamp or the warm-gold Golden reel. On the beat the flash firms up with a ring pop — the drum-hit
+/// "caught you!" version of the graze.
+pub fn draw_beam_sneaky_pin(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)], // (crab_pos, on_beat)
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let unit_sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        // On-beat is the firm "exposed!" flash — brighter, with a ring pop.
+        let a = if on_beat { 0.8 } else { 0.45 };
+        let flash_r = if on_beat { 16.0 } else { 12.0 };
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Soft teal exposure bloom — the sneak lit up.
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(flash_r + 8.0))
+            .color(Color::new(0.47, 0.86, 0.86, a * 0.3)));
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(flash_r))
+            .color(Color::new(0.65, 0.98, 0.95, a * 0.35)));
+        // Eight short dashes recoiling OUTWARD — the startled sneak flinching in the light.
+        for i in 0..8 {
+            let angle = i as f32 * std::f32::consts::PI / 4.0;
+            let dash_start = pos + Vec2::new(angle.cos(), angle.sin()) * (flash_r + 3.0);
+            canvas.draw(unit_sq, DrawParam::default()
+                .dest(dash_start)
+                .scale(Vec2::new(8.0, 2.0))
+                .rotation(angle) // point outward, away from the crab
+                .offset(Vec2::new(0.0, 0.5))
+                .color(Color::new(0.6, 0.98, 0.92, a)));
+        }
+        // On-beat ring pop — the "caught you!" flash.
+        if on_beat {
+            canvas.draw(dot, DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(flash_r * 2.6))
+                .color(Color::new(0.5, 0.95, 0.9, 0.16)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 pub fn draw_stomp_dancer_match(
     ctx: &mut Context,
     canvas: &mut Canvas,
