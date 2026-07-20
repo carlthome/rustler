@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.28.0 — 2026-07-20
+
+### Features
+- Per-rival spatial music: each King Crab train broadcasts a beat-locked motif that swells with its train size
+
+### Fixes
+- Fix flaky campaign_tutorial: beat-time the autopilot's final catch approach
+
 ## v0.27.0 — 2026-07-20
 
 ### Features
