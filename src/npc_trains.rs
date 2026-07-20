@@ -173,7 +173,9 @@ impl MainState {
     /// and fizzles the splice (steals_dodged rises). A no-op when there's nothing stealable (no NPC
     /// trains, or a chain shorter than 2). Mirrors force_steal_defense's arm, but instead of running
     /// the tool parry it exercises the geometry-based escape — only the player's fast juke (RNG-fragile
-    /// against a wandering rival inside a headless budget) is shortcut.
+    /// against a wandering rival inside a headless budget) is shortcut. A clean reroute always opens a
+    /// counter-steal window (marks the juked rival for revenge), so a following ForceRevengeCross can
+    /// assert the dodge flipped into offense.
     pub fn force_steal_dodge(&mut self) {
         if self.npc_trains.is_empty() || self.chain_count < 2 {
             return;
@@ -237,6 +239,9 @@ impl MainState {
         // (see the splice block below) so losing crabs is rhythmic, a drum hit rather than a random grab.
         let on_beat = self.beat_timer < BEAT_WINDOW
             || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        // The downbeat (beat 1 of the 4/4 bar) is the big-hit moment — same convention as
+        // on_downbeat_now(). A reroute that lands on the downbeat is the "big save" version.
+        let downbeat = on_beat && self.beat_count % 4 == 0;
         for i in 0..self.npc_trains.len() {
             // --- Idle pause at destination -------------------------------------------------
             // When idle_timer > 0 the train has just arrived at a target and is "surveying"
@@ -476,12 +481,32 @@ impl MainState {
                         const ESCAPE_RANGE: f32 = 145.0;
                         if npc_pos.distance(tp) > ESCAPE_RANGE {
                             // Dodged — the rival lost the thread. Fizzle cleanly and put it on a short
-                            // cooldown so it re-pursues rather than instantly re-arming from here.
+                            // cooldown so it re-pursues rather than instantly re-arming from here. A
+                            // downbeat reroute holds it off a beat longer (the "big save" version).
                             self.npc_trains[i].steal_threat = 0.0;
-                            self.npc_trains[i].steal_cooldown = 1.4;
+                            self.npc_trains[i].steal_cooldown = if downbeat { 2.0 } else { 1.4 };
                             self.steals_dodged += 1;
+                            // Flip the reroute into offense, mirroring the tool parry (try_defend_steal):
+                            // a clean juke leaves the rival strung out and exposed, so mark it for revenge
+                            // and open a counter-steal window — thread its line inside the window and the
+                            // steal-back pays the revenge bonus (ROADMAP "you steal, they steal back").
+                            // The dodge is a *positioning* skill (the geometry escape always works),
+                            // unlike the parry's *timing* skill, so the window always opens — but TIMING
+                            // scales how long you get to cash it: a downbeat reroute opens the full window
+                            // (the big save), on-beat a good one, off-beat a short one. Hitting the beat
+                            // still pays without gating the counter on RNG-fragile frame timing
+                            // (INSPIRATION.md item 2, "keys as drum pads").
+                            self.npc_trains[i].revenge_timer = if downbeat {
+                                REVENGE_WINDOW
+                            } else if on_beat {
+                                REVENGE_WINDOW * 0.7
+                            } else {
+                                REVENGE_WINDOW * 0.5
+                            };
                             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-                            let (label, size) = if on_beat {
+                            let (label, size) = if downbeat {
+                                ("BIG DODGE — DOWNBEAT!".to_string(), 28.0)
+                            } else if on_beat {
                                 ("DODGED — ON BEAT!".to_string(), 26.0)
                             } else {
                                 ("DODGED!".to_string(), 22.0)
@@ -492,11 +517,20 @@ impl MainState {
                                 size,
                                 [0.5, 1.0, 0.85, 1.0],
                             );
+                            // Point the player at the counter-play the reroute opened.
+                            self.floating_texts.spawn(
+                                "COUNTER — rustle 'em back!".to_string(),
+                                player_center - Vec2::new(70.0, 24.0),
+                                18.0,
+                                [0.45, 1.0, 0.7, 0.95],
+                            );
                             if on_beat {
                                 // The on-beat reroute is the skill version — reward the clean read.
-                                self.groove = (self.groove + 0.12).min(1.0);
+                                self.groove =
+                                    (self.groove + if downbeat { 0.18 } else { 0.12 }).min(1.0);
                                 self.beat_streak = (self.beat_streak + 1).min(99);
-                                self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.8);
+                                self.on_beat_flash =
+                                    (self.on_beat_flash + if downbeat { 0.5 } else { 0.3 }).min(0.85);
                             }
                             if self.catch_shockwaves.len() < 48 {
                                 self.catch_shockwaves.push((tp, 0.0, [0.5, 1.0, 0.85]));

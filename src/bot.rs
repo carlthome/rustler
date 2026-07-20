@@ -294,14 +294,21 @@ pub fn script_steal_dodge() -> Vec<BotEvent> {
     ];
     // Stage arm+dodge every 0.9s across a wide window. Each attempt is a no-op unless a stealable
     // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
-    // lands while the seek-catch chain is alive.
+    // lands while the seek-catch chain is alive. A clean reroute (like the tool parry) marks the juked
+    // rival for revenge and opens a counter-steal window — a following ForceRevengeCross ~0.45s later
+    // threads that marked rival to close the counter-steal, which guards the new "a dodge opens a
+    // counter window" reward so it can't silently regress.
     let mut t = 14.0_f32;
     while t < 46.0 {
         script.push(BotEvent { at: t, action: BotAction::ForceStealDodge });
+        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRevengeCross });
         t += 0.9;
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::DodgedAtLeast(1)) });
+    // The on-beat dodge must open a counter-steal window the player can cash — assert the revenge
+    // steal-back fired off a dodge-marked rival (mirrors script_revenge's splice-then-revenge guard).
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
     script
 }
 
