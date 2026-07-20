@@ -64,6 +64,12 @@ pub struct GameSounds {
     pub(crate) steal_loss_sfx: Source,
     /// Rising sting played when you rustle crabs back off a rival — the triumphant "gain" half.
     pub(crate) steal_gain_sfx: Source,
+    /// Hard-left / hard-right variants of the neutral rival-vs-rival theft clack — a third-party
+    /// steal out on the field. The audio pass sets their per-play volumes (equal-power pan by the
+    /// collision's bearing, faded by distance) and `play_detached`es both, so a far-off rival steal
+    /// reads as a faint directional tick the player looks toward and swoops into (agar.io "radar").
+    pub(crate) rival_steal_l: Source,
+    pub(crate) rival_steal_r: Source,
     /// Five crab-theme loops (Duck Game / Deus Ex ABA melodies), one per archetype group.
     /// 0=normal/fast/big  1=dancer/splitter  2=thief/sneaky  3=boss/armored  4=golden/magnet/hermit
     pub(crate) crab_themes: [Source; 5],
@@ -539,6 +545,10 @@ pub struct MainState {
     pub(crate) steal_loss_sfx: bool,
     /// One-frame flag: you rustled crabs back off a rival this frame — play the "gain" steal sting.
     pub(crate) steal_gain_sfx: bool,
+    /// One-frame latch: two rival trains collided and one rustled the other this frame, carrying the
+    /// splice world position. Set inside `update_npc_trains` (no `ctx`), consumed with `ctx` right
+    /// after so the audio pass can play the position-panned, distance-faded rival-steal clack.
+    pub(crate) rival_steal_sfx: Option<Vec2>,
     pub(crate) beat_timer: f32,
     // Live beat interval in seconds, = BEAT_INTERVAL / current stage's tempo multiplier. Recomputed
     // whenever the intensity stage climbs so the whole game (beat cadence, every phase animation
@@ -1236,6 +1246,7 @@ impl MainState {
         let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
         let (king_crab_rumble_l, king_crab_rumble_r) =
             sounds::synth_king_crab_ambient_spatial(ctx)?;
+        let (rival_steal_l, rival_steal_r) = sounds::synth_rival_steal(ctx)?;
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
             // Procedurally generated action groove — a driving pentatonic shuffle
@@ -1259,6 +1270,8 @@ impl MainState {
             lasso_sfx: sounds::synth_lasso_throw(ctx)?,
             steal_loss_sfx: sounds::synth_steal_loss(ctx)?,
             steal_gain_sfx: sounds::synth_steal_gain(ctx)?,
+            rival_steal_l,
+            rival_steal_r,
             crab_themes: [
                 sounds::synth_theme_duck_bounce(ctx)?,  // 0 — normal/fast/big
                 sounds::synth_theme_duck_funky(ctx)?,   // 1 — dancer/splitter
@@ -1550,6 +1563,7 @@ impl MainState {
             rival_spill_crabs: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
+            rival_steal_sfx: None,
             beat_timer: detected_beat_interval,
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
