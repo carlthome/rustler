@@ -1071,6 +1071,10 @@ pub struct MainState {
     // Strong-match hit positions collected each frame for archetype-tool visual feedback.
     // Cleared at the start of update() and read (immutably) in draw_game().
     pub(crate) beam_hermit_hits_buf: Vec<(Vec2, f32)>,
+    // Positions where the beam is pinning a fleeing Fast crab — the beam's soft-RPS STRONG match
+    // (INSPIRATION.md "Beam to melt fast ones"). The bool flags an on-beat pin (a harder clamp) so
+    // draw_beam_fast_pin can flare the tell brighter on the beat. Mirrors the beam/Hermit buffer.
+    pub(crate) beam_fast_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
     pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
     pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
@@ -1768,6 +1772,7 @@ impl MainState {
             dancer_aura_caught_buf: Vec::new(),
             whistle_soothed_buf: Vec::new(),
             beam_hermit_hits_buf: Vec::new(),
+            beam_fast_hits_buf: Vec::new(),
             stomp_dancer_hits_buf: Vec::new(),
             stomp_armored_hits_buf: Vec::new(),
             whistle_golden_hits_buf: Vec::new(),
