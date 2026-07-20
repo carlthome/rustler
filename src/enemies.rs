@@ -291,6 +291,14 @@ impl EnemyCrab {
         matches!(self.crab_type, CrabType::Dancer)
     }
 
+    /// A skittish "Sneaky" crab: evasive and light — it darts off readily but folds hardest of all
+    /// but the Golden to a Whistle sweep (enemies.rs whistle_pull 1.5, "folds hard to a whistle").
+    /// The Whistle's flagship soft-RPS target: the tool that "gathers skittish crabs" (INSPIRATION.md
+    /// Doom Eternal note) flushes it out of hiding and reels it in.
+    pub fn is_sneaky(&self) -> bool {
+        matches!(self.crab_type, CrabType::Sneaky)
+    }
+
     /// A "Fast" crab: an ordinary skittish crab with a high top speed, so it out-runs a plain chase.
     /// It's the beam's soft-RPS target — the flashlight cone drags on a fleeing Fast crab so the
     /// tool that "melts fast ones" (INSPIRATION.md Doom Eternal note) can actually pin it down

@@ -1084,6 +1084,12 @@ pub struct MainState {
     pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
     pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
     pub(crate) whistle_dancer_hits_buf: Vec<Vec2>,
+    // Positions where the whistle's sweep is reeling in a skittish Sneaky crab — the whistle's
+    // flagship soft-RPS strong match (enemies.rs whistle_pull 1.5, "folds hard to a whistle"),
+    // and the one whistle matchup that was still visually silent while Golden and Dancer both had
+    // tells. The bool flags an on-beat cast so draw_whistle_sneaky_match flares the tell brighter
+    // on the beat (a herd-on-the-beat reward). Mirrors the whistle/Golden + whistle/Dancer buffers.
+    pub(crate) whistle_sneaky_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
     // Positions where a lasso throw landed on a still-shelled crab (Armored / shelled Hermit) and
@@ -1783,6 +1789,7 @@ impl MainState {
             stomp_armored_hits_buf: Vec::new(),
             whistle_golden_hits_buf: Vec::new(),
             whistle_dancer_hits_buf: Vec::new(),
+            whistle_sneaky_hits_buf: Vec::new(),
             lasso_thief_hits_buf: Vec::new(),
             lasso_magnet_hits_buf: Vec::new(),
             lasso_shell_deflect_hits_buf: Vec::new(),
