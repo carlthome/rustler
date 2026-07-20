@@ -8610,8 +8610,17 @@ fn main() -> GameResult {
             1.0
         } else {
             match name.as_str() {
+                // The chain-dependent defense scenarios (parry/dodge/revenge) need the seek-catch
+                // autopilot to reliably hold a >=2-link chain for their ForceStealDefense/Dodge/
+                // RevengeCross attempts to have anything to act on. At 3x the *effective* per-frame
+                // step (real_dt * time_scale) grows large on a slow/loaded CI runner, and — as the
+                // 8x comment below notes — the player then teleports past crabs and catches nothing,
+                // so the chain stalls at 1 link and the parry/revenge asserts flake red. 2x keeps the
+                // step small enough that catches register reliably, trading a little wall-clock (still
+                // a parallel matrix leg) for a green that isn't a coin-flip.
+                "steal_defense" | "steal_dodge" | "revenge" => 2.0,
                 "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-                | "steal_defense" | "steal_dodge" | "revenge" | "npc_vs_npc" => 3.0,
+                | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };
