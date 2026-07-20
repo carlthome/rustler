@@ -8578,37 +8578,43 @@ impl EventHandler for MainState {
             let t = ((g - 0.2) / 0.8).clamp(0.0, 1.0);
             (t * t * (3.0 - 2.0 * t)) * 0.86
         };
-        // Ping-pong: read last frame's accumulation, write this frame's. Both images are allocated
-        // once (state.rs) and reused — no per-frame image allocation.
-        let (read_img, write_img) = if self.trail_swap {
-            (self.trail_image_a.clone(), self.trail_image_b.clone())
-        } else {
-            (self.trail_image_b.clone(), self.trail_image_a.clone())
-        };
-        let scene = self.scene_image.clone();
-        if trail_strength > 0.0 {
+        // Below the groove threshold this pass is a documented no-op (pixel-exact copy of the
+        // scene), so skip the whole offscreen render — canvas bind, blit draw, blend-mode
+        // switches, finish()/GPU submit — and feed the scene straight into Pass 2 instead. This
+        // is the common case (normal play sits under groove 0.2 most of the time), so avoiding a
+        // full extra full-screen pass here is a real per-frame win. The trail ping-pong buffers
+        // are simply left untouched; when groove climbs back past 0.2, trail_strength ramps up
+        // from ~0 so any staleness in the buffers contributes a negligible first-frame blend.
+        let write_img = if trail_strength > 0.0 {
+            // Ping-pong: read last frame's accumulation, write this frame's. Both images are
+            // allocated once (state.rs) and reused — no per-frame image allocation.
+            let (read_img, write_img) = if self.trail_swap {
+                (self.trail_image_a.clone(), self.trail_image_b.clone())
+            } else {
+                (self.trail_image_b.clone(), self.trail_image_a.clone())
+            };
+            let scene = self.scene_image.clone();
             let tu = TrailUniform {
                 strength: trail_strength,
             };
             self.trail_params.set_uniforms(ctx, &tu);
-        }
-        {
-            let mut acc = Canvas::from_image(ctx, write_img.clone(), Color::BLACK);
-            acc.set_sampler(Sampler::nearest_clamp());
-            // Base: this frame's crisp scene (opaque). At trail_strength 0 the accumulation is a
-            // pixel-exact copy of the scene, so post-processing sees the same image as before.
-            acc.draw(&scene, DrawParam::default().dest(Vec2::ZERO));
-            if trail_strength > 0.0 {
+            {
+                let mut acc = Canvas::from_image(ctx, write_img.clone(), Color::BLACK);
+                acc.set_sampler(Sampler::nearest_clamp());
+                acc.draw(&scene, DrawParam::default().dest(Vec2::ZERO));
                 acc.set_shader(&self.trail_shader);
                 acc.set_shader_params(&self.trail_params);
                 acc.set_blend_mode(BlendMode::ADD);
                 acc.draw(&read_img, DrawParam::default().dest(Vec2::ZERO));
                 acc.set_blend_mode(BlendMode::ALPHA);
                 acc.set_default_shader();
+                acc.finish(ctx)?;
             }
-            acc.finish(ctx)?;
-        }
-        self.trail_swap = !self.trail_swap;
+            self.trail_swap = !self.trail_swap;
+            write_img
+        } else {
+            self.scene_image.clone()
+        };
 
         // --- Pass 2: blit the accumulated scene to screen with post-processing ---
         {
