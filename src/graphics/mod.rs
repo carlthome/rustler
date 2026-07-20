@@ -3160,7 +3160,11 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     } else {
         1.0
     };
-    let size = base_size * pulse_scale;
+    // Whole-crab pump on the downbeat — every crab bounces a touch bigger on the beat so a train
+    // of them visibly throbs to the music like a row of drum skins. Small (~6%) so it reads as
+    // energy, not a size change.
+    let beat_bounce = 1.0 + 0.06 * beat_phase;
+    let size = base_size * pulse_scale * beat_bounce;
 
     // Drop shadow: shrinks and moves away as the crab lifts off the ground
     let shadow_scale_x = (1.0 - y_lift / 60.0).clamp(0.4, 1.0);
@@ -3190,12 +3194,30 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // pulses faintly with the beat so the herd shimmers on the downbeat.
     let glint_a = 0.5 + beat_phase * 0.35;
 
+    // Carapace squash-and-stretch on the beat: the shell flattens and widens right on the downbeat,
+    // reading as a satisfying drum-hit pop distinct from the whole-crab bounce above. Applied only
+    // to the stacked shell discs (rim/body/belly/dome) so the face and legs stay put while the
+    // carapace "breathes" with the music.
+    let shell_squash = 1.0 + 0.16 * beat_phase; // wider along the shell
+    let shell_stretch = 1.0 - 0.11 * beat_phase; // flatter top-to-bottom
+    // Dark, hue-tinted rim tucked just behind the shell so each crab reads crisply against busy
+    // terrain and overlapping trainmates — a readability win as much as a detail one. Keeps the
+    // crab's own colour so it still reads as its archetype, just shaded.
+    let rim_color = Color::new(crab_color.r * 0.32, crab_color.g * 0.28, crab_color.b * 0.30, 0.92);
+    // Belly shade: a darker disc pushed toward the shadow side so two flat fills read as a lit dome
+    // over a shaded underside — a cheap rounded-shell gradient without a real gradient shader.
+    let belly_color = Color::new(crab_color.r * 0.60, crab_color.g * 0.53, crab_color.b * 0.56, 0.55);
+
     // Crab claws — asymmetric like a real fiddler/shore crab: a big crusher on the left and a
     // smaller pincer on the right, each idly flexing with a slow sine so a standing crab still
     // feels alive. `claw_idle` swings roughly [-1, 1]; phase varies per-crab so a herd isn't in
     // lockstep.
     let claw_phase = (crab.pos.x - crab.pos.y) * 0.07;
     let claw_idle = (time * (1.6 + beat_phase * 0.8) + claw_phase).sin();
+    // Pincer snap: the claw gap slams shut right on the downbeat, so a crab on the beat looks like
+    // it's clapping along to the music — the drum-hit feel carried into the claws. Squared so the
+    // close is sharp near the peak rather than a lazy fade.
+    let gap_close = 1.0 - 0.72 * (beat_phase * beat_phase);
     let claw_offset = size * 0.72;
     let crusher_radius = size * 0.23; // dominant claw
     let pincer_radius = size * 0.15; // small claw
@@ -3256,19 +3278,47 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 ))
                 .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
         );
-        // Crab body — elliptical (wider than tall) for real crab proportions.
+        // Dark tinted rim tucked just behind the shell — a subtle outline that lifts the crab off
+        // the terrain and off overlapping trainmates. Squashes with the body so the outline tracks
+        // the beat pop.
         params.push(
             DrawParam::default()
                 .dest(draw_pos)
-                .scale(Vec2::new(size * 0.62, size * 0.48))
+                .scale(Vec2::new(
+                    size * 0.62 * shell_squash * 1.15,
+                    size * 0.48 * shell_stretch * 1.15,
+                ))
+                .rotation(rotation)
+                .color(rim_color),
+        );
+        // Crab body — elliptical (wider than tall) for real crab proportions, squashing on the beat.
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos)
+                .scale(Vec2::new(size * 0.62 * shell_squash, size * 0.48 * shell_stretch))
                 .rotation(rotation)
                 .color(crab_color),
+        );
+        // Belly shade toward the shadow side: darkens the underside so the shell reads as a rounded,
+        // lit dome rather than a flat disc.
+        params.push(
+            DrawParam::default()
+                .dest(draw_pos - light_dir * size * 0.13)
+                .scale(Vec2::new(
+                    size * 0.62 * shell_squash * 0.86,
+                    size * 0.48 * shell_stretch * 0.86,
+                ))
+                .rotation(rotation)
+                .color(belly_color),
         );
         // Domed highlight, matching the body's elliptical proportions.
         params.push(
             DrawParam::default()
                 .dest(draw_pos + light_dir * size * 0.15)
-                .scale(Vec2::new(size * 0.62 * 0.62, size * 0.48 * 0.62))
+                .scale(Vec2::new(
+                    size * 0.62 * 0.62 * shell_squash,
+                    size * 0.48 * 0.62 * shell_stretch,
+                ))
                 .rotation(rotation)
                 .color(dome_color),
         );
@@ -3312,7 +3362,7 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .dest(claw_l + rotate_offset(-crusher_radius * 0.55, 0.0))
                 .scale(Vec2::new(
                     crusher_radius * 0.55,
-                    crusher_radius * (0.10 + 0.12 * (0.5 + 0.5 * claw_idle)),
+                    crusher_radius * (0.10 + 0.12 * (0.5 + 0.5 * claw_idle)) * gap_close,
                 ))
                 .rotation(rotation)
                 .color(notch_color),
@@ -3330,7 +3380,7 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 .dest(claw_r + rotate_offset(pincer_radius * 0.5, 0.0))
                 .scale(Vec2::new(
                     pincer_radius * 0.45,
-                    pincer_radius * (0.10 + 0.12 * (0.5 - 0.5 * claw_idle)),
+                    pincer_radius * (0.10 + 0.12 * (0.5 - 0.5 * claw_idle)) * gap_close,
                 ))
                 .rotation(rotation)
                 .color(notch_color),
