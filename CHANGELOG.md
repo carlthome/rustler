@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.29.1 — 2026-07-20
+
+### Fixes
+- Guard empty InstanceArray draws to fix second-tutorial capacity>0 crash
+
 ## v0.29.0 — 2026-07-20
 
 ### Performance
