@@ -19,6 +19,16 @@ pub struct PostProcessUniform {
     pub title_card_t: f32,
 }
 
+/// Uniform for the conga trail / echo-afterimage accumulation shader (`trail.wgsl`).
+/// `strength` folds the per-frame feedback decay together with a groove curve on the CPU:
+/// 0 at low groove (crisp normal play), rising toward ~0.86 at max groove.
+// crevice's AsStd140 derive auto-pads the struct up to a 16-byte (vec4) boundary, so the
+// single f32 maps to a full vec4 slot — matching `trail.wgsl`'s TrailUniform padding fields.
+#[derive(Copy, Clone, Debug, AsStd140)]
+pub struct TrailUniform {
+    pub strength: f32,
+}
+
 use crate::bot::BotState;
 use crate::constants::*;
 use crate::enemies::{CrabType, EnemyCrab};
@@ -507,6 +517,11 @@ pub struct MainState {
     pub(crate) scene_image: ggez::graphics::Image, // Offscreen render target for post-processing
     pub(crate) postprocess_shader: ggez::graphics::Shader, // Screen-space post-process shader
     pub(crate) postprocess_params: ShaderParams<PostProcessUniform>, // Params for post-process shader
+    pub(crate) trail_shader: ggez::graphics::Shader, // Conga trail / echo-afterimage accumulation shader
+    pub(crate) trail_params: ShaderParams<TrailUniform>, // Params for the trail shader
+    pub(crate) trail_image_a: ggez::graphics::Image, // Ping-pong accumulation target A
+    pub(crate) trail_image_b: ggez::graphics::Image, // Ping-pong accumulation target B
+    pub(crate) trail_swap: bool, // Toggles which trail image is read vs written each frame
     pub(crate) particle_system: ParticleSystem,                      // Particle effects system
     pub(crate) level_title: String,                                  // Title of the current level
     pub(crate) level_title_timer: f32, // Timer for displaying level title
@@ -1507,6 +1522,31 @@ impl MainState {
         };
         let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
 
+        // Conga trail / echo-afterimage layer: a ping-pong pair of accumulation targets, same
+        // logical size as the scene, allocated once here and reused every frame (no per-frame
+        // image allocation). The trail shader lays the faded bright residue of the previous
+        // frame back over the crisp scene, groove-scaled.
+        let trail_shader = ShaderBuilder::new()
+            .vertex_path("/trail.wgsl")
+            .fragment_path("/trail.wgsl")
+            .build(&ctx.gfx)?;
+        let initial_trail_uniform = TrailUniform { strength: 0.0 };
+        let trail_params = ShaderParamsBuilder::new(&initial_trail_uniform).build(ctx);
+        let trail_image_a = ggez::graphics::Image::new_canvas_image(
+            ctx,
+            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
+            width as u32,
+            height as u32,
+            1,
+        );
+        let trail_image_b = ggez::graphics::Image::new_canvas_image(
+            ctx,
+            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
+            width as u32,
+            height as u32,
+            1,
+        );
+
         let flashlight = Flashlight {
             on: false,
             cone_upgrade: 0.0,
@@ -1598,6 +1638,11 @@ impl MainState {
             scene_image,
             postprocess_shader,
             postprocess_params,
+            trail_shader,
+            trail_params,
+            trail_image_a,
+            trail_image_b,
+            trail_swap: false,
             particle_system: ParticleSystem::new(),
             level_title: String::new(),
             level_title_timer: 0.0,
