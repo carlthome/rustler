@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache Cargo artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/cache
@@ -62,7 +62,7 @@ jobs:
       # caching the directory made every save fail with "Permission denied"
       # and the restore always miss — this cache never actually worked.
       - name: Cache apt packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /var/cache/apt/archives/*.deb
           key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
