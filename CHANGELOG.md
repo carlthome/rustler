@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.29.0 — 2026-07-20
+
+### Performance
+- Count NPC train followers when deciding crab LOD tiers, fixing detail drops on large stolen trains
+
+### Refactoring
+- Extract update_crabs into its own module to reduce main.rs from ~6800 to ~4975 lines
+
 ## v0.28.0 — 2026-07-20
 
 ### Features
