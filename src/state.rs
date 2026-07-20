@@ -1165,6 +1165,10 @@ pub struct MainState {
     pub(crate) whistle_thief_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
+    // Positions where the lasso hauled in a heavy Big crab — its flagship soft-RPS match (the whistle
+    // "shrugs most off", so the loop's physical drag is the answer). Carries an on-beat flag so an
+    // on-beat throw flares the "heave" tell brighter and wider. Mirrors the whistle/Sneaky buffer.
+    pub(crate) lasso_big_hits_buf: Vec<(Vec2, bool)>,
     // Positions where a lasso throw landed on a still-shelled crab (Armored / shelled Hermit) and
     // the loop slipped straight off — a WRONG-TOOL tell. Mirrors the beam/Hermit amber "can't-crack"
     // cue: teaches "crack the shell first (Stomp), then lasso" instead of failing silently.
@@ -1899,6 +1903,7 @@ impl MainState {
             whistle_thief_hits_buf: Vec::new(),
             lasso_thief_hits_buf: Vec::new(),
             lasso_magnet_hits_buf: Vec::new(),
+            lasso_big_hits_buf: Vec::new(),
             lasso_shell_deflect_hits_buf: Vec::new(),
             whistle_shell_deflect_hits_buf: Vec::new(),
             magnet_cluster_hits_buf: Vec::new(),
