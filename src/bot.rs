@@ -175,8 +175,12 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
     // the player to the seek-catch autopilot, which in a BeatTiming tutorial stages just outside
     // catch range and closes the final step on the beat (see handle_player_movement), so the on-beat
     // catches actually land — and we run at 3× (like menu_to_game) so the proximity catch fires
-    // often enough to register. This exercises the real world-map -> tutorial -> pass -> world-map
-    // transition, the "tutorial->world-map" flow this test exists to guard.
+    // often enough to register. The beat-timed final approach isn't just polish: without it the
+    // autopilot fires the whistle the instant its 4.5 s cooldown clears, which is EXACTLY 9 beats
+    // (BEAT_INTERVAL 0.5 s), so every reeled-in catch phase-locks to one beat phase — when that
+    // phase is off-beat a whole run banks zero on-beat catches and this test flaked ~1 run in 3.
+    // This exercises the real world-map -> tutorial -> pass -> world-map transition, the
+    // "tutorial->world-map" flow this test exists to guard.
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting campaign tutorial test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::C) },
