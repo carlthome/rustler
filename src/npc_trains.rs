@@ -537,7 +537,7 @@ impl MainState {
                     .crabs
                     .iter()
                     .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
-                    .filter(|c| npc_pos.distance(c.pos) < STEAL_RANGE)
+                    .filter(|c| npc_pos.distance_squared(c.pos) < STEAL_RANGE * STEAL_RANGE)
                     .map(|c| c.chain_index.unwrap())
                     .min();
 
@@ -590,7 +590,7 @@ impl MainState {
                     if let Some(tp) = thread_pos {
                         // ~2.5× STEAL_RANGE: a committed run or a sprint-juke, not a hair's breadth.
                         const ESCAPE_RANGE: f32 = 145.0;
-                        if npc_pos.distance(tp) > ESCAPE_RANGE {
+                        if npc_pos.distance_squared(tp) > ESCAPE_RANGE * ESCAPE_RANGE {
                             // Dodged — the rival lost the thread. Fizzle cleanly and put it on a short
                             // cooldown so it re-pursues rather than instantly re-arming from here. A
                             // downbeat reroute holds it off a beat longer (the "big save" version).
@@ -749,7 +749,7 @@ impl MainState {
                 let mut splice_at: Option<usize> = None;
                 for fi in 0..self.npc_trains[i].follower_types.len() {
                     if let Some(&fpos) = self.npc_trains[i].path_history.get((fi + 1) * STEPS) {
-                        if player_center.distance(fpos) < P_STEAL_RANGE {
+                        if player_center.distance_squared(fpos) < P_STEAL_RANGE * P_STEAL_RANGE {
                             splice_at = Some(fi);
                             break;
                         }
@@ -838,7 +838,7 @@ impl MainState {
                     !c.caught
                         && !c.is_boss()
                         && c.is_catchable()
-                        && npc_pos.distance(c.pos) < CATCH_RANGE
+                        && npc_pos.distance_squared(c.pos) < CATCH_RANGE * CATCH_RANGE
                 });
                 if let Some(crab) = caught {
                     let ct = crab.crab_type;
@@ -897,7 +897,7 @@ impl MainState {
             let mut clash_npc: Option<usize> = None;
             for (ni, npc) in self.npc_trains.iter().enumerate() {
                 let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
-                if npc.leader_pos.distance(player_center) < col_r {
+                if npc.leader_pos.distance_squared(player_center) < col_r * col_r {
                     clash_npc = Some(ni);
                     break;
                 }
@@ -1010,7 +1010,7 @@ impl MainState {
                         if let Some(&fpos) =
                             self.npc_trains[victim].path_history.get((fi + 1) * STEPS)
                         {
-                            if thief_pos.distance(fpos) < RIVAL_STEAL_RANGE {
+                            if thief_pos.distance_squared(fpos) < RIVAL_STEAL_RANGE * RIVAL_STEAL_RANGE {
                                 hit = Some((victim, fi));
                                 break;
                             }
@@ -1096,7 +1096,7 @@ impl MainState {
                 let si = self.npc_trains[i].leader_scale;
                 let sj = self.npc_trains[j].leader_scale;
                 let col_r = CRAB_SIZE * (si + sj) * 0.8;
-                if pi.distance(pj) < col_r {
+                if pi.distance_squared(pj) < col_r * col_r {
                     let dir = (pi - pj).normalize_or_zero();
                     self.npc_trains[i].leader_vel += dir * 200.0;
                     self.npc_trains[j].leader_vel -= dir * 200.0;
@@ -1359,14 +1359,13 @@ impl MainState {
             // the draw scale, so this stays allocation-free per frame.
             let name_w = NPC_NAME_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
-                let needs_rebuild = cache.as_ref().map_or(true, |(n, _, _)| n != &npc.name);
-                if needs_rebuild {
+                if !cache.contains_key(&npc.name) {
                     let mut text = Text::new(npc.name.as_str());
                     text.set_scale(24.0);
                     let w = text.measure(ctx)?.x;
-                    *cache = Some((npc.name.clone(), text, w));
+                    cache.insert(npc.name.clone(), (text, w));
                 }
-                Ok(cache.as_ref().unwrap().2)
+                Ok(cache.get(&npc.name).unwrap().1)
             })?;
             // Tier styling from the leader's base size.
             let tier_scale = 0.8 + (npc.base_scale - 1.2) * 0.33;
@@ -1393,7 +1392,7 @@ impl MainState {
             let name_off = 45.0 + npc.leader_scale * 10.0 + leader_bob;
             NPC_NAME_CACHE.with(|c| {
                 let cache = c.borrow();
-                if let Some((_, text, _)) = cache.as_ref() {
+                if let Some((text, _)) = cache.get(&npc.name) {
                     let name_pos = npc.leader_pos - Vec2::new(draw_w / 2.0, name_off);
                     // Drop shadow (scaled with the banner so it tracks tier size)
                     canvas.draw(

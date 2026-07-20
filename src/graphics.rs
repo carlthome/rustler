@@ -90,6 +90,14 @@ thread_local! {
     // resize, so in practice this cache stays at 2-3 entries for the life of the process.
     static FILL_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, u32), Mesh>> = RefCell::new(HashMap::new());
 
+    // Rounded-rectangle mesh caches, mirroring FILL_RECT_CACHE/STROKE_RECT_CACHE. Built at the
+    // origin (0,0,w,h) and drawn via `.dest(..)` since rounded-rect geometry is translation-
+    // invariant, so all same-sized slots (e.g. the tool roster's 5 identical panels) share one
+    // entry. Keyed by quantized (w, h, radius[, thickness]) plus the RGBA colour. Only a handful
+    // of distinct UI sizes/colours ever appear, so both caches stay tiny for the process lifetime.
+    static FILL_ROUNDED_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, u32), Mesh>> = RefCell::new(HashMap::new());
+    static STROKE_ROUNDED_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, u32), Mesh>> = RefCell::new(HashMap::new());
+
     // Scratch buffer for `draw_conga_rope`'s per-micro-segment geometry (position, rotation,
     // length, rgb), persisted and `clear()`-ed each frame instead of a fresh `Vec` allocation.
     // The rope used to draw its main segment then immediately flip to additive blend for the
@@ -239,6 +247,15 @@ thread_local! {
     static RADAR_ARROW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
     static RADAR_GLOW_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
 
+    // Minimap dot batching: every minimap blip (free/caught crabs, NPC followers/leaders, pen,
+    // player) is the same unit-circle mesh differing only in dest/scale/color, but was drawn with
+    // one canvas.draw() each — dozens of individual draw calls a frame. Collected into one
+    // DrawParam list in exact draw order and flushed as a single InstanceArray fill +
+    // draw_instanced_mesh, identical output (order preserved for alpha/overlap), a fraction of the
+    // per-call overhead.
+    static MINIMAP_DOT_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static MINIMAP_DOT_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Magnet aura batching: collect per-ring (mesh_key, DrawParam) pairs from draw_magnet_aura()
     // calls during the per-crab aura pass, then flush them all as instanced batches grouped by
     // mesh key in flush_magnet_auras(). In the Water biome (which now bias-spawns Magnets at
@@ -274,6 +291,14 @@ thread_local! {
     // once on first use and reuse forever. DrawParam::scale still handles the per-frame beat-pulse
     // size, so no re-layout is needed when the pulse changes.
     static COMBO_LABEL_CACHE: RefCell<[Option<Text>; 3]> = RefCell::new([const { None }; 3]);
+
+    // Cache for the tool roster's five slot labels — (hint_str, key_text, name_text, hint_text)
+    // per slot. draw_tool_roster called Text::new three times per slot (~15 glyph-shaping passes)
+    // every frame the roster was visible. Key and name are fixed strings per slot; only the GROOVE
+    // slot's hint toggles ("SLAM ready!" / "need groove"), so a slot's texts are rebuilt only when
+    // its hint string changes. Same idea as COMBO_LABEL_CACHE, one array slot per tool.
+    #[allow(clippy::type_complexity)]
+    static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text, Text, Text)>; 5]> = RefCell::new([const { None }; 5]);
 
     // Reusable instance buffers for draw_boss_fissures' batched passes. While a King Crab's
     // enrage phase is open (up to 5 fissures with 7 radial crack-spokes each) the old per-spoke,
@@ -1277,6 +1302,55 @@ pub fn cached_fill_rect(ctx: &mut Context, x: f32, y: f32, w: f32, h: f32, color
 
     let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), color)?;
     FILL_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Fetch a cached fill rounded-rectangle mesh of the given size/radius/color, built once per
+/// quantized key and reused after. Baked at the origin `(0,0,w,h)`; since rounded-rect geometry is
+/// translation-invariant, draw it with `.dest((x, y))` to position it (all same-sized panels then
+/// share one cached mesh). Replaces per-frame `Mesh::new_rounded_rectangle` GPU buffer rebuilds.
+pub fn cached_fill_rounded_rect(ctx: &mut Context, w: f32, h: f32, radius: f32, color: Color) -> ggez::GameResult<Mesh> {
+    let w = w.max(0.5);
+    let h = h.max(0.5);
+    let radius = radius.max(0.0);
+    let key = (
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        (radius * 4.0).round() as i32,
+        color.to_rgba_u32(),
+    );
+
+    if let Some(mesh) = FILL_ROUNDED_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, w, h), radius, color)?;
+    FILL_ROUNDED_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Fetch a cached stroke rounded-rectangle mesh of the given size/radius/thickness/color. Like
+/// `cached_fill_rounded_rect`, baked at the origin and positioned via `.dest((x, y))`. Replaces
+/// per-frame `Mesh::new_rounded_rectangle` stroke rebuilds (e.g. the tool roster slot borders).
+pub fn cached_stroke_rounded_rect(ctx: &mut Context, w: f32, h: f32, radius: f32, thickness: f32, color: Color) -> ggez::GameResult<Mesh> {
+    let w = w.max(0.5);
+    let h = h.max(0.5);
+    let radius = radius.max(0.0);
+    let thickness = thickness.max(0.25);
+    let key = (
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        (radius * 4.0).round() as i32,
+        (thickness * 4.0).round() as i32,
+        color.to_rgba_u32(),
+    );
+
+    if let Some(mesh) = STROKE_ROUNDED_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::stroke(thickness), Rect::new(0.0, 0.0, w, h), radius, color)?;
+    STROKE_ROUNDED_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
 
@@ -8221,23 +8295,37 @@ pub fn draw_minimap(
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
     canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 2.0, map_y - 2.0)).scale(Vec2::new(map_w + 4.0, map_h + 4.0)).color(Color::from_rgba(0, 0, 0, 150)));
-    for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
-        let [r, g, b] = crab.crab_color();
-        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
-    }
-    for crab in crabs.iter().filter(|c| c.caught) {
-        let [r, g, b] = crab.crab_color();
-        canvas.draw(dot, DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
-    }
-    for &pos in npc_followers {
-        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
-    }
-    for &(pos, ls) in npc_leaders {
-        let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
-        canvas.draw(dot, DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
-    }
-    canvas.draw(dot, DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
-    canvas.draw(dot, DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+    // Collect every dot blip into one InstanceArray in exact draw order, then issue a single
+    // draw_instanced_mesh — same unit-circle mesh, same per-dot dest/scale/color, one draw call
+    // instead of one per crab/follower/leader.
+    MINIMAP_DOT_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        params.clear();
+        for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
+            let [r, g, b] = crab.crab_color();
+            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
+        }
+        for crab in crabs.iter().filter(|c| c.caught) {
+            let [r, g, b] = crab.crab_color();
+            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
+        }
+        for &pos in npc_followers {
+            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
+        }
+        for &(pos, ls) in npc_leaders {
+            let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
+            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
+        }
+        params.push(DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
+        params.push(DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+        MINIMAP_DOT_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh(dot.clone(), instances, DrawParam::default());
+            Ok(())
+        })
+    })?;
     let vx = map_x + (camera_origin.x / world_w) * map_w;
     let vy = map_y + (camera_origin.y / world_h) * map_h;
     let vw = (viewport_w / world_w) * map_w;
@@ -8370,8 +8458,9 @@ pub fn draw_tool_roster(
         let sy = y0;
         let ready = slot.cooldown_ratio < 0.05;
 
-        // Slot background — dark rounded rect
-        let bg_rect = Rect::new(sx, sy, slot_w, slot_h);
+        // Slot background — dark rounded rect. Geometry (size/radius) is fixed across all five
+        // slots, so the fill mesh comes from a shared cache built once; only the border colour
+        // (ready-accent vs. dim) varies, and its handful of values cache by colour key.
         let border_color = if ready {
             Color::from_rgba(
                 (slot.color[0] * 180.0) as u8,
@@ -8382,34 +8471,12 @@ pub fn draw_tool_roster(
         } else {
             Color::from_rgba(60, 65, 90, 160)
         };
-        let bg_mesh = Mesh::new_rounded_rectangle(
-            ctx,
-            DrawMode::fill(),
-            bg_rect,
-            5.0,
-            Color::from_rgba(10, 14, 30, 180),
-        )?;
-        canvas.draw(&bg_mesh, DrawParam::default());
-        let border_mesh = Mesh::new_rounded_rectangle(
-            ctx,
-            DrawMode::stroke(1.5),
-            bg_rect,
-            5.0,
-            border_color,
-        )?;
-        canvas.draw(&border_mesh, DrawParam::default());
+        let bg_mesh = cached_fill_rounded_rect(ctx, slot_w, slot_h, 5.0, Color::from_rgba(10, 14, 30, 180))?;
+        canvas.draw(&bg_mesh, DrawParam::default().dest(Vec2::new(sx, sy)));
+        let border_mesh = cached_stroke_rounded_rect(ctx, slot_w, slot_h, 5.0, 1.5, border_color)?;
+        canvas.draw(&border_mesh, DrawParam::default().dest(Vec2::new(sx, sy)));
 
-        // Key label — small, top-left
-        let mut key_text = Text::new(slot.key);
-        key_text.set_scale(12.0);
-        canvas.draw(
-            &key_text,
-            DrawParam::default()
-                .dest(Vec2::new(sx + 4.0, sy + 3.0))
-                .color(Color::from_rgba(200, 200, 200, 180)),
-        );
-
-        // Tool name — centred, accent color, slight pulse when ready
+        // Tool name pulse — brightens on the beat when the tool is ready.
         let pulse = if ready {
             (time * 4.0).sin() * 0.5 + 0.5
         } else {
@@ -8417,26 +8484,46 @@ pub fn draw_tool_roster(
         };
         let [r, g, b] = slot.color;
         let name_color = Color::new(r * pulse, g * pulse, b * pulse, 1.0);
-        let mut name_text = Text::new(slot.name);
-        name_text.set_scale(14.0);
         let name_x = sx + slot_w / 2.0 - (slot.name.len() as f32 * 4.2);
-        canvas.draw(
-            &name_text,
-            DrawParam::default()
-                .dest(Vec2::new(name_x.max(sx + 2.0), sy + 17.0))
-                .color(name_color),
-        );
-
-        // Hint text — tiny, dim white, below name
-        let mut hint_text = Text::new(slot.hint);
-        hint_text.set_scale(11.0);
         let hint_x = sx + slot_w / 2.0 - (slot.hint.len() as f32 * 3.2);
-        canvas.draw(
-            &hint_text,
-            DrawParam::default()
-                .dest(Vec2::new(hint_x.max(sx + 2.0), sy + 33.0))
-                .color(Color::from_rgba(200, 200, 200, 140)),
-        );
+
+        // Slot labels (key/name/hint) are static strings glyph-shaped once and reused; only the
+        // GROOVE slot's hint toggles, so a slot's texts rebuild only when its hint string changes.
+        TOOL_ROSTER_TEXT_CACHE.with(|cache_cell| {
+            let mut cache = cache_cell.borrow_mut();
+            let needs_rebuild = cache[i].as_ref().map_or(true, |(h, ..)| *h != slot.hint);
+            if needs_rebuild {
+                let mut key_text = Text::new(slot.key);
+                key_text.set_scale(12.0);
+                let mut name_text = Text::new(slot.name);
+                name_text.set_scale(14.0);
+                let mut hint_text = Text::new(slot.hint);
+                hint_text.set_scale(11.0);
+                cache[i] = Some((slot.hint, key_text, name_text, hint_text));
+            }
+            let (_, key_text, name_text, hint_text) = cache[i].as_ref().unwrap();
+            // Key label — small, top-left
+            canvas.draw(
+                key_text,
+                DrawParam::default()
+                    .dest(Vec2::new(sx + 4.0, sy + 3.0))
+                    .color(Color::from_rgba(200, 200, 200, 180)),
+            );
+            // Tool name — centred, accent color, slight pulse when ready
+            canvas.draw(
+                name_text,
+                DrawParam::default()
+                    .dest(Vec2::new(name_x.max(sx + 2.0), sy + 17.0))
+                    .color(name_color),
+            );
+            // Hint text — tiny, dim white, below name
+            canvas.draw(
+                hint_text,
+                DrawParam::default()
+                    .dest(Vec2::new(hint_x.max(sx + 2.0), sy + 33.0))
+                    .color(Color::from_rgba(200, 200, 200, 140)),
+            );
+        });
 
         // Cooldown / fill bar — 4px tall strip at bottom of slot, inset 4px each side
         let bar_x = sx + 4.0;

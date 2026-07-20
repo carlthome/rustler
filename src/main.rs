@@ -1741,11 +1741,30 @@ impl MainState {
         armored_positions.clear();
         let mut best_chain: Option<(usize, Vec2, CrabType)> = None;
         let mut free_splitter = false;
+        // Splice targeting (folded into this same pass): when the chain is long enough (>= 4
+        // links) the King Crab aims at a mid-chain crab rather than the tail — whichever caught
+        // crab sits closest to 2/3 down from the head (1/3 from the tail). target_ci only depends
+        // on chain_count (known before the loop), so it needs no separate full scan over crabs —
+        // we track the nearest-to-target caught crab right here alongside the tail snapshot.
+        let splice_target_ci: Option<usize> = if self.chain_count >= 4 {
+            Some(self.chain_count * 2 / 3)
+        } else {
+            None
+        };
+        let mut splice_best_dist = f32::MAX;
+        let mut splice_target_pos: Option<Vec2> = None;
         for c in &self.crabs {
             if c.caught {
                 if let Some(ci) = c.chain_index {
                     if best_chain.map_or(true, |(bci, ..)| ci > bci) {
                         best_chain = Some((ci, c.pos, c.crab_type));
+                    }
+                    if let Some(target_ci) = splice_target_ci {
+                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
+                        if dist < splice_best_dist {
+                            splice_best_dist = dist;
+                            splice_target_pos = Some(c.pos);
+                        }
                     }
                 }
                 continue; // caught crabs can't be a Magnet/Golden/Armored source below
@@ -1763,30 +1782,6 @@ impl MainState {
             }
         }
         let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
-        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
-        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
-        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
-        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
-        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
-        let splice_target_pos: Option<Vec2> = if self.chain_count >= 4 {
-            let target_ci = self.chain_count * 2 / 3; // aim 2/3 down from head = 1/3 from tail
-            let mut best_dist = f32::MAX;
-            let mut found: Option<Vec2> = None;
-            for c in &self.crabs {
-                if c.caught {
-                    if let Some(ci) = c.chain_index {
-                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
-                        if dist < best_dist {
-                            best_dist = dist;
-                            found = Some(c.pos);
-                        }
-                    }
-                }
-            }
-            found
-        } else {
-            None
-        };
         let charge_target =
             splice_target_pos.unwrap_or_else(|| chain_tail_pos.unwrap_or(self.player_pos));
         // Captured before the &mut self.crabs loop: while the post-scatter regroup window is live the
@@ -1872,22 +1867,30 @@ impl MainState {
         // pulses with the music rather than strobing every frame.
         let cluster_on_beat =
             self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
-        if cluster_on_beat {
-            for &mp in &magnet_positions {
-                let nearby = self
-                    .crabs
-                    .iter()
-                    .filter(|c| {
-                        !c.caught
-                            && !c.is_magnet()
-                            && !c.is_boss()
-                            && c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ
-                    })
-                    .count();
-                if nearby >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
+        if cluster_on_beat && !magnet_positions.is_empty() {
+            // Single pass over crabs, tallying each free crab into every magnet whose radius it
+            // sits in — one walk of the big self.crabs list with an inner loop over the tiny
+            // magnet_positions list, instead of re-scanning all crabs once per magnet. Same
+            // per-magnet counts, same order of magnet_cluster_hits pushes.
+            let mut counts = std::mem::take(&mut self.magnet_cluster_counts_buf);
+            counts.clear();
+            counts.resize(magnet_positions.len(), 0);
+            for c in &self.crabs {
+                if c.caught || c.is_magnet() || c.is_boss() {
+                    continue;
+                }
+                for (mi, &mp) in magnet_positions.iter().enumerate() {
+                    if c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ {
+                        counts[mi] += 1;
+                    }
+                }
+            }
+            for (mi, &mp) in magnet_positions.iter().enumerate() {
+                if counts[mi] >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
                     self.magnet_cluster_hits_buf.push(mp);
                 }
             }
+            self.magnet_cluster_counts_buf = counts;
         }
 
         // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
