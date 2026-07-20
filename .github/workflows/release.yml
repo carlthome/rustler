@@ -104,6 +104,14 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # gh needs a git repo to resolve the repository and read the tag annotation
+      # for --notes-from-tag; without --repo AND without a checkout it dies with
+      # "fatal: not a git repository". Check out the tag so both work.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
