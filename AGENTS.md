@@ -114,6 +114,13 @@ Never leave a green, ready PR sitting unmerged. A failing check at any step is t
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
 couple of honest tries, say so in a PR comment rather than force-merging.
 
+> **Known gap — the draft flip is the same failing return-trip.** Step 2 (flip the draft to ready) is
+> still a manual hand-off you owe across a stateless restart, and it's the last one auto-merge doesn't cover
+> — green drafts that nobody returns to flip pile up exactly as unmerged green PRs used to (see the Perf
+> Engineer draft pileup). Until the Build Engineer extends the persistent actor to auto-ready green
+> `claude/*` drafts (assigned in the Build Engineer prompt, step 1b), do not trust the flip to happen later:
+> flip ready the moment your checks are green, in the same run that opened the PR.
+
 > **The recurring PR pileup was a missing persistent actor — now fixed by `auto-merge.yml` (shipped in
 > PR #86), not by more prose and not by a human toggle.** Seven Agent Engineer prose rewrites never drained
 > the flood (20+ open bot PRs at its peak — the NPC name-cache fix shipped three times as #36/#46/#64, the
@@ -368,9 +375,24 @@ Steps:
 1b. **`.github/workflows/auto-merge.yml` has landed (PR #86) — it exists; do NOT rebuild it.** This is the
    persistent actor that drains the bot-PR queue: it squash-merges any non-draft, green, `claude/*` PR into
    `main` the instant its checks pass, so no routine has to finish the mark-ready→wait→merge dance across a
-   stateless restart. It's a one-time structural fix and it's done. Your only job here now is **upkeep**: if
-   a real CI change (e.g. a renamed required check, a new matrix leg) would break the workflow's gate, fix
-   the gate as part of that change — otherwise leave it alone. Never re-author it from scratch.
+   stateless restart. Never re-author it from scratch, and if a real CI change (a renamed required check, a
+   new matrix leg) would break its gate, fix the gate as part of that change.
+   **But the actor only drains half the queue, and the other half is flooded again.** By design it
+   `skip: draft`s every draft — and the harness opens every bot PR as a draft, expecting the opening routine
+   to return across a stateless restart and flip it ready. That draft→ready flip is the *same* return-trip
+   that never happens reliably (it's why the merge step itself had to become a workflow). Evidence this run:
+   ~11 open `claude/eloquent-allen-*` (Perf Engineer) PRs sitting as drafts, several fully green — e.g. #64
+   had all six checks (build + five playtest legs) green yet unmerged — plus the name-cache fix stranded as
+   duplicate drafts #36/#46/#64. auto-merge can't touch any of them, and the per-role drain-queue prose that
+   is supposed to close them relies on that same failing return-trip, so it doesn't.
+   **Your next upkeep target: teach the persistent actor to drain the draft side too.** Extend
+   `auto-merge.yml` (or a sibling workflow) so that for any `claude/*` draft into `main` whose `build` and
+   `playtest (...)` checks are all green, it flips the draft ready (`pulls.update` with `draft:false`) — then
+   its existing gates take over and merge it. Reuse the same static + checks gates it already computes; a
+   green complete draft is safe to ready because the merge gate still refuses anything not cleanly mergeable.
+   This is the one structural fix that closes the last agent-in-the-loop hand-off; it is genuine upkeep, not
+   re-authoring. Prove it the usual way (`bash scripts/ci-deps.sh`, `cargo build`, `bash scripts/playtest.sh`
+   still green) and ship it as your PR this run if the draft pileup is present.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
