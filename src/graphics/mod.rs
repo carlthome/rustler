@@ -116,7 +116,10 @@ thread_local! {
     // conga train that's hundreds of blend-mode switches a frame, each one breaking ggez's
     // draw-call batching. Buffering the geometry lets both passes run back-to-back with only
     // two blend-mode switches total, no matter how long the chain gets.
-    static CONGA_SEGMENT_BUF: RefCell<Vec<(Vec2, f32, f32, [f32; 3])>> = RefCell::new(Vec::new());
+    // Tuple: (position, rotation, length, rgb, thickness_mult). The trailing thickness_mult is
+    // 1.0 for an ordinary micro-segment and bulges >1 where the rope heats up under a rival's
+    // splice threat, so the endangered band visibly swells as well as reddens.
+    static CONGA_SEGMENT_BUF: RefCell<Vec<(Vec2, f32, f32, [f32; 3], f32)>> = RefCell::new(Vec::new());
 
     // Scratch buffer for `draw_conga_rope`'s player->crab0->crab1->... waypoint list, persisted
     // and cleared each frame instead of a fresh `Vec::with_capacity` allocation. Grows with chain
@@ -3843,11 +3846,20 @@ pub fn draw_conga_rope(
     // and sweeps tail-ward down the whole rope over the bar, so the conga train visibly "feels the
     // beat" as a travelling wave — a legible, watchable rhythm read on top of the rope's own wiggle.
     bar_phase: f32,
+    // 0..1 rival-splice threat on THIS train, taken from the same committed-hunt / armed-steal
+    // state that already drives the DEFEND ring + early-warning dots (npc hunt_intent / steal_threat).
+    // The rope reddens and swells locally around `splice_center_frac` when this rises, so "you're
+    // about to be sliced HERE" reads directly on the rope — no new risk logic, just visualizing it.
+    splice_risk: f32,
+    // 0..1 position along the rope (0 = head, 1 = tail) of the link a rival is targeting — the
+    // ~2/3-down thread point the splice aims at, or the tail on a short chain. Centers the heat band.
+    splice_center_frac: f32,
 ) -> ggez::GameResult {
     if chain_links.is_empty() {
         return Ok(());
     }
     let heat = gamble_heat.clamp(0.0, 1.0);
+    let risk = splice_risk.clamp(0.0, 1.0);
     // Where along the rope the downbeat pulse currently sits, in link-space (0 = head, total_links
     // = tail). It sweeps the whole train once per bar. The head fraction of the bar is where the
     // flash is brightest; we let it run slightly past the tail so it fully exits rather than
@@ -3885,13 +3897,21 @@ pub fn draw_conga_rope(
     } else {
         14
     };
+    // "The dominant train dominates": a longer conga's rope reads subtly thicker and brighter, so a
+    // big powerful train's tether looks powerful across the field. Ramps from the ~4-link snap
+    // threshold up to a long haul (~30 links) and saturates, so it never balloons without bound.
+    let length_power = ((total_links - 4.0) / 26.0).clamp(0.0, 1.0);
+    // Splice target in link-space: the heat band centers here (the ~2/3-down thread point, or tail).
+    let splice_center_links = splice_center_frac.clamp(0.0, 1.0) * total_links;
+    // Half-width (in links) of the heated band around the splice point.
+    const RISK_BAND: f32 = 3.0;
     // A hot streak whips the rope harder and thicker so it looks like it's straining with energy.
     // Amplitude of the sine-wave wiggle (pixels perpendicular to the link)
     let wiggle_amp = 5.0 + beat_intensity * 8.0 + heat * 5.0;
     // Speed of the wave traveling along the rope (faster on beat, faster still when overheating)
     let wave_speed = 3.5 + beat_intensity * 2.5 + heat * 3.0;
-    let thickness = 3.0 + beat_intensity * 4.5 + heat * 2.5;
-    let alpha_base: f32 = (0.55 + beat_intensity * 0.4 + heat * 0.25).min(1.0);
+    let thickness = 3.0 + beat_intensity * 4.5 + heat * 2.5 + length_power * 2.5;
+    let alpha_base: f32 = (0.55 + beat_intensity * 0.4 + heat * 0.25 + length_power * 0.12).min(1.0);
 
     // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
@@ -3991,11 +4011,32 @@ pub fn draw_conga_rope(
                             bb = bb + (bc[2] - bb) * mix;
                         }
 
+                        // Rope heat — the legible-risk read. Where a rival is committed to slicing
+                        // (splice_risk, from the live hunt_intent / armed steal_threat), the band of
+                        // rope around the targeted link (splice_center_links) glows angry orange-red
+                        // and physically swells. It throbs on the beat so the danger pulses like a
+                        // strained tendon rather than sitting as a flat stain, and falls off smoothly
+                        // to either side so it reads as "sliced HERE" — the same 2/3-down thread point
+                        // the splice actually aims at. Applied last so heat wins over rainbow/bond.
+                        let mut seg_thick_mult = 1.0;
+                        if risk > 0.0 {
+                            let dr = (along - splice_center_links).abs();
+                            let band = (1.0 - dr / RISK_BAND).max(0.0);
+                            if band > 0.0 {
+                                let throb = 0.72 + 0.28 * (time * 9.0).sin();
+                                let hot = (risk * band * band * throb).clamp(0.0, 1.0);
+                                rr += (1.0 - rr) * hot;
+                                gg += (0.24 - gg) * hot;
+                                bb += (0.08 - bb) * hot;
+                                seg_thick_mult += hot * 0.9; // the endangered body bulges
+                            }
+                        }
+
                         let seg_delta = point - prev_point;
                         let seg_len = seg_delta.length();
                         if seg_len > 0.5 {
                             let seg_angle = seg_delta.y.atan2(seg_delta.x);
-                            seg_buf.push((prev_point, seg_angle, seg_len, [rr, gg, bb]));
+                            seg_buf.push((prev_point, seg_angle, seg_len, [rr, gg, bb], seg_thick_mult));
                         }
                     }
                     prev_point = point;
@@ -4008,12 +4049,12 @@ pub fn draw_conga_rope(
             CONGA_MAIN_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb)| {
+                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb, tmult)| {
                     let color = Color::new(rgb[0], rgb[1], rgb[2], alpha_base);
                     DrawParam::default()
                         .dest(pos)
                         .rotation(angle)
-                        .scale(Vec2::new(len, thickness))
+                        .scale(Vec2::new(len, thickness * tmult))
                         .color(color)
                 }));
                 canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
@@ -4029,12 +4070,12 @@ pub fn draw_conga_rope(
             CONGA_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb)| {
+                instances.set(seg_buf.iter().map(|&(pos, angle, len, rgb, tmult)| {
                     let glow_color = Color::new(rgb[0], rgb[1], rgb[2], glow_alpha);
                     DrawParam::default()
                         .dest(pos)
                         .rotation(angle)
-                        .scale(Vec2::new(len, glow_width))
+                        .scale(Vec2::new(len, glow_width * tmult))
                         .color(glow_color)
                 }));
                 canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
