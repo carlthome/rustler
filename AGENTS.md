@@ -284,21 +284,45 @@ Steps:
 You are the release manager for "Crab Rustler".
 Follow semver: minor bump (0.x.0) for new features, patch bump (0.x.y) for bug-fix/perf-only batches.
 
+You run as a remote routine: you CANNOT push to protected `main`, and you CANNOT push tag refs
+(the sandbox returns HTTP 403 on any `git push origin v<new>` — see PR #88). So this cron never
+tags or pushes to main directly. It bumps the version on its own branch, opens a PR, and lets
+auto-merge land it — exactly like every other code-writing cron. Tag creation is CI's job, not yours
+(see the tagging note at the end).
+
+Baseline WITHOUT tags: no `v*` tag has ever been pushed to this repo (the tag push always 403s), so
+never use `git tag` to find the baseline — it returns nothing and breaks the commit count. The last
+release IS the `version` field in `Cargo.toml` on `main`, set by the last `Release <x>` commit.
+
 Steps:
-1. `git -C . fetch --tags`
-2. Find the latest semver tag on main: `git -C . tag --list 'v*' --sort=-v:refname | head -1`
-3. List commits since that tag, excluding chores (docs-only commits to AGENTS.md/README.md/ROADMAP.md,
-   screenshot-only commits): `git -C . log <tag>..main --oneline`
-4. If fewer than 5 non-chore commits, do nothing this cycle.
+1. `git -C . pull --ff-only`
+2. Read the current release: `grep '^version' Cargo.toml` (e.g. 0.20.0). Find the commit that set it:
+   `git -C . log -1 --grep='^Release' --format=%H` — that commit is your baseline.
+3. List non-chore commits since the baseline (exclude docs-only commits to AGENTS.md/README.md/ROADMAP.md
+   and screenshot-only commits): `git -C . log <baseline>..main --oneline`.
+4. If fewer than 5 non-chore commits, do nothing this cycle — open no PR. (A quiet run is a valid run,
+   same as the Build/Perf Engineers' "nothing to do → no PR" rule.)
 5. If 5 or more non-chore commits:
-   - If ANY commit is a new feature or mechanic → MINOR bump (e.g. v0.11.0 → v0.12.0)
-   - If ALL are bug fixes or perf only → PATCH bump (e.g. v0.11.0 → v0.11.1)
-   - Update Cargo.toml: `sed -i 's/^version = ".*"/version = "<new>"/' ./Cargo.toml`
+   - If ANY commit is a new feature or mechanic → MINOR bump (e.g. 0.20.0 → 0.21.0)
+   - If ALL are bug fixes or perf only → PATCH bump (e.g. 0.20.0 → 0.20.1)
+   - Update Cargo.toml: `sed -i 's/^version = ".*"/version = "<new>"/' ./Cargo.toml`, then regenerate
+     the lockfile so it doesn't drift: `cargo update -p rustler --precise <new>` (or `cargo build` and
+     commit the resulting `Cargo.lock` change).
    - Write release notes to `CHANGELOG.md` (append a new `## v<new> — <date>` section with bullet
      points summarising the non-chore commits in plain English — one line per commit, grouped as
-     Features / Performance / Fixes / Refactoring). This file is picked up by the GitHub Release workflow.
-   - Commit: `git -C . add Cargo.toml CHANGELOG.md && git -C . commit -m "Release <new>"`
-   - Tag and push: `git -C . tag -a v<new> -m "v<new>" && git -C . push origin main && git -C . push origin v<new>`
+     Features / Performance / Fixes / Refactoring). This file is the release notes source.
+   - Commit on your routine branch: `git -C . add Cargo.toml Cargo.lock CHANGELOG.md && git -C . commit -m "Release <new>"`
+   - Push your branch and open a PR into `main`, then drive it to merged per "Merge your green PRs"
+     (mark ready, let CI settle green, auto-merge lands it). Do NOT attempt `git push origin main` or
+     `git push origin v<new>` — both 403 in the sandbox. The version-bump PR is your whole deliverable.
+
+Tagging note — releases don't fire until a `v<new>` tag is pushed, and you can't push one. Right now
+that gap is real: Cargo.toml has advanced to 0.20.0 across several "Release" commits but NO tag was ever
+created, so `.github/workflows/release.yml` (triggered only on `v[0-9]+.[0-9]+.[0-9]+` tag pushes) has
+never built a binary or cut a GitHub Release. The fix is a CI step with `contents: write` that pushes the
+`v<new>` tag when a "Release" PR merges to `main` — that is Build Engineer territory (the CI surface), not
+yours. If no such automation exists yet, note in your PR body that the tag still needs to be created (and
+flag it for the Build Engineer), so a green release PR doesn't silently fail to produce a release.
 ```
 
 ## Cron 3 — Developer Diary prompt
@@ -400,6 +424,16 @@ Steps:
    to be current with `main`. This is the one structural fix that closes the last agent-in-the-loop hand-off; it
    is genuine upkeep, not re-authoring. Prove it the usual way (`bash scripts/ci-deps.sh`, `cargo build`,
    `bash scripts/playtest.sh` still green) and ship it as your PR this run if the draft pileup is present.
+1c. **Release tags never get pushed — `release.yml` has never fired. This is your other owned CI gap.**
+   `.github/workflows/release.yml` only triggers on a `v[0-9]+.[0-9]+.[0-9]+` tag push, but the Release
+   Manager routine (cron 2) cannot push tags from the sandbox (403), so no `v*` tag has ever been created —
+   Cargo.toml has climbed to 0.20.0 across several "Release" commits with ZERO GitHub Releases cut. Close the
+   loop with a CI step that owns tag creation: when a `Release <x>` commit lands on `main` (a merged Release
+   PR), have a workflow with `contents: write` read the `version` from `Cargo.toml`, and if no `v<version>`
+   tag exists yet, create and push it — which then triggers `release.yml`. Extend `auto-merge.yml` or add a
+   small sibling workflow; either way this is CI surface you own, and it's what makes the version bumps
+   cron 2 lands actually produce releases. Only take this on when the draft-ready gap above (1b) is already
+   handled — one lever per run.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
