@@ -50,9 +50,11 @@ thread_local! {
 
     pub static BANK_NOW_PROMPT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
-    /// Cache for the NPC King Crab name plate — (name_string, shaped_Text, measured_width).
-    /// Rebuilt only when the name changes (i.e. never mid-session); avoids glyph shaping every frame.
-    pub static NPC_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
+    /// Cache for the NPC King Crab name plates — keyed by name → (shaped_Text, measured_width).
+    /// A HashMap (not a single slot) because several rival trains, each with a distinct name, are
+    /// drawn every frame; a single slot would evict-and-reshape on every rival every frame. Each
+    /// unique name is glyph-shaped once and reused for the rest of the session (mirrors LEVEL_LABEL_CACHE).
+    pub static NPC_NAME_CACHE: RefCell<HashMap<String, (Text, f32)>> = RefCell::new(HashMap::new());
 
     /// Cache for the player crab name plate — same shape as the NPC name plate.
     pub static PLAYER_NAME_CACHE: RefCell<Option<(String, Text, f32)>> = RefCell::new(None);
