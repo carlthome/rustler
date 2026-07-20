@@ -54,7 +54,7 @@ nears (2200964, agar.io-style), with randomly-generated names (38201e5) and now 
 (scout/wanderer/elder — size, speed, territory, idle pauses, d046ae7) so a small train reads differently from a huge
 one at a glance. **The read-check is now cleared:** the rumble pans left/right by the leader's bearing (#25) and each
 rival wears a distinct, tier-styled name banner you can read across the field (#26) — so the ambient train reads *and*
-sounds like a rival from a distance. **And this cycle the steal itself landed:** rivals now thread your line and splice off
+sounds like a rival from a distance. **The steal itself has landed:** rivals thread your line and splice off
 your back section (#32), the snap is telegraphed and lands on the beat (#34), and both directions are guarded by playtests
 (`npc_steal` #28, `player_steal` #33) — the core train-vs-train verb the whole prototype was scaffolding toward is *in*. A
 first slice of meta-progression + campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit
@@ -62,17 +62,22 @@ first slice of meta-progression + campaign scaffolding exists but stays parked i
 
 **Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
 weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
-request, not a roadmap item. (Note: the latest Dev Diary still describes the crab-catch bug as "a snag we're working
-through" — that's stale auto-generated text; git shows it fixed weeks ago and Playtest CI is green on main.)
-**The headline shipped.** Last cycle promoted the core steal rule into Now once the read-check gate passed; this
-cycle it *landed* — advancing on git evidence, not waiting for Carl to confirm work the plan already called for.
-Rivals now thread your conga line and splice off the back section as stolen crabs (#32), the snap is telegraphed and
-resolves **on the beat** (#34), and both directions are locked behind playtests (`npc_steal` #28, `player_steal` #33,
-both live and green). That's the reverse-Snake crossing rule from INSPIRATION.md, in the prototype. Alongside it: the
-conga risk/reward mechanics were split into `chain_mechanics.rs` and the King Crab audio into `king_crab_audio.rs`
-(structural, no behaviour change), and CI got leaner (apt caching #48, parallel playtest matrix #30).
-**With the steal verb in, the next frontier is making it a *fun fight* — reactive rivals and a contest you can win by
-skill — before the BYO-music mashup (the other half of the thesis) gets wired.** That's the new headline in Now.
+request, not a roadmap item. (Note: the latest Dev Diary (2026-07-20) still says "Next up: the core steal mechanic" — that's
+stale auto-generated text; git shows the steal verb *and* the skill-based steal fight both landed and green on main.)
+**The headline shipped in full.** Last cycle's Now headline — "turn the steal from a rule into a fight you win by skill" —
+*landed* this cycle, advancing on git evidence, not waiting for Carl to confirm work the plan already called for. All three
+sub-items are done (deliberate rival routing, on-beat defense, fun-not-punishing tuning — PRs detailed in *Where we are*
+above), so the steal is now a reactive, skill-based contest rather than a one-way tax. That closes the Now headline; the next
+one below promotes the ecology's third step (rivals steal from *each other*).
+**This cycle the steal became a *fight you win by skill* — the whole prior headline, landed in full.** Rivals now route
+*deliberately* to thread the back half of a loose train (#67); the defense is a real on-beat play — a telegraph ring on armed
+steals (#72), a **parry** (#76), a movement **dodge** (#80), each opening a **counter-steal window** (#83); and it's tuned to a
+tense back-and-forth, not a tax — a single steal is capped to a **recoverable bite** (#69) and losing crabs opens a **revenge
+duel** (#74). Alongside it: the conga risk/reward mechanics were split into `chain_mechanics.rs` and the King Crab audio into
+`king_crab_audio.rs` (structural, no behaviour change), and CI got leaner (apt caching #48, parallel playtest matrix #30).
+**With the steal fight in, the next frontier is making the beach a real *multi-train ecology* — rivals that steal from *each
+other*, not just you (agar.io + Rain World, path step 3) — before the BYO-music mashup (the other half of the thesis) gets
+wired.** That's the new headline in Now.
 
 ## Bugs (fix before anything else in Now)
 
@@ -102,26 +107,30 @@ item in "Now" below.
   of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
   beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
-- **[★ HEADLINE — CORE GAME] Turn the steal from a rule into a *fight you win by skill*.** The splice verb landed this
-  cycle (#32/#34, both directions, playtested) — one clean crossing rule, telegraphed and beat-snapped. Now make it the
-  interesting moment INSPIRATION.md promises ("Steal to win… snatching one from a rival train"), still one small slice at a
-  time, still ruthlessly playtested — depth on the verb we have, not a new verb:
-  1. **Rivals that route to steal, not just wander.** Right now the ambient King Crab train roams; the steal only fires
-     when a crossing happens to occur. Give a nearby rival a *deliberate* intent to thread the back half of a long/loose
-     player train — so a lazy spiral genuinely gets sliced and tight routing genuinely defends (INSPIRATION.md: "Rivals
-     route deliberately," "a lazy spiral is easy to slice"). Keep it a simple per-creature urge à la Rain World, not a
-     path-planner.
-  2. **Make the defense a real on-beat play.** The telegraph exists (#34) — now make contesting it *skill*: an on-beat
-     defensive reroute or a tool hit on the telegraphed crossing should cancel or reduce the steal, so losing crabs is
-     always the player's read to make (INSPIRATION.md "Legible risk," "keys as drum pads"). The downbeat version should
-     feel like the big save.
-  3. **Tune so it's fun, not punishing.** Cooldowns, how much of the tail a splice takes, recovery windows — the loop
-     should feel like a tense back-and-forth (you steal, they steal back), not a random tax. Extend the `npc_steal` /
-     `player_steal` bot coverage as you tune so the balance can't silently regress.
+- **[★ HEADLINE — CORE GAME] Make the beach a living *multi-train ecology*: rivals steal from *each other*, not just you.**
+  The steal fight against you is now solid — deliberate rival routing (#67), on-beat parry/dodge/reroute defense
+  (#72/#76/#80/#83), recoverable-bite + revenge-duel tuning (#69/#74), both directions playtested. That's a *two-body*
+  contest (you vs. one rival). The thesis (agar.io + Rain World) is a *whole beach* of competing conga leaders — so the
+  next depth step is turning the rivals loose on each other. Still one small slice at a time, still ruthlessly playtested,
+  reusing the splice verb we already have — no new verb:
+  1. **Rival-vs-rival splicing.** When two King Crab trains cross, the same crossing rule that lets a rival slice *your*
+     back half should let the bigger/faster one slice the *other rival's* back half. Reuse the #32 splice path; just widen
+     the "who can be stolen from" set to include NPC trains. Now the beach has multiple trains gaining and losing crabs
+     without the player — a genuine ecosystem, not a scripted duel.
+  2. **A deliberate urge to hunt the weaker train (Rain World, not a path-planner).** Give each rival the same simple
+     per-creature intent it already uses to thread *your* line (#67), pointed at the nearest *smaller* rival train — so the
+     big trains visibly bully the small ones and the pecking order emerges from local rules, agar.io-style. Keep it a cheap
+     urge, not global planning.
+  3. **Make it legible and swoopable — the player reads the fight and profits.** The contest has to be *watchable*: a rival
+     that just grew from a steal should read as bigger (size/banner already tier-scale — lean on that), and the loser's
+     scattered crabs should be catchable so the player can swoop into a rival-vs-rival collision and rustle the spoils.
+     That's the agar.io "let the big ones fight, then eat the crumbs" play — pure skill expression, still on the beat.
+  4. **Guard it with bots.** Extend `npc_steal` (or add an `npc_vs_npc` scenario) so two NPC trains provably exchange crabs
+     and the ecology can't silently break. Tune counts/cooldowns so the beach churns without spiralling to one mega-train.
   This beats the polish lanes below. Keep each step small, safe, and green — overnight nobody's watching, so lean on the
   playtests and prefer the smaller reversible change.
 
-- **Sharpen archetype-tool matchups into a readable soft RPS system.** *(Polish lane — do the steal slice above first.)*
+- **Sharpen archetype-tool matchups into a readable soft RPS system.** *(Polish lane — do the ecology slice above first.)*
   *Momentum is real:* six pairs
   now draw their moment — the three flagship strong-matches beam/Hermit, stomp/Dancer, lasso/Thief (e819849), plus
   Magnet-vs-herd-cluster (01b8573) and lasso-vs-Magnet (b35db97), plus the first *negative* tell: a grey-steel
@@ -218,11 +227,13 @@ item in "Now" below.
   leaders. The player starts smallest and must **out-arrange, not just out-catch** — a well-arranged short
   train should beat a larger, sloppy one. Sequencing: (1) NPC conga trains for King Crabs — **✅ ambient slice shipped
   (6a17026), legible in tiers (d046ae7), and read-check cleared — pan (#25) + banner (#26) landed**; (2) train-vs-train
-  stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ first splice slice SHIPPED (#32/#34, both directions,
-  playtested); deepening it into a skill-based fight is now the Now headline**; (3) ecology from simple per-creature rules
-  à la Rain World — **now starting: the "rivals route deliberately to steal" step (Now, item 1) is the first Rain-World
-  urge**; (4) human-vs-human Rustlers competing for the largest, best-arranged train.
-  Steps (1) and (2) have landed; deepening (2) into a fun fight and beginning (3) is the active work in Now.
+  stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ SHIPPED and deepened into a skill-based fight: splice
+  verb (#32/#34), deliberate rival routing (#67), on-beat parry/dodge/reroute defense (#72/#76/#80/#83), recoverable-bite +
+  revenge-duel tuning (#69/#74), both directions playtested**; (3) ecology from simple per-creature rules à la Rain World —
+  **now the Now headline: rivals steal from *each other*, not just you (rival-vs-rival splicing + a hunt-the-weaker urge),
+  turning the two-body duel into a whole-beach ecosystem the player can swoop into**; (4) human-vs-human Rustlers competing
+  for the largest, best-arranged train.
+  Steps (1) and (2) have landed; making (2)'s ecology multi-train (step 3) is the active work in Now.
 
 - **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
   the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
