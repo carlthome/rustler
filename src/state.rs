@@ -91,6 +91,13 @@ pub struct GameSounds {
     /// Spatial King Crab boss rumble — soft/distant version with baked room echo.
     /// Crossfades in as the boss moves further away (brightness rolloff approximation).
     pub(crate) king_crab_soft: Source,
+    /// Per-rival spatial MUSIC — one beat-locked melodic motif per ambient NPC King Crab train,
+    /// indexed by train (0 scout / 1 wanderer / 2 elder). Each entry is a hard-left / hard-right
+    /// pair like `king_crab_rumble_*`; the audio pass equal-power pans it by the leader's bearing
+    /// and scales its volume by distance AND the train's length/tier, so a big rival train
+    /// broadcasts a louder, fuller motif from across the field (INSPIRATION.md: "the dominant train
+    /// dominates the mix"). Layered on top of the creature rumble — the melodic half of the radar.
+    pub(crate) king_crab_motif: Vec<(Source, Source)>,
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -1339,6 +1346,13 @@ impl MainState {
         let (king_crab_rumble_l, king_crab_rumble_r) =
             sounds::synth_king_crab_ambient_spatial(ctx)?;
         let (rival_steal_l, rival_steal_r) = sounds::synth_rival_steal(ctx)?;
+        // One beat-locked musical motif per ambient NPC King Crab train tier (0 scout / 1 wanderer
+        // / 2 elder), baked at the live tempo so its two-bar loop stays in the pocket. Driven
+        // per-frame in EventHandler::update (pan by bearing, swell by distance + train length).
+        let mut king_crab_motif = Vec::with_capacity(3);
+        for tier in 0..3 {
+            king_crab_motif.push(sounds::synth_rival_motif(ctx, action_bpm, tier)?);
+        }
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
             // Procedurally generated action groove — a driving pentatonic shuffle
@@ -1374,6 +1388,7 @@ impl MainState {
             king_crab_l,
             king_crab_r,
             king_crab_soft,
+            king_crab_motif,
         };
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather

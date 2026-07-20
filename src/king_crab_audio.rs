@@ -454,3 +454,111 @@ pub fn synth_king_crab_spatial(ctx: &mut Context) -> GameResult<(Source, Source,
     let soft = synth_king_crab_rumble_soft(ctx)?;
     Ok((left, right, soft))
 }
+
+/// Synthesise a short, beat-locked musical MOTIF for one ambient NPC King Crab conga train — the
+/// per-rival "music" half of the audio scoreboard (INSPIRATION.md agar.io: "the dominant train
+/// dominates the mix"). Where [`synth_king_crab_ambient_spatial`] gives each train a creature
+/// RUMBLE (sub-bass presence), this layers a melodic arpeggio in A natural-minor on top so a rival
+/// train broadcasts actual *music* that harmonises with the action groove.
+///
+/// `tier` (0 = scout, 1 = wanderer, 2 = elder) picks register, note density and richness: a scout
+/// is a faint high pluck, an elder is a low, full, busy motif. `bpm` MUST be the game's live tempo
+/// so the baked loop is an exact two-bar length; the caller (re)starts the pair on the beat, which
+/// keeps every note in the pocket with no drift (ggez 0.9.3 has no runtime resync, so a bar-length
+/// buffer + start-on-beat IS the lock).
+///
+/// Returned as a hard-left / hard-right stereo pair exactly like [`synth_king_crab_ambient_spatial`]
+/// so the caller equal-power pans it by the leader's bearing and scales both channels together by
+/// distance and train length each frame.
+pub fn synth_rival_motif(ctx: &mut Context, bpm: f32, tier: usize) -> GameResult<(Source, Source)> {
+    let mono = rival_motif_mono_samples(bpm, tier);
+    let silence = vec![0.0_f32; mono.len()];
+    let left_wav = encode_wav_stereo16(&mono, &silence);
+    let right_wav = encode_wav_stereo16(&silence, &mono);
+    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
+    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    left.set_repeat(true);
+    right.set_repeat(true);
+    Ok((left, right))
+}
+
+/// Bake the raw mono arpeggio buffer for one rival train's motif. Two 4/4 bars at the live tempo,
+/// so the loop is an exact integer bar count — start it on a beat and every note lands on the
+/// master grid. A natural-minor (A Aeolian) note bank keeps it consonant with the rumble bed
+/// (A = 110 Hz) and the generative groove.
+fn rival_motif_mono_samples(bpm: f32, tier: usize) -> Vec<f32> {
+    let beat_s = 60.0 / bpm.clamp(40.0, 220.0);
+    let step_s = beat_s / 4.0; // 16th-note grid
+    const STEPS: usize = 32; // 2 bars x 16 sixteenths
+    let loop_len = step_s * STEPS as f32;
+    let n = (SAMPLE_RATE as f32 * loop_len).ceil() as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = vec![0.0_f32; n];
+
+    // A Aeolian note bank. Index legend:
+    // 0:A2 1:C3 2:E3 3:G3 4:A3 5:C4 6:E4 7:G4 8:A4 9:C5 10:E5
+    const NOTES: [f32; 11] = [
+        110.00, 130.81, 164.81, 196.00, 220.00, 261.63, 329.63, 392.00, 440.00, 523.25, 659.25,
+    ];
+
+    // Add one plucked note: an oscillator through a fast-attack / exponential-decay envelope,
+    // summed into the loop with wraparound so the loop boundary stays seamless.
+    let add_note = |samples: &mut Vec<f32>,
+                    at_step: usize,
+                    len_steps: f32,
+                    note_hz: f32,
+                    wave: Waveform,
+                    amp: f32,
+                    decay: f32| {
+        let start = (at_step as f32 * step_s * SAMPLE_RATE as f32) as usize;
+        let dur_n = (len_steps * step_s * SAMPLE_RATE as f32) as usize;
+        for k in 0..dur_n {
+            let t = k as f32 * dt;
+            let env = (1.0 - (-260.0 * t).exp()) * (-decay * t).exp();
+            let v = oscillator_sample(wave, note_hz * t) * env * amp;
+            let idx = (start + k) % samples.len();
+            samples[idx] += v;
+        }
+    };
+
+    match tier {
+        0 => {
+            // Scout — sparse high plucks, glassy sine, few notes. "A lone scout is a faint tick."
+            let pat = [(0usize, 8usize), (6, 10), (12, 9), (20, 8), (26, 10)];
+            for &(s, ni) in &pat {
+                add_note(&mut samples, s, 2.0, NOTES[ni], Waveform::Sine, 0.15, 7.0);
+            }
+        }
+        1 => {
+            // Wanderer — mid chiptune arp, 8th notes, buzzy pulse voice.
+            let pat = [
+                (0usize, 4usize), (2, 6), (4, 7), (6, 8), (8, 6), (10, 4), (12, 6), (14, 3),
+                (16, 4), (18, 6), (20, 7), (22, 8), (24, 7), (26, 6), (28, 4), (30, 2),
+            ];
+            for &(s, ni) in &pat {
+                add_note(&mut samples, s, 1.6, NOTES[ni], Waveform::Rect(0.35), 0.12, 9.0);
+            }
+        }
+        _ => {
+            // Elder — low and full: a sustained root/fifth bass on the downbeats plus a rich mid
+            // arp. "An elder with a long conga is loud and full — the dominant train dominates."
+            let bass = [(0usize, 0usize), (8, 2), (16, 0), (24, 3)]; // A2 E3 A2 G3
+            for &(s, ni) in &bass {
+                add_note(&mut samples, s, 8.0, NOTES[ni], Waveform::Triangle, 0.30, 2.2);
+            }
+            let arp = [
+                (0usize, 4usize), (2, 6), (4, 8), (6, 6), (8, 2), (10, 6), (12, 8), (14, 6),
+                (16, 4), (18, 6), (20, 8), (22, 9), (24, 3), (26, 7), (28, 8), (30, 7),
+            ];
+            for &(s, ni) in &arp {
+                add_note(&mut samples, s, 1.8, NOTES[ni], Waveform::Rect(0.5), 0.12, 8.0);
+            }
+        }
+    }
+
+    // Soft-clip so summed voices never wrap; leaves headroom for the per-frame volume scaling.
+    for v in samples.iter_mut() {
+        *v = (*v * 0.9).tanh();
+    }
+    samples
+}
