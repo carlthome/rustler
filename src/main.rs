@@ -114,7 +114,8 @@ use crate::graphics::{
     flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
-    draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_day_weather_hud,
+    draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_beam_sneaky_pin,
+    draw_day_weather_hud,
     draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
@@ -2430,6 +2431,26 @@ impl MainState {
                         crab.spooked_timer = crab.spooked_timer.max(0.5);
                         if self.beam_golden_hits_buf.len() < 12 {
                             self.beam_golden_hits_buf.push((crab.pos, on_beat_now));
+                        }
+                    }
+                    // Beam × Sneaky STRONG match — "expose the sneak". The Sneaky crab's whole schtick
+                    // is darting off readily (enemies.rs) — the ONE common herd crab that bolts clean out
+                    // of the cone and, until now, laughed off the beam entirely. The flashlight is a
+                    // spotlight: hold it on the fleeing evader and the light catches it in the act, so
+                    // keeping your beam on a Sneaky THROUGH the beat pins it long enough to sweep it up.
+                    // This does NOT tread on the whistle's flagship — the whistle *gathers* the skittish
+                    // HERD (an AOE reel); the beam *pins the ONE* Sneaky you're chasing solo. Two verbs,
+                    // one archetype, the player's choice (Doom Eternal soft-RPS). Grip sits between the
+                    // Fast clamp (0.62/0.38) and the premium Golden reel (0.70/0.55): firm but not a hard
+                    // lock, since a light evader shouldn't pin as cheaply as a straight-line sprinter.
+                    // (A whistle-charmed Sneaky never reaches here — the now_fleeing gate above already
+                    // requires charm_timer <= 0 — so the beam pin and whistle charm can't stack.)
+                    if crab.is_sneaky() && crab_in_light {
+                        let pin = if on_beat_now { 0.42 } else { 0.66 };
+                        flee_speed *= pin;
+                        crab.spooked_timer = crab.spooked_timer.max(0.5);
+                        if self.beam_sneaky_hits_buf.len() < 12 {
+                            self.beam_sneaky_hits_buf.push((crab.pos, on_beat_now));
                         }
                     }
                     crab.vel = crab.vel.lerp(to_crab * flee_speed, 0.06);
@@ -4902,6 +4923,9 @@ impl MainState {
         if !self.beam_fast_hits_buf.is_empty() {
             draw_beam_fast_pin(ctx, canvas, &self.beam_fast_hits_buf)?;
         }
+        if !self.beam_sneaky_hits_buf.is_empty() {
+            draw_beam_sneaky_pin(ctx, canvas, &self.beam_sneaky_hits_buf)?;
+        }
         if !self.stomp_dancer_hits_buf.is_empty() {
             draw_stomp_dancer_match(ctx, canvas, &self.stomp_dancer_hits_buf)?;
         }
@@ -6092,6 +6116,7 @@ impl EventHandler for MainState {
         self.beam_hermit_hits_buf.clear();
         self.beam_fast_hits_buf.clear();
         self.beam_golden_hits_buf.clear();
+        self.beam_sneaky_hits_buf.clear();
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();

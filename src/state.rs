@@ -1100,6 +1100,13 @@ pub struct MainState {
     // Fast pin so the Golden stays a premium chase. The bool flags an on-beat hold (a firmer reel) so
     // draw_beam_golden_spotlight can flare the warm-gold tell brighter on the beat. Mirrors beam_fast.
     pub(crate) beam_golden_hits_buf: Vec<(Vec2, bool)>,
+    // Positions where the beam is pinning a fleeing Sneaky crab — the beam's soft-RPS STRONG match
+    // against the skittish evader. The whistle *gathers* the Sneaky herd (its flagship, enemies.rs);
+    // the beam instead *exposes and pins* the lone Sneaky that darts out of the cone — a different verb
+    // (single-target pin vs AOE gather), so the two tools stay complementary. A middling grip: firmer
+    // than the premium-chase Golden reel, gentler than the definitive Fast clamp. The bool flags an
+    // on-beat pin so draw_beam_sneaky_pin can flare the teal tell brighter on the beat. Mirrors beam_fast.
+    pub(crate) beam_sneaky_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
     pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
     pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
@@ -1813,6 +1820,7 @@ impl MainState {
             beam_hermit_hits_buf: Vec::new(),
             beam_fast_hits_buf: Vec::new(),
             beam_golden_hits_buf: Vec::new(),
+            beam_sneaky_hits_buf: Vec::new(),
             stomp_dancer_hits_buf: Vec::new(),
             stomp_armored_hits_buf: Vec::new(),
             whistle_golden_hits_buf: Vec::new(),
