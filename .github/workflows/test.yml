@@ -3,8 +3,10 @@ name: Test
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md']
 
 # Cancel superseded runs on the same PR when new commits land; let main runs
 # complete so every merged commit is verified.
