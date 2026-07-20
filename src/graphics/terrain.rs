@@ -91,7 +91,7 @@ pub fn draw_tide_pools(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -164,7 +164,7 @@ pub fn draw_tide_pools(
                             .entry(*key)
                             .or_insert_with(|| InstanceArray::new(ctx, None));
                         instances.set(params.iter().copied());
-                        canvas.draw_instanced_mesh(mesh, instances, DrawParam::default());
+                        canvas.draw_instanced_mesh_guarded(mesh, instances, DrawParam::default());
                     }
                 }
                 Ok(())
@@ -183,7 +183,7 @@ pub fn draw_tide_pools(
                             .entry(*key)
                             .or_insert_with(|| InstanceArray::new(ctx, None));
                         instances.set(params.iter().copied());
-                        canvas.draw_instanced_mesh(mesh, instances, DrawParam::default());
+                        canvas.draw_instanced_mesh_guarded(mesh, instances, DrawParam::default());
                     }
                 }
                 Ok(())
@@ -240,7 +240,7 @@ pub fn draw_tide_pools(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(add_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -400,7 +400,7 @@ pub fn draw_boss_fissures(
             let mut inst_slot = ci.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(pit_params.iter().copied());
-            canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
             Ok(())
         })
     })?;
@@ -416,7 +416,7 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = ci.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(core_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
             }
             Ok(())
         })
@@ -429,7 +429,7 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = li.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(geyser_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
             }
             Ok(())
         })
@@ -442,7 +442,7 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = ci.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(cap_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
             }
             Ok(())
         })
@@ -455,7 +455,7 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = li.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(spoke_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
             }
             Ok(())
         })
@@ -535,7 +535,7 @@ fn draw_rock_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -580,7 +580,7 @@ fn draw_rock_patches(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(sparkle_params.iter().copied());
-                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                     Ok(())
                 })?;
             }
@@ -622,7 +622,7 @@ fn draw_rock_patches(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(water.iter().copied());
-                    canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                     Ok(())
                 })?;
             }
@@ -694,7 +694,7 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -740,7 +740,7 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(frond_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -810,7 +810,7 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(streak_params.iter().copied());
-                canvas.draw_instanced_mesh(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
         }
