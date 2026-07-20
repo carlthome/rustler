@@ -6522,6 +6522,9 @@ impl MainState {
                 BotAction::ForcePlayerCross => {
                     self.force_player_cross();
                 }
+                BotAction::ForceRevengeCross => {
+                    self.force_player_revenge();
+                }
                 BotAction::ForceStealDefense => {
                     self.force_steal_defense();
                 }
@@ -6537,6 +6540,7 @@ impl MainState {
                         BotAssert::MaxSingleStealAtMost(n) => self.max_single_steal_by_npc <= *n,
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
                         BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
+                        BotAssert::RevengeStealAtLeast(n) => self.revenge_steals >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
@@ -9291,7 +9295,7 @@ fn main() -> GameResult {
     if let Some(ref name) = bot_script {
         use bot::{
             BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
-            script_npc_steal, script_player_steal, script_steal_defense,
+            script_npc_steal, script_player_steal, script_revenge, script_steal_defense,
         };
         // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
         // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
@@ -9301,7 +9305,7 @@ fn main() -> GameResult {
         // banks 3 on-beat catches and returns to the world map before the final assert.
         state.time_scale = match name.as_str() {
             "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-            | "steal_defense" => 3.0,
+            | "steal_defense" | "revenge" => 3.0,
             _ => 8.0,
         };
         state.bot = Some(match name.as_str() {
@@ -9310,6 +9314,7 @@ fn main() -> GameResult {
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
             "player_steal" => BotState::new(script_player_steal(), 58.0),
             "steal_defense" => BotState::new(script_steal_defense(), 58.0),
+            "revenge" => BotState::new(script_revenge(), 58.0),
             "groove_dash" => BotState::new(script_groove_dash(), 10.0),
             other => {
                 eprintln!("Unknown bot script: {}", other);
