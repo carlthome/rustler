@@ -8,13 +8,17 @@ name: Tag and Release
 # pushes — never ran and no GitHub Release was ever cut.
 #
 # This workflow runs on every push to `main`: it reads the current Cargo.toml
-# version and, if no matching `vX.Y.Z` tag exists yet, creates and pushes an
-# annotated tag (notes pulled from the matching CHANGELOG.md section), then calls
-# release.yml directly to build the binaries and publish the release. It calls
-# release.yml rather than relying on the tag push to trigger it, because a tag
-# pushed with GITHUB_TOKEN does not re-trigger `on: push: tags`.
+# version and, if no GitHub *Release* exists for it yet, ensures the `vX.Y.Z` tag
+# exists (creating + pushing an annotated tag, notes from the CHANGELOG section,
+# if missing) then calls release.yml directly to build the binaries and publish
+# the release. It calls release.yml rather than relying on the tag push to trigger
+# it, because a tag pushed with GITHUB_TOKEN does not re-trigger `on: push: tags`.
 #
-# Idempotent: if the version is already tagged, it does nothing.
+# Gating on Release existence (not just tag existence) makes it self-healing: if a
+# prior run tagged the version but failed to publish the release, the next push
+# re-publishes it instead of skipping because the tag is already there.
+#
+# Idempotent: if a Release already exists for the current version, it does nothing.
 
 on:
   push:
@@ -38,17 +42,29 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Create tag if the Cargo.toml version is new
+      - name: Ensure a tag exists for the current version if unreleased
         id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
           TAG="v${VERSION}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "Tag ${TAG} already exists — nothing to do."
+          # Gate on Release existence, not tag existence, so a version that got
+          # tagged but never published (e.g. a prior failed release run) self-heals.
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — nothing to do."
             echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A Release is missing. Make sure the tag exists (a prior run may have
+          # created it before failing to publish), then let the release job run.
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists but has no Release — re-publishing."
+            echo "created=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
