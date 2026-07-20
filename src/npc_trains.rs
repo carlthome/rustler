@@ -11,7 +11,7 @@ use rand::Rng;
 
 use crate::constants::*;
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
-use crate::graphics::{draw_crab, unit_circle};
+use crate::graphics::{cached_stroke_circle, draw_crab, unit_circle};
 use crate::hud_cache::NPC_NAME_CACHE;
 use crate::spawnings::spawn_stolen_crab;
 use crate::state::MainState;
@@ -808,6 +808,43 @@ impl MainState {
                         .scale(Vec2::splat(r))
                         .color(Color::new(1.0, 0.82, 0.2, a)),
                 );
+            }
+
+            // --- Armed-steal DEFEND telegraph -------------------------------------------------
+            // While a rival's splice is armed, ring its leader with a beat-synced warning so the
+            // player can *read* the parry (ROADMAP: "make contesting it skill"; INSPIRATION.md
+            // "Legible risk", "keys as drum pads"). The ring collapses tight onto the rival ON the
+            // beat — the "hit now" frame for a Stomp/Wave parry — and springs wide between beats, so
+            // it beats like a drum-pad cue. It reddens and thickens as the fuse burns toward the
+            // snap, and an on-beat inner flash makes the defend frame unmistakable. Draw-only; the
+            // parry itself lives in try_defend_steal.
+            if npc.steal_threat > 0.0 {
+                let fuse_frac = (npc.steal_threat / STEAL_FUSE).clamp(0.0, 1.0); // 1 armed → 0 snap
+                let urgency = 1.0 - fuse_frac; // grows toward the snap
+                // Beat pulse: peaks (=1) exactly on the beat, dips (=0) mid-beat.
+                let beat_phase = (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                let pulse = (beat_phase * std::f32::consts::TAU).cos() * 0.5 + 0.5;
+                let base_r = 46.0 + npc.leader_scale * 12.0;
+                let ring_r = base_r + (1.0 - pulse) * 26.0; // tight on the beat, wide off it
+                let alpha = (0.32 + urgency * 0.40 + pulse * 0.24).min(0.95);
+                let thickness = 3.0 + pulse * 3.0 + urgency * 2.5;
+                let ring = cached_stroke_circle(ctx, ring_r, thickness)?;
+                canvas.draw(
+                    &ring,
+                    DrawParam::default()
+                        .dest(npc.leader_pos)
+                        .color(Color::new(1.0, 0.22 + pulse * 0.22, 0.12, alpha)),
+                );
+                // On-beat inner flash — the drum-hit frame where a parry lands cleanly.
+                if self.on_beat_now() {
+                    let flash = cached_stroke_circle(ctx, base_r * 0.78, 2.5)?;
+                    canvas.draw(
+                        &flash,
+                        DrawParam::default()
+                            .dest(npc.leader_pos)
+                            .color(Color::new(1.0, 0.92, 0.42, 0.5 + urgency * 0.3)),
+                    );
+                }
             }
 
             // Name banner floating above the King Crab — a distinct, readable-across-the-field
