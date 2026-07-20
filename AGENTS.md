@@ -45,18 +45,27 @@ code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Sof
 This is the whole point of running as autonomous collaborating agents: development stays
 grounded in whether the game actually plays, not just whether it builds.
 
-## Issue-driven development
+## Issues + labels
 
-Gameplay work is **issue-driven**: a GitHub Issue is the unit of work. The **Gameplay Engineer**
-routine (cron 1) is triggered when an issue is opened — this is a **routine GitHub trigger** (it runs
-in Anthropic's cloud like every other routine), **not** a GitHub Actions workflow; no Claude runs in
-CI. The routine implements that one issue, playtests it, and opens a PR whose body says
-`Closes #<issue>`, which auto-merges when green (see "Merge your green PRs").
+GitHub Issues are how you (Carl) and the Game Designer inject specific work, on top of the agents'
+own schedules. Opening an issue is a **routine GitHub trigger** (the routine runs in Anthropic's
+cloud like every other one) — **not** a GitHub Actions workflow; no Claude runs in CI. Each code
+routine is a **hybrid**: it runs on its normal schedule AND wakes when an issue with its label is
+opened. The routine implements the issue, playtests, and opens a PR (body `Closes #<issue>` so the
+issue closes on merge), which auto-merges when green.
 
-Where issues come from: the **Game Designer** (cron 6) files them from Carl's Slack feedback + the
-ROADMAP (one mechanic each, scoped to a subsystem); Carl files them directly too. ROADMAP.md stays as
-the vision/epic doc; issues are the actionable queue. An empty queue means no gameplay work happens
-this cycle — that's intended, not a bug (no make-work).
+Labels route issues to the right engineer (they match the PR auto-labels in `.github/labeler.yml`):
+
+| Label | Wakes | Who files it |
+|-------|-------|--------------|
+| `gameplay` | Gameplay Engineer (cron 1) | Game Designer (from Slack + ROADMAP) + Carl |
+| `build` | Build Engineer (cron 4) | Carl + automated signals (e.g. the release-failure issue) |
+| `performance` | Performance Engineer (cron 5) | Carl (e.g. "stutters at 40 crabs") |
+
+Only **gameplay** needs a filer to stay busy (its work is direction-dependent) — and it also runs
+hourly off the ROADMAP, so an empty `gameplay` queue is fine. Build and Performance **self-discover**
+their work on their schedules (a slow/red workflow; a frame hitch), so their issue triggers are just
+an extra on-demand lever — no one has to keep those queues full.
 
 **Keep issues conflict-free:** scope each to a single subsystem (enemies, audio, rendering, spawning).
 Land file-moving refactors (their own issue) before feature issues that touch the same area. The
@@ -138,30 +147,29 @@ runs. The table below is the intended configuration.
 
 | # | Agent | Model | Effort | Cadence | Why this tier |
 |---|-------|-------|--------|---------|---------------|
-| 1 | Gameplay Engineer    | **Opus 4.8** | high   | **on issue opened** (event) | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
+| 1 | Gameplay Engineer    | **Opus 4.8** | high   | **hourly + `gameplay` issue** | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
 | 6 | Game Designer        | **Opus 4.8** | medium | daily        | Direction compounds (Slack → ROADMAP). Cheap at 1 run/day; keep the judgment. |
-| 4 | Build Engineer       | Sonnet 5     | medium | daily        | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
-| 5 | Performance Engineer | Sonnet 5     | medium | every 12h    | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
+| 4 | Build Engineer       | Sonnet 5     | medium | daily + `build` issue | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
+| 5 | Performance Engineer | Sonnet 5     | medium | every 12h + `performance` issue | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
 | 7 | Software Architect   | **Opus 4.8** | medium | daily        | Shapes the codebase every other agent builds in — structure compounds, so Opus. |
 | 8 | Agent Engineer       | **Opus 4.8** | medium | daily        | Shapes the pipeline all agents run on — its calls compound across the whole fleet. |
 | 2 | Release Manager      | **Haiku 4.5**| low    | daily        | Pure counting + version bump; releases are now fully automated in CI. |
 | 3 | Developer Diary      | **Haiku 4.5**| low    | daily        | Summarise git log + post a Slack GIF. Rote. |
 
-Cron 1 (Gameplay Engineer) is **event-driven** — it fires when an issue is opened, not on a clock —
-so the fleet does no idle work: Opus spend happens only when there's a real issue to build. The most
-expensive mistake is putting the Sonnet/Haiku agents back on Opus. If gameplay progress ever stalls,
-the lever is the *issue queue* (are issues being filed?), not the cadence.
+Cron 1 (Gameplay Engineer) runs **hourly plus on any `gameplay` issue** — deliberately the fleet's
+biggest, most frequent spend, because player-facing game-feel is what matters most. Every other agent
+is at most daily, so keeping that hourly Opus run is the point; the most expensive mistake is putting
+the Sonnet/Haiku agents (Perf, Build, Release, Diary) back on Opus.
 
 Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the _game at runtime_
 (FPS, frame hitches) while 4 optimizes the _pipeline_ (CI wall-clock, build/test speed). Keep them
-distinct — 4 never touches game logic for framerate, 5 never edits CI config.
+distinct — 4 never touches game logic for framerate, 5 never edits CI config. Both self-discover work
+on their schedule and also wake on their labeled issue (`build` / `performance`).
 
-The old **Overnight Dev** (cron 4) is retired: the Gameplay Engineer covers any hour an issue is
-filed. (Its old caution — nobody's watching overnight, so prefer small safe changes — is folded into
-the Gameplay Engineer prompt.)
-
-> Cadence note: scheduled routines fire at most hourly. Minutes are staggered so concurrent pushes to
-> main don't collide. The Gameplay Engineer is the exception — it's event-driven off issue creation.
+> Cadence note: scheduled routines fire at most hourly, and minutes are staggered so concurrent pushes
+> to main don't collide. Code routines are hybrids — a schedule plus a labeled-issue trigger; the
+> Gameplay Engineer is the only one that runs hourly (nobody's watching overnight, so it prefers small,
+> safe, easily-reverted changes — that caution lives in its prompt).
 
 Manage all of them at: [claude.ai/code/routines](https://claude.ai/code/routines)
 
@@ -191,7 +199,7 @@ concurrent commits to main.
 
 ## How the agents work together
 
-1. **Gameplay Engineer** (cron 1) writes game code. It's **event-driven**: an opened GitHub Issue wakes it and it implements that one issue.
+1. **Gameplay Engineer** (cron 1) writes game code — **hourly off the ROADMAP, and on any `gameplay` issue** Carl or the Game Designer files. The fleet's biggest, most frequent spend, on purpose.
 2. **Performance Engineer** (cron 5) keeps the _game_ smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the _pipeline_ correct and fast — fixes silently-failing workflows, trims CI wall-clock. Never touches game logic.
 3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs daily. Never changes game behaviour.
 4. **Release Manager** (cron 2) bumps the version once ≥5 non-chore commits have landed; CI then tags and publishes the GitHub Release automatically.
@@ -211,11 +219,13 @@ train of caught crabs. Goal: make it more fun — advance all three pillars, not
   • Audio groove — this is a rhythm game: on-beat feedback, tighter sync, the music/drum vibe.
 Pick whichever pillar most needs it this run; over time keep them balanced (don't only polish visuals).
 
-You are issue-driven: your work comes from GitHub Issues. You wake when an issue is opened (a
-routine GitHub trigger); you may also be run on a schedule or by hand. Each run you implement ONE
-issue (or fix a broken playtest), then open a PR. Nobody may be watching — including overnight — so
-when uncertain prefer the smaller, safer, easily-reverted change over the ambitious one, lean
-hardest on the playtests before merging, and never merge red.
+You run two ways: **hourly on a schedule** (working the ROADMAP) AND **on-demand when a GitHub Issue
+labeled `gameplay` is opened** (a routine GitHub trigger). Either way you do ONE thing per run — the
+triggering issue if there is one, else the top ROADMAP item (a broken playtest always comes first) —
+then open a PR. The hourly cadence keeps steady pressure on game-feel; issues let Carl and the Game
+Designer inject specific work. Nobody may be watching — including overnight — so when uncertain prefer
+the smaller, safer, easily-reverted change over the ambitious one, lean hardest on the playtests
+before merging, and never merge red.
 
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort high` — this run is game-feel design + code, worth the depth.
@@ -239,19 +249,18 @@ Steps:
    its fundamental test: does this deepen the groove? Does hitting it on the beat feel like a
    satisfying drum hit? Does it make stealing more interesting? If a candidate task fails all
    three, skip it.
-5. Pick your task:
-   - Your task is the **GitHub Issue that triggered this run** — its title and body are your spec
-     (the Game Designer files these from Slack feedback + ROADMAP; Carl may file them directly).
-   - Read INSPIRATION.md (short file) — the design compass — and sanity-check the issue against its
-     test: does it deepen the groove? Does hitting it on the beat feel like a satisfying drum hit?
-     Does it make stealing more interesting? If the issue plainly fails all three, comment on it
-     saying why and stop rather than build something off-vision.
-   - ROADMAP.md is background vision only; the issue is your actual spec. Translate vague asks into
-     concrete code (e.g. "smooth directional audio swell" = lerp by distance + pan by angle; "visible
-     name banner" = larger text + distance-scaled alpha).
-   - If no issue triggered this run (a bare scheduled/manual run) and none is obvious, do nothing —
-     don't invent make-work. (A red or disabled playtest from step 2 always overrides this and is
-     your task.)
+5. Pick your task — a red or disabled playtest (step 2) always wins; otherwise:
+   - **If a GitHub Issue triggered this run:** that issue is your spec — its title and body (the Game
+     Designer files `gameplay` issues from Slack feedback + ROADMAP; Carl may file them directly).
+     Sanity-check it against the INSPIRATION test (deepen the groove? satisfying on the beat? more
+     interesting stealing?); if it plainly fails all three, comment why and stop rather than build
+     off-vision.
+   - **Otherwise (a scheduled hourly run):** work the ROADMAP. If ROADMAP.md has a "Bugs" section, fix
+     its top item first; else take ONE item from "Now" only (not "Later"/"Also on our mind"),
+     preferring anything described as a gate/unblock for the steal mechanic (the core game).
+   - Either way, translate vague asks into concrete code (e.g. "smooth directional audio swell" = lerp
+     by distance + pan by angle; "visible name banner" = larger text + distance-scaled alpha). One
+     thing per run — don't invent make-work beyond the issue or the ROADMAP "Now" list.
 6. Implement it. If the work touches both graphics.rs and main.rs/enemies.rs/spawnings.rs,
    spawn two parallel subagents (one per file group) and wait for both before building
 7. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
@@ -259,7 +268,8 @@ Steps:
 9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
 10. Commit with a short plain-English message — no Co-Authored-By lines
 11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
-    not `main` directly). Put `Closes #<issue>` in the PR body so the issue closes when it merges.
+    not `main` directly). If an issue triggered this run, put `Closes #<issue>` in the PR body so it
+    closes on merge.
 12. Drive the PR to merged — see "Merge your green PRs" above. In short: when you're done and the
     draft's checks are green, **mark it ready** (`draft: false`), **wait for any additional checks**
     that readying triggers to settle green, then **squash-merge**. Don't leave a green PR sitting. A
@@ -372,6 +382,10 @@ correct and fast. Your job is to keep CI (the GitHub Actions workflows: build, P
 Release, auto-merge) both **green** and **lean** — WITHOUT ever weakening what CI actually verifies.
 You do not write game code or change game behaviour.
 
+You run daily on a schedule AND wake on GitHub issues labeled `build` — including the release-failure
+issue the pipeline auto-files. If an issue triggered this run, it is your task; otherwise self-discover
+from the Actions logs (below).
+
 CORRECTNESS BEFORE SPEED — a silently-failing workflow is your #1 job. Some workflows fail without
 turning any PR red: `Tag and Release` runs post-merge, so a broken release publishes nothing while
 `main` stays green and nobody notices for days (this is exactly how v0.18–v0.21 shipped with zero
@@ -468,6 +482,10 @@ You are a performance engineer working on "Crab Rustler".
 job is to keep it running smooth (high FPS, no frame hitches) on modest laptops, without
 undoing anyone else's work.
 
+You run every 12h on a schedule AND wake on GitHub issues labeled `performance`. If an issue triggered
+this run, it is your task; otherwise self-discover the biggest runtime win by profiling the update/draw
+loops (below).
+
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — targeted runtime perf, not deep design.
 1. `git -C . pull --ff-only`
@@ -522,9 +540,10 @@ can't answer; "add a log line because I found nothing else" is not that.
 ```text
 You are the game designer for "Crab Rustler" — a Rust game
 (ggez 0.9.3) in reverse Vampire Survivors style: the player builds a conga train of caught
-crabs. You don't write code. You set direction by maintaining ROADMAP.md AND by filing the GitHub
-Issues that the event-driven Gameplay Engineer (cron 1) builds from — an empty issue queue means no
-gameplay work happens, so keeping a few well-scoped issues open is your most important output.
+crabs. You don't write code. You set direction two ways: maintaining ROADMAP.md (which the Gameplay
+Engineer works through hour by hour) AND filing `gameplay` GitHub Issues to inject specific, higher-
+priority work on top. A sharp ROADMAP is your bread and butter; a well-scoped issue is how you say
+"build this one now."
 
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — synthesising feedback into direction.
