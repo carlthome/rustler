@@ -423,8 +423,17 @@ Steps:
     triggers to go green, then **squash-merge**. Don't leave a green PR sitting; a failed check is
     your next task.
 
-If nothing obvious stands out, add lightweight FPS/frame-time instrumentation (print average
-frame time every few seconds in debug builds) so future runs have real data to act on.
+If nothing obvious stands out, **do nothing this cycle — open no PR.** A run with no genuine
+runtime win is a valid empty run, exactly like the Release Manager's "fewer than 5 commits → do
+nothing." The frame-time instrumentation this fallback used to ask for already exists in `main`
+(the rolling `[perf]` log line with avg/worst/fps + crab/chain/npc-follower counts, and the
+on-screen debug overlay) — re-adding "lightweight instrumentation" just manufactures a redundant
+instrumentation-only PR that the drain-queue step above then has to clean up. That is not
+hypothetical: three consecutive Perf runs each found nothing to optimize and each opened an
+overlapping instrumentation PR anyway (#42 armed-steal count, #47 and #61 both independently
+splitting `update`/`draw` into timed wrappers) — the exact idle make-work this rule now forbids.
+Only touch instrumentation if you hit a real measurement gap the existing `[perf]` line genuinely
+can't answer; "add a log line because I found nothing else" is not that.
 ```
 
 ## Cron 6 — Game Designer prompt
