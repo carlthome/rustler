@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.21.0 — 2026-07-20
+
+### Features
+- Rival-vs-rival splicing: bigger NPC trains steal from smaller ones
+- Rivals steer toward the nearest smaller rival to hunt it
+- Rival-vs-rival collisions spill catchable crabs the player can swoop in and rustle
+
 ## v0.20.0 — 2026-07-20
 
 ### Features
