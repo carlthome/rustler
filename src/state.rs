@@ -286,11 +286,13 @@ pub struct NpcCongaTrain {
     pub rival_hunt_intensity: f32,
 }
 
-/// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
-/// pirate flair, and a smattering of completely vanilla comedy names ("Kevin").
+/// Generate a King Crab name. Leans hard into pirate swagger and crab-rave energy, with the
+/// occasional Dark Souls boss title for grandiose laughs and a smattering of completely vanilla
+/// names ("Kevin") for comedic deflation.
 pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
     const SOLO_NAMES: &[&str] = &[
         "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet", "Barry", "Brenda", "Trevor", "Karen",
+        "Gary", "Susan", "Nigel", "Deborah", "Keith", "Linda", "Wayne", "Sharon",
     ];
     let solo_roll: f32 = rng.random();
     if solo_roll < 0.15 {
@@ -298,70 +300,81 @@ pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
     }
 
     const TITLES: &[&str] = &[
-        "Gravelord",
-        "The Undying",
-        "Clawkeeper of the Brackish Deep",
-        "Herald of the Eternal Tide",
-        "Scuttlefiend,",
-        "Devourer of Shores",
-        "Ashen",
-        "Lord of the Sunken Reef",
-        "The Hollow",
-        "Keeper of the Last Shell",
-        "Sovereign of the Abyssal Shallows",
-        "The Forsaken",
-        "Bearer of the Cursed Carapace",
-        "Watcher of the Drowned Coast",
-        "Misterhult",
+        // Pirate flair — the new backbone
         "Cap'n",
+        "Captain",
         "First Mate",
+        "Admiral",
+        "Commodore",
+        "Quartermaster",
+        "Bosun",
+        "Dread Pirate",
+        "Ol'",
+        "Peg-Leg",
+        "One-Eyed",
         "Barnacle",
         "The Scurvy",
-        "Admiral",
-        "Quartermaster",
+        "Corsair",
+        "Buccaneer",
+        // Crab rave energy
         "DJ",
-        "Rave King",
-        "The Eternal",
         "MC",
-        "Sideways Champion",
+        "Rave King",
         "Drop Lord",
-        "The Eternal Groove of",
         "Shellmaster",
-        "The Immortal",
-        "Ancient",
+        "Selecta",
+        "Sir Bass-a-Lot",
+        "The Beat-Droppin'",
+        "Neon",
+        "Sideways Champion",
+        "The Eternal Groove of",
+        // Dark Souls grandiosity — rare, funny in small doses
+        "Gravelord",
+        "Scuttlefiend,",
+        "Devourer of Shores",
+        "Lord of the Sunken Reef",
+        // Oddball comedy
+        "Misterhult",
+        "Uncle",
     ];
 
     const NAMES: &[&str] = &[
-        "Pinchfeast",
-        "Moltveil",
-        "Chelicerae",
-        "Scuttlegrim",
-        "Brinewraith",
-        "Tidecurse",
-        "Carapace",
-        "Saltborn",
-        "Shellreaper",
-        "Abysswalker",
-        "Duskshell",
-        "Emberclaw",
-        "Grimtide",
-        "Voidmolt",
-        "Pete",
+        // Pirate
         "Clawbeard",
-        "Snippy",
-        "the Saltbitten",
+        "Blackclaw",
+        "Saltbeard",
+        "Redbeard",
+        "Barnacle Bill",
+        "Pegleg Pete",
+        "Silverclaw",
         "Ironpincer",
-        "Buccaneers",
+        "the Saltbitten",
+        "Bootstrap",
+        "Flintclaw",
+        "Longshanks",
         "Moultzilla",
-        "Snapsalot",
+        // Crab rave
         "Groove",
         "Bounceback",
         "Sidestep",
         "the Bass Drop",
         "Shellshaker",
         "Clawdrop",
-        "the Unbroken",
-        "Razorshell",
+        "Beatpincer",
+        "Glowclaw",
+        "Ravescuttle",
+        "Bassline",
+        "Snapsalot",
+        "Neonshell",
+        // Dark Souls — rare
+        "Moltveil",
+        "Brinewraith",
+        "Abysswalker",
+        "Shellreaper",
+        // Vanilla comedy inline
+        "Pete",
+        "Snippy",
+        "Dave",
     ];
 
     let title = TITLES.choose(rng).unwrap();
