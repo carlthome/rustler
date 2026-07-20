@@ -468,8 +468,16 @@ impl MainState {
         // Level-of-detail hint for draw_crab: the more crabs on the beach (wild herd + conga train
         // + NPC trains drawn in this same pass), the cheaper each crab renders, so a big train stays
         // smooth. Full articulation is reserved for calm fields and hero-sized crabs; tiny/distant
-        // crabs are always cheap regardless. Set once per pass.
-        crate::graphics::set_crab_lod_hint(self.crabs.len());
+        // crabs are always cheap regardless. Set once per pass. Must include NPC train followers
+        // (drawn later in this same pass by draw_npc_conga_train) — a rival train that's grown fat
+        // on stolen crabs is exactly the swarm case this LOD system exists to keep cheap, and
+        // self.crabs.len() alone never sees that growth.
+        let npc_follower_total: usize = self
+            .npc_trains
+            .iter()
+            .map(|n| n.follower_types.len() + 1) // +1 for the King Crab leader
+            .sum();
+        crate::graphics::set_crab_lod_hint(self.crabs.len() + npc_follower_total);
         // Every free crab's aura below (flashlight glow, Magnet/Thief/Golden rings) additively
         // blends, and used to flip the canvas's blend mode ADD -> ALPHA -> ADD per crab (each aura
         // helper toggled it around itself). ggez only actually switches the GPU pipeline on a
