@@ -114,7 +114,8 @@ use crate::graphics::{
     flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
-    draw_beam_fast_pin, draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
+    draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_day_weather_hud,
+    draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
     draw_whistle_golden_pull, draw_whistle_shell_deflect,
@@ -2411,6 +2412,23 @@ impl MainState {
                         crab.spooked_timer = crab.spooked_timer.max(0.5);
                         if self.beam_fast_hits_buf.len() < 12 {
                             self.beam_fast_hits_buf.push((crab.pos, on_beat_now));
+                        }
+                    }
+                    // Beam × Golden STRONG match — "spotlight the prize" (ROADMAP RPS lane, the
+                    // beam-vs-Golden pair). The flashlight is a spotlight: hold it on the fleeing
+                    // treasure and the light reveals and reels it, so keeping your beam on a Golden
+                    // through the beat is how you land the prize instead of losing the footrace. It's
+                    // deliberately a GENTLER grip than the Fast pin (0.70/0.55 vs 0.62/0.38) — the
+                    // Golden is the reward, so it stays a premium chase, not a trivial pin — but on
+                    // the beat the reel firms up, a drum pad against the prize. A snared Golden (a
+                    // Magnet already has it) is skipped so the two grips don't stack. Distinct warm-gold
+                    // tell so it never reads as the icy Fast pin or the amber Hermit "wrong tool".
+                    if crab.is_golden() && crab_in_light && crab.magnet_snared <= 0.0 {
+                        let reel = if on_beat_now { 0.55 } else { 0.70 };
+                        flee_speed *= reel;
+                        crab.spooked_timer = crab.spooked_timer.max(0.5);
+                        if self.beam_golden_hits_buf.len() < 12 {
+                            self.beam_golden_hits_buf.push((crab.pos, on_beat_now));
                         }
                     }
                     crab.vel = crab.vel.lerp(to_crab * flee_speed, 0.06);
@@ -4877,6 +4895,9 @@ impl MainState {
         if !self.beam_hermit_hits_buf.is_empty() {
             draw_beam_hermit_match(ctx, canvas, &self.beam_hermit_hits_buf)?;
         }
+        if !self.beam_golden_hits_buf.is_empty() {
+            draw_beam_golden_spotlight(ctx, canvas, &self.beam_golden_hits_buf)?;
+        }
         if !self.beam_fast_hits_buf.is_empty() {
             draw_beam_fast_pin(ctx, canvas, &self.beam_fast_hits_buf)?;
         }
@@ -6063,6 +6084,7 @@ impl EventHandler for MainState {
         // Clear strong-match hit buffers so draw_game sees only THIS frame's events.
         self.beam_hermit_hits_buf.clear();
         self.beam_fast_hits_buf.clear();
+        self.beam_golden_hits_buf.clear();
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();

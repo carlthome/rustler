@@ -1075,6 +1075,11 @@ pub struct MainState {
     // (INSPIRATION.md "Beam to melt fast ones"). The bool flags an on-beat pin (a harder clamp) so
     // draw_beam_fast_pin can flare the tell brighter on the beat. Mirrors the beam/Hermit buffer.
     pub(crate) beam_fast_hits_buf: Vec<(Vec2, bool)>,
+    // Positions where the beam is spotlighting a fleeing Golden — the beam's soft-RPS STRONG match
+    // against the prize crab: the flashlight *reveals and reels* the treasure, a gentler grip than the
+    // Fast pin so the Golden stays a premium chase. The bool flags an on-beat hold (a firmer reel) so
+    // draw_beam_golden_spotlight can flare the warm-gold tell brighter on the beat. Mirrors beam_fast.
+    pub(crate) beam_golden_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) stomp_dancer_hits_buf: Vec<Vec2>,
     pub(crate) stomp_armored_hits_buf: Vec<Vec2>,
     pub(crate) whistle_golden_hits_buf: Vec<Vec2>,
@@ -1773,6 +1778,7 @@ impl MainState {
             whistle_soothed_buf: Vec::new(),
             beam_hermit_hits_buf: Vec::new(),
             beam_fast_hits_buf: Vec::new(),
+            beam_golden_hits_buf: Vec::new(),
             stomp_dancer_hits_buf: Vec::new(),
             stomp_armored_hits_buf: Vec::new(),
             whistle_golden_hits_buf: Vec::new(),
