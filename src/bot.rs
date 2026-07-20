@@ -42,6 +42,12 @@ pub enum BotAction {
     // steal. A no-op when the player has no stealable chain. Deterministic — timing an on-beat tool
     // cast against an RNG-armed steal inside a headless budget isn't reliable, so we stage it.
     ForceStealDefense,
+    // Guards the movement dodge — the reroute half of the defense (INSPIRATION.md item 2: "an on-beat
+    // defensive reroute OR a tool hit"). Arm a rival's splice on a mid-chain link, then teleport its
+    // leader clear of that link, so the next update sees the thread broken and fizzles the splice
+    // (steals_dodged rises). A no-op when the player has no stealable chain. Deterministic — juking a
+    // wandering rival's thread inside a headless budget isn't reliable, so we stage it.
+    ForceStealDodge,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +72,9 @@ pub enum BotAssert {
     /// Monotonic count of armed rival steals the player has parried this run (see
     /// MainState::steals_parried). Asserts the on-beat defensive counter actually cancelled a steal.
     ParriedAtLeast(usize),
+    /// Monotonic count of armed rival steals the player has dodged this run (see
+    /// MainState::steals_dodged). Asserts the movement-reroute defense actually broke a splice.
+    DodgedAtLeast(usize),
     /// Monotonic count of revenge steal-backs this run (see MainState::revenge_steals). Asserts the
     /// back-and-forth loop closed: a rival spliced your tail, you chased it down and rustled the
     /// crabs back inside the revenge window for the bonus.
@@ -263,6 +272,36 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
+    script
+}
+
+pub fn script_steal_dodge() -> Vec<BotEvent> {
+    // Guards the movement dodge — the reroute half of the defense (INSPIRATION.md item 2 promises TWO
+    // defenses: "an on-beat defensive reroute OR a tool hit"). Juking the threaded tail link clear of
+    // the rival before the snap breaks the thread, so the splice fizzles with nothing to cut. That
+    // second defense had no coverage, so a refactor could silently break it. Mirrors
+    // script_steal_defense: build a real chain with the seek-catch autopilot, then repeatedly stage
+    // "arm a steal, then yank the tail clear" (ForceStealDodge) and assert the dodge fired
+    // (steals_dodged rises) without crashing the run. Forcing keeps it deterministic — juking a
+    // wandering rival isn't reliable headless. Runs at 3x time_scale like npc_steal so the autopilot's
+    // proximity catch grows a chain first.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting steal-dodge (reroute) test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Stage arm+dodge every 0.9s across a wide window. Each attempt is a no-op unless a stealable
+    // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
+    // lands while the seek-catch chain is alive.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceStealDodge });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::DodgedAtLeast(1)) });
     script
 }
 

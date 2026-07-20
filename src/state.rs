@@ -503,6 +503,11 @@ pub struct MainState {
     /// cast on a threatened tail cancels the splice (see `try_defend_steal`). Never drops, so the bot
     /// playtests can assert the defensive counter fired without racing the live chain count.
     pub(crate) steals_parried: usize,
+    /// Monotonic count of armed rival steals the player has *dodged* this run — juking the threaded
+    /// tail link clear of the rival before the snap breaks the thread, so the splice fizzles with
+    /// nothing to cut (the movement half of the defense, alongside the tool parry). Never drops, so
+    /// the bot playtests can assert the reroute defense fired without racing the live chain count.
+    pub(crate) steals_dodged: usize,
     /// Monotonic count of revenge steal-backs this run — a steal-back rustled off a rival while its
     /// revenge marker was still live (it had just spliced your tail). Never drops, so the bot
     /// playtests can assert the back-and-forth revenge loop fired without racing the live chain.
@@ -1507,6 +1512,7 @@ impl MainState {
             max_single_steal_by_npc: 0,
             crabs_stolen_by_player: 0,
             steals_parried: 0,
+            steals_dodged: 0,
             revenge_steals: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
