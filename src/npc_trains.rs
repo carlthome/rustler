@@ -1057,6 +1057,106 @@ impl MainState {
             const RIVAL_STEAL_RANGE: f32 = 56.0;
             let n_trains = self.npc_trains.len();
             for thief in 0..n_trains {
+                // --- Armed: wind the telegraph down, then SNAP on the beat ----------------------
+                // A rival-vs-rival splice arms a fuse when its leader threads a smaller rival, then
+                // fires ON the beat (or on fuse expiry) — the exact rule the player-facing rival
+                // steal uses. So the whole beach's steals now land as rhythmic drum hits instead of
+                // firing the instant two leaders happen to cross (INSPIRATION "the beat is the
+                // mechanic"), and the gold "predator closing" tell (#135) reads as a real wind-up.
+                if self.npc_trains[thief].rival_steal_threat > 0.0 {
+                    self.npc_trains[thief].rival_steal_threat -= dt;
+                    let victim = self.npc_trains[thief].rival_steal_victim;
+                    let cut_from = self.npc_trains[thief].rival_steal_cut_from;
+                    // Re-validate the snapshot: in bounds, not self, and the victim still has a back
+                    // section past the cut. A train despawning or emptied mid-fuse fizzles cleanly
+                    // here instead of mis-splicing or panicking on split_off.
+                    let valid = victim < self.npc_trains.len()
+                        && victim != thief
+                        && self.npc_trains[victim].follower_types.len() > cut_from;
+                    if !valid {
+                        self.npc_trains[thief].rival_steal_threat = 0.0;
+                        continue;
+                    }
+                    // Snap once the telegraph has shown for a moment AND we're on the beat, or on
+                    // fuse expiry as the guaranteed fallback — so the theft always lands within
+                    // STEAL_FUSE even off-beat (this is what keeps the headless bot deterministic,
+                    // exactly like the player-facing steal's `steal_threat <= 0.0` fallback).
+                    let telegraph_shown =
+                        self.npc_trains[thief].rival_steal_threat < STEAL_FUSE - 0.12;
+                    let on_beat_snap = on_beat && telegraph_shown;
+                    let fire = self.npc_trains[thief].rival_steal_threat <= 0.0 || on_beat_snap;
+                    if !fire {
+                        continue;
+                    }
+                    self.npc_trains[thief].rival_steal_threat = 0.0;
+                    let splice_pos = self.npc_trains[thief].rival_steal_splice_pos;
+                    let mut stolen = self.npc_trains[victim].follower_types.split_off(cut_from);
+                    let stolen_count = stolen.len();
+                    if stolen_count > 0 {
+                        self.npc_trains[thief].rival_steal_cooldown = 3.0;
+                        self.rival_vs_rival_steals += stolen_count;
+                        // Swoopable spoils (ROADMAP step 3, agar.io "let the big ones fight, then eat
+                        // the crumbs"): the loser doesn't hand the winner a clean pickpocket — the
+                        // collision knocks roughly a third of the cut (at least one, whenever ≥2 were
+                        // taken) *loose* as free catchable crabs bursting from the splice, so the player
+                        // can swoop into a rival-vs-rival collision and rustle the spilled crumbs. The
+                        // thief still nets the majority, so the pecking order (big trains eat small ones)
+                        // holds and the beach doesn't collapse to one mega-train.
+                        let mut rng = rand::rng();
+                        let spill = if stolen_count >= 2 {
+                            (stolen_count / 3).max(1)
+                        } else {
+                            0
+                        };
+                        // Cap the world's free-crab load so a churn of collisions can't shove the run
+                        // toward the overwhelmed game-over; the leftover stays with the thief.
+                        let room = 150usize.saturating_sub(self.crabs.len());
+                        let spill = spill.min(room);
+                        for ct in stolen.drain(stolen.len() - spill..) {
+                            let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+                            let mut vel = Vec2::new(angle.cos(), angle.sin()) * rng.random_range(120.0..200.0);
+                            vel.y -= 60.0; // a slight upward arc before it settles into the herd
+                            let jitter = Vec2::new(rng.random_range(-14.0..14.0), rng.random_range(-14.0..14.0));
+                            self.crabs
+                                .push(spawn_scattered_crab(splice_pos + jitter, vel, ct, &mut rng));
+                            self.rival_spill_crabs += 1;
+                        }
+                        // Whatever survived the spill goes to the winner.
+                        self.npc_trains[thief].follower_types.extend(stolen);
+                        // Legibility (ROADMAP step 3 "make it legible and swoopable"): name the theft
+                        // at the splice point and pop a golden shockwave so the player reads which train
+                        // just grew, then can swoop in and rustle the fattened winner — or the crumbs.
+                        // An on-beat snap flashes a brighter gold than an off-beat (fuse-expiry) one, so
+                        // a clean rhythmic steal reads as the stronger hit — the beat rewards the eye too.
+                        let thief_name = self.npc_trains[thief].name.clone();
+                        let victim_name = self.npc_trains[victim].name.clone();
+                        let callout = if spill > 0 {
+                            format!("{} rustled {} from {} — {} spilled loose!", thief_name, stolen_count, victim_name, spill)
+                        } else {
+                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name)
+                        };
+                        self.floating_texts.spawn(
+                            callout,
+                            splice_pos - Vec2::new(90.0, 30.0),
+                            22.0,
+                            [1.0, 0.78, 0.25, 1.0],
+                        );
+                        if self.catch_shockwaves.len() < 48 {
+                            let ring = if on_beat_snap {
+                                [1.0, 0.86, 0.4] // brighter gold on the beat
+                            } else {
+                                [1.0, 0.78, 0.25]
+                            };
+                            self.catch_shockwaves.push((splice_pos, 0.0, ring));
+                        }
+                        // Audible ecology (INSPIRATION.md "audio IS the radar"): latch the splice
+                        // position so the audio pass (which has `ctx`) can play a position-panned,
+                        // distance-faded theft clack — a far-off rival steal becomes a faint
+                        // directional tick the player looks toward and swoops into for the crumbs.
+                        self.rival_steal_sfx = Some(splice_pos);
+                    }
+                    continue;
+                }
                 if self.npc_trains[thief].rival_steal_cooldown > 0.0 {
                     continue;
                 }
@@ -1099,63 +1199,17 @@ impl MainState {
                         .get((cut_from + 1) * STEPS)
                         .copied()
                         .unwrap_or(thief_pos);
-                    let mut stolen = self.npc_trains[victim].follower_types.split_off(cut_from);
-                    let stolen_count = stolen.len();
-                    if stolen_count > 0 {
-                        self.npc_trains[thief].rival_steal_cooldown = 3.0;
-                        self.rival_vs_rival_steals += stolen_count;
-                        // Swoopable spoils (ROADMAP step 3, agar.io "let the big ones fight, then eat
-                        // the crumbs"): the loser doesn't hand the winner a clean pickpocket — the
-                        // collision knocks roughly a third of the cut (at least one, whenever ≥2 were
-                        // taken) *loose* as free catchable crabs bursting from the splice, so the player
-                        // can swoop into a rival-vs-rival collision and rustle the spilled crumbs. The
-                        // thief still nets the majority, so the pecking order (big trains eat small ones)
-                        // holds and the beach doesn't collapse to one mega-train.
-                        let mut rng = rand::rng();
-                        let spill = if stolen_count >= 2 {
-                            (stolen_count / 3).max(1)
-                        } else {
-                            0
-                        };
-                        // Cap the world's free-crab load so a churn of collisions can't shove the run
-                        // toward the overwhelmed game-over; the leftover stays with the thief.
-                        let room = 150usize.saturating_sub(self.crabs.len());
-                        let spill = spill.min(room);
-                        for ct in stolen.drain(stolen.len() - spill..) {
-                            let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
-                            let mut vel = Vec2::new(angle.cos(), angle.sin()) * rng.random_range(120.0..200.0);
-                            vel.y -= 60.0; // a slight upward arc before it settles into the herd
-                            let jitter = Vec2::new(rng.random_range(-14.0..14.0), rng.random_range(-14.0..14.0));
-                            self.crabs
-                                .push(spawn_scattered_crab(splice_pos + jitter, vel, ct, &mut rng));
-                            self.rival_spill_crabs += 1;
-                        }
-                        // Whatever survived the spill goes to the winner.
-                        self.npc_trains[thief].follower_types.extend(stolen);
-                        // Legibility (ROADMAP step 3 "make it legible and swoopable"): name the theft
-                        // at the splice point and pop a golden shockwave so the player reads which train
-                        // just grew, then can swoop in and rustle the fattened winner — or the crumbs.
-                        let thief_name = self.npc_trains[thief].name.clone();
-                        let victim_name = self.npc_trains[victim].name.clone();
-                        let callout = if spill > 0 {
-                            format!("{} rustled {} from {} — {} spilled loose!", thief_name, stolen_count, victim_name, spill)
-                        } else {
-                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name)
-                        };
-                        self.floating_texts.spawn(
-                            callout,
-                            splice_pos - Vec2::new(90.0, 30.0),
-                            22.0,
-                            [1.0, 0.78, 0.25, 1.0],
-                        );
-                        if self.catch_shockwaves.len() < 48 {
-                            self.catch_shockwaves.push((splice_pos, 0.0, [1.0, 0.78, 0.25]));
-                        }
-                        // Audible ecology (INSPIRATION.md "audio IS the radar"): latch the splice
-                        // position so the audio pass (which has `ctx`) can play a position-panned,
-                        // distance-faded theft clack — a far-off rival steal becomes a faint
-                        // directional tick the player looks toward and swoops into for the crumbs.
-                        self.rival_steal_sfx = Some(splice_pos);
+                    // ARM the telegraph — don't splice yet. The back section is snapshotted so the
+                    // snap fires from the same link on the beat (or fuse expiry) even if the thief's
+                    // leader drifts a little off it during the wind-up. A dim gold "winding up" ring
+                    // marks the splice point up close; the bright gold snap ring + callout come at
+                    // fire — arm→snap now reads on the beat on top of the far-off predator line (#135).
+                    self.npc_trains[thief].rival_steal_threat = STEAL_FUSE;
+                    self.npc_trains[thief].rival_steal_victim = victim;
+                    self.npc_trains[thief].rival_steal_cut_from = cut_from;
+                    self.npc_trains[thief].rival_steal_splice_pos = splice_pos;
+                    if self.catch_shockwaves.len() < 48 {
+                        self.catch_shockwaves.push((splice_pos, 0.0, [0.7, 0.5, 0.15]));
                     }
                 }
             }

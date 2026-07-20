@@ -236,6 +236,21 @@ pub struct NpcCongaTrain {
     /// Latched splice index while a steal is armed, so the snap still fires from the same link even
     /// if the leader drifts a little off it during the telegraph window.
     pub steal_target: usize,
+    /// Rival-vs-rival steal telegraph fuse (mirrors `steal_threat`, which arms the steal against the
+    /// player): >0 while a whole-beach splice of a *smaller rival's* back half is armed and winding
+    /// toward its on-beat snap. Makes the ecology's steals land ON the beat (INSPIRATION "the beat is
+    /// the mechanic") instead of firing the instant two leaders cross. Snaps on the beat once shown,
+    /// or on fuse expiry as a guaranteed fallback (which also keeps the headless bot deterministic).
+    pub rival_steal_threat: f32,
+    /// Victim train index snapshotted when the rival-vs-rival splice armed, so the snap fires against
+    /// the same target even if this leader drifts during the telegraph. Re-validated at fire (bounds
+    /// + still enough followers) so a train despawning mid-fuse fizzles cleanly instead of mis-splicing.
+    pub rival_steal_victim: usize,
+    /// Follower index the armed rival-vs-rival splice cuts from — the stolen back section is
+    /// `victim.follower_types[cut_from..]`. Snapshotted at arm alongside `rival_steal_victim`.
+    pub rival_steal_cut_from: usize,
+    /// World position of the armed rival-vs-rival splice point, for the on-beat snap's shockwave/spill.
+    pub rival_steal_splice_pos: Vec2,
     /// Time since this NPC last caught a free crab (throttles free-crab collection).
     pub catch_cooldown: f32,
     /// Revenge marker: >0 for a few seconds after this rival splices your tail. While it's live the
@@ -404,6 +419,10 @@ impl NpcCongaTrain {
             rival_steal_cooldown: 0.0,
             steal_threat: 0.0,
             steal_target: 0,
+            rival_steal_threat: 0.0,
+            rival_steal_victim: 0,
+            rival_steal_cut_from: 0,
+            rival_steal_splice_pos: Vec2::ZERO,
             catch_cooldown: 0.0,
             revenge_timer: 0.0,
             hunt_intent: 0.0,
