@@ -442,6 +442,63 @@ impl MainState {
                 }
             }
 
+            // --- Rival-hunt urge: steer toward the nearest strictly-smaller rival to bully it -
+            // ROADMAP ★ headline, step 2 ("a deliberate urge to hunt the weaker train"): the same
+            // per-creature intent that threads the player's line (above), pointed instead at the
+            // nearest SMALLER rival train. Without this the rival-vs-rival splice below only fires
+            // when two trains happen to cross while wandering — the ecology churns by luck. With it,
+            // a bigger train visibly seeks out and slices a smaller one, so the agar.io/Rain World
+            // pecking order emerges from a purely local rule (bigger hunts smaller) rather than a
+            // global planner. Cheap: an O(n_trains²) nearest scan over a handful of trains, no
+            // per-crab work. Player pursuit wins when it's live (the player is the main character),
+            // so this only bites when no player prey is near — a gentle fallback urge, not a lock.
+            // It deliberately does NOT touch hunt_intent: that drives the telegraph dots that warn
+            // the *player* they're being threaded (see draw), and a rival chasing another rival must
+            // not paint a false "you're being hunted" tell across the player's line.
+            if !hunting && self.npc_trains[i].idle_timer <= 0.0 {
+                let my_len = self.npc_trains[i].follower_types.len();
+                if my_len >= 1 {
+                    const RIVAL_HUNT_RANGE: f32 = 620.0;
+                    let my_pos = self.npc_trains[i].leader_pos;
+                    // Nearest strictly-smaller rival with followers — the only train this one can
+                    // actually splice, so the urge and the splice rule below agree.
+                    let mut best: Option<(usize, f32)> = None;
+                    for v in 0..self.npc_trains.len() {
+                        if v == i {
+                            continue;
+                        }
+                        let vlen = self.npc_trains[v].follower_types.len();
+                        if vlen == 0 || vlen >= my_len {
+                            continue;
+                        }
+                        let d = my_pos.distance(self.npc_trains[v].leader_pos);
+                        if d < RIVAL_HUNT_RANGE && best.map_or(true, |(_, bd)| d < bd) {
+                            best = Some((v, d));
+                        }
+                    }
+                    if let Some((v, d)) = best {
+                        // Aim at the victim's back-half thread point (its mid-follower slot on
+                        // path_history, spacing 14 to match the splice pass) so the leader routes to
+                        // slice a meaningful section, exactly like the player-pursuit path does.
+                        let vlen = self.npc_trains[v].follower_types.len();
+                        let thread_fi = vlen.saturating_sub(1) / 2;
+                        let hunt_pos = self.npc_trains[v]
+                            .path_history
+                            .get((thread_fi + 1) * 14)
+                            .copied()
+                            .unwrap_or(self.npc_trains[v].leader_pos);
+                        // Stronger urge the closer the prey and the bigger the size gap, but it stays
+                        // a bias layered onto territory patrol — not a beeline — so trains still read
+                        // as roaming their regions between kills.
+                        let closeness = ((RIVAL_HUNT_RANGE - d) / RIVAL_HUNT_RANGE).clamp(0.0, 1.0);
+                        let gap_urge = ((my_len - vlen) as f32 / 6.0).clamp(0.0, 0.5);
+                        let blend = (closeness * 0.6 + gap_urge).clamp(0.0, 1.0);
+                        self.npc_trains[i].target =
+                            self.npc_trains[i].target.lerp(hunt_pos, blend * dt * 2.2);
+                    }
+                }
+            }
+
             // --- Reverse-Snake chain splice steal (telegraphed + beat-synced) ----------------
             // When the NPC leader threads within range of an exposed tail link it ARMS a steal:
             // a brief telegraph fuse ramps while the threatened crabs tremble in place, then the
