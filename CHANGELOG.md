@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.25.0 — 2026-07-20
+
+### Features
+- Rival-vs-rival steals snap on the beat, not on random leader crossings
+- Add groove-scaled conga trail / echo-afterimage layer
+- Add a swung hi-hat layer locked to the game beat clock
+- Richer, beat-reactive crab shells: rim outline, shaded dome, squash and claw-snap on the downbeat
+- Beam pins fleeing Sneaky crabs — the flashlight exposes the skittish evader
+
+### Refactoring
+- Extract terrain/biome ground rendering from graphics.rs into a submodule
+
 ## v0.24.0 — 2026-07-20
 
 ### Features
