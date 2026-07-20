@@ -6397,6 +6397,95 @@ impl EventHandler for MainState {
             smooth(&mut self.sounds.king_crab_rumble_r, target_r);
         }
 
+        // Per-rival spatial MUSIC: on top of the shared creature rumble above, each ambient NPC
+        // King Crab train broadcasts its OWN beat-locked musical motif — panned by the leader's
+        // bearing, swelling with distance AND with the train's length/tier. "More crabs in sync =
+        // more music": a lone scout is a faint high tick, an elder dragging a long conga is a loud,
+        // full low motif. When several rivals are audible the loudest keeps the mix and the quieter
+        // ones duck, so trains read as distinct voices rather than mush (INSPIRATION.md agar.io:
+        // "the dominant train dominates the mix"). Beat-lock: the buffers are an exact two-bar loop
+        // at the live tempo and are (re)started only on the beat, so every note sits in the pocket
+        // with the player's groove. Null-audio-safe — set_volume/play/stop guard exactly like the
+        // rumble path, so the headless playtests are unaffected.
+        {
+            use ggez::audio::SoundSource as _;
+            let game_active =
+                !self.show_instructions && !self.game_over && !self.show_world_map;
+            let on_beat = self.on_beat_now();
+            let n = self.sounds.king_crab_motif.len().min(self.npc_trains.len());
+
+            // Pass 1: raw target loudness (distance swell x size/tier presence) + bearing per train.
+            let mut raw = [0.0_f32; 8];
+            let mut pan = [0.0_f32; 8];
+            for i in 0..n {
+                if !game_active {
+                    continue;
+                }
+                let t = &self.npc_trains[i];
+                let dist = t.leader_pos.distance(self.player_pos);
+                // Same swell curve as the rumble: full within ~200px, silent past ~800px.
+                let dist_factor = ((800.0 - dist) / 600.0).clamp(0.0, 1.0);
+                // Tier from the scale floor: scout 1.2 -> 0, wanderer 1.8 -> 0.5, elder 2.4 -> 1.0.
+                let tier_floor = ((t.base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
+                let len = t.follower_types.len() as f32;
+                // Size/tier presence: tier floor + a per-follower ramp so a growing conga sounds
+                // fuller. Capped at 1.0 (a maxed elder saturates its slot).
+                let presence =
+                    (0.10 + tier_floor * 0.20 + len * (0.04 + tier_floor * 0.02)).min(1.0);
+                raw[i] = dist_factor * presence;
+                let delta = t.leader_pos - self.player_pos;
+                pan[i] = if delta.length_squared() > 1.0 {
+                    (delta.x / delta.length()).clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
+            }
+
+            // Pass 2: duck by loudness rank so the dominant train dominates the mix and the rest
+            // recede (keeps 2-3 simultaneous trains legible instead of a wash). The top slot also
+            // caps the motif well under the player's own groove — it's an ambient scoreboard layer.
+            let mut order = [0usize, 1, 2, 3, 4, 5, 6, 7];
+            let order = &mut order[..n];
+            order.sort_by(|&a, &b| {
+                raw[b].partial_cmp(&raw[a]).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            const DUCK: [f32; 3] = [0.5, 0.28, 0.15];
+            let mut ducked = [0.0_f32; 8];
+            for (rank, &i) in order.iter().enumerate() {
+                ducked[i] = raw[i] * DUCK.get(rank).copied().unwrap_or(0.12);
+            }
+
+            // Pass 3: apply. Equal-power L/R split by bearing; smooth the volume; (re)start the L/R
+            // pair TOGETHER on a beat so they stay phase-locked with each other and with the grid.
+            for i in 0..n {
+                let angle = (pan[i] + 1.0) * std::f32::consts::FRAC_PI_4;
+                let tgt_l = angle.cos() * ducked[i];
+                let tgt_r = angle.sin() * ducked[i];
+                let (src_l, src_r) = &mut self.sounds.king_crab_motif[i];
+                let new_l = {
+                    let cur = src_l.volume();
+                    (cur + (tgt_l - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0)
+                };
+                let new_r = {
+                    let cur = src_r.volume();
+                    (cur + (tgt_r - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0)
+                };
+                src_l.set_volume(new_l);
+                src_r.set_volume(new_r);
+                // Hysteresis on the raw target (not the smoothed volume) so a train hovering near
+                // the audible edge doesn't chatter start/stop every frame.
+                let want_play = ducked[i] > 0.03;
+                let playing = src_l.playing() || src_r.playing();
+                if want_play && !playing && on_beat {
+                    let _ = src_l.play(ctx);
+                    let _ = src_r.play(ctx);
+                } else if !want_play && ducked[i] < 0.008 && playing {
+                    src_l.stop(ctx);
+                    src_r.stop(ctx);
+                }
+            }
+        }
+
         // Crab-theme music loops: count how many of each archetype group are free on the field,
         // then smoothly ramp each theme's volume so the soundscape reflects what's out there.
         // Max volume is low (0.13) so they layer as ambient texture without drowning the game.

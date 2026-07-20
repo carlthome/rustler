@@ -1102,6 +1102,7 @@ fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Sourc
 
 pub use crate::king_crab_audio::{
     synth_king_crab_ambient_spatial, synth_king_crab_rumble, synth_king_crab_spatial,
+    synth_rival_motif,
 };
 
 /// The synthesised percussion voices, built once and replayed on the beat.
