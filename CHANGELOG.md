@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.19.0 — 2026-07-20
+
+### Features
+- Parry a rival steal to open a counter-steal window
+- Revenge window: turn a rival's steal into a back-and-forth duel
+- Beat-synced DEFEND telegraph ring on armed rival steals
+
+### Fixes
+- Cap a single rival steal to a recoverable bite, not a train-wipe
+
 ## v0.18.0 — 2026-07-20
 
 ### Features
