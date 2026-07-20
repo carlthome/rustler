@@ -50,9 +50,8 @@ grounded in whether the game actually plays, not just whether it builds.
 GitHub Issues are how you (Carl) and the Game Designer inject specific work, on top of the agents'
 own schedules. Opening an issue is a **routine GitHub trigger** (the routine runs in Anthropic's
 cloud like every other one) — **not** a GitHub Actions workflow; no Claude runs in CI. Each code
-routine is a **hybrid**: it runs on its normal schedule AND wakes when an issue with its label is
-opened. The routine implements the issue, playtests, and opens a PR (body `Closes #<issue>` so the
-issue closes on merge), which auto-merges when green.
+routine is a **hybrid** — its normal schedule plus an event trigger — and implements the triggering
+issue (playtests, opens a PR with `Closes #<issue>`, which auto-merges when green).
 
 Labels route issues to the right engineer (they match the PR auto-labels in `.github/labeler.yml`):
 
@@ -60,12 +59,14 @@ Labels route issues to the right engineer (they match the PR auto-labels in `.gi
 |-------|-------|--------------|
 | `gameplay` | Gameplay Engineer (cron 1) | Game Designer (from Slack + ROADMAP) + Carl |
 | `build` | Build Engineer (cron 4) | Carl + automated signals (e.g. the release-failure issue) |
-| `performance` | Performance Engineer (cron 5) | Carl (e.g. "stutters at 40 crabs") |
+
+The **Performance Engineer** (cron 5) is the exception: instead of an issue label it wakes on each
+**GitHub release publish** — a freshly shipped version is the natural moment to make it run smoother.
 
 Only **gameplay** needs a filer to stay busy (its work is direction-dependent) — and it also runs
 hourly off the ROADMAP, so an empty `gameplay` queue is fine. Build and Performance **self-discover**
-their work on their schedules (a slow/red workflow; a frame hitch), so their issue triggers are just
-an extra on-demand lever — no one has to keep those queues full.
+their work (a slow/red workflow; a frame hitch), so their triggers are just an extra lever — no one
+has to keep a queue full.
 
 **Keep issues conflict-free:** scope each to a single subsystem (enemies, audio, rendering, spawning).
 Land file-moving refactors (their own issue) before feature issues that touch the same area. The
@@ -150,7 +151,7 @@ runs. The table below is the intended configuration.
 | 1 | Gameplay Engineer    | **Opus 4.8** | high   | **hourly + `gameplay` issue** | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
 | 6 | Game Designer        | **Opus 4.8** | medium | daily        | Direction compounds (Slack → ROADMAP). Cheap at 1 run/day; keep the judgment. |
 | 4 | Build Engineer       | Sonnet 5     | medium | daily + `build` issue | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
-| 5 | Performance Engineer | Sonnet 5     | medium | every 12h + `performance` issue | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
+| 5 | Performance Engineer | Sonnet 5     | medium | daily + on release publish | Game runtime perf. A shipped release is the natural moment for a perf pass. |
 | 7 | Software Architect   | **Opus 4.8** | medium | daily        | Shapes the codebase every other agent builds in — structure compounds, so Opus. |
 | 8 | Agent Engineer       | **Opus 4.8** | medium | daily        | Shapes the pipeline all agents run on — its calls compound across the whole fleet. |
 | 2 | Release Manager      | **Haiku 4.5**| low    | daily        | Pure counting + version bump; releases are now fully automated in CI. |
@@ -164,7 +165,8 @@ the Sonnet/Haiku agents (Perf, Build, Release, Diary) back on Opus.
 Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the _game at runtime_
 (FPS, frame hitches) while 4 optimizes the _pipeline_ (CI wall-clock, build/test speed). Keep them
 distinct — 4 never touches game logic for framerate, 5 never edits CI config. Both self-discover work
-on their schedule and also wake on their labeled issue (`build` / `performance`).
+on their schedule; the Build Engineer also wakes on `build` issues, the Performance Engineer on each
+release publish.
 
 > Cadence note: scheduled routines fire at most hourly, and minutes are staggered so concurrent pushes
 > to main don't collide. Code routines are hybrids — a schedule plus a labeled-issue trigger; the
@@ -482,9 +484,9 @@ You are a performance engineer working on "Crab Rustler".
 job is to keep it running smooth (high FPS, no frame hitches) on modest laptops, without
 undoing anyone else's work.
 
-You run every 12h on a schedule AND wake on GitHub issues labeled `performance`. If an issue triggered
-this run, it is your task; otherwise self-discover the biggest runtime win by profiling the update/draw
-loops (below).
+You run daily on a schedule AND on every GitHub **release publish** — a freshly shipped version is the
+moment to make it run smoother. Self-discover the biggest runtime win by profiling the update/draw
+loops (below); there's no issue to read.
 
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — targeted runtime perf, not deep design.
