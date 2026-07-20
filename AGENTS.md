@@ -381,18 +381,25 @@ Steps:
    `skip: draft`s every draft — and the harness opens every bot PR as a draft, expecting the opening routine
    to return across a stateless restart and flip it ready. That draft→ready flip is the *same* return-trip
    that never happens reliably (it's why the merge step itself had to become a workflow). Evidence this run:
-   ~11 open `claude/eloquent-allen-*` (Perf Engineer) PRs sitting as drafts, several fully green — e.g. #64
-   had all six checks (build + five playtest legs) green yet unmerged — plus the name-cache fix stranded as
-   duplicate drafts #36/#46/#64. auto-merge can't touch any of them, and the per-role drain-queue prose that
-   is supposed to close them relies on that same failing return-trip, so it doesn't.
+   ~11 open `claude/eloquent-allen-*` (Perf Engineer) PRs sitting unmerged (e.g. #29/#36/#43/#46/#51/#55/#58/#61),
+   most still drafts, plus the name-cache fix stranded as duplicate PRs #36/#46/#64. Two facts about that pile
+   the gate MUST account for (verified this run, not assumed): (a) they were opened against *old* `main` shas
+   (#55's base is `53ad2a5`, #64's is `73d0c2c`) and never rebased, because the opening run never returned — so
+   most are `behind`/`dirty` against today's `main`, not cleanly mergeable green drafts; (b) the one non-draft in
+   the set, #64, is `mergeable_state: dirty` (real conflicts), so auto-merge is *correctly* skipping it on the
+   mergeability gate — it is NOT an example of the draft-skip stranding a mergeable PR. So the pileup is two
+   compounding failures — never flipped ready AND never rebased — and the fix has to survive both.
    **Your next upkeep target: teach the persistent actor to drain the draft side too.** Extend
    `auto-merge.yml` (or a sibling workflow) so that for any `claude/*` draft into `main` whose `build` and
    `playtest (...)` checks are all green, it flips the draft ready (`pulls.update` with `draft:false`) — then
-   its existing gates take over and merge it. Reuse the same static + checks gates it already computes; a
-   green complete draft is safe to ready because the merge gate still refuses anything not cleanly mergeable.
-   This is the one structural fix that closes the last agent-in-the-loop hand-off; it is genuine upkeep, not
-   re-authoring. Prove it the usual way (`bash scripts/ci-deps.sh`, `cargo build`, `bash scripts/playtest.sh`
-   still green) and ship it as your PR this run if the draft pileup is present.
+   its existing gates take over. Reuse the same static + checks gates it already computes; readying a green draft
+   is safe because the merge gate still refuses anything not cleanly mergeable — a stale one just gets
+   update-branch'd (or skipped if `dirty`) and retried on the next trigger, exactly like a stale non-draft today.
+   Do NOT expect all 11 to merge at once: readying converts the draft pileup into the ordinary behind/dirty
+   backlog the merge gate already handles, which is the win — it removes the human-in-the-loop flip, not the need
+   to be current with `main`. This is the one structural fix that closes the last agent-in-the-loop hand-off; it
+   is genuine upkeep, not re-authoring. Prove it the usual way (`bash scripts/ci-deps.sh`, `cargo build`,
+   `bash scripts/playtest.sh` still green) and ship it as your PR this run if the draft pileup is present.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
