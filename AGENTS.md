@@ -92,7 +92,8 @@ git -C . push origin main
 **Merge your green PRs.** The remote routines run on feature branches and open PRs into `main`
 (the harness enforces this, opening them as **drafts**). A code-writing routine's job isn't done
 when CI passes — it's done when the work is _in `main`_. There is no bot that merges for you (no
-`auto-merge.yml`; repo-native auto-merge is off), so **you** drive the draft to merged:
+`auto-merge.yml`), so **you** drive the draft to merged — via `enable_pr_auto_merge` where the repo
+allows it, by hand otherwise:
 
 1. **Feel done + CI green.** When you believe the change is complete and its checks on the draft are
    green (build + Playtest), don't stop there.
@@ -100,25 +101,27 @@ when CI passes — it's done when the work is _in `main`_. There is no bot that 
 3. **Watch for additional checks.** Marking ready can queue _new_ required checks (or re-run
    existing ones) that a draft didn't trigger. Wait for those to settle green too — don't merge on
    the draft-era result alone.
-4. **Merge.** Once every required check is green on the ready PR, make sure the branch is current with
-   `main` first — several routines merge in parallel, so yours may have fallen behind or now conflict;
-   update/rebase it and let CI re-run green if so — then squash-merge it.
+4. **Merge — prefer auto-merge over a manual return trip.** First make sure the branch is current with
+   `main` — several routines merge in parallel, so yours may have fallen behind or now conflict;
+   update/rebase it and let CI re-run green if so. Then **call the GitHub MCP `enable_pr_auto_merge`
+   tool (squash) and you're done** — GitHub squash-merges the instant every required check is green,
+   with no fragile return trip across a stateless restart. If that tool errors because repo-native
+   auto-merge isn't enabled yet, fall back to the manual path: wait for every required check to go
+   green on the ready PR, then squash-merge it yourself.
 
 Never leave a green, ready PR sitting unmerged. A failing check at any step is the next task: fix and
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
 couple of honest tries, say so in a PR comment rather than force-merging.
 
-> **Root cause of the recurring PR pileup — needs a one-time human fix, not another prose patch.**
-> The drain-queue rules below (and the "identify your own PRs" note) have been rewritten six times to stop
-> Perf/Build PRs accumulating, and the queue still floods (15+ open bot PRs, the same NPC name-cache fix
-> shipped as #36/#46/#64, the same instrumentation as #42/#47/#61). The reason isn't the prose: it's that
-> merging depends on the *opening* agent successfully returning to a green draft and finishing the multi-step
-> mark-ready→wait→merge dance — unreliable across stateless routine runs on throwaway branches. The
-> structural fix is **auto-merge**: if Carl turns on repo-native auto-merge (Settings → General → "Allow
-> auto-merge"), an agent can, right after marking the PR ready, call the GitHub MCP `enable_pr_auto_merge`
-> tool and walk away — GitHub squash-merges the instant checks go green, with no return trip. That dissolves
-> the whole drain-queue problem the last six Agent Engineer runs kept re-patching. Until it's enabled, the
-> manual rules below stand; agents should keep draining as instructed.
+> **The recurring PR pileup — the fix now lives in step 4, but it needs Carl to flip one repo switch to
+> fully bite.** The drain-queue rules below were rewritten six times without stopping the flood (as of this
+> writing 15+ open bot PRs — the NPC name-cache fix shipped three times as #36/#46/#64, the same
+> instrumentation as #42/#47/#61) because merging depended on the *opening* agent returning across a
+> stateless restart to finish the manual mark-ready→wait→merge dance. Step 4 above now has agents call
+> `enable_pr_auto_merge` and walk away instead of making that return trip — but that tool only takes effect
+> once **Carl enables repo-native auto-merge** (Settings → General → "Allow auto-merge"). Until then agents
+> fall back to the manual path and the drain-queue rules still stand. **Carl: this one toggle dissolves the
+> whole pileup the last six Agent Engineer runs kept re-patching in prose — please flip it.**
 
 **Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
 tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
