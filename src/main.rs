@@ -1632,6 +1632,9 @@ impl MainState {
             flashlight_cone_angle += boost * std::f32::consts::FRAC_PI_3; // up to +60° half-angle at full power
             flashlight_range += boost * 260.0; // up to +260px reach at full power
         }
+        // Squared once here so the per-crab light-range check below can compare against
+        // distance_squared and skip a sqrt() for every free crab, every frame.
+        let flashlight_range_sq = flashlight_range * flashlight_range;
         // Beam-lane-scaled boss/shell drain, read once so the &mut self.crabs loop can use it.
         let boss_drain = self.boss_drain_rate();
         // Drum Roll fired blast → a boss-shell CRACKER. While the release window is live, the beam
@@ -2272,14 +2275,17 @@ impl MainState {
             if !crab.caught {
                 crab.spawn_time += dt;
 
-                // If crab is spooked, it will move towards the player.
-                let distance = self.player_pos.distance(crab.pos);
+                // If crab is spooked, it will move towards the player. Squared distance avoids a
+                // sqrt() for every free crab every frame; the real distance is only taken further
+                // down, lazily, for the (usually much smaller) subset of crabs that are actually
+                // lit, fleeing, or mid-surge and so need the linear value.
+                let distance_sq = self.player_pos.distance_squared(crab.pos);
                 let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
                 let angle_to_crab = flashlight_dir.angle_between(to_crab).abs();
 
                 // Check if crab is within flashlight light.
                 let crab_in_light = self.flashlight.on
-                    && distance < flashlight_range
+                    && distance_sq < flashlight_range_sq
                     && angle_to_crab < flashlight_cone_angle;
 
                 // Track flashlight state on the crab for rendering
@@ -2318,10 +2324,12 @@ impl MainState {
                 // Panic flee: crabs that are close but outside the flashlight beam scatter away.
                 // Bosses are unshakeable — they lumber on rather than panic-bolting.
                 const FLEE_RADIUS: f32 = 220.0;
+                const FLEE_RADIUS_SQ: f32 = FLEE_RADIUS * FLEE_RADIUS;
                 // How far the downbeat herd pulse reaches — a bit past the flee radius so crabs
                 // hovering just outside panic range are the ones the beat sweeps in, without yanking
                 // the whole screen.
                 const DOWNBEAT_PULL_RADIUS: f32 = 300.0;
+                const DOWNBEAT_PULL_RADIUS_SQ: f32 = DOWNBEAT_PULL_RADIUS * DOWNBEAT_PULL_RADIUS;
                 // A whistle-charmed crab holds its nerve near the player instead of bolting, so a
                 // well-timed pulse pins a spooked herd in place long enough to sweep them up.
                 // Dancer crabs don't panic-flee continuously — their escape is the beat hop
@@ -2343,7 +2351,7 @@ impl MainState {
                 // caught in the cone drifts as if the light weren't there.
                 let beam_holds = crab_in_light && crab.boss_health > 0.0 && !crab.is_hermit();
                 let now_fleeing = !beam_holds
-                    && distance < FLEE_RADIUS
+                    && distance_sq < FLEE_RADIUS_SQ
                     && !crab.is_boss()
                     && !crab.is_dancer()
                     && !crab.is_shelled_hermit()
@@ -2365,6 +2373,9 @@ impl MainState {
                     crab.fleeing = true;
                     // Panic: steer sharply away from the player at full type speed.
                     let max_speed = crab.crab_type.speed_range().end;
+                    // Real distance only needed for this proximity taper, so it's taken here rather
+                    // than unconditionally for every crab above.
+                    let distance = distance_sq.sqrt();
                     // Proximity factor: full flee speed when very close, tapering off toward FLEE_RADIUS
                     let flee_factor = 1.0 - (distance / FLEE_RADIUS);
                     let mut flee_speed = max_speed * (1.0 + flee_factor * 1.5);
@@ -2437,7 +2448,7 @@ impl MainState {
                         && crab.startle_timer <= 0.0
                         && crab.charm_timer <= 0.0
                         && crab.magnet_snared <= 0.0
-                        && distance < DOWNBEAT_PULL_RADIUS
+                        && distance_sq < DOWNBEAT_PULL_RADIUS_SQ
                     {
                         let toward = (downbeat_pull_center - crab.pos).normalize_or_zero();
                         // Pull toward the crab's *top* speed so the clump is visible on the "1" — a
@@ -2528,7 +2539,8 @@ impl MainState {
 
                 // If player is within 150 pixels and crab is in the light, add a small extra speed boost
                 let mut speed_multiplier = 1.0;
-                if crab_in_light && distance < 150.0 {
+                if crab_in_light && distance_sq < 150.0 * 150.0 {
+                    let distance = distance_sq.sqrt();
                     speed_multiplier = 2.0 - (distance / 150.0);
                     speed_multiplier = speed_multiplier.clamp(1.0, 2.0);
                 }
@@ -2563,12 +2575,14 @@ impl MainState {
                     // this is just the calm herd breathing toward you on the beat, strongest right next to
                     // you and fading to a plain own-heading step for crabs across the map.
                     const CLUMP_RADIUS: f32 = 320.0;
-                    if distance < CLUMP_RADIUS {
+                    const CLUMP_RADIUS_SQ: f32 = CLUMP_RADIUS * CLUMP_RADIUS;
+                    if distance_sq < CLUMP_RADIUS_SQ {
                         let to_player = (self.player_pos - crab.pos).normalize_or_zero();
                         if to_player != Vec2::ZERO {
                             // Lean fraction: up to ~0.45 right next to the player, easing to 0 at the
                             // radius edge — a bend, never a full redirect, so the crab still mostly keeps
                             // its own heading and the read stays "the herd drifts your way", not "warps in".
+                            let distance = distance_sq.sqrt();
                             let lean = 0.45 * (1.0 - distance / CLUMP_RADIUS);
                             dir = (dir * (1.0 - lean) + to_player * lean).normalize_or_zero();
                         }
