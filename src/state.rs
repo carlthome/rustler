@@ -218,6 +218,11 @@ pub struct NpcCongaTrain {
     pub territory_center: Vec2,
     /// Cooldown between steal events so one pass doesn't strip the whole chain in a single frame.
     pub steal_cooldown: f32,
+    /// Cooldown gating how often this train can splice a *rival* train's back half (the whole-beach
+    /// ecology steal), kept separate from `steal_cooldown` (which gates stealing from the player) so
+    /// the two contests never starve each other. Lets the beach churn steadily without one train
+    /// vacuuming another in a single frame.
+    pub rival_steal_cooldown: f32,
     /// Steal telegraph fuse: >0 while a splice is armed and building toward its on-beat snap.
     /// Gives the player a brief, legible warning window (the threatened crabs tremble) before the
     /// rival actually takes the tail — losing crabs reads as earned, and the snap lands on the beat.
@@ -378,6 +383,7 @@ impl NpcCongaTrain {
             idle_timer: 0.0,
             territory_center,
             steal_cooldown: 0.0,
+            rival_steal_cooldown: 0.0,
             steal_threat: 0.0,
             steal_target: 0,
             catch_cooldown: 0.0,
@@ -518,6 +524,11 @@ pub struct MainState {
     /// revenge marker was still live (it had just spliced your tail). Never drops, so the bot
     /// playtests can assert the back-and-forth revenge loop fired without racing the live chain.
     pub(crate) revenge_steals: usize,
+    /// Monotonic count of crabs transferred between *rival* NPC trains this run — the whole-beach
+    /// ecology steal where a bigger train splices a smaller rival's back half onto itself (agar.io /
+    /// Rain World: big trains bully small ones). Never drops, so the bot playtest can assert the
+    /// rival-vs-rival splice fired without racing the live follower counts, which churn constantly.
+    pub(crate) rival_vs_rival_steals: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1520,6 +1531,7 @@ impl MainState {
             steals_parried: 0,
             steals_dodged: 0,
             revenge_steals: 0,
+            rival_vs_rival_steals: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             beat_timer: detected_beat_interval,

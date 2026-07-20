@@ -48,6 +48,13 @@ pub enum BotAction {
     // (steals_dodged rises). A no-op when the player has no stealable chain. Deterministic — juking a
     // wandering rival's thread inside a headless budget isn't reliable, so we stage it.
     ForceStealDodge,
+    // Guards the whole-beach ecology steal (ROADMAP ★ headline: "rivals steal from each other, not just
+    // you"). Teleport the biggest rival NPC train's leader onto a mid-follower of a strictly-smaller
+    // rival and clear its rival-steal cooldown, so the rival-vs-rival splice fires this frame — the
+    // bigger train slices the smaller's back half onto itself. A no-op until a smaller rival has
+    // wandered far enough for its mid-follower path slot to exist. Deterministic — lining two wandering
+    // leaders up by chance inside a headless budget isn't reliable, so we stage it.
+    ForceRivalCross,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +86,10 @@ pub enum BotAssert {
     /// back-and-forth loop closed: a rival spliced your tail, you chased it down and rustled the
     /// crabs back inside the revenge window for the bonus.
     RevengeStealAtLeast(usize),
+    /// Monotonic count of crabs transferred between rival NPC trains this run (see
+    /// MainState::rival_vs_rival_steals). Asserts the whole-beach ecology steal fired — a bigger
+    /// train spliced a smaller rival's back half onto itself, no player involved.
+    RivalStealAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -340,6 +351,38 @@ pub fn script_revenge() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
+    script
+}
+
+pub fn script_npc_vs_npc() -> Vec<BotEvent> {
+    // Guards the whole-beach ecology steal — the ★ HEADLINE mechanic (ROADMAP: "rivals steal from
+    // each other, not just you"). When a bigger rival NPC train threads a smaller rival's follower
+    // line it splices the smaller one's back half onto itself (update_npc_trains), so the beach churns
+    // crabs between trains with no player involved — a genuine ecosystem (agar.io + Rain World). That
+    // path had no coverage, so a refactor could silently break it. Unlike the player-facing steal
+    // tests this needs no player chain: we just enter the game, let the three ambient trains wander so
+    // their follower path history fills, then repeatedly force the biggest train onto a smaller rival's
+    // mid-follower (ForceRivalCross) and assert a transfer fired (rival_vs_rival_steals rises) without
+    // crashing the run. Forcing keeps it deterministic — lining two wandering leaders up by chance
+    // isn't reliable headless. Seek-catch keeps the player busy so free crabs don't pile to the
+    // overwhelmed game-over; runs at 3x time_scale like the other steal tests.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting rival-vs-rival ecology steal test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+    ];
+    // Force a rival crossing every 0.9s across a wide window. Each attempt is a no-op until a smaller
+    // rival has wandered far enough that its mid-follower path slot exists, so firing many times across
+    // ~30s makes it near-certain at least one lands. Start at 10s to give the slow elder time to trail
+    // a path history its followers sit on.
+    let mut t = 10.0_f32;
+    while t < 44.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceRivalCross });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalStealAtLeast(1)) });
     script
 }
 
