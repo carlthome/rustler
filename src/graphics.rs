@@ -90,6 +90,20 @@ thread_local! {
     // resize, so in practice this cache stays at 2-3 entries for the life of the process.
     static FILL_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, u32), Mesh>> = RefCell::new(HashMap::new());
 
+    // Cache of rounded-rectangle meshes (fill + stroke variants) keyed by (x, y, w, h, radius)
+    // quantized plus mode-specific data (RGBA color for fill; RGBA color + thickness for stroke).
+    // draw_tool_roster rebuilt two fresh Mesh::new_rounded_rectangle GPU buffers per slot — 10 a
+    // frame for the 5-slot HUD bar — every single frame of gameplay, even though each slot's
+    // rect only ever sits at one of two fixed sizes/positions (they only move on window resize)
+    // and its border cycles between just two colors (ready vs. on-cooldown). Same pattern as
+    // FILL_RECT_CACHE/STROKE_RECT_CACHE above, just with the extra rounding radius baked into
+    // the key since ggez has no scale-invariant way to redraw a rounded rect via DrawParam alone
+    // (scaling would distort the corner radius same as it does stroke thickness on rings).
+    static ROUNDED_FILL_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, i32, u32), Mesh>> =
+        RefCell::new(HashMap::new());
+    static ROUNDED_STROKE_RECT_CACHE: RefCell<HashMap<(i32, i32, i32, i32, i32, i32, u32), Mesh>> =
+        RefCell::new(HashMap::new());
+
     // Scratch buffer for `draw_conga_rope`'s per-micro-segment geometry (position, rotation,
     // length, rgb), persisted and `clear()`-ed each frame instead of a fresh `Vec` allocation.
     // The rope used to draw its main segment then immediately flip to additive blend for the
@@ -284,6 +298,16 @@ thread_local! {
     // once on first use and reuse forever. DrawParam::scale still handles the per-frame beat-pulse
     // size, so no re-layout is needed when the pulse changes.
     static COMBO_LABEL_CACHE: RefCell<[Option<Text>; 3]> = RefCell::new([const { None }; 3]);
+
+    // Cache for draw_tool_roster's 15 labels (key/name/hint x 5 slots). Every one of those was a
+    // fresh Text::new() + set_scale() call every single frame the roster was visible — i.e. all of
+    // active gameplay, the same per-frame glyph-shaping cost COMBO_LABEL_CACHE above already fixed
+    // for the combo meter. 14 of the 15 strings are truly static per slot; only the GROOVE slot's
+    // hint toggles between "SLAM ready!" and "need groove" as the meter fills, so each cache entry
+    // stores the source &'static str alongside its shaped Text and rebuilds only on a content
+    // mismatch — a rare event for 14 of 15 slots, and just a two-way flip for the 15th.
+    static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 15]> =
+        RefCell::new([const { None }; 15]);
 
     // Reusable instance buffers for draw_boss_fissures' batched passes. While a King Crab's
     // enrage phase is open (up to 5 fissures with 7 radial crack-spokes each) the old per-spoke,
@@ -1287,6 +1311,68 @@ pub fn cached_fill_rect(ctx: &mut Context, x: f32, y: f32, w: f32, h: f32, color
 
     let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), color)?;
     FILL_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Rounded-rect equivalent of `cached_fill_rect` — see `ROUNDED_FILL_RECT_CACHE` for why this
+/// exists (draw_tool_roster was rebuilding this GPU mesh every frame for a rect that only ever
+/// takes one of a handful of distinct (position, size, color) combinations).
+pub fn cached_rounded_fill_rect(
+    ctx: &mut Context,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    color: Color,
+) -> ggez::GameResult<Mesh> {
+    let key = (
+        (x * 2.0).round() as i32,
+        (y * 2.0).round() as i32,
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        (radius * 4.0).round() as i32,
+        color.to_rgba_u32(),
+    );
+
+    if let Some(mesh) = ROUNDED_FILL_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), radius, color)?;
+    ROUNDED_FILL_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
+    Ok(mesh)
+}
+
+/// Rounded-rect equivalent of `cached_stroke_rect`, at a fixed (x, y) offset like
+/// `cached_rounded_fill_rect` rather than the origin-relative `cached_stroke_rect` — see
+/// `ROUNDED_STROKE_RECT_CACHE`.
+pub fn cached_rounded_stroke_rect(
+    ctx: &mut Context,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    thickness: f32,
+    color: Color,
+) -> ggez::GameResult<Mesh> {
+    let key = (
+        (x * 2.0).round() as i32,
+        (y * 2.0).round() as i32,
+        (w * 2.0).round() as i32,
+        (h * 2.0).round() as i32,
+        (radius * 4.0).round() as i32,
+        (thickness * 4.0).round() as i32,
+        color.to_rgba_u32(),
+    );
+
+    if let Some(mesh) = ROUNDED_STROKE_RECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return Ok(mesh);
+    }
+
+    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::stroke(thickness), Rect::new(x, y, w, h), radius, color)?;
+    ROUNDED_STROKE_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
 
@@ -8392,8 +8478,11 @@ pub fn draw_tool_roster(
         let sy = y0;
         let ready = slot.cooldown_ratio < 0.05;
 
-        // Slot background — dark rounded rect
-        let bg_rect = Rect::new(sx, sy, slot_w, slot_h);
+        // Slot background — dark rounded rect. Cached by (position, size, color) instead of a
+        // fresh Mesh::new_rounded_rectangle GPU buffer every frame — see ROUNDED_FILL_RECT_CACHE /
+        // ROUNDED_STROKE_RECT_CACHE. Position/size only change on window resize and border_color
+        // only ever takes one of two values (ready vs. on-cooldown), so this settles into a tiny,
+        // fixed-size cache after the first couple of frames.
         let border_color = if ready {
             Color::from_rgba(
                 (slot.color[0] * 180.0) as u8,
@@ -8404,32 +8493,37 @@ pub fn draw_tool_roster(
         } else {
             Color::from_rgba(60, 65, 90, 160)
         };
-        let bg_mesh = Mesh::new_rounded_rectangle(
+        let bg_mesh = cached_rounded_fill_rect(
             ctx,
-            DrawMode::fill(),
-            bg_rect,
+            sx,
+            sy,
+            slot_w,
+            slot_h,
             5.0,
             Color::from_rgba(10, 14, 30, 180),
         )?;
         canvas.draw(&bg_mesh, DrawParam::default());
-        let border_mesh = Mesh::new_rounded_rectangle(
-            ctx,
-            DrawMode::stroke(1.5),
-            bg_rect,
-            5.0,
-            border_color,
-        )?;
+        let border_mesh = cached_rounded_stroke_rect(ctx, sx, sy, slot_w, slot_h, 5.0, 1.5, border_color)?;
         canvas.draw(&border_mesh, DrawParam::default());
 
-        // Key label — small, top-left
-        let mut key_text = Text::new(slot.key);
-        key_text.set_scale(12.0);
-        canvas.draw(
-            &key_text,
-            DrawParam::default()
-                .dest(Vec2::new(sx + 4.0, sy + 3.0))
-                .color(Color::from_rgba(200, 200, 200, 180)),
-        );
+        // Key label — small, top-left. Cached per slot (see TOOL_ROSTER_TEXT_CACHE) instead of a
+        // fresh Text::new() + glyph-shaping pass every frame.
+        TOOL_ROSTER_TEXT_CACHE.with(|cache_cell| -> ggez::GameResult {
+            let mut cache = cache_cell.borrow_mut();
+            let entry = &mut cache[i * 3];
+            if entry.as_ref().map_or(true, |(s, _)| *s != slot.key) {
+                let mut t = Text::new(slot.key);
+                t.set_scale(12.0);
+                *entry = Some((slot.key, t));
+            }
+            canvas.draw(
+                &entry.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(sx + 4.0, sy + 3.0))
+                    .color(Color::from_rgba(200, 200, 200, 180)),
+            );
+            Ok(())
+        })?;
 
         // Tool name — centred, accent color, slight pulse when ready
         let pulse = if ready {
@@ -8439,26 +8533,44 @@ pub fn draw_tool_roster(
         };
         let [r, g, b] = slot.color;
         let name_color = Color::new(r * pulse, g * pulse, b * pulse, 1.0);
-        let mut name_text = Text::new(slot.name);
-        name_text.set_scale(14.0);
         let name_x = sx + slot_w / 2.0 - (slot.name.len() as f32 * 4.2);
-        canvas.draw(
-            &name_text,
-            DrawParam::default()
-                .dest(Vec2::new(name_x.max(sx + 2.0), sy + 17.0))
-                .color(name_color),
-        );
+        TOOL_ROSTER_TEXT_CACHE.with(|cache_cell| -> ggez::GameResult {
+            let mut cache = cache_cell.borrow_mut();
+            let entry = &mut cache[i * 3 + 1];
+            if entry.as_ref().map_or(true, |(s, _)| *s != slot.name) {
+                let mut t = Text::new(slot.name);
+                t.set_scale(14.0);
+                *entry = Some((slot.name, t));
+            }
+            canvas.draw(
+                &entry.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(name_x.max(sx + 2.0), sy + 17.0))
+                    .color(name_color),
+            );
+            Ok(())
+        })?;
 
-        // Hint text — tiny, dim white, below name
-        let mut hint_text = Text::new(slot.hint);
-        hint_text.set_scale(11.0);
+        // Hint text — tiny, dim white, below name. Only the GROOVE slot's hint ever changes value
+        // at runtime (toggles between "SLAM ready!" and "need groove"); the content check above
+        // re-shapes it on that flip and leaves the other four slots untouched forever.
         let hint_x = sx + slot_w / 2.0 - (slot.hint.len() as f32 * 3.2);
-        canvas.draw(
-            &hint_text,
-            DrawParam::default()
-                .dest(Vec2::new(hint_x.max(sx + 2.0), sy + 33.0))
-                .color(Color::from_rgba(200, 200, 200, 140)),
-        );
+        TOOL_ROSTER_TEXT_CACHE.with(|cache_cell| -> ggez::GameResult {
+            let mut cache = cache_cell.borrow_mut();
+            let entry = &mut cache[i * 3 + 2];
+            if entry.as_ref().map_or(true, |(s, _)| *s != slot.hint) {
+                let mut t = Text::new(slot.hint);
+                t.set_scale(11.0);
+                *entry = Some((slot.hint, t));
+            }
+            canvas.draw(
+                &entry.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(hint_x.max(sx + 2.0), sy + 33.0))
+                    .color(Color::from_rgba(200, 200, 200, 140)),
+            );
+            Ok(())
+        })?;
 
         // Cooldown / fill bar — 4px tall strip at bottom of slot, inset 4px each side
         let bar_x = sx + 4.0;
