@@ -7,6 +7,12 @@
 - Rivals steer toward the nearest smaller rival to hunt it
 - Rival-vs-rival collisions spill catchable crabs the player can swoop in and rustle
 
+### Performance
+- Speed up magnet cluster detection: one crab pass instead of one per magnet
+- Cache the tool roster's HUD meshes and text instead of rebuilding every frame
+- Batch minimap dots into one InstanceArray draw call
+- Fold King Crab splice-target search into the existing per-crab snapshot pass
+
 ## v0.20.0 — 2026-07-20
 
 ### Features
