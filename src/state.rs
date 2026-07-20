@@ -231,6 +231,11 @@ pub struct NpcCongaTrain {
     /// rival wears a beat-pulsed "chase me" ring and a steal-back off it pays a revenge bonus, so
     /// losing crabs opens a duel instead of just taxing you (see REVENGE_WINDOW).
     pub revenge_timer: f32,
+    /// Smoothed 0..1 "on the hunt" commitment: ramps up while this rival is deliberately routing to
+    /// thread the player's back half (long-range pursuit, before it's close enough to ARM a splice),
+    /// decays back to 0 when it's just wandering. Drives the early-warning threat-line tell so the
+    /// player reads a committed rival in time to reroute — the legible-risk read the steal fight wants.
+    pub hunt_intent: f32,
 }
 
 /// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
@@ -377,6 +382,7 @@ impl NpcCongaTrain {
             steal_target: 0,
             catch_cooldown: 0.0,
             revenge_timer: 0.0,
+            hunt_intent: 0.0,
         }
     }
 }
