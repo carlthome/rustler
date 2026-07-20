@@ -764,6 +764,19 @@ impl MainState {
             })
             .map(|c| c.pos)
     }
+    /// Auto-aim point for a lasso throw of the given reach. Snaps the throw toward the nearest
+    /// catchable crab within `throw_range` of `origin` so a well-timed release lands a catch
+    /// without pixel-perfect aiming — the charge/recharge/on-beat-release mechanic is untouched,
+    /// only WHERE the loop flies is assisted. Reuses the same eligibility as the seek-catch
+    /// autopilot (free, catchable, non-boss — never the player's own chained crabs). Falls back to
+    /// the manual mouse aim point when no catchable crab is in reach, so an empty field still
+    /// throws exactly where the player pointed. Mirrors the flashlight's nearest-King-Crab
+    /// auto-target: aiming is assisted, timing the release stays the skill.
+    pub(crate) fn lasso_aim_point(&self, origin: Vec2, throw_range: f32) -> Vec2 {
+        self.nearest_catchable_crab_pos()
+            .filter(|p| origin.distance(*p) <= throw_range)
+            .unwrap_or(self.mouse_pos)
+    }
     /// Where the seek-catch autopilot should walk: a free catchable crab if any exist, otherwise the
     /// nearest crackable shell (Armored / shelled Hermit) so a stomp can pop it open first. Guarantees
     /// the bot always has a target even on the rare all-shelled early roll, so the catch test can't

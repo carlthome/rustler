@@ -6678,12 +6678,16 @@ impl EventHandler for MainState {
             let throw_range = LASSO_MAX_RANGE * range_frac * on_beat_bonus;
             // Clamp target within throw_range of player center.
             let origin = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-            let to_aim = self.mouse_pos - origin;
+            // Auto-aim: snap the throw toward the nearest catchable crab in reach so a well-timed
+            // release lands a catch without fiddly aiming. Charge/recharge/on-beat release are
+            // unchanged — only WHERE the loop flies is assisted. Empty field falls back to manual aim.
+            let aim_point = self.lasso_aim_point(origin, throw_range);
+            let to_aim = aim_point - origin;
             let aim_dist = to_aim.length();
             let clamped_target = if aim_dist > throw_range {
                 origin + to_aim / aim_dist * throw_range
             } else if aim_dist > 1.0 {
-                self.mouse_pos
+                aim_point
             } else {
                 // Mouse right on player — throw in the last-faced direction.
                 origin + self.last_dir.normalize_or_zero() * throw_range
