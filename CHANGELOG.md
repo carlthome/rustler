@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.20.0 — 2026-07-20
+
+### Features
+- Add movement dodge as a second steal defense
+- Dodging a rival steal opens a counter-steal window
+- Rival trains telegraph a hunt before they arm a steal
+
+### Refactoring
+- Extract player tool/ability actions from main.rs into player_tools.rs
+- Add auto-merge workflow to drain the bot-PR queue
+
 ## v0.19.0 — 2026-07-20
 
 ### Features
