@@ -15,8 +15,8 @@
 #   seconds      clip length in real seconds (default: 6)
 #   start-delay  seconds to wait before recording, to skip the menu (default: 4)
 #
-# Low quality is intentional: 320px wide, 8fps, 32 colours keeps it ~0.5MB so it commits
-# to the repo cheaply and unfurls (animated) from a raw.githubusercontent.com URL in Slack.
+# Quality: 480px wide, 8fps, 128 colours, floyd_steinberg dithering — looks good in Slack
+# without bloating the repo past ~1MB per clip. Versioned filenames build a history.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -25,7 +25,7 @@ OUT="${2:-screenshots/latest.gif}"
 SECS="${3:-6}"
 START_DELAY="${4:-4}"
 W=800; H=600            # ggez WindowMode::default()
-GIF_W=320; FPS=8; COLORS=32
+GIF_W=480; FPS=8; COLORS=128
 
 # --- provisioning: xvfb comes from ci-deps.sh; ffmpeg is the only extra the diary needs ---
 if ! command -v ffmpeg >/dev/null 2>&1; then
@@ -80,9 +80,9 @@ DISPLAY="$DISP" ffmpeg -hide_banner -loglevel error -y \
     -t "$SECS" -c:v libx264 -qp 0 "$RAW" </dev/null
 
 ffmpeg -hide_banner -loglevel error -y -i "$RAW" \
-    -vf "fps=$FPS,scale=$GIF_W:-1:flags=lanczos,palettegen=max_colors=$COLORS" "$PAL"
+    -vf "fps=$FPS,scale=$GIF_W:-1:flags=lanczos,palettegen=max_colors=$COLORS:stats_mode=full" "$PAL"
 ffmpeg -hide_banner -loglevel error -y -i "$RAW" -i "$PAL" \
-    -lavfi "fps=$FPS,scale=$GIF_W:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5" \
+    -lavfi "fps=$FPS,scale=$GIF_W:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=floyd_steinberg" \
     "$OUT"
 
 # --- sanity: a real capture is tens-of-KB+; a black/static grab is a couple KB ---
@@ -91,4 +91,4 @@ if [ "$BYTES" -lt 20000 ]; then
     echo "record-gameplay: output looks empty ($BYTES bytes) — did the game render?" >&2
     exit 1
 fi
-echo "record-gameplay: wrote $OUT ($((BYTES/1024)) KB, ${SECS}s @ ${FPS}fps, ${GIF_W}px)"
+echo "record-gameplay: wrote $OUT ($((BYTES/1024)) KB, ${SECS}s @ ${FPS}fps, ${GIF_W}px, ${COLORS} colors)"
