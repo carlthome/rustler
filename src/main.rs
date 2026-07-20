@@ -8506,10 +8506,58 @@ impl EventHandler for MainState {
             return Ok(());
         }
 
-        // --- Pass 1: render the game scene to an offscreen image ---
+        // --- Pass 1: render the game scene to an offscreen crisp image ---
         self.draw_scene(ctx)?;
 
-        // --- Pass 2: blit the scene image to screen with post-processing ---
+        // --- Pass 1.5: conga trail / echo-afterimage accumulation (ping-pong) ---
+        // A single fixed extra full-screen pass: composite the crisp scene as an opaque base,
+        // then additively lay the faded bright residue of the PREVIOUS frame on top. The trail
+        // shader keeps only bright/additive elements (crab glows, beat rings, rope heat), so the
+        // moving conga train leaves a comet of decaying light while the terrain stays clean.
+        //
+        // `trail_strength` folds the per-frame feedback decay together with a groove curve: it is
+        // 0 below groove 0.2 (normal play renders identically to a plain scene blit) and smoothsteps
+        // up to ~0.86 at max groove, so the delirium is earned and never obscures the rhythm read.
+        let g = self.groove;
+        let trail_strength = if g <= 0.2 {
+            0.0
+        } else {
+            let t = ((g - 0.2) / 0.8).clamp(0.0, 1.0);
+            (t * t * (3.0 - 2.0 * t)) * 0.86
+        };
+        // Ping-pong: read last frame's accumulation, write this frame's. Both images are allocated
+        // once (state.rs) and reused — no per-frame image allocation.
+        let (read_img, write_img) = if self.trail_swap {
+            (self.trail_image_a.clone(), self.trail_image_b.clone())
+        } else {
+            (self.trail_image_b.clone(), self.trail_image_a.clone())
+        };
+        let scene = self.scene_image.clone();
+        if trail_strength > 0.0 {
+            let tu = TrailUniform {
+                strength: trail_strength,
+            };
+            self.trail_params.set_uniforms(ctx, &tu);
+        }
+        {
+            let mut acc = Canvas::from_image(ctx, write_img.clone(), Color::BLACK);
+            acc.set_sampler(Sampler::nearest_clamp());
+            // Base: this frame's crisp scene (opaque). At trail_strength 0 the accumulation is a
+            // pixel-exact copy of the scene, so post-processing sees the same image as before.
+            acc.draw(&scene, DrawParam::default().dest(Vec2::ZERO));
+            if trail_strength > 0.0 {
+                acc.set_shader(&self.trail_shader);
+                acc.set_shader_params(&self.trail_params);
+                acc.set_blend_mode(BlendMode::ADD);
+                acc.draw(&read_img, DrawParam::default().dest(Vec2::ZERO));
+                acc.set_blend_mode(BlendMode::ALPHA);
+                acc.set_default_shader();
+            }
+            acc.finish(ctx)?;
+        }
+        self.trail_swap = !self.trail_swap;
+
+        // --- Pass 2: blit the accumulated scene to screen with post-processing ---
         {
             let (draw_w, draw_h) = ctx.gfx.drawable_size();
             let scale_x = draw_w / self.width;
@@ -8536,7 +8584,7 @@ impl EventHandler for MainState {
             screen_canvas.set_shader(&self.postprocess_shader);
             screen_canvas.set_shader_params(&self.postprocess_params);
             screen_canvas.draw(
-                &self.scene_image,
+                &write_img,
                 DrawParam::default().dest(Vec2::ZERO),
             );
             screen_canvas.set_default_shader();
