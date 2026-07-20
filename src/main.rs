@@ -5911,7 +5911,11 @@ impl MainState {
     /// while a rival's splice is armed and its leader sits within `radius` of `center`:
     ///   • ON-BEAT  → PARRY: the telegraph is cancelled, the rival is shoved back off your tail and
     ///     put on a recovery cooldown so it can't instantly re-arm, and the save pays groove + juice.
-    ///     A DOWNBEAT cast is the big save — a longer shove and a fuller groove kick.
+    ///     A DOWNBEAT cast is the big save — a longer shove and a fuller groove kick. A clean parry
+    ///     also flips the exchange: it marks the shoved rival for revenge (the green "chase me" ring),
+    ///     so a good defense opens an offensive window — thread the stunned rival's line inside it and
+    ///     the steal-back pays the revenge bonus (ROADMAP "a tense back-and-forth... you steal, they
+    ///     steal back"). Defense becomes the setup for offense, not just damage prevention.
     ///   • OFF-BEAT → GRAZE: no cancel, but the splice is nudged toward the tail (fewer crabs taken)
     ///     and the rival gets a small shove — sloppy defense still helps, the clean cancel is on-beat.
     /// Returns true if any armed steal was cancelled. "Keys as drum pads": defending is a timed hit.
@@ -5942,6 +5946,16 @@ impl MainState {
                 self.npc_trains[i].idle_timer = if downbeat { 0.9 } else { 0.5 };
                 self.steals_parried += 1;
                 parried = true;
+                // Flip the exchange into offense: mark the shoved rival with the green "chase me"
+                // revenge window so a clean parry opens a counter-steal — thread its stunned line
+                // inside the window and the steal-back pays the revenge bonus. A downbeat "big save"
+                // opens the full window; a normal on-beat parry a shorter one, so the premium save is
+                // also the better opening (ROADMAP "you steal, they steal back").
+                self.npc_trains[i].revenge_timer = if downbeat {
+                    REVENGE_WINDOW
+                } else {
+                    REVENGE_WINDOW * 0.7
+                };
                 // Reward: a clean defensive read feeds the groove and streak, like an on-beat catch.
                 self.groove = (self.groove + if downbeat { 0.24 } else { 0.16 }).min(1.0);
                 self.beat_streak = (self.beat_streak + 1).min(99);
@@ -5960,6 +5974,13 @@ impl MainState {
                     center - Vec2::new(96.0, 72.0),
                     if downbeat { 30.0 } else { 26.0 },
                     [0.35, 1.0, 0.85, 1.0],
+                );
+                // A beat under the save text: point the player at the counter-play the parry opened.
+                self.floating_texts.spawn(
+                    "COUNTER — rustle 'em back!".to_string(),
+                    center - Vec2::new(96.0, 44.0),
+                    20.0,
+                    [0.45, 1.0, 0.7, 0.95],
                 );
                 if self.catch_shockwaves.len() < 48 {
                     self.catch_shockwaves.push((lead, 0.0, [0.35, 1.0, 0.85]));
