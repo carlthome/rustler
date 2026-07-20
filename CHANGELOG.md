@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.27.0 — 2026-07-20
+
+### Features
+- Major crab visual overhaul: per-archetype silhouettes, scuttle gait, articulated claws, expressive eyes, LOD
+- Lasso auto-aims at the nearest catchable crab on release
+
+### Performance
+- Avoid unconditional per-crab sqrt in the herd update loop
+
+### Fixes
+- Fix menu_to_game bot test — re-enable it and fix the three root causes
+
+### Refactoring
+- Extract scene rendering from main.rs into game_render.rs
+
 ## v0.26.0 — 2026-07-20
 
 ### Features
