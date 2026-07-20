@@ -1296,6 +1296,58 @@ pub fn synth_steal_gain(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// Synthesise the neutral "a rival rustled crabs off *another* rival" clack — the whole-beach
+/// ecology theft (ROADMAP headline: rivals steal from each other, not just you). Unlike the
+/// player-centric stings (`synth_steal_loss`/`synth_steal_gain`, which fall/rise to read as *your*
+/// loss/win), this is a third-party event out on the field, so it's deliberately un-melodic: a dry
+/// wooden double claw-clack + scrape that reads as "someone over there just got rustled," not a win
+/// or loss for you. The caller pans it left/right by the collision's bearing and fades it by
+/// distance, so a far-off steal is a faint directional tick you look toward and swoop into for the
+/// spilled crumbs (INSPIRATION.md agar.io "let the big ones fight, then eat the crumbs" / "audio IS
+/// the radar"). Returned as hard-left / hard-right stereo variants exactly like the ambient rumble
+/// (`synth_king_crab_ambient_spatial`) so the caller equal-power pans it with per-play volumes.
+pub fn synth_rival_steal(ctx: &mut Context) -> GameResult<(Source, Source)> {
+    let duration = 0.22_f32;
+    let n = (SAMPLE_RATE as f32 * duration) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut mono = Vec::with_capacity(n);
+    let mut lfsr: u32 = 0x51D3;
+    // Two dry claw-clacks a beat apart, mid register and slightly falling — no resolved interval,
+    // so it stays a "knock" rather than a musical phrase that would imply the player's fortune.
+    let clacks = [(0.0_f32, 330.0_f32), (0.085_f32, 247.0_f32)];
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let mut s = 0.0_f32;
+        for &(start, hz) in &clacks {
+            if t >= start {
+                let local = t - start;
+                // Sharp attack, fast decay — a wooden knock, not a held note.
+                let env = (-local * 34.0).exp() * (local / 0.002).min(1.0);
+                let phase = hz * local;
+                // Square-ish body (two harmonics) for a hollow claw timbre.
+                let tone = (phase * std::f32::consts::TAU).sin()
+                    + 0.4 * (phase * 2.0 * std::f32::consts::TAU).sin();
+                // A noise transient on the attack sells the "grab/scrape".
+                let scrape = if local < 0.02 {
+                    lfsr_noise(&mut lfsr) * (1.0 - local / 0.02) * 0.5
+                } else {
+                    0.0
+                };
+                s += (tone * 0.5 + scrape) * env;
+            }
+        }
+        mono.push(s * 0.55);
+    }
+    // Hard-left / hard-right: all signal in one channel, silence in the other. The per-play
+    // equal-power gains the caller sets do the actual pan between these two extremes.
+    let silence = vec![0.0_f32; mono.len()];
+    let left_wav = encode_wav_stereo16(&mono, &silence);
+    let right_wav = encode_wav_stereo16(&silence, &mono);
+    let left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
+    let right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    Ok((left, right))
+}
+
 /// Synthesise a lasso whoosh: band-passed noise swept from low to high frequency,
 /// short (120 ms), giving the impression of something spinning then releasing.
 pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {

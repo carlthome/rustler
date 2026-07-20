@@ -8248,6 +8248,35 @@ impl EventHandler for MainState {
             self.steal_gain_sfx = false;
             let _ = self.sounds.steal_gain_sfx.play_detached(ctx);
         }
+        // Rival-vs-rival theft clack (ROADMAP whole-beach ecology): a third-party steal happened out
+        // on the field, so place it in the mix — pan by the collision's bearing and fade by distance
+        // so a far-off steal is a faint directional tick the player looks toward and swoops into for
+        // the spilled crumbs (agar.io "eat the crumbs"). `play_detached` preserves the per-play
+        // volume and detaches, so simultaneous thefts don't cut each other off. Muted off-field.
+        if let Some(splice_pos) = self.rival_steal_sfx.take() {
+            use ggez::audio::SoundSource as _;
+            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
+            if game_active {
+                let delta = splice_pos - self.player_pos;
+                let dist = delta.length();
+                // Distance fade: full within ~250px, easing to a faint floor by ~1000px so a theft
+                // anywhere on the beach still ticks while a close one clearly reads as "right here."
+                // Capped at 0.5 so this ambient ecology event sits under the player-centric stings.
+                let near = 1.0 - ((dist - 250.0) / 750.0).clamp(0.0, 1.0);
+                let vol = (0.12 + 0.88 * near) * 0.5;
+                // Equal-power L/R pan from the bearing, matching the King Crab rumble's panning.
+                let pan = if delta.length_squared() > 1.0 {
+                    (delta.x / dist).clamp(-1.0, 1.0)
+                } else {
+                    0.0
+                };
+                let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+                self.sounds.rival_steal_l.set_volume(angle.cos() * vol);
+                self.sounds.rival_steal_r.set_volume(angle.sin() * vol);
+                let _ = self.sounds.rival_steal_l.play_detached(ctx);
+                let _ = self.sounds.rival_steal_r.play_detached(ctx);
+            }
+        }
 
         // Spatial audio: smooth the ambient King Crab train rumble AND pan it by the leader's
         // bearing, so a rival train is not just heard swelling with distance but *placed*

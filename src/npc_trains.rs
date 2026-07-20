@@ -1085,6 +1085,11 @@ impl MainState {
                         if self.catch_shockwaves.len() < 48 {
                             self.catch_shockwaves.push((splice_pos, 0.0, [1.0, 0.78, 0.25]));
                         }
+                        // Audible ecology (INSPIRATION.md "audio IS the radar"): latch the splice
+                        // position so the audio pass (which has `ctx`) can play a position-panned,
+                        // distance-faded theft clack — a far-off rival steal becomes a faint
+                        // directional tick the player looks toward and swoops into for the crumbs.
+                        self.rival_steal_sfx = Some(splice_pos);
                     }
                 }
             }
