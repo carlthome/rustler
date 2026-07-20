@@ -1071,7 +1071,17 @@ pub struct MainState {
     // the loop slipped straight off — a WRONG-TOOL tell. Mirrors the beam/Hermit amber "can't-crack"
     // cue: teaches "crack the shell first (Stomp), then lasso" instead of failing silently.
     pub(crate) lasso_shell_deflect_hits_buf: Vec<Vec2>,
+    // Positions where the whistle's sonic pulse swept over a still-shelled crab (Armored / shelled
+    // Hermit) and pinged straight off — the whistle "barely nudges it" (enemies.rs whistle_pull 0.3).
+    // The mirror of lasso_shell_deflect for the whistle: a WRONG-TOOL cue teaching "the shell shrugs
+    // the whistle — crack it first (Stomp), then herd it," so the wrong tool reads as clearly as a match.
+    pub(crate) whistle_shell_deflect_hits_buf: Vec<Vec2>,
     pub(crate) magnet_cluster_hits_buf: Vec<Vec2>,
+    // Scratch per-magnet nearby-crab tally reused by the cluster-detection pass in update_crabs —
+    // sized to magnet_positions_buf and reset to 0 each on-beat frame instead of being freshly
+    // allocated, so the O(magnets) counting loop that replaced the old O(magnets * crabs) scan
+    // doesn't itself become a per-beat-frame Vec allocation.
+    pub(crate) magnet_cluster_counts_buf: Vec<u32>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
     // ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Collected inside the &mut crabs
@@ -1751,7 +1761,9 @@ impl MainState {
             lasso_thief_hits_buf: Vec::new(),
             lasso_magnet_hits_buf: Vec::new(),
             lasso_shell_deflect_hits_buf: Vec::new(),
+            whistle_shell_deflect_hits_buf: Vec::new(),
             magnet_cluster_hits_buf: Vec::new(),
+            magnet_cluster_counts_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),

@@ -1,11 +1,28 @@
 # Changelog
 
+## v0.21.1 — 2026-07-20
+
+### Performance
+- Speed up magnet cluster detection: one crab pass instead of one per magnet
+- Cache the tool roster's HUD meshes and text instead of rebuilding every frame
+- Batch minimap dots into one InstanceArray draw call
+- Fold King Crab splice-target search into the existing per-crab snapshot pass
+
+### Refactoring
+- Make releases and draft-merging fully autonomous in CI
+
 ## v0.21.0 — 2026-07-20
 
 ### Features
 - Rival-vs-rival splicing: bigger NPC trains steal from smaller ones
 - Rivals steer toward the nearest smaller rival to hunt it
 - Rival-vs-rival collisions spill catchable crabs the player can swoop in and rustle
+
+### Performance
+- Speed up magnet cluster detection: one crab pass instead of one per magnet
+- Cache the tool roster's HUD meshes and text instead of rebuilding every frame
+- Batch minimap dots into one InstanceArray draw call
+- Fold King Crab splice-target search into the existing per-crab snapshot pass
 
 ## v0.20.0 — 2026-07-20
 

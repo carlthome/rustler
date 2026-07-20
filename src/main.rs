@@ -117,7 +117,7 @@ use crate::graphics::{
     draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
-    draw_whistle_golden_pull,
+    draw_whistle_golden_pull, draw_whistle_shell_deflect,
 };
 use crate::hud_cache::{
     CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
@@ -1741,11 +1741,33 @@ impl MainState {
         armored_positions.clear();
         let mut best_chain: Option<(usize, Vec2, CrabType)> = None;
         let mut free_splitter = false;
+        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
+        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
+        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
+        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
+        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
+        // target_ci only depends on self.chain_count (unchanged by this loop), so the search is
+        // folded into the same pass as best_chain/magnet/golden/armored below instead of its own
+        // second full scan over self.crabs.
+        let target_ci = if self.chain_count >= 4 {
+            Some(self.chain_count * 2 / 3) // aim 2/3 down from head = 1/3 from tail
+        } else {
+            None
+        };
+        let mut splice_best_dist = f32::MAX;
+        let mut splice_target_pos: Option<Vec2> = None;
         for c in &self.crabs {
             if c.caught {
                 if let Some(ci) = c.chain_index {
                     if best_chain.map_or(true, |(bci, ..)| ci > bci) {
                         best_chain = Some((ci, c.pos, c.crab_type));
+                    }
+                    if let Some(target_ci) = target_ci {
+                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
+                        if dist < splice_best_dist {
+                            splice_best_dist = dist;
+                            splice_target_pos = Some(c.pos);
+                        }
                     }
                 }
                 continue; // caught crabs can't be a Magnet/Golden/Armored source below
@@ -1763,30 +1785,6 @@ impl MainState {
             }
         }
         let chain_tail_pos = best_chain.map(|(_, pos, _)| pos);
-        // Splice targeting: when the chain is long enough (>= 4 links), the King Crab aims at a
-        // mid-chain crab rather than the tail — this maximizes the stolen count (everything behind
-        // the crossing point goes). The target is whichever caught crab sits closest to 1/3 from
-        // the tail (low enough to steal a big chunk, high enough to cross the body rather than
-        // just nipping the end). Falls back to the tail if the chain is short or no caught crabs exist.
-        let splice_target_pos: Option<Vec2> = if self.chain_count >= 4 {
-            let target_ci = self.chain_count * 2 / 3; // aim 2/3 down from head = 1/3 from tail
-            let mut best_dist = f32::MAX;
-            let mut found: Option<Vec2> = None;
-            for c in &self.crabs {
-                if c.caught {
-                    if let Some(ci) = c.chain_index {
-                        let dist = (ci as i32 - target_ci as i32).unsigned_abs() as f32;
-                        if dist < best_dist {
-                            best_dist = dist;
-                            found = Some(c.pos);
-                        }
-                    }
-                }
-            }
-            found
-        } else {
-            None
-        };
         let charge_target =
             splice_target_pos.unwrap_or_else(|| chain_tail_pos.unwrap_or(self.player_pos));
         // Captured before the &mut self.crabs loop: while the post-scatter regroup window is live the
@@ -1870,24 +1868,33 @@ impl MainState {
         // Magnet cluster detection: on-beat only (rhythmic flash), check each free Magnet
         // for ≥3 nearby free crabs — the "pied-piper vacuum" tell. Fires on the beat so it
         // pulses with the music rather than strobing every frame.
+        // Single pass over crabs tallying into a per-magnet counter, instead of the old
+        // one-full-crab-scan-per-magnet (O(magnets * crabs) with magnets separate closures
+        // re-walking the whole herd each time) — same per-magnet-independent counting
+        // semantics (a crab in range of two overlapping magnet fields still counts for both),
+        // just one cache-friendly walk of self.crabs instead of magnet_positions.len() of them.
         let cluster_on_beat =
             self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
-        if cluster_on_beat {
-            for &mp in &magnet_positions {
-                let nearby = self
-                    .crabs
-                    .iter()
-                    .filter(|c| {
-                        !c.caught
-                            && !c.is_magnet()
-                            && !c.is_boss()
-                            && c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ
-                    })
-                    .count();
-                if nearby >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
+        if cluster_on_beat && !magnet_positions.is_empty() {
+            let mut cluster_counts = std::mem::take(&mut self.magnet_cluster_counts_buf);
+            cluster_counts.clear();
+            cluster_counts.resize(magnet_positions.len(), 0);
+            for c in &self.crabs {
+                if c.caught || c.is_magnet() || c.is_boss() {
+                    continue;
+                }
+                for (mi, &mp) in magnet_positions.iter().enumerate() {
+                    if c.pos.distance_squared(mp) < MAGNET_RADIUS_SQ {
+                        cluster_counts[mi] += 1;
+                    }
+                }
+            }
+            for (mi, &mp) in magnet_positions.iter().enumerate() {
+                if cluster_counts[mi] >= 3 && self.magnet_cluster_hits_buf.len() < 8 {
                     self.magnet_cluster_hits_buf.push(mp);
                 }
             }
+            self.magnet_cluster_counts_buf = cluster_counts;
         }
 
         // A charged Magnet's field reaches ~40% farther and tugs harder while it holds a prize.
@@ -4865,6 +4872,9 @@ impl MainState {
         if !self.lasso_shell_deflect_hits_buf.is_empty() {
             draw_lasso_shell_deflect(ctx, canvas, &self.lasso_shell_deflect_hits_buf)?;
         }
+        if !self.whistle_shell_deflect_hits_buf.is_empty() {
+            draw_whistle_shell_deflect(ctx, canvas, &self.whistle_shell_deflect_hits_buf)?;
+        }
         if !self.magnet_cluster_hits_buf.is_empty() {
             draw_magnet_cluster_pull(ctx, canvas, &self.magnet_cluster_hits_buf)?;
         }
@@ -6036,6 +6046,7 @@ impl EventHandler for MainState {
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();
         self.lasso_shell_deflect_hits_buf.clear();
+        self.whistle_shell_deflect_hits_buf.clear();
         self.magnet_cluster_hits_buf.clear();
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
@@ -7577,6 +7588,10 @@ impl EventHandler for MainState {
             self.whistle_active = (self.whistle_active - dt).max(0.0);
             self.whistle_radius =
                 (self.whistle_radius + WHISTLE_RING_SPEED * dt).min(whistle_max_r);
+            // Where the ring's leading edge sat last frame — a crab in the thin band between this and
+            // whistle_radius was just swept by the front, so the shell-deflect ping fires once (crisp,
+            // not a per-frame smear) as the pulse passes it. Zero-width once the ring clamps to max.
+            let whistle_ring_prev = (self.whistle_radius - WHISTLE_RING_SPEED * dt).max(0.0);
             let center = self.whistle_center;
             // The whistle doubles as crowd control: sweeping it over a panicking herd soothes the
             // fear. Charm lasts a beat or two (longer as the whistle lane is ranked up) and blocks
@@ -7613,6 +7628,18 @@ impl EventHandler for MainState {
                     // Dancer pulled by whistle — rhythm tool meets rhythm crab, show the harmony.
                     if crab.is_dancer() && self.whistle_dancer_hits_buf.len() < 10 {
                         self.whistle_dancer_hits_buf.push(crab.pos);
+                    }
+                    // WRONG-TOOL tell: the sonic pulse pings off a still-shelled crab (Armored /
+                    // shelled Hermit) instead of charming it — pull is only a token 0.3 ("barely
+                    // nudges it", enemies.rs). Mirror of the lasso/shell deflect: teaches "the shell
+                    // shrugs the whistle — crack it first (Stomp), then herd it." Fired once from the
+                    // ring's leading edge so it reads as a crisp shell-ping, not a lingering glow.
+                    if crab.boss_health > 0.0
+                        && (crab.is_armored() || crab.is_shelled_hermit())
+                        && dist >= whistle_ring_prev
+                        && self.whistle_shell_deflect_hits_buf.len() < 12
+                    {
+                        self.whistle_shell_deflect_hits_buf.push(crab.pos);
                     }
                     // Count as attracted so the flee/wobble logic doesn't fight the pull next frame.
                     crab.spooked_timer = crab.spooked_timer.max(0.6);

@@ -316,13 +316,12 @@ Steps:
      (mark ready, let CI settle green, auto-merge lands it). Do NOT attempt `git push origin main` or
      `git push origin v<new>` — both 403 in the sandbox. The version-bump PR is your whole deliverable.
 
-Tagging note — releases don't fire until a `v<new>` tag is pushed, and you can't push one. Right now
-that gap is real: Cargo.toml has advanced to 0.20.0 across several "Release" commits but NO tag was ever
-created, so `.github/workflows/release.yml` (triggered only on `v[0-9]+.[0-9]+.[0-9]+` tag pushes) has
-never built a binary or cut a GitHub Release. The fix is a CI step with `contents: write` that pushes the
-`v<new>` tag when a "Release" PR merges to `main` — that is Build Engineer territory (the CI surface), not
-yours. If no such automation exists yet, note in your PR body that the tag still needs to be created (and
-flag it for the Build Engineer), so a green release PR doesn't silently fail to produce a release.
+Tagging note — you don't tag, and you no longer need to. `.github/workflows/tag-and-release.yml` now does it
+for you: once your version-bump PR merges to `main`, it reads the new `version` from `Cargo.toml`, pushes the
+matching `v<new>` tag (annotated with the CHANGELOG notes), and calls `release.yml` to build the binaries and
+cut the GitHub Release — no tag push from the sandbox required. So your version-bump PR really is the whole
+deliverable; the release fires automatically on merge. (If you ever see a merged "Release" commit with no
+corresponding GitHub Release, that's a `tag-and-release.yml` regression — flag it for the Build Engineer.)
 ```
 
 ## Cron 3 — Developer Diary prompt
@@ -410,39 +409,21 @@ Steps:
    `main` the instant its checks pass, so no routine has to finish the mark-ready→wait→merge dance across a
    stateless restart. Never re-author it from scratch, and if a real CI change (a renamed required check, a
    new matrix leg) would break its gate, fix the gate as part of that change.
-   **But the actor only drains half the queue, and the other half is flooded again.** By design it
-   `skip: draft`s every draft — and the harness opens every bot PR as a draft, expecting the opening routine
-   to return across a stateless restart and flip it ready. That draft→ready flip is the *same* return-trip
-   that never happens reliably (it's why the merge step itself had to become a workflow). Evidence this run:
-   ~11 open `claude/eloquent-allen-*` (Perf Engineer) PRs sitting unmerged (e.g. #29/#36/#43/#46/#51/#55/#58/#61),
-   most still drafts, plus the name-cache fix stranded as duplicate PRs #36/#46/#64. Two facts about that pile
-   the gate MUST account for (verified this run, not assumed): (a) they were opened against *old* `main` shas
-   (#55's base is `53ad2a5`, #64's is `73d0c2c`) and never rebased, because the opening run never returned — so
-   most are `behind`/`dirty` against today's `main`, not cleanly mergeable green drafts; (b) the one non-draft in
-   the set, #64, is `mergeable_state: dirty` (real conflicts), so auto-merge is *correctly* skipping it on the
-   mergeability gate — it is NOT an example of the draft-skip stranding a mergeable PR. So the pileup is two
-   compounding failures — never flipped ready AND never rebased — and the fix has to survive both.
-   **Your next upkeep target: teach the persistent actor to drain the draft side too.** Extend
-   `auto-merge.yml` (or a sibling workflow) so that for any `claude/*` draft into `main` whose `build` and
-   `playtest (...)` checks are all green, it flips the draft ready (`pulls.update` with `draft:false`) — then
-   its existing gates take over. Reuse the same static + checks gates it already computes; readying a green draft
-   is safe because the merge gate still refuses anything not cleanly mergeable — a stale one just gets
-   update-branch'd (or skipped if `dirty`) and retried on the next trigger, exactly like a stale non-draft today.
-   Do NOT expect all 11 to merge at once: readying converts the draft pileup into the ordinary behind/dirty
-   backlog the merge gate already handles, which is the win — it removes the human-in-the-loop flip, not the need
-   to be current with `main`. This is the one structural fix that closes the last agent-in-the-loop hand-off; it
-   is genuine upkeep, not re-authoring. Prove it the usual way (`bash scripts/ci-deps.sh`, `cargo build`,
-   `bash scripts/playtest.sh` still green) and ship it as your PR this run if the draft pileup is present.
-1c. **Release tags never get pushed — `release.yml` has never fired. This is your other owned CI gap.**
-   `.github/workflows/release.yml` only triggers on a `v[0-9]+.[0-9]+.[0-9]+` tag push, but the Release
-   Manager routine (cron 2) cannot push tags from the sandbox (403), so no `v*` tag has ever been created —
-   Cargo.toml has climbed to 0.20.0 across several "Release" commits with ZERO GitHub Releases cut. Close the
-   loop with a CI step that owns tag creation: when a `Release <x>` commit lands on `main` (a merged Release
-   PR), have a workflow with `contents: write` read the `version` from `Cargo.toml`, and if no `v<version>`
-   tag exists yet, create and push it — which then triggers `release.yml`. Extend `auto-merge.yml` or add a
-   small sibling workflow; either way this is CI surface you own, and it's what makes the version bumps
-   cron 2 lands actually produce releases. Only take this on when the draft-ready gap above (1b) is already
-   handled — one lever per run.
+   **The draft side of the queue now drains automatically too — SHIPPED, do NOT rebuild.** `auto-merge.yml`
+   was extended to auto-READY any green `claude/*` draft (via the GraphQL `markPullRequestReadyForReview`
+   mutation — note the REST API cannot toggle draft state, so a `pulls.update({draft:false})` will silently
+   no-op; use the mutation), which then re-triggers the existing merge path. Readying converts the old draft
+   pileup into the ordinary behind/dirty backlog the merge gate already handles, closing the last
+   agent-in-the-loop hand-off. If a real CI change (a renamed required check, a new matrix leg) would break the
+   ready/merge gate, fix the gate as part of that change — but never re-author this from scratch.
+1c. **Release tagging is now automated — SHIPPED, do NOT rebuild.** `.github/workflows/tag-and-release.yml`
+   runs on every push to `main`: it reads `version` from `Cargo.toml` and, if no matching `vX.Y.Z` tag exists,
+   creates and pushes an annotated tag (notes from the CHANGELOG section) then calls `release.yml` to build the
+   binaries and cut the GitHub Release. `release.yml` gained a `workflow_call` entry with a `tag` input for this
+   (kept alongside its `push: tags` trigger for manual/backfill). It calls `release.yml` directly rather than
+   relying on the tag push, because a GITHUB_TOKEN-pushed tag does not re-trigger `on: push: tags`. This closes
+   the loop that left Cargo.toml climbing across "Release" commits with no GitHub Release cut. Maintain the gate
+   if CI changes; do not re-author it.
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which

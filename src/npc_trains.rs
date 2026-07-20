@@ -516,6 +516,7 @@ impl MainState {
             self.npc_trains[i].revenge_timer = (self.npc_trains[i].revenge_timer - dt).max(0.0);
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
+                const STEAL_RANGE_SQ: f32 = STEAL_RANGE * STEAL_RANGE;
                 // STEAL_FUSE (telegraph window, ~one beat between arming and the snap) lives in
                 // constants.rs so the bot defense test arms with the exact same fuse.
                 let npc_pos = self.npc_trains[i].leader_pos;
@@ -537,7 +538,7 @@ impl MainState {
                     .crabs
                     .iter()
                     .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
-                    .filter(|c| npc_pos.distance(c.pos) < STEAL_RANGE)
+                    .filter(|c| npc_pos.distance_squared(c.pos) < STEAL_RANGE_SQ)
                     .map(|c| c.chain_index.unwrap())
                     .min();
 
@@ -833,12 +834,13 @@ impl MainState {
             self.npc_trains[i].catch_cooldown = (self.npc_trains[i].catch_cooldown - dt).max(0.0);
             if self.npc_trains[i].catch_cooldown <= 0.0 {
                 const CATCH_RANGE: f32 = 52.0;
+                const CATCH_RANGE_SQ: f32 = CATCH_RANGE * CATCH_RANGE;
                 let npc_pos = self.npc_trains[i].leader_pos;
                 let caught = self.crabs.iter_mut().find(|c| {
                     !c.caught
                         && !c.is_boss()
                         && c.is_catchable()
-                        && npc_pos.distance(c.pos) < CATCH_RANGE
+                        && npc_pos.distance_squared(c.pos) < CATCH_RANGE_SQ
                 });
                 if let Some(crab) = caught {
                     let ct = crab.crab_type;
