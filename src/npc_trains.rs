@@ -269,6 +269,55 @@ impl MainState {
         }
     }
 
+    /// Deterministically arm the rival-vs-rival "predator closing" telegraph for the bot: park the
+    /// biggest train's leader within hunt range of a smaller rival's leader, both in the world corner
+    /// farthest from the player so the player-pursuit `hunting` flag stays clear (dist_to_player >
+    /// PURSUIT_RANGE) and the natural rival-hunt urge in `update_npc_trains` arms the gold telegraph
+    /// this same frame (bot_fire_events runs before update_npc_trains). It exercises the REAL arming
+    /// path — the hunt block reads these live positions and applies its own closeness/gap gating — and
+    /// only shortcuts the RNG wander that would otherwise line two leaders up far from the player by
+    /// chance. No-op with fewer than two trains or no strictly-smaller rival.
+    pub fn force_rival_hunt(&mut self) {
+        if self.npc_trains.len() < 2 {
+            return;
+        }
+        let Some(thief) =
+            (0..self.npc_trains.len()).max_by_key(|&i| self.npc_trains[i].follower_types.len())
+        else {
+            return;
+        };
+        let thief_len = self.npc_trains[thief].follower_types.len();
+        if thief_len < 2 {
+            return; // need room for a strictly-smaller rival with at least one follower
+        }
+        let Some(victim) = (0..self.npc_trains.len()).find(|&v| {
+            v != thief && {
+                let l = self.npc_trains[v].follower_types.len();
+                l >= 1 && l < thief_len
+            }
+        }) else {
+            return;
+        };
+        // Corner diagonally opposite the player — a full world away, so both leaders sit well beyond
+        // PURSUIT_RANGE (550) from the player this frame and the rival hunt (not player pursuit) wins.
+        let corner_x = if self.player_pos.x < self.world_width * 0.5 {
+            self.world_width * 0.9
+        } else {
+            self.world_width * 0.1
+        };
+        let corner_y = if self.player_pos.y < self.world_height * 0.5 {
+            self.world_height * 0.9
+        } else {
+            self.world_height * 0.1
+        };
+        let victim_pos = Vec2::new(corner_x, corner_y);
+        self.npc_trains[victim].leader_pos = victim_pos;
+        // 200px apart: inside RIVAL_HUNT_RANGE (620), closeness ≈ 0.68 > the 0.35 arm gate, and >80px
+        // so the telegraph line itself draws too.
+        self.npc_trains[thief].leader_pos = victim_pos + Vec2::new(-200.0, 0.0);
+        self.npc_trains[thief].idle_timer = 0.0;
+    }
+
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
@@ -455,6 +504,11 @@ impl MainState {
             // It deliberately does NOT touch hunt_intent: that drives the telegraph dots that warn
             // the *player* they're being threaded (see draw), and a rival chasing another rival must
             // not paint a false "you're being hunted" tell across the player's line.
+            // Cleared every frame; re-armed below only while a rival hunt is genuinely live and
+            // imminent, so the gold "predator closing" telegraph (drawn in the render pass) never
+            // lingers after the chase ends.
+            self.npc_trains[i].rival_hunt_target_pos = None;
+            self.npc_trains[i].rival_hunt_intensity = 0.0;
             if !hunting && self.npc_trains[i].idle_timer <= 0.0 {
                 let my_len = self.npc_trains[i].follower_types.len();
                 if my_len >= 1 {
@@ -495,6 +549,18 @@ impl MainState {
                         let blend = (closeness * 0.6 + gap_urge).clamp(0.0, 1.0);
                         self.npc_trains[i].target =
                             self.npc_trains[i].target.lerp(hunt_pos, blend * dt * 2.2);
+                        // Arm the gold "predator closing" telegraph toward the prey's *leader* (King→King,
+                        // so the read is "that big train is bearing down on that small one"), but only
+                        // once the predator is genuinely closing — a wide, lazy urge shouldn't clutter the
+                        // field. Gate on real closeness so the tell means "clash incoming, get in position."
+                        if closeness > 0.35 {
+                            self.npc_trains[i].rival_hunt_target_pos =
+                                Some(self.npc_trains[v].leader_pos);
+                            self.npc_trains[i].rival_hunt_intensity = blend;
+                            // Monotonic tally for the bot guard — bumped here (the draw pass only holds
+                            // an immutable borrow of npc_trains). Armed ⇒ drawn, so this tracks the tell.
+                            self.rival_hunt_telegraphs = self.rival_hunt_telegraphs.saturating_add(1);
+                        }
                     }
                 }
             }
@@ -1290,6 +1356,63 @@ impl MainState {
                             );
                         }
                     }
+                }
+            }
+
+            // --- Rival-vs-rival "predator closing" telegraph (gold, King→King) -----------------
+            // The whole-beach ecology (ROADMAP ★ step 3 "make it legible and swoopable"): when a bigger
+            // King commits to hunting a *smaller* rival, show a distinct GOLD beat-marching line from the
+            // hunter toward the prey King, plus a pulsing gold reticle over the marked train. Styled apart
+            // from the RED player-hunt line above on purpose — a rival chasing another rival must never
+            // read as "you're being hunted." This is the agar.io "watch the big one creep toward the small
+            // one" read: the player sees the impending clash from across the field and pre-positions to
+            // swoop the crumbs the collision spills (see the rival splice's spill/callout above). Gold ties
+            // it to the theft callout + shockwave so the whole rival-vs-rival story shares one colour.
+            if let Some(prey_pos) = npc.rival_hunt_target_pos {
+                let to_prey = prey_pos - npc.leader_pos;
+                let len = to_prey.length();
+                if len > 80.0 {
+                    let intensity = npc.rival_hunt_intensity.clamp(0.0, 1.0);
+                    let dir = to_prey / len;
+                    let start = npc.leader_pos + dir * 36.0;
+                    let seg = to_prey - dir * 64.0; // trim clear of both Kings
+                    let beat_phase =
+                        (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                    let march = 1.0 - beat_phase; // slides 0→1 across the beat, resets on the beat
+                    let dot = unit_circle(ctx)?;
+                    const DOTS: usize = 4;
+                    for d in 0..DOTS {
+                        let f = ((d as f32 + march) / DOTS as f32).fract();
+                        let p = start + seg * f;
+                        // Fade toward the prey end so the line reads as *reaching* for the target.
+                        let a = (0.20 + f * 0.35) * intensity;
+                        let r = 3.5 + f * 3.5;
+                        canvas.draw(
+                            dot,
+                            DrawParam::default()
+                                .dest(p)
+                                .scale(Vec2::splat(r))
+                                .color(Color::new(1.0, 0.78, 0.25, a)),
+                        );
+                    }
+                    // Pulsing gold reticle over the marked prey King — "this train is next." Swells on
+                    // the beat (bigger on the downbeat pulse) so the warning itself keeps time.
+                    let pulse = 1.0 + 0.35 * (beat_phase * std::f32::consts::TAU).sin().abs();
+                    let ring_r = 26.0 * pulse;
+                    canvas.draw(
+                        dot,
+                        DrawParam::default()
+                            .dest(prey_pos)
+                            .scale(Vec2::splat(ring_r))
+                            .color(Color::new(1.0, 0.72, 0.2, 0.10 * intensity)),
+                    );
+                    canvas.draw(
+                        dot,
+                        DrawParam::default()
+                            .dest(prey_pos)
+                            .scale(Vec2::splat(ring_r * 0.62))
+                            .color(Color::new(1.0, 0.85, 0.35, 0.16 * intensity)),
+                    );
                 }
             }
 
