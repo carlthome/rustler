@@ -375,9 +375,15 @@ Steps:
    confirm it's genuinely faster AND still green before merging. Don't leave a green PR sitting; a
    failed check is your next task.
 
-If nothing obvious stands out this run, add lightweight timing visibility (e.g. per-step timing in a
-job summary) so future runs have real data instead of guesses — same spirit as the Performance Engineer's
-frame-time instrumentation.
+If nothing obvious stands out this run, **do nothing this cycle — open no PR.** A run with no genuine
+CI win is a valid empty run, exactly like the Release Manager's "fewer than 5 commits → do nothing" and
+the Performance Engineer's identical rule. Do NOT fall back to "add lightweight timing visibility (per-step
+job-summary timing)" as filler: that is the same make-work trap that produced the Performance Engineer's
+redundant instrumentation PRs (#42/#47/#61) and was struck from that prompt for exactly this reason —
+manufacturing an instrumentation-only PR when you found nothing to speed up just refills the drain queue
+the step above exists to keep empty. Only add CI timing instrumentation when you hit a real measurement
+gap that the existing Actions run logs genuinely can't answer; "add a job-summary timer because I found
+nothing else" is not that.
 ```
 
 ## Cron 5 — Performance Engineer prompt
