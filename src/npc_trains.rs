@@ -262,6 +262,8 @@ impl MainState {
                 }
                 let dist_to_player = cur.distance(self.player_pos);
                 self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
+                // A rival surveying at its destination isn't chasing — bleed its hunt intent off.
+                self.npc_trains[i].hunt_intent *= (1.0 - 2.2 * dt).max(0.0);
                 continue;
             }
 
@@ -373,6 +375,16 @@ impl MainState {
             // commits harder, which naturally means a lazy sprawling spiral gets sliced while a tight
             // line trailing straight behind keeps the reachable links bunched at the far tail (small cut).
             const PURSUIT_RANGE: f32 = 550.0;
+            // Hunt intent smooths toward 1 while this rival is committed to a steal route and back
+            // toward 0 otherwise, so the early-warning tell fades in/out instead of popping. Updated
+            // every non-idle frame (goal 0 when not hunting) so it always relaxes once the chase ends.
+            let hunting = self.chain_count >= 2
+                && dist_to_player < PURSUIT_RANGE
+                && self.cached_steal_target_pos.or(self.cached_tail_pos).is_some();
+            let hunt_goal = if hunting { 1.0 } else { 0.0 };
+            let hunt_rate = if hunting { 1.4 } else { 2.4 };
+            self.npc_trains[i].hunt_intent +=
+                (hunt_goal - self.npc_trains[i].hunt_intent) * (hunt_rate * dt).min(1.0);
             if self.chain_count >= 2
                 && dist_to_player < PURSUIT_RANGE
                 && self.npc_trains[i].idle_timer <= 0.0
@@ -1020,6 +1032,47 @@ impl MainState {
                 );
             }
 
+            // --- Hunt-intent early warning (peripheral threat language) -----------------------
+            // Before a rival gets close enough to ARM a splice (the red DEFEND ring below), it
+            // telegraphs *commitment*: while it deliberately routes to thread your back half, a line
+            // of beat-marching dots reaches from the King toward the threatened link. This is the
+            // early read the steal fight wants — you see a committed rival in time to tighten your
+            // line or reroute, instead of only learning once the snap is already armed on top of you
+            // (INSPIRATION.md "Legible risk", "peripheral threat language"). Suppressed once armed so
+            // it never fights the DEFEND ring for the same frame; dots slide + reset on the beat so
+            // the warning itself keeps time with the music.
+            if npc.hunt_intent > 0.3 && npc.steal_threat <= 0.0 {
+                if let Some(threat_pos) = self.cached_steal_target_pos.or(self.cached_tail_pos) {
+                    let to_threat = threat_pos - npc.leader_pos;
+                    let len = to_threat.length();
+                    if len > 70.0 {
+                        let intensity = ((npc.hunt_intent - 0.3) / 0.7).clamp(0.0, 1.0);
+                        let dir = to_threat / len;
+                        // Keep dots clear of the King body and the targeted crab itself.
+                        let start = npc.leader_pos + dir * 34.0;
+                        let seg = to_threat - dir * 56.0; // trim both ends
+                        let beat_phase =
+                            (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                        let march = 1.0 - beat_phase; // slides 0→1 across the beat, resets on the beat
+                        let dot = unit_circle(ctx)?;
+                        const DOTS: usize = 4;
+                        for d in 0..DOTS {
+                            let f = ((d as f32 + march) / DOTS as f32).fract();
+                            let p = start + seg * f;
+                            let a = (0.55 - f * 0.4).max(0.0) * intensity;
+                            let r = 4.5 + (1.0 - f) * 3.5;
+                            canvas.draw(
+                                dot,
+                                DrawParam::default()
+                                    .dest(p)
+                                    .scale(Vec2::splat(r))
+                                    .color(Color::new(1.0, 0.35, 0.12, a)),
+                            );
+                        }
+                    }
+                }
+            }
+
             // --- Armed-steal DEFEND telegraph -------------------------------------------------
             // While a rival's splice is armed, ring its leader with a beat-synced warning so the
             // player can *read* the parry (ROADMAP: "make contesting it skill"; INSPIRATION.md
@@ -1111,6 +1164,15 @@ impl MainState {
             } else {
                 (0.72, 0.95, 0.5) // scout — pale lime, small and fast
             };
+            // Reddens the banner while this rival is on the hunt, reinforcing the marching-dot threat
+            // line below it; eases back to the tier colour once it's just wandering. Kept mild so tier
+            // (lime/gold/amber) still reads at a glance.
+            let hunt_t = (npc.hunt_intent * 0.55).clamp(0.0, 0.55);
+            let (nr, ng, nb) = (
+                nr + (1.0 - nr) * hunt_t,
+                ng + (0.30 - ng) * hunt_t,
+                nb + (0.12 - nb) * hunt_t,
+            );
             // Distance ramp: far rivals read at full opacity, near ones ease back.
             let dist = (npc.leader_pos - self.player_pos).length();
             let dist_alpha = (0.5 + dist / 1000.0 * 0.5).clamp(0.5, 1.0);
