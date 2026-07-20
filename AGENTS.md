@@ -85,7 +85,9 @@ Never write to the same file from two agents simultaneously.
 
 ## Commits
 
-Short plain-English messages. No "Co-Authored-By" lines. Always push after committing:
+Short plain-English messages. (The `Co-authored-by: Claude` trailer is turned off globally via
+`includeCoAuthoredBy: false` in `.claude/settings.json` — don't add it back by hand.) Always push
+after committing:
 
 ```sh
 git -C . push origin main
@@ -104,24 +106,9 @@ Never leave a red PR: a failing check is your next task — fix and re-push, don
 branch conflicts (`dirty`), rebase onto `main` so the merge gate can take it. If a check is genuinely
 stuck/unrelated after a couple of honest tries, say so in a PR comment rather than forcing it.
 
-> Context: the PR pileup that plagued this repo (the NPC name-cache fix shipped 3× as #36/#46/#64, the
-> same instrumentation as #42/#47/#61) came from depending on the *opening* agent to return across a
-> stateless restart and finish a manual mark-ready→merge dance. `auto-merge.yml` (PR #86) removed the merge
-> dependency; the draft-auto-ready extension (PR #104) removed the flip dependency — so no return trip is
-> owed now. The drain-queue rules in each cron still stand for clearing any *stale* drafts that predate the
-> workflow.
-
-**Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
-tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
-per-routine branch prefix (a `claude/<adjective>-<name>-<suffix>` stem that's constant across your runs and
-unique to you — Performance Engineer has been on `claude/eloquent-allen-*`, Build Engineer on
-`claude/bold-gates-*`). Get yours with `git branch --show-current`, drop the trailing `-<suffix>`, and match
-open PRs whose head branch shares that stem (visible in each `list_pull_requests` entry's `head.ref`). That
-set _is_ your prior PRs — merge/close it per the rules below. Matching on title keywords instead is what
-broke the queue: routines couldn't tell their own stale PRs from a sibling's, so they left them open and
-opened another, shipping the identical fix three times over (the NPC name-cache fix went out as #36, #46,
-and #64; apt-caching re-landed as #44/#50 after #48 already merged). Never close or merge a PR outside your
-own branch-prefix set — that's a sibling routine's work.
+**Don't touch other roles' PRs.** `auto-merge` squash-merges any green `claude/*` PR within minutes,
+so PRs rarely pile up. If you find a genuinely *stale* one (dirty/superseded) that's clearly your own
+role's earlier work, close it — but never close or merge a PR that belongs to another role.
 
 ## Agent roster
 
@@ -268,7 +255,7 @@ Steps:
 7. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 8. Fix any build errors and rebuild until clean
 9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-10. Commit with a short plain-English message — no Co-Authored-By lines
+10. Commit with a short plain-English message
 11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
     not `main` directly). If an issue triggered this run, put `Closes #<issue>` in the PR body so it
     closes on merge.
@@ -403,41 +390,15 @@ cheaper equivalent work — never from checking less.
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — CI upkeep, not deep design.
 1. `git -C . pull --ff-only`
-1a. **Before doing any new work, drain open Build Engineer PRs — this is step one, not optional.**
-   List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs by
-   your branch-prefix stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* —
-   don't guess from titles; that's what let the queue balloon).
-   - **No open Build Engineer PRs:** proceed to step 2.
-   - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
-     required checks to settle green, squash-merge. The PR's CI run is your before/after benchmark:
-     confirm it's faster AND still green before merging. Stop here — merging is your whole task this run.
-   - **Exactly one open PR, CI still running:** wait for it to settle, then merge or fix. Stop here.
-   - **Any other case** (multiple PRs, stale base, CI failing you can't fix this run): close ALL open
-     Build Engineer PRs with "superseded, closing to unblock queue" and **STOP — do not open a new PR
-     this run**. Opening a new PR after closing stale ones just rebuilds the queue. Let the next run
-     start fresh with zero open PRs.
-   **Before choosing your CI optimization target (step 5), scan all open PR titles.** If an open PR
-   already implements the thing you were about to do, pick a different target — don't reimplement it.
-1b. **`.github/workflows/auto-merge.yml` has landed (PR #86) — it exists; do NOT rebuild it.** This is the
-   persistent actor that drains the bot-PR queue: it squash-merges any non-draft, green, `claude/*` PR into
-   `main` the instant its checks pass, so no routine has to finish the mark-ready→wait→merge dance across a
-   stateless restart. Never re-author it from scratch, and if a real CI change (a renamed required check, a
-   new matrix leg) would break its gate, fix the gate as part of that change.
-   **The draft side of the queue now drains automatically too — SHIPPED, do NOT rebuild.** `auto-merge.yml`
-   was extended to auto-READY any green `claude/*` draft (via the GraphQL `markPullRequestReadyForReview`
-   mutation — note the REST API cannot toggle draft state, so a `pulls.update({draft:false})` will silently
-   no-op; use the mutation), which then re-triggers the existing merge path. Readying converts the old draft
-   pileup into the ordinary behind/dirty backlog the merge gate already handles, closing the last
-   agent-in-the-loop hand-off. If a real CI change (a renamed required check, a new matrix leg) would break the
-   ready/merge gate, fix the gate as part of that change — but never re-author this from scratch.
-1c. **Release tagging is now automated — SHIPPED, do NOT rebuild.** `.github/workflows/tag-and-release.yml`
-   runs on every push to `main`: it reads `version` from `Cargo.toml` and, if no matching `vX.Y.Z` tag exists,
-   creates and pushes an annotated tag (notes from the CHANGELOG section) then calls `release.yml` to build the
-   binaries and cut the GitHub Release. `release.yml` gained a `workflow_call` entry with a `tag` input for this
-   (kept alongside its `push: tags` trigger for manual/backfill). It calls `release.yml` directly rather than
-   relying on the tag push, because a GITHUB_TOKEN-pushed tag does not re-trigger `on: push: tags`. This closes
-   the loop that left Cargo.toml climbing across "Release" commits with no GitHub Release cut. Maintain the gate
-   if CI changes; do not re-author it.
+1a. Don't pile up PRs. `auto-merge` squash-merges any green `claude/*` PR within minutes, so a prior
+   green Build Engineer PR lands on its own — leave it. Close only a genuinely stale (dirty/superseded)
+   one of your own. Scan open PRs before picking a target (step 5) so you don't reimplement one.
+1b. **These workflows already exist — maintain their gate if a required check is renamed or a matrix leg
+   added, but do NOT re-author them from scratch:** `auto-merge.yml` (auto-readies green `claude/*` drafts
+   via the GraphQL `markPullRequestReadyForReview` mutation, then squash-merges them) and
+   `tag-and-release.yml` (on a version bump it auto-creates the `vX.Y.Z` tag and calls `release.yml` to
+   publish the Release; a GITHUB_TOKEN-pushed tag can't re-trigger `on: push: tags`, which is why it calls
+   `release.yml` directly).
 2. Read git log: `git -C . log --oneline -15`
 3. Measure first — don't guess. Look at recent Actions runs for this repo (the `actions_list` /
    `actions_get` / `get_job_logs` GitHub tools) and find where the wall-clock actually goes: which
@@ -457,7 +418,7 @@ Steps:
 6. Implement it. Prove it locally where you can: `bash scripts/ci-deps.sh` then
    `cargo build 2>&1 | grep -E "^error|Finished"` and `bash scripts/playtest.sh` must still pass —
    a faster CI that stops catching bugs is a regression, not a win.
-7. Commit with a short plain-English message — no Co-Authored-By lines.
+7. Commit with a short plain-English message.
 8. Push your branch and open a draft PR into `main`.
 9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
@@ -491,20 +452,9 @@ loops (below); there's no issue to read.
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — targeted runtime perf, not deep design.
 1. `git -C . pull --ff-only`
-1a. **Before doing any new work, drain open Perf Engineer PRs — this is step one, not optional.**
-   List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs by
-   your branch-prefix stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* —
-   don't guess from titles; that's what let the queue balloon to a dozen open perf PRs).
-   - **No open Perf Engineer PRs:** proceed to step 2.
-   - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
-     checks to settle green, squash-merge. Stop here — merging is your whole task this run.
-   - **Exactly one open PR, CI still running:** wait for it to settle, then merge or fix. Stop here.
-   - **Any other case** (multiple PRs, stale base, CI failing you can't fix this run): close ALL open
-     Perf Engineer PRs with "superseded, closing to unblock queue" and **STOP — do not open a new PR
-     this run**. Opening a new PR after closing stale ones just rebuilds the queue. Let the next run
-     start fresh with zero open PRs.
-   **Before choosing your optimization target (step 3), scan all open PR titles.** If an open PR
-   already implements the thing you were about to fix, pick a different target — don't reimplement it.
+1a. Don't pile up PRs. `auto-merge` squash-merges any green `claude/*` PR within minutes, so a prior
+   green Perf Engineer PR lands on its own — leave it. Close only a genuinely stale (dirty/superseded)
+   one of your own. Scan open PRs before picking a target (step 3) so you don't reimplement one.
 2. Read git log: `git -C . log --oneline -15`
 3. Skim per-frame update/draw loops in src/main.rs and src/graphics.rs for:
    - Per-frame heap allocations (Vec::new/clone, format!/String inside update()/draw())
@@ -516,7 +466,7 @@ Steps:
 5. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix any build errors and rebuild until clean
 7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-8. Commit with a short plain-English message — no Co-Authored-By lines
+8. Commit with a short plain-English message
 9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
    latest `main` first).
 10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
@@ -577,7 +527,7 @@ Steps:
    Gameplay Engineer). Keep ~2–4 open at a time (depth before breadth). Don't duplicate an issue that
    already exists for an item; close issues whose work has shipped (git log shows it landed). Use
    `gh issue create` / `gh issue list` (or the GitHub connector if the routine has one).
-7. Commit the ROADMAP change with a short plain-English message — no Co-Authored-By lines
+7. Commit the ROADMAP change with a short plain-English message
 8. `git -C . pull --ff-only` then push
 ```
 
@@ -604,21 +554,9 @@ Guidelines:
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — structural refactors, not creative work.
 1. `git -C . pull --ff-only`
-1a. **Before doing any new extraction work, drain the open-PR queue.**
-   Use the GitHub MCP `list_pull_requests` tool (not `gh`, which may not be available in the
-   remote sandbox) to list open PRs into `main`. Identify prior Architect runs by your branch-prefix
-   stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* — don't guess from
-   titles). For that set of open structural/module-split PRs:
-   - **CI green on the PR**: mark it ready for review (`update_pull_request` with `draft: false`),
-     wait for any new required checks that readying triggers to settle green, then squash-merge it.
-     That is your whole task this run — stop here, don't open another PR.
-   - **CI still running**: wait for it to finish, then merge or fix as above. Still stop here.
-   - **Stale base** (the source file it extracted has since been modified by a merged PR, making this
-     one conflict): close the PR with a short note ("superseded by merged refactors, needs rebase"),
-     so the queue stays clean. Then continue to new work below.
-   **One open Architect PR at a time.** If the queue has multiple open PRs: pick the most-recent one
-   that's CI-green and merge it, or close the others as stale. Never open a new extraction PR while a
-   prior one is still open and mergeable.
+1a. Don't pile up PRs. `auto-merge` squash-merges any green `claude/*` PR within minutes, so a prior
+   green Architect PR lands on its own — leave it. Close only a genuinely stale one of your own (a
+   module-split whose source file a merged PR has since changed → "superseded, needs rebase").
 2. Check line counts: `wc -l ./src/*.rs`
 3. For each file over 1000 lines, get a structural map before reading anything:
    `grep -n "^pub fn \|^fn \|^impl \|^pub struct \|^struct \|^pub enum \|^mod " src/<file>.rs | head -80`
@@ -634,7 +572,7 @@ Steps:
 5. Implement it. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix errors, rebuild until clean
 7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-8. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
+8. Commit with a short plain-English message describing the structural change
 9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
    latest `main` first).
 10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
@@ -696,7 +634,6 @@ Steps:
    restructure the whole pipeline in one run — one clear improvement per cycle.
 7. Commit with a message explaining *why*, not just what: e.g. "Agent Engineer: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
-   — no Co-Authored-By lines
 8. Push your branch and open a draft PR into `main`.
 9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
