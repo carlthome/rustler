@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.23.0 — 2026-07-20
+
+### Features
+- Audible rival-vs-rival steals: play distinct sounds when NPCs steal from each other's trains
+
+### Fixes
+- CI: check out the tag in the release job so gh can publish the release correctly
+- CI: open a tracking issue when a release fails to publish
+- Steady the flaky defense playtests (more robust bot assertions)
+
+### Refactoring
+- CI: skip build/playtest/nix workflows on pure-Markdown PRs to save CI minutes
+- CI: auto-label PRs by content and by which agent opened them
+
 ## v0.22.0 — 2026-07-20
 
 ### Features
