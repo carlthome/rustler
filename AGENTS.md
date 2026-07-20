@@ -131,10 +131,10 @@ runs. The table below is the intended configuration.
 > [claude.ai/code/routines](https://claude.ai/code/routines). **Reasoning effort is NOT configurable
 > per routine** (no UI control; the request for it,
 > [claude-code#51549](https://github.com/anthropics/claude-code/issues/51549), was closed as not
-> planned). So the **Effort** column below is a *target*, realised through the model tier plus how
-> the cron prompt is framed (a mechanical prompt like Release Manager's stays shallow; "think
-> carefully before picking a task" in the Gameplay Engineer prompt pushes it deeper) — not a separate
-> setting you toggle.
+> planned). So the **Effort** column below is realised two ways, not by a UI toggle: the model tier,
+> plus a **`/effort <level>` step 0 at the top of each cron prompt** (the agent sets its own effort at
+> runtime, since the routine can't). If `/effort` isn't honored in a given routine session, the model
+> tier still carries the intent.
 
 | # | Agent | Model | Effort | Cadence | Why this tier |
 |---|-------|-------|--------|---------|---------------|
@@ -142,8 +142,8 @@ runs. The table below is the intended configuration.
 | 6 | Game Designer        | **Opus 4.8** | medium | daily        | Direction compounds (Slack → ROADMAP). Cheap at 1 run/day; keep the judgment. |
 | 4 | Build Engineer       | Sonnet 5     | medium | daily        | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
 | 5 | Performance Engineer | Sonnet 5     | medium | every 12h    | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
-| 7 | Software Architect   | Sonnet 5     | medium | daily        | File splits / modularisation. Structural, not creative. |
-| 8 | Agent Engineer       | Sonnet 5     | medium | daily        | Audits this file + the pipeline. Sonnet-level analysis; pipeline is stable now. |
+| 7 | Software Architect   | **Opus 4.8** | medium | daily        | Shapes the codebase every other agent builds in — structure compounds, so Opus. |
+| 8 | Agent Engineer       | **Opus 4.8** | medium | daily        | Shapes the pipeline all agents run on — its calls compound across the whole fleet. |
 | 2 | Release Manager      | **Haiku 4.5**| low    | daily        | Pure counting + version bump; releases are now fully automated in CI. |
 | 3 | Developer Diary      | **Haiku 4.5**| low    | daily        | Summarise git log + post a Slack GIF. Rote. |
 
@@ -218,6 +218,7 @@ when uncertain prefer the smaller, safer, easily-reverted change over the ambiti
 hardest on the playtests before merging, and never merge red.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort high` — this run is game-feel design + code, worth the depth.
 1. Read git log: `git -C . log --oneline -8`
 2. Run the bot playtests FIRST — they are your regression check before touching anything:
    `cargo build 2>&1 | tail -1 && bash scripts/playtest.sh`
@@ -282,6 +283,7 @@ never use `git tag` to find the baseline — it returns nothing and breaks the c
 release IS the `version` field in `Cargo.toml` on `main`, set by the last `Release <x>` commit.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort low` — this is mechanical counting + a version bump.
 1. `git -C . pull --ff-only`
 2. Read the current release: `grep '^version' Cargo.toml` (e.g. 0.20.0). Find the commit that set it:
    `git -C . log -1 --grep='^Release' --format=%H` — that commit is your baseline.
@@ -318,6 +320,7 @@ You are the release announcer for "Crab Rustler", posting to
 #general so the game director (Carl) can follow progress asynchronously between work sessions.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort low` — summarise git log + post a GIF, rote work.
 1. `git -C . pull --ff-only`
 2. Read recent commits: `git -C . log --oneline -20` and summarize
    what changed since your last post in 2-4 friendly, non-technical sentences.
@@ -382,6 +385,7 @@ rule (see AGENTS.md) exists to prevent. Your speed wins come from caching, dedup
 cheaper equivalent work — never from checking less.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — CI upkeep, not deep design.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Build Engineer PRs — this is step one, not optional.**
    List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs by
@@ -465,6 +469,7 @@ job is to keep it running smooth (high FPS, no frame hitches) on modest laptops,
 undoing anyone else's work.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — targeted runtime perf, not deep design.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Perf Engineer PRs — this is step one, not optional.**
    List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs by
@@ -522,6 +527,7 @@ Issues that the event-driven Gameplay Engineer (cron 1) builds from — an empty
 gameplay work happens, so keeping a few well-scoped issues open is your most important output.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — synthesising feedback into direction.
 1. `git -C . pull --ff-only`
 2. Read git log: `git -C . log --oneline -40` and skim
    src/main.rs, src/graphics.rs, src/enemies.rs, src/spawnings.rs, src/levels.rs
@@ -575,6 +581,7 @@ Guidelines:
 - Don't touch ROADMAP.md; direction is the Game Designer's call.
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — structural refactors, not creative work.
 1. `git -C . pull --ff-only`
 1a. **Before doing any new extraction work, drain the open-PR queue.**
    Use the GitHub MCP `list_pull_requests` tool (not `gh`, which may not be available in the
@@ -630,6 +637,7 @@ Three lenses, used together:
                     make the pipeline better?
 
 Steps:
+0. Set your reasoning effort for token efficiency: run `/effort medium` — pipeline analysis + focused edits.
 1. `git -C . pull --ff-only`
 
 2. **Gather evidence:**
