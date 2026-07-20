@@ -4608,6 +4608,24 @@ impl MainState {
             // pulse of light that sweeps down the rope once per bar so the train "feels the beat".
             let within_beat = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
             let bar_phase = ((self.beat_count % 4) as f32 + within_beat) / 4.0;
+            // Rival-splice heat: reuse the SAME committed-hunt / armed-steal state that already drives
+            // the DEFEND ring and early-warning threat dots (npc hunt_intent / steal_threat). An armed
+            // steal is peak danger; otherwise the smoothed hunt commitment. Take the worst rival so the
+            // rope reddens exactly when a rival is threading your back half — no new risk logic.
+            let mut splice_risk = 0.0f32;
+            for npc in &self.npc_trains {
+                let threat = if npc.steal_threat > 0.0 {
+                    1.0
+                } else {
+                    npc.hunt_intent
+                };
+                if threat > splice_risk {
+                    splice_risk = threat;
+                }
+            }
+            // The splice aims ~2/3 down the chain (cached_steal_target_pos); on a short chain it falls
+            // back to the tail. Match that so the heat band centers on the link actually threatened.
+            let splice_center_frac = if self.chain_count >= 4 { 2.0 / 3.0 } else { 1.0 };
             draw_conga_rope(
                 ctx,
                 canvas,
@@ -4617,6 +4635,8 @@ impl MainState {
                 self.beat_intensity,
                 gamble_heat,
                 bar_phase,
+                splice_risk,
+                splice_center_frac,
             )
         })?;
 
