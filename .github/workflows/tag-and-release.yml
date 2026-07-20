@@ -20,9 +20,20 @@ name: Tag and Release
 #
 # Idempotent: if a Release already exists for the current version, it does nothing.
 
+# Triggers: a human push to `main` fires `push` directly. But the normal flow is a
+# Release Manager PR that the Auto-merge workflow squash-merges with GITHUB_TOKEN —
+# and a GITHUB_TOKEN push does NOT trigger `on: push` (the same recursion rule that
+# stops a token-pushed tag from firing release.yml). So we also key off the
+# Auto-merge workflow completing: after any auto-merge run, re-check whether the
+# current version needs releasing. The release-existence gate makes the extra runs
+# cheap no-ops. `workflow_dispatch` allows manual/backfill triggering for any tag.
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: [Auto-merge]
+    types: [completed]
+  workflow_dispatch:
 
 concurrency:
   group: tag-and-release
