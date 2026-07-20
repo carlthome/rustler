@@ -1,13 +1,29 @@
 name: Release
 
+# Builds the cross-platform binaries and cuts a GitHub Release for a version tag.
+#
+# Two entry points, both landing on the same build/release jobs:
+#   * push of a `vX.Y.Z` tag        — manual/backfill releases
+#   * workflow_call with `tag` input — the autonomous path, invoked by
+#     tag-and-release.yml when a `Release` commit lands on `main` (a
+#     GITHUB_TOKEN-pushed tag can't re-trigger `on: push: tags`, so the tagger
+#     calls this workflow directly instead of relying on the tag-push event).
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_call:
+    inputs:
+      tag:
+        description: "The vX.Y.Z tag to build and publish a release for"
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +44,8 @@ jobs:
             exe: rustler
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       - uses: DeterminateSystems/nix-installer-action@main
         if: matrix.os != 'windows-latest'
@@ -64,19 +82,21 @@ jobs:
           mkdir -p dist
           cp result/bin/${{ matrix.exe }} dist/
           cp -r result/bin/resources dist/
-          tar -czf rustler-${{ github.ref_name }}-${{ matrix.archive }} -C dist .
+          tar -czf "rustler-${TAG}-${{ matrix.archive }}" -C dist .
 
       - name: Upload program
         uses: actions/upload-artifact@v7
         with:
           name: rustler-${{ matrix.target }}
-          path: rustler-${{ github.ref_name }}-${{ matrix.archive }}
+          path: rustler-${{ env.TAG }}-${{ matrix.archive }}
 
   release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -85,9 +105,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" rustler-*.tar.gz \
+          gh release create "${TAG}" rustler-*.tar.gz \
             --repo "${{ github.repository }}" \
-            --title "Crab Rustler ${{ github.ref_name }}" \
+            --title "Crab Rustler ${TAG}" \
             --verify-tag \
             --notes-from-tag \
             --discussion-category "General"

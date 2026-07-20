@@ -1,0 +1,80 @@
+name: Tag and Release
+
+# Closes the release loop with no human in it.
+#
+# The Release Manager routine bumps `version` in Cargo.toml + CHANGELOG.md and
+# lands it on `main` as a `Release <x>` commit, but it CANNOT push a git tag from
+# the sandbox (HTTP 403), so `release.yml` — which only fired on `vX.Y.Z` tag
+# pushes — never ran and no GitHub Release was ever cut.
+#
+# This workflow runs on every push to `main`: it reads the current Cargo.toml
+# version and, if no matching `vX.Y.Z` tag exists yet, creates and pushes an
+# annotated tag (notes pulled from the matching CHANGELOG.md section), then calls
+# release.yml directly to build the binaries and publish the release. It calls
+# release.yml rather than relying on the tag push to trigger it, because a tag
+# pushed with GITHUB_TOKEN does not re-trigger `on: push: tags`.
+#
+# Idempotent: if the version is already tagged, it does nothing.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: tag-and-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.tag.outputs.created }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create tag if the Cargo.toml version is new
+        id: tag
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists — nothing to do."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pull release notes from the matching CHANGELOG.md section, if present.
+          NOTES=$(awk -v ver="${VERSION}" '
+            $0 ~ ("^## v?" ver "([^0-9]|$)") { grab=1; next }
+            grab && /^## / { exit }
+            grab { print }
+          ' CHANGELOG.md || true)
+          if [ -z "${NOTES//[$'\n\r\t ']/}" ]; then
+            NOTES="Release ${TAG}"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "${TAG}" -m "${NOTES}"
+          git push origin "${TAG}"
+          echo "Created and pushed ${TAG}."
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: write
+    secrets: inherit
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
