@@ -8231,6 +8231,55 @@ pub fn draw_beam_hermit_match(
     Ok(())
 }
 
+/// Beam-vs-Fast STRONG-match tell: the flashlight pinning a sprinting Fast crab. Where the
+/// beam/Hermit tell flashes amber to say "wrong tool", this flashes icy cyan-white to say "right
+/// tool, working" — the light has the fast one gripped. Four brackets clamp inward around the crab
+/// (a targeting reticle closing), and on the beat the clamp flares brighter with a ring pulse so the
+/// on-beat pin (the hard clamp) reads as the drum-hit version of the graze.
+pub fn draw_beam_fast_pin(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)], // (crab_pos, on_beat)
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let unit_sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        // On-beat is the hard clamp — brighter, tighter, with a ring flash.
+        let a = if on_beat { 0.85 } else { 0.5 };
+        let clamp_r = if on_beat { 15.0 } else { 20.0 };
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Soft cyan grip glow under the brackets.
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(clamp_r + 6.0))
+            .color(Color::new(0.55, 0.95, 1.0, a * 0.3)));
+        // Four L-shaped corner brackets closing in — a reticle clamping the sprinter.
+        for i in 0..4 {
+            let angle = i as f32 * std::f32::consts::PI / 2.0 + std::f32::consts::FRAC_PI_4;
+            let corner = pos + Vec2::new(angle.cos(), angle.sin()) * clamp_r;
+            // Two short arms per corner, at right angles, pointing back toward the crab.
+            for arm in 0..2 {
+                let arm_angle = angle + std::f32::consts::PI + arm as f32 * std::f32::consts::FRAC_PI_2;
+                canvas.draw(unit_sq, DrawParam::default()
+                    .dest(corner)
+                    .scale(Vec2::new(9.0, 2.0))
+                    .rotation(arm_angle)
+                    .offset(Vec2::new(0.0, 0.5))
+                    .color(Color::new(0.7, 0.98, 1.0, a)));
+            }
+        }
+        // On-beat ring flash — the "clamped!" pop.
+        if on_beat {
+            canvas.draw(dot, DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(clamp_r * 2.4))
+                .color(Color::new(0.6, 0.95, 1.0, 0.18)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 pub fn draw_stomp_dancer_match(
     ctx: &mut Context,
     canvas: &mut Canvas,

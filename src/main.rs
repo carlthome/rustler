@@ -114,7 +114,7 @@ use crate::graphics::{
     flush_hermit_coil_dots, flush_magnet_auras, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
-    draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
+    draw_beam_fast_pin, draw_beam_hermit_match, draw_day_weather_hud, draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
     draw_whistle_golden_pull, draw_whistle_shell_deflect,
@@ -2395,7 +2395,24 @@ impl MainState {
                     let max_speed = crab.crab_type.speed_range().end;
                     // Proximity factor: full flee speed when very close, tapering off toward FLEE_RADIUS
                     let flee_factor = 1.0 - (distance / FLEE_RADIUS);
-                    let flee_speed = max_speed * (1.0 + flee_factor * 1.5);
+                    let mut flee_speed = max_speed * (1.0 + flee_factor * 1.5);
+                    // Beam "pin" — the flashlight's soft-RPS STRONG match against the Fast archetype
+                    // (INSPIRATION.md Doom Eternal note: "Beam to melt fast ones"). A sprinting Fast
+                    // crab is the ONE herd crab the beam grips: hold the cone on it and the light
+                    // drags on its escape so its speed advantage stops mattering — the tool choice
+                    // becomes the decision, not a losing footrace. It's a drum pad: pinning ON the
+                    // beat clamps the sprinter hard, off the beat only grazes it, so keeping the beam
+                    // on a fleeing Fast crab THROUGH the beat is the skill that reels it in. Only Fast
+                    // crabs feel it — every other archetype ignores the beam while fleeing, so the
+                    // flashlight's identity stays "burns hard targets + pins sprinters", not a herd lure.
+                    if crab.is_fast() && crab_in_light {
+                        let pin = if on_beat_now { 0.38 } else { 0.62 };
+                        flee_speed *= pin;
+                        crab.spooked_timer = crab.spooked_timer.max(0.5);
+                        if self.beam_fast_hits_buf.len() < 12 {
+                            self.beam_fast_hits_buf.push((crab.pos, on_beat_now));
+                        }
+                    }
                     crab.vel = crab.vel.lerp(to_crab * flee_speed, 0.06);
                     crab.speed = 1.0; // vel already encodes speed, keep multiplier neutral
                 } else {
@@ -4860,6 +4877,9 @@ impl MainState {
         if !self.beam_hermit_hits_buf.is_empty() {
             draw_beam_hermit_match(ctx, canvas, &self.beam_hermit_hits_buf)?;
         }
+        if !self.beam_fast_hits_buf.is_empty() {
+            draw_beam_fast_pin(ctx, canvas, &self.beam_fast_hits_buf)?;
+        }
         if !self.stomp_dancer_hits_buf.is_empty() {
             draw_stomp_dancer_match(ctx, canvas, &self.stomp_dancer_hits_buf)?;
         }
@@ -6042,6 +6062,7 @@ impl EventHandler for MainState {
 
         // Clear strong-match hit buffers so draw_game sees only THIS frame's events.
         self.beam_hermit_hits_buf.clear();
+        self.beam_fast_hits_buf.clear();
         self.stomp_dancer_hits_buf.clear();
         self.lasso_thief_hits_buf.clear();
         self.lasso_magnet_hits_buf.clear();

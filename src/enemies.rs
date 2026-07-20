@@ -291,6 +291,14 @@ impl EnemyCrab {
         matches!(self.crab_type, CrabType::Dancer)
     }
 
+    /// A "Fast" crab: an ordinary skittish crab with a high top speed, so it out-runs a plain chase.
+    /// It's the beam's soft-RPS target — the flashlight cone drags on a fleeing Fast crab so the
+    /// tool that "melts fast ones" (INSPIRATION.md Doom Eternal note) can actually pin it down
+    /// (see the beam-pin branch in update_crabs).
+    pub fn is_fast(&self) -> bool {
+        matches!(self.crab_type, CrabType::Fast)
+    }
+
     /// A "Magnet" crab: while it roams free it drags nearby uncaught crabs toward itself, so the
     /// herd bunches up around it. Catching the Magnet lands you in the middle of the cluster it
     /// gathered — a two-for-one that rewards chasing it (see the magnet-pull pass in main.rs).
