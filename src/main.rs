@@ -3780,6 +3780,7 @@ impl MainState {
         self.combo_count = 0;
         self.combo_timer = 0.0;
         self.beat_count = 0;
+        self.hat_last_step = -1;
         self.bar_accent = 0.0;
         self.drum_roll_held = false;
         self.drum_roll_hits = 0;
@@ -6341,6 +6342,41 @@ impl EventHandler for MainState {
         self.position_history.push_front(self.player_pos);
         if self.position_history.len() > 2000 {
             self.position_history.pop_back();
+        }
+
+        // Swung hi-hat kit — locks the LIVE percussion to the same 1/16 grid the backing groove
+        // shuffles on, instead of clicking straight quarter-note kicks against a shuffling loop.
+        // The kick already lands the downbeat (local step 0); here we fill the offbeats between
+        // kicks: the "and" (step 2, a straight 1/8) always ticks, and the swung 1/16 "e"/"a"
+        // (steps 1 & 3, pushed late by the shared GROOVE_SWING) come in only once the run is busy
+        // (a longer train / higher intensity stage), so the pocket thickens as the party grows —
+        // "more crabs in sync = more music" (INSPIRATION.md, Crab Rave). Edge-detected off the
+        // master beat clock via a global step id so each hat fires exactly once as the clock
+        // crosses its onset, never double-firing or skipping even at low fps.
+        if self.beat_interval > 1e-4 {
+            let frac = (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
+            // Busy = a fat train or an escalated stage; drives both hat density and loudness.
+            let train_fill = (self.chain_count as f32 / 24.0).clamp(0.0, 1.0);
+            let stage_span = (INTENSITY_STAGES.len().saturating_sub(1)).max(1) as f32;
+            let stage_fill = (self.intensity_stage as f32 / stage_span).clamp(0.0, 1.0);
+            let busy = self.chain_count >= 8 || self.intensity_stage >= 1;
+            // Base hat loudness rises with the party; the swung ghost 1/16s sit quieter than the
+            // "and" so the offbeat pulse stays legible instead of a wash of noise.
+            let base_vol = 0.26 + 0.16 * train_fill + 0.10 * stage_fill;
+            let swing_late = crate::sounds::GROOVE_SWING * 0.125; // odd 1/16 late, in beat fractions
+            for local in 1..=3u32 {
+                let onset = local as f32 * 0.25 + if local % 2 == 1 { swing_late } else { 0.0 };
+                let gstep = self.beat_count as i64 * 4 + local as i64;
+                if frac + 1e-6 >= onset && gstep > self.hat_last_step {
+                    self.hat_last_step = gstep;
+                    // Step 2 (the straight "and") always plays; the swung 1/16 ghosts only when busy.
+                    if local == 2 {
+                        self.beat_synth.play_hihat(ctx, base_vol);
+                    } else if busy {
+                        self.beat_synth.play_hihat(ctx, base_vol * 0.55);
+                    }
+                }
+            }
         }
 
         // Beat timer — interval speeds up with the intensity stage (see beat_interval).

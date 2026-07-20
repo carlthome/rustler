@@ -126,6 +126,11 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 
 pub(crate) const SAMPLE_RATE: u32 = 44_100;
 
+/// Shuffle amount shared by the generative backing groove (`synth_action_groove`) and the live
+/// hi-hat kit (`BeatSynth`), so the two can never drift: odd 1/16 steps land late by
+/// `GROOVE_SWING * 0.5` of a 1/16 note. 0.0 = straight, ~0.66 = a loose triplet shuffle.
+pub const GROOVE_SWING: f32 = 0.66;
+
 // ---------------------------------------------------------------------------------------------
 // General-purpose synth engine: oscillators, ADSR, FM voices, and lo-fi retro FX.
 //
@@ -987,6 +992,36 @@ pub fn synth_hihat(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// A tight closed hi-hat for the live beat kit — brighter and shorter than the jam-emote
+/// `synth_hihat` (which lingers 80 ms). Highpassed LFSR noise under a very fast exponential decay
+/// (~38 ms) so it reads as a crisp "tsk" that sits between the kicks without smearing the pocket.
+/// Full gain is baked in; the caller sets a per-play volume so the hat layer can thicken with the
+/// train/intensity (see `BeatSynth::play_hihat`).
+fn synth_beat_hihat_wav() -> Vec<u8> {
+    let dur = 0.038_f32;
+    let n = (SAMPLE_RATE as f32 * dur) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    let mut noise_state: u32 = 0x7f2a;
+    // One-pole highpass (~6 kHz cutoff) so only the metallic sizzle survives — no low thud.
+    let mut hp_prev_in = 0.0_f32;
+    let mut hp_prev_out = 0.0_f32;
+    let rc = 1.0 / (2.0 * std::f32::consts::PI * 6000.0 * dt + 1.0);
+    for i in 0..n {
+        let t = i as f32 * dt;
+        // Fast attack (0.5 ms) then a hard exponential decay — the defining "closed" hat snap.
+        let attack = (t / 0.0005).min(1.0);
+        let env = attack * (-90.0 * t).exp();
+        let noise_in = lfsr_noise(&mut noise_state);
+        let hp = rc * (hp_prev_out + noise_in - hp_prev_in);
+        hp_prev_in = noise_in;
+        hp_prev_out = hp;
+        samples.push(hp * env * 0.9);
+    }
+    let pcm = samples_to_pcm(&mut samples, 5, 1);
+    encode_wav_mono16(&pcm)
+}
+
 /// A short bright chirp for the flashlight toggle (F key). ~120ms sine sweep with a snappy
 /// exponential decay so it reads as a crisp "UI click" without being intrusive.
 pub fn synth_flashlight_toggle(ctx: &mut Context) -> GameResult<Source> {
@@ -1077,6 +1112,9 @@ pub struct BeatSynth {
     offbeat_kick: Source,
     /// Snare hit — played on beats 2 & 4 (the backbeat) during boss fights.
     snare: Source,
+    /// Closed hi-hat — the swung offbeat layer that locks the live kit to the 1/16 grid. Volume
+    /// is set per-play (see `play_hihat`) so the hat thickens with train length / intensity.
+    hihat: Source,
     /// Current snare volume, 0..1. Fades in when a boss is present, fades out when cleared.
     /// Smoothly interpolated each beat so it never pops in or disappears abruptly.
     pub snare_volume: f32,
@@ -1091,8 +1129,25 @@ impl BeatSynth {
             offbeat_kick: kick_source(ctx, 130.0, 55.0, 0.10, 0.55)?,
             // Snare: tight crack, full gain baked in — volume is controlled via snare_volume.
             snare: snare_source(ctx, 0.09, 0.75)?,
+            // Closed hi-hat: full gain baked in, per-play volume set by the caller.
+            hihat: {
+                let bytes = synth_beat_hihat_wav();
+                Source::from_data(ctx, SoundData::from_bytes(&bytes))?
+            },
             snare_volume: 0.0,
         })
+    }
+
+    /// Play a closed hi-hat at `volume` (0..1). The caller schedules these on the swung 1/16 grid
+    /// between the kicks, so the live kit grooves in the pocket instead of clicking straight
+    /// quarter-notes. `volume < 0.01` is treated as silent (skipped) so a fully calm kit is free.
+    pub fn play_hihat(&mut self, ctx: &mut Context, volume: f32) {
+        use ggez::audio::SoundSource;
+        if volume < 0.01 {
+            return;
+        }
+        self.hihat.set_volume(volume.clamp(0.0, 1.0));
+        let _ = self.hihat.play_detached(ctx);
     }
 
     /// Fade snare volume toward target each beat (call once per beat tick).
@@ -2082,7 +2137,7 @@ pub fn synth_action_groove(ctx: &mut Context, bpm: f32) -> GameResult<Source> {
         GrooveScale::PentatonicMinor,
         57, // A3 root register
         bpm,
-        0.66, // shuffle: odd 1/16s land noticeably late
+        GROOVE_SWING, // shuffle: odd 1/16s land noticeably late — shared with the live hi-hat kit
         8,
         0.5,
         // Bit depth was 6 (64 levels) — a Game Boy crush that turned the warm electric-piano
