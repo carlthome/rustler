@@ -1090,6 +1090,13 @@ pub struct MainState {
     // tells. The bool flags an on-beat cast so draw_whistle_sneaky_match flares the tell brighter
     // on the beat (a herd-on-the-beat reward). Mirrors the whistle/Golden + whistle/Dancer buffers.
     pub(crate) whistle_sneaky_hits_buf: Vec<(Vec2, bool)>,
+    // Positions where the whistle's sweep just ripped (on-beat) or loosened (off-beat) a latched
+    // Thief off the conga tail — the whistle's defensive strong match (enemies.rs whistle_pull 1.3,
+    // "yanks it off your tail nicely"). The one whistle strong-match still without a dedicated tell,
+    // and the only Thief counterplay that was visually silent OFF the beat (the on-beat rip already
+    // pops "THIEF NABBED!"). The bool flags an on-beat rip so draw_whistle_thief_match flares bright
+    // and wide vs a dim off-beat loosen. Mirrors the whistle/Sneaky buffer.
+    pub(crate) whistle_thief_hits_buf: Vec<(Vec2, bool)>,
     pub(crate) lasso_thief_hits_buf: Vec<Vec2>,
     pub(crate) lasso_magnet_hits_buf: Vec<Vec2>,
     // Positions where a lasso throw landed on a still-shelled crab (Armored / shelled Hermit) and
@@ -1790,6 +1797,7 @@ impl MainState {
             whistle_golden_hits_buf: Vec::new(),
             whistle_dancer_hits_buf: Vec::new(),
             whistle_sneaky_hits_buf: Vec::new(),
+            whistle_thief_hits_buf: Vec::new(),
             lasso_thief_hits_buf: Vec::new(),
             lasso_magnet_hits_buf: Vec::new(),
             lasso_shell_deflect_hits_buf: Vec::new(),

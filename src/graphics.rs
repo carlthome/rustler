@@ -8862,6 +8862,51 @@ pub fn draw_whistle_sneaky_match(
     Ok(())
 }
 
+/// Lime "snapped off your tail" burst when the Whistle rips a latched Thief loose — the whistle's
+/// defensive soft-RPS match (whistle_pull 1.3, "yanks it off your tail nicely"). Deliberately
+/// distinct from the other three whistle tells (Golden star glints, Dancer orbit arcs, Sneaky
+/// inward-converging ticks): a severed-tether motif — two short dashes flying APART past a snapping
+/// ring — so it reads as the parasite's grip breaking and releasing from your train, in the green
+/// of your own conga line. `on_beat` flags a clean on-beat RIP (bright, wide, the crab is nabbed
+/// into the train); off the beat it's a dimmer LOOSEN (the grip only slips a beat), the one Thief
+/// counterplay that was still visually silent off the beat — so a flick shows it bit either way.
+pub fn draw_whistle_thief_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        let flare = if on_beat { 1.35 } else { 0.85 };
+        let alpha = if on_beat { 1.0 } else { 0.6 };
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Lime inner bloom — the Thief reeled back to YOUR side (green = your train, matching the
+        // "THIEF NABBED!" callout) so it reads as a gain, not the golden loss of a rival steal.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(14.0 * flare))
+            .color(Color::new(0.5, 1.0, 0.6, 0.80 * alpha)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(30.0 * flare))
+            .color(Color::new(0.45, 1.0, 0.55, 0.22 * alpha)));
+        // 4 severed-tether dash PAIRS: each pair sits on an axis with the two dashes flying apart
+        // from the rim outward, so the whole thing reads as bindings snapping open — the latch
+        // grip breaking. Distinct from Sneaky's inward reel and Dancer's orbiting arcs.
+        for i in 0..4u32 {
+            let angle = i as f32 * std::f32::consts::PI / 2.0 + std::f32::consts::FRAC_PI_4;
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let inner = 16.0 * flare;
+            let len = 13.0 * flare;
+            // The dash points radially outward, anchored just past the rim, so it flies AWAY.
+            let mid = pos + dir * (inner + len * 0.5);
+            canvas.draw(sq, DrawParam::default()
+                .dest(mid).scale(Vec2::new(len, 2.2))
+                .rotation(angle).offset(Vec2::new(0.5, 0.5))
+                .color(Color::new(0.6, 1.0, 0.65, 0.78 * alpha)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 /// Cyan magnetic-surge burst when the Lasso snags a Magnet — tells the player that dragging
 /// this Magnet through the herd will vacuum up surrounding crabs (the pied-piper power play).
 /// Uses concentric field rings and outward arc-lines to read as "magnetic field energised."
