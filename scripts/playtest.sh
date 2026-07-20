@@ -56,6 +56,7 @@ else
     run_script npc_steal
     run_script player_steal
     run_script steal_defense
+    run_script steal_dodge
     run_script revenge
 fi
 

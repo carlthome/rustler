@@ -167,6 +167,68 @@ impl MainState {
         self.try_defend_steal(center, 400.0, "STOMP");
     }
 
+    /// Bot-test helper (see BotAction::ForceStealDodge): deterministically stage the movement dodge —
+    /// the reroute half of the defense. Arm a rival's splice on a mid-chain link, then teleport the
+    /// rival's leader well clear of that link, so the next `update_npc_trains` sees the thread broken
+    /// and fizzles the splice (steals_dodged rises). A no-op when there's nothing stealable (no NPC
+    /// trains, or a chain shorter than 2). Mirrors force_steal_defense's arm, but instead of running
+    /// the tool parry it exercises the geometry-based escape — only the player's fast juke (RNG-fragile
+    /// against a wandering rival inside a headless budget) is shortcut.
+    pub fn force_steal_dodge(&mut self) {
+        if self.npc_trains.is_empty() || self.chain_count < 2 {
+            return;
+        }
+        let mid = self.chain_count / 2;
+        let target = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
+            .min_by_key(|c| c.chain_index.unwrap().abs_diff(mid))
+            .map(|c| (c.pos, c.chain_index.unwrap()));
+        let Some((target_pos, target_idx)) = target else {
+            return;
+        };
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Arm a splice on this rival at the mid link (as update_npc_trains would once threaded)...
+        self.npc_trains[ni].steal_threat = STEAL_FUSE;
+        self.npc_trains[ni].steal_target = target_idx;
+        self.npc_trains[ni].steal_cooldown = 0.0;
+        self.npc_trains[ni].idle_timer = 0.0;
+        // ...then place the leader well clear of the threaded link (>ESCAPE_RANGE=145), as if the
+        // player had juked the tail away — the next update sees the thread broken and fizzles it.
+        // Try four diagonals and keep the one that lands farthest after world-edge clamping, so a
+        // link near a wall can't leave the leader clamped back on top of it.
+        let margin = 80.0;
+        let pushed = [
+            Vec2::splat(220.0),
+            Vec2::new(220.0, -220.0),
+            Vec2::new(-220.0, 220.0),
+            Vec2::splat(-220.0),
+        ]
+        .iter()
+        .map(|off| {
+            (target_pos + *off).clamp(
+                Vec2::splat(margin),
+                Vec2::new(self.world_width - margin, self.world_height - margin),
+            )
+        })
+        .max_by(|a, b| {
+            a.distance_squared(target_pos)
+                .partial_cmp(&b.distance_squared(target_pos))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap();
+        self.npc_trains[ni].leader_pos = pushed;
+    }
+
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
@@ -393,6 +455,54 @@ impl MainState {
                     if let Some(splice_idx) = splice_at {
                         self.npc_trains[i].steal_target =
                             self.npc_trains[i].steal_target.min(splice_idx);
+                    }
+                    // --- Movement dodge: juke the threaded tail out of the rival's reach ----------
+                    // INSPIRATION.md item 2 promises TWO defenses against an armed steal: a tool
+                    // parry (try_defend_steal) OR an "on-beat defensive reroute". This is the reroute
+                    // — the movement half of the skill. When the rival threaded your line it latched
+                    // onto a specific link (steal_target); if you drag that link clear before the snap
+                    // (a committed run, or a sprint-juke) the thread breaks and the splice fizzles
+                    // with nothing to cut. Geometry, not RNG — the rival has to actually still be on
+                    // the link to cut it. An on-beat escape reads as a clean reroute and feeds the
+                    // groove: a dodge on the beat is a drum hit too ("keys as drum pads").
+                    let thread_idx = self.npc_trains[i].steal_target;
+                    let thread_pos = self
+                        .crabs
+                        .iter()
+                        .find(|c| c.caught && c.chain_index == Some(thread_idx))
+                        .map(|c| c.pos);
+                    if let Some(tp) = thread_pos {
+                        // ~2.5× STEAL_RANGE: a committed run or a sprint-juke, not a hair's breadth.
+                        const ESCAPE_RANGE: f32 = 145.0;
+                        if npc_pos.distance(tp) > ESCAPE_RANGE {
+                            // Dodged — the rival lost the thread. Fizzle cleanly and put it on a short
+                            // cooldown so it re-pursues rather than instantly re-arming from here.
+                            self.npc_trains[i].steal_threat = 0.0;
+                            self.npc_trains[i].steal_cooldown = 1.4;
+                            self.steals_dodged += 1;
+                            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                            let (label, size) = if on_beat {
+                                ("DODGED — ON BEAT!".to_string(), 26.0)
+                            } else {
+                                ("DODGED!".to_string(), 22.0)
+                            };
+                            self.floating_texts.spawn(
+                                label,
+                                player_center - Vec2::new(70.0, 50.0),
+                                size,
+                                [0.5, 1.0, 0.85, 1.0],
+                            );
+                            if on_beat {
+                                // The on-beat reroute is the skill version — reward the clean read.
+                                self.groove = (self.groove + 0.12).min(1.0);
+                                self.beat_streak = (self.beat_streak + 1).min(99);
+                                self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.8);
+                            }
+                            if self.catch_shockwaves.len() < 48 {
+                                self.catch_shockwaves.push((tp, 0.0, [0.5, 1.0, 0.85]));
+                            }
+                            continue; // thread broken — skip the tremble/snap for this rival
+                        }
                     }
                     self.npc_trains[i].steal_threat -= dt;
                     // Cap the cut to a recoverable bite: take at most STEAL_MAX_LINKS off the tail,
