@@ -315,6 +315,7 @@ pub fn handle_key_down_event(
                     KeyCode::Space | KeyCode::Return => {
                         match state.menu_selection {
                             0 => {
+                                state.reset_game();
                                 state.show_instructions = false;
                                 state.show_how_to_play_text = false;
                             } // Play

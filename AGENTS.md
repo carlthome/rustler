@@ -41,6 +41,16 @@ code-writing agent (Gameplay Engineer, Performance Engineer, Build Engineer, Sof
   itself a bug: re-enable it and fix the underlying game issue, don't work around it.
 - **New mechanics deserve new coverage.** When you add something the bots can meaningfully
   exercise, extend a bot script so future changes can't silently break it.
+- **Common failure mode — game entry paths.** Any code path that transitions into in-game
+  state (menu "Play", tutorial, world-map entry, etc.) must call `reset_game()` to correctly
+  initialize crabs, score, and the spawn pattern. Forgetting it causes the wave-skip bug:
+  `advance_pattern()` fires immediately on an empty herd, skipping pattern 0 (crabs near
+  the player) and landing on pattern 1 (far corner of the world), so the bot never catches
+  anything. The `menu_to_game` bot test catches this regression.
+- **Common failure mode — velocity × speed compound.** Crab position updates as
+  `pos += vel * speed * dt`. If you set `crab.vel` for a special effect (whistle pull,
+  flee, etc.) without also setting `crab.speed = 1.0`, the per-crab speed multiplier
+  (30–120) compounds and crabs teleport across the world.
 
 This is the whole point of running as autonomous collaborating agents: development stays
 grounded in whether the game actually plays, not just whether it builds.

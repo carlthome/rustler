@@ -922,8 +922,8 @@ impl MainState {
         hype_dancer_hits.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
-                && (self.player_pos.x - crab.pos.x).abs() < PLAYER_SIZE * 0.6 + crab.scale
-                && (self.player_pos.y - crab.pos.y).abs() < PLAYER_SIZE * 0.6 + crab.scale
+                && (self.player_pos.x - crab.pos.x).abs() < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
+                && (self.player_pos.y - crab.pos.y).abs() < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
             {
                 if crab.is_boss() {
                     boss_catches.push((crab.pos, crab.is_tide_boss()));
@@ -3702,7 +3702,7 @@ impl MainState {
         }
     }
 
-    fn reset_game(&mut self) {
+    pub(crate) fn reset_game(&mut self) {
         // Reset places the player at the WORLD centre (the playfield is larger than the viewport;
         // the camera follows). pen/pool placement below is world-space too.
         let width = self.world_width;
@@ -5675,6 +5675,7 @@ impl EventHandler for MainState {
                     let proximity = 1.0 - (dist / whistle_max_r).clamp(0.0, 1.0);
                     let speed = whistle_pull * pull * (0.5 + proximity * 0.5);
                     crab.vel = toward * speed;
+                    crab.speed = 1.0; // vel encodes full speed; keep multiplier neutral (matches flee convention)
                     // Golden crab being reeled in by whistle — its highest-pull matchup, show it.
                     if crab.is_golden() && self.whistle_golden_hits_buf.len() < 12 {
                         self.whistle_golden_hits_buf.push(crab.pos);
