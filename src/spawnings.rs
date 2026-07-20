@@ -114,6 +114,55 @@ pub fn spawn_stolen_crab(
     }
 }
 
+/// Build a crab that has *spilled loose* from a rival-vs-rival splice — the "crumbs" the player
+/// can swoop in and rustle after two NPC trains collide (ROADMAP step 3, agar.io "let the big
+/// ones fight, then eat the crumbs"). Unlike `spawn_stolen_crab` this is a *free* crab: uncaught
+/// with no chain index, flung outward from the collision (`vel`), fully coloured (spawn_time 999)
+/// and defenceless (no shell to re-crack) so it reads as easy spoils, not a fresh chase.
+pub fn spawn_scattered_crab(
+    pos: Vec2,
+    vel: Vec2,
+    crab_type: CrabType,
+    rng: &mut impl Rng,
+) -> EnemyCrab {
+    let scale = rng.random_range(crab_type.scale_range());
+    let speed = rng.random_range(crab_type.speed_range());
+    EnemyCrab {
+        pos,
+        vel,
+        speed,
+        caught: false,
+        chain_index: None,
+        scale,
+        spawn_time: 999.0,
+        crab_type,
+        spooked_timer: 0.4, // a brief startle so it visibly bursts loose from the collision
+        beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
+        join_pulse: 1.0, // scale-pop as it scatters
+        fleeing: false,
+        facing_angle: 0.0,
+        in_flashlight: false,
+        startle_timer: 0.0,
+        charm_timer: 0.0,
+        answering_call: 0.0,
+        boss_health: 0.0,
+        boss_max_health: 0.0001,
+        enraged: false,
+        charge_state: BossCharge::Idle,
+        charge_cooldown: 0.0,
+        stun_timer: 0.0,
+        latch_timer: 0.0,
+        panic_amp: 1.0,
+        magnet_snared: 0.0,
+        magnet_lured: 0.0,
+        thief_lured: 0.0,
+        magnet_charged: 0.0,
+        slingshot_spent: 0.0,
+        host_swap_timer: 0.0,
+        surge_timer: 0.0,
+    }
+}
+
 /// Spawn a rare "King Crab" boss. It enters from a random screen edge, lumbers toward the
 /// play area, and carries `max_health` — the player must hold the flashlight on it to wear it
 /// down before it can be caught. Not part of the normal spawn patterns; triggered on score.

@@ -529,6 +529,11 @@ pub struct MainState {
     /// Rain World: big trains bully small ones). Never drops, so the bot playtest can assert the
     /// rival-vs-rival splice fired without racing the live follower counts, which churn constantly.
     pub(crate) rival_vs_rival_steals: usize,
+    /// Monotonic count of crabs knocked *loose* as free catchable spoils by rival-vs-rival collisions
+    /// (ROADMAP step 3, agar.io "eat the crumbs") — a fraction of each rival-vs-rival cut spills into
+    /// the world instead of all transferring to the winner, so the player can swoop in and rustle them.
+    /// Never drops, so the bot playtest can assert the spill fired without racing the live crab count.
+    pub(crate) rival_spill_crabs: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1532,6 +1537,7 @@ impl MainState {
             steals_dodged: 0,
             revenge_steals: 0,
             rival_vs_rival_steals: 0,
+            rival_spill_crabs: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             beat_timer: detected_beat_interval,

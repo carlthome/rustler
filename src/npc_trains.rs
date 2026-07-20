@@ -13,7 +13,7 @@ use crate::constants::*;
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{cached_stroke_circle, draw_crab, unit_circle};
 use crate::hud_cache::NPC_NAME_CACHE;
-use crate::spawnings::spawn_stolen_crab;
+use crate::spawnings::{spawn_scattered_crab, spawn_stolen_crab};
 use crate::state::MainState;
 
 impl MainState {
@@ -1031,19 +1031,51 @@ impl MainState {
                         .get((cut_from + 1) * STEPS)
                         .copied()
                         .unwrap_or(thief_pos);
-                    let stolen = self.npc_trains[victim].follower_types.split_off(cut_from);
+                    let mut stolen = self.npc_trains[victim].follower_types.split_off(cut_from);
                     let stolen_count = stolen.len();
                     if stolen_count > 0 {
-                        self.npc_trains[thief].follower_types.extend(stolen);
                         self.npc_trains[thief].rival_steal_cooldown = 3.0;
                         self.rival_vs_rival_steals += stolen_count;
+                        // Swoopable spoils (ROADMAP step 3, agar.io "let the big ones fight, then eat
+                        // the crumbs"): the loser doesn't hand the winner a clean pickpocket — the
+                        // collision knocks roughly a third of the cut (at least one, whenever ≥2 were
+                        // taken) *loose* as free catchable crabs bursting from the splice, so the player
+                        // can swoop into a rival-vs-rival collision and rustle the spilled crumbs. The
+                        // thief still nets the majority, so the pecking order (big trains eat small ones)
+                        // holds and the beach doesn't collapse to one mega-train.
+                        let mut rng = rand::rng();
+                        let spill = if stolen_count >= 2 {
+                            (stolen_count / 3).max(1)
+                        } else {
+                            0
+                        };
+                        // Cap the world's free-crab load so a churn of collisions can't shove the run
+                        // toward the overwhelmed game-over; the leftover stays with the thief.
+                        let room = 150usize.saturating_sub(self.crabs.len());
+                        let spill = spill.min(room);
+                        for ct in stolen.drain(stolen.len() - spill..) {
+                            let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+                            let mut vel = Vec2::new(angle.cos(), angle.sin()) * rng.random_range(120.0..200.0);
+                            vel.y -= 60.0; // a slight upward arc before it settles into the herd
+                            let jitter = Vec2::new(rng.random_range(-14.0..14.0), rng.random_range(-14.0..14.0));
+                            self.crabs
+                                .push(spawn_scattered_crab(splice_pos + jitter, vel, ct, &mut rng));
+                            self.rival_spill_crabs += 1;
+                        }
+                        // Whatever survived the spill goes to the winner.
+                        self.npc_trains[thief].follower_types.extend(stolen);
                         // Legibility (ROADMAP step 3 "make it legible and swoopable"): name the theft
                         // at the splice point and pop a golden shockwave so the player reads which train
-                        // just grew, then can swoop in and rustle the fattened winner.
+                        // just grew, then can swoop in and rustle the fattened winner — or the crumbs.
                         let thief_name = self.npc_trains[thief].name.clone();
                         let victim_name = self.npc_trains[victim].name.clone();
+                        let callout = if spill > 0 {
+                            format!("{} rustled {} from {} — {} spilled loose!", thief_name, stolen_count, victim_name, spill)
+                        } else {
+                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name)
+                        };
                         self.floating_texts.spawn(
-                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name),
+                            callout,
                             splice_pos - Vec2::new(90.0, 30.0),
                             22.0,
                             [1.0, 0.78, 0.25, 1.0],

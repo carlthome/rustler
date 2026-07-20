@@ -699,6 +699,7 @@ impl MainState {
                         BotAssert::DodgedAtLeast(n) => self.steals_dodged >= *n,
                         BotAssert::RevengeStealAtLeast(n) => self.revenge_steals >= *n,
                         BotAssert::RivalStealAtLeast(n) => self.rival_vs_rival_steals >= *n,
+                        BotAssert::RivalSpillAtLeast(n) => self.rival_spill_crabs >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
