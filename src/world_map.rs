@@ -76,11 +76,16 @@ impl WorldMap {
             (0.65, 0.62),
             (0.78, 0.38),
             (0.90, 0.55),
+            (0.84, 0.78),
+            // The Desktop sits off on its own, past the "end" of the map — you shouldn't be here.
+            (0.96, 0.30),
         ];
         let campaign_names: &[&'static str] = &[
             "Sunny Meadow",
             "Tide Pools",
             "Crab Rave",
+            "Neon Kelp",
+            "The Desktop",
         ];
 
         let levels = get_levels();
