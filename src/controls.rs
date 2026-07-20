@@ -65,8 +65,41 @@ pub fn handle_player_movement(
         if let Some(target) = state.nearest_seek_target_pos() {
             let center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
             let toward = target - center;
-            if toward.length() > 1.0 {
+            let dist = toward.length();
+            if dist > 1.0 {
                 dir = toward.normalize();
+            }
+            // Beat-timed final approach — BeatTiming tutorial only. A skilled player holds just
+            // outside catch range and closes the last step ON the beat so the catch counts.
+            // Otherwise the autopilot fires the whistle the instant its 4.5 s cooldown clears, and
+            // because 4.5 s is exactly 9 beats (BEAT_INTERVAL 0.5 s) every reeled-in catch
+            // phase-locks to one beat phase; when that phase is off-beat a whole run banks zero
+            // on-beat catches and the tutorial never passes — the campaign_tutorial playtest flake.
+            // Gating the final step on the beat decorrelates the catch from that grid so on-beat
+            // catches reliably land. Scoped to the un-completed BeatTiming tutorial, so the steal and
+            // menu scenarios (which don't check on-beat) keep their fast straight-in seek unchanged.
+            let in_beat_tutorial = state.tutorial.as_ref().map_or(false, |t| {
+                t.kind == crate::tutorial::TutorialKind::BeatTiming && !t.completed
+            });
+            if in_beat_tutorial {
+                let on_beat = state.beat_timer < crate::BEAT_WINDOW
+                    || state.beat_timer > state.beat_interval - crate::BEAT_WINDOW;
+                // Approximate half-extent of the catch box (see the proximity check in update()).
+                let catch_reach = crate::PLAYER_SIZE * 0.6 + 26.0;
+                if !on_beat && dist < catch_reach + 44.0 {
+                    // Off the beat with a crab at the doorstep. The whistle reels the charmed crab
+                    // TO the player, so merely holding still lets it drift into the catch box and
+                    // register an off-beat catch that doesn't count. Keep it just outside catch
+                    // range instead — back off if it has already crept inside, otherwise hold — and
+                    // brake so momentum can't carry us in. On the next on-beat frame `dir` again
+                    // points at the crab and we close the final step, landing the catch on-beat.
+                    dir = if dist < catch_reach {
+                        (-toward).normalize_or_zero()
+                    } else {
+                        Vec2::ZERO
+                    };
+                    state.player_vel *= 0.35;
+                }
             }
         }
     }
