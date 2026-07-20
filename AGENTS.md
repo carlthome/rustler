@@ -85,7 +85,9 @@ Never write to the same file from two agents simultaneously.
 
 ## Commits
 
-Short plain-English messages. No "Co-Authored-By" lines. Always push after committing:
+Short plain-English messages. (The `Co-authored-by: Claude` trailer is turned off globally via
+`includeCoAuthoredBy: false` in `.claude/settings.json` — don't add it back by hand.) Always push
+after committing:
 
 ```sh
 git -C . push origin main
@@ -268,7 +270,7 @@ Steps:
 7. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 8. Fix any build errors and rebuild until clean
 9. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-10. Commit with a short plain-English message — no Co-Authored-By lines
+10. Commit with a short plain-English message
 11. Push your branch and open a draft PR into `main` (the remote routine runs on a feature branch,
     not `main` directly). If an issue triggered this run, put `Closes #<issue>` in the PR body so it
     closes on merge.
@@ -457,7 +459,7 @@ Steps:
 6. Implement it. Prove it locally where you can: `bash scripts/ci-deps.sh` then
    `cargo build 2>&1 | grep -E "^error|Finished"` and `bash scripts/playtest.sh` must still pass —
    a faster CI that stops catching bugs is a regression, not a win.
-7. Commit with a short plain-English message — no Co-Authored-By lines.
+7. Commit with a short plain-English message.
 8. Push your branch and open a draft PR into `main`.
 9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
@@ -516,7 +518,7 @@ Steps:
 5. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix any build errors and rebuild until clean
 7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-8. Commit with a short plain-English message — no Co-Authored-By lines
+8. Commit with a short plain-English message
 9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
    latest `main` first).
 10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
@@ -577,7 +579,7 @@ Steps:
    Gameplay Engineer). Keep ~2–4 open at a time (depth before breadth). Don't duplicate an issue that
    already exists for an item; close issues whose work has shipped (git log shows it landed). Use
    `gh issue create` / `gh issue list` (or the GitHub connector if the routine has one).
-7. Commit the ROADMAP change with a short plain-English message — no Co-Authored-By lines
+7. Commit the ROADMAP change with a short plain-English message
 8. `git -C . pull --ff-only` then push
 ```
 
@@ -634,7 +636,7 @@ Steps:
 5. Implement it. Build: `nix develop . --command cargo build 2>&1 | grep -E "^error|Finished"`
 6. Fix errors, rebuild until clean
 7. Re-run playtests to confirm no regressions: `bash scripts/playtest.sh`
-8. Commit with a short plain-English message describing the structural change — no Co-Authored-By lines
+8. Commit with a short plain-English message describing the structural change
 9. Push your branch and open a draft PR into `main` (`git -C . pull --ff-only --rebase` onto the
    latest `main` first).
 10. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
@@ -696,7 +698,6 @@ Steps:
    restructure the whole pipeline in one run — one clear improvement per cycle.
 7. Commit with a message explaining *why*, not just what: e.g. "Agent Engineer: Performance Engineer prompt
    was drifting toward polish work — repoint it at the scrolling-world goal per ROADMAP"
-   — no Co-Authored-By lines
 8. Push your branch and open a draft PR into `main`.
 9. Drive the PR to merged — see "Merge your green PRs" above. When you're done and the draft's checks
    are green, **mark it ready** (`draft: false`), **wait for any additional checks** that readying
