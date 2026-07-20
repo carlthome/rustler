@@ -151,23 +151,37 @@ restarts, managed at claude.ai/code/routines). No laptop or "bootstrap" needed.
 The code-writing agents (1, 4, 5, 7) build and playtest with cargo in the remote
 sandbox — the `SessionStart` hook provisions dependencies (see **Build** above).
 
-**Text / git / doc routines (no game build):**
+Model/effort tuning is deliberate: **Opus 4.8 for decisions that compound, Sonnet 5 for code
+correctness, Haiku 4.5 for mechanical work** — and cadence is kept as low as each agent's inputs
+actually change, since running an agent more often than its inputs move just burns tokens on empty
+runs. The table below is the intended configuration.
 
-```text
-2. Release Manager  — daily 07:00 UTC     — haiku  ← pure counting/tagging, no build needed
-3. Developer Diary  — 01:00/09:00/17:00Z  — haiku  ← Slack updates, no build needed
-6. Game Designer    — every 4 hours UTC   — opus   ← reads Slack + git, updates ROADMAP.md
-8. Agent Engineer   — every 8 hours UTC   — sonnet ← audits AGENTS.md vs observed agent behaviour
-```
+> **Setting these is manual, and effort isn't a routine knob.** The routines are created in the web
+> UI, so an agent cannot change them programmatically (`update_trigger` refuses http_api-created
+> routines) — set **model** and **cadence** by hand at
+> [claude.ai/code/routines](https://claude.ai/code/routines). **Reasoning effort is NOT configurable
+> per routine** (no UI control; the request for it,
+> [claude-code#51549](https://github.com/anthropics/claude-code/issues/51549), was closed as not
+> planned). So the **Effort** column below is a *target*, realised through the model tier plus how
+> the cron prompt is framed (a mechanical prompt like Release Manager's stays shallow; "think
+> carefully before picking a task" in the Gameplay Engineer prompt pushes it deeper) — not a separate
+> setting you toggle.
 
-**Code-writing routines (cargo build + playtest in the sandbox):**
+| # | Agent | Model | Effort | Cadence | Why this tier |
+|---|-------|-------|--------|---------|---------------|
+| 1 | Gameplay Engineer    | **Opus 4.8** | high   | hourly, 24/7 | The engine of player-facing progress — game-feel design + code. Premium spend belongs here. |
+| 6 | Game Designer        | **Opus 4.8** | medium | daily        | Direction compounds (Slack → ROADMAP). Cheap at 1 run/day; keep the judgment. |
+| 4 | Build Engineer       | Sonnet 5     | medium | daily        | CI correctness/upkeep. The big CI work has shipped; maintenance now. |
+| 5 | Performance Engineer | Sonnet 5     | medium | every 12h    | Game runtime perf. Perf debt accrues slowly — a long cadence avoids idle make-work. |
+| 7 | Software Architect   | Sonnet 5     | medium | daily        | File splits / modularisation. Structural, not creative. |
+| 8 | Agent Engineer       | Sonnet 5     | medium | daily        | Audits this file + the pipeline. Sonnet-level analysis; pipeline is stable now. |
+| 2 | Release Manager      | **Haiku 4.5**| low    | daily        | Pure counting + version bump; releases are now fully automated in CI. |
+| 3 | Developer Diary      | **Haiku 4.5**| low    | daily        | Summarise git log + post a Slack GIF. Rote. |
 
-```text
-1. Gameplay Engineer    — hourly, 24/7   — opus   ← main gameplay driver, also covers overnight (was "Feature Developer")
-4. Build Engineer       — every 6 hours  — sonnet ← keeps CI lean & fast: build/test speed (was "CI Optimizer")
-5. Performance Engineer — every 2 hours  — sonnet ← game runtime perf: FPS / frame time (was "Optimizer")
-7. Software Architect   — every 3 hours  — sonnet ← file splits / modularisation (was "Architect")
-```
+Only cron 1 (Gameplay Engineer) runs frequently — it's the value driver and the one place hourly Opus
+is worth it, so the fleet's steady-state cost is dominated by that single agent. If token budget is
+ever tight, the cheapest lever is dropping the overnight Gameplay runs (00:00–06:00 UTC) to every
+2–3h; the most expensive mistake is putting the Sonnet/Haiku agents back on Opus.
 
 Crons 4 and 5 are **siblings**: both make things faster, but 5 optimizes the _game at runtime_
 (FPS, frame hitches) while 4 optimizes the _pipeline_ (CI wall-clock, build/test speed). Keep them
