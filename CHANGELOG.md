@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.22.0 — 2026-07-20
+
+### Features
+- Developer Diary now records real gameplay GIFs by screen-recording the e2e bot under Xvfb
+
+### Fixes
+- Fix rival name-plate cache thrashing across multiple NPC trains (HashMap-keyed cache)
+- Fix release creation — drop unsupported --repo flag, self-heal unreleased tags
+
+### Performance
+- Avoid per-crab sqrt in NPC train catch/steal range checks
+
+### Refactoring
+- CI: fire tag-and-release after auto-merge, not just on push
+
 ## v0.21.1 — 2026-07-20
 
 ### Performance
