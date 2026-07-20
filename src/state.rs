@@ -1072,6 +1072,11 @@ pub struct MainState {
     // cue: teaches "crack the shell first (Stomp), then lasso" instead of failing silently.
     pub(crate) lasso_shell_deflect_hits_buf: Vec<Vec2>,
     pub(crate) magnet_cluster_hits_buf: Vec<Vec2>,
+    // Scratch per-magnet nearby-crab tally reused by the cluster-detection pass in update_crabs —
+    // sized to magnet_positions_buf and reset to 0 each on-beat frame instead of being freshly
+    // allocated, so the O(magnets) counting loop that replaced the old O(magnets * crabs) scan
+    // doesn't itself become a per-beat-frame Vec allocation.
+    pub(crate) magnet_cluster_counts_buf: Vec<u32>,
     pub(crate) stomp_cracked_buf: Vec<Vec2>,
     // Positions where a shelled Hermit was cracked open THIS frame, from any of its three intended
     // ecosystem verbs (Stomp / Dancer hop / charged Magnet rip). Collected inside the &mut crabs
@@ -1752,6 +1757,7 @@ impl MainState {
             lasso_magnet_hits_buf: Vec::new(),
             lasso_shell_deflect_hits_buf: Vec::new(),
             magnet_cluster_hits_buf: Vec::new(),
+            magnet_cluster_counts_buf: Vec::new(),
             stomp_cracked_buf: Vec::new(),
             hermit_popped_buf: Vec::new(),
             lasso_catch_buf: Vec::new(),
