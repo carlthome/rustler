@@ -108,6 +108,18 @@ Never leave a green, ready PR sitting unmerged. A failing check at any step is t
 re-push, don't merge red. If a check is genuinely stuck/unrelated and you can't get it green after a
 couple of honest tries, say so in a PR comment rather than force-merging.
 
+**Identify _your own_ PRs by branch prefix, not by guessing from titles.** The drain-queue steps below
+tell you to find "PRs from prior <role> runs." Do that deterministically: every routine runs on a stable
+per-routine branch prefix (a `claude/<adjective>-<name>-<suffix>` stem that's constant across your runs and
+unique to you — Performance Engineer has been on `claude/eloquent-allen-*`, Build Engineer on
+`claude/bold-gates-*`). Get yours with `git branch --show-current`, drop the trailing `-<suffix>`, and match
+open PRs whose head branch shares that stem (visible in each `list_pull_requests` entry's `head.ref`). That
+set _is_ your prior PRs — merge/close it per the rules below. Matching on title keywords instead is what
+broke the queue: routines couldn't tell their own stale PRs from a sibling's, so they left them open and
+opened another, shipping the identical fix three times over (the NPC name-cache fix went out as #36, #46,
+and #64; apt-caching re-landed as #44/#50 after #48 already merged). Never close or merge a PR outside your
+own branch-prefix set — that's a sibling routine's work.
+
 ## Agent roster
 
 All eight agents now run as **remote routines** (in Anthropic's cloud, surviving
@@ -322,8 +334,9 @@ cheaper equivalent work — never from checking less.
 Steps:
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Build Engineer PRs — this is step one, not optional.**
-   List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs
-   (CI surface / build-speed / provisioning topics in the title).
+   List open PRs into main with `list_pull_requests`. Identify any from prior Build Engineer runs by
+   your branch-prefix stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* —
+   don't guess from titles; that's what let the queue balloon).
    - **No open Build Engineer PRs:** proceed to step 2.
    - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
      required checks to settle green, squash-merge. The PR's CI run is your before/after benchmark:
@@ -378,8 +391,9 @@ undoing anyone else's work.
 Steps:
 1. `git -C . pull --ff-only`
 1a. **Before doing any new work, drain open Perf Engineer PRs — this is step one, not optional.**
-   List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs
-   (runtime perf / FPS / frame-time / caching / draw-call batching topics in the title).
+   List open PRs into main with `list_pull_requests`. Identify any from prior Performance Engineer runs by
+   your branch-prefix stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* —
+   don't guess from titles; that's what let the queue balloon to a dozen open perf PRs).
    - **No open Perf Engineer PRs:** proceed to step 2.
    - **Exactly one open PR, non-stale base, CI green:** mark it ready (`draft: false`), wait for new
      checks to settle green, squash-merge. Stop here — merging is your whole task this run.
@@ -471,8 +485,9 @@ Steps:
 1. `git -C . pull --ff-only`
 1a. **Before doing any new extraction work, drain the open-PR queue.**
    Use the GitHub MCP `list_pull_requests` tool (not `gh`, which may not be available in the
-   remote sandbox) to list open PRs into `main`. Look for any open structural/module-split PRs
-   (prior Architect runs each open one):
+   remote sandbox) to list open PRs into `main`. Identify prior Architect runs by your branch-prefix
+   stem (see "Merge your green PRs" → *Identify your own PRs by branch prefix* — don't guess from
+   titles). For that set of open structural/module-split PRs:
    - **CI green on the PR**: mark it ready for review (`update_pull_request` with `draft: false`),
      wait for any new required checks that readying triggers to settle green, then squash-merge it.
      That is your whole task this run — stop here, don't open another PR.
