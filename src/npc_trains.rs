@@ -90,6 +90,41 @@ impl MainState {
         }
     }
 
+    /// Bot-test helper (see BotAction::ForceRevengeCross): deterministically stage the *revenge*
+    /// steal-back — thread the player's head through the line of the rival whose revenge marker is
+    /// live (it just spliced your tail) so the steal-back fires with the revenge bonus this frame.
+    /// Mirrors force_player_cross but targets the marked rival specifically, so the revenge path is
+    /// exercised without racing which rival the nearest-with-followers heuristic happens to pick.
+    /// A no-op when no rival is currently revenge-marked with followers, or the player has no train.
+    pub fn force_player_revenge(&mut self) {
+        if self.chain_count < 1 {
+            return;
+        }
+        const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
+        // Pick the rival with the most time left on its revenge marker (the freshest culprit) that
+        // still has followers to rustle back.
+        let ni = (0..self.npc_trains.len())
+            .filter(|&i| {
+                self.npc_trains[i].revenge_timer > 0.0
+                    && !self.npc_trains[i].follower_types.is_empty()
+            })
+            .max_by(|&a, &b| {
+                self.npc_trains[a]
+                    .revenge_timer
+                    .partial_cmp(&self.npc_trains[b].revenge_timer)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab.
+        let mid_fi = self.npc_trains[ni].follower_types.len() / 2;
+        if let Some(&fpos) = self.npc_trains[ni].path_history.get((mid_fi + 1) * STEPS) {
+            self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
+            self.player_steal_cooldown = 0.0;
+        }
+    }
+
     /// Bot-test helper (see BotAction::ForceStealDefense): deterministically stage the defensive
     /// parry. Arm a rival's splice on a mid-chain link, snap the beat into the on-beat window, then
     /// run the real `try_defend_steal` helper (the exact path the Stomp/Wave casts drive) centred on
@@ -298,6 +333,9 @@ impl MainState {
             // rhythmic — never a silent instant strip — is what makes losing crabs read as *earned*
             // (INSPIRATION.md "Legible risk") and land like a drum hit rather than random loss.
             self.npc_trains[i].steal_cooldown = (self.npc_trains[i].steal_cooldown - dt).max(0.0);
+            // Revenge marker burns down: once it lapses the "chase me" ring fades and a steal-back
+            // off this rival is just a normal rustle, not a revenge bonus.
+            self.npc_trains[i].revenge_timer = (self.npc_trains[i].revenge_timer - dt).max(0.0);
             if self.npc_trains[i].steal_cooldown <= 0.0 && self.chain_count > 1 {
                 const STEAL_RANGE: f32 = 58.0;
                 // STEAL_FUSE (telegraph window, ~one beat between arming and the snap) lives in
@@ -402,6 +440,10 @@ impl MainState {
                             self.steal_loss_sfx = true; // play the descending loss sting (has no ctx here)
                             self.npc_trains[i].follower_types.extend(stolen_types);
                             self.npc_trains[i].steal_cooldown = 2.2;
+                            // Mark the culprit for revenge: chase it down and rustle the crabs back
+                            // inside the window for a bonus, so losing crabs opens a duel (ROADMAP
+                            // "you steal, they steal back") rather than a flat tax.
+                            self.npc_trains[i].revenge_timer = REVENGE_WINDOW;
                             // Visual + audio feedback — this is the key threat moment
                             let npc_name = self.npc_trains[i].name.clone();
                             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
@@ -410,6 +452,13 @@ impl MainState {
                                 player_center - Vec2::new(110.0, 55.0),
                                 30.0,
                                 [0.96, 0.72, 0.16, 1.0],
+                            );
+                            // A beat below the loss text: point the player at the counter-play.
+                            self.floating_texts.spawn(
+                                "REVENGE — chase them down!".to_string(),
+                                player_center - Vec2::new(110.0, 20.0),
+                                20.0,
+                                [0.45, 1.0, 0.7, 0.95],
                             );
                             self.screen_shake = self.screen_shake.max(10.0);
                             self.zoom_punch = self.zoom_punch.max(0.08);
@@ -453,6 +502,10 @@ impl MainState {
                 }
                 if let Some(fi) = splice_at {
                     let on_beat = self.on_beat_now();
+                    // Revenge: is this the rival that just spliced your tail? If so the steal-back
+                    // closes a duel and pays a bonus (cleared so it only lands once per marker).
+                    let revenge = self.npc_trains[i].revenge_timer > 0.0;
+                    self.npc_trains[i].revenge_timer = 0.0;
                     // split_off(fi) leaves 0..fi on the rival and returns the back section fi..tail.
                     let stolen = self.npc_trains[i].follower_types.split_off(fi);
                     let stolen_count = stolen.len();
@@ -477,9 +530,20 @@ impl MainState {
                     // racing the live chain count (which banks/snaps drop back to zero).
                     self.crabs_stolen_by_player += stolen_count;
                     self.steal_gain_sfx = true; // play the rising triumphant sting (has no ctx here)
-                    // Reward: stealing feeds the groove (harder on the beat) and banks score.
-                    self.score += stolen_count * if on_beat { 3 } else { 2 };
-                    self.groove = (self.groove + if on_beat { 0.22 } else { 0.10 }).min(1.0);
+                    // Reward: stealing feeds the groove (harder on the beat) and banks score. A
+                    // revenge steal-back (off a rival that just spliced you) pays extra — the payoff
+                    // for closing the loop, so the exchange feels like a fight you won.
+                    if revenge {
+                        self.revenge_steals += 1;
+                    }
+                    let mut score_mult = if on_beat { 3 } else { 2 };
+                    let mut groove_gain = if on_beat { 0.22 } else { 0.10 };
+                    if revenge {
+                        score_mult += 2; // stack the revenge bonus on top of the on-beat bonus
+                        groove_gain += 0.14;
+                    }
+                    self.score += stolen_count * score_mult;
+                    self.groove = (self.groove + groove_gain).min(1.0);
                     if on_beat {
                         self.beat_streak = (self.beat_streak + 1).min(99);
                         self.on_beat_flash = (self.on_beat_flash + 0.4).min(0.8);
@@ -487,7 +551,9 @@ impl MainState {
                     }
                     // Juice — the triumphant counterpart to losing crabs.
                     let npc_name = self.npc_trains[i].name.clone();
-                    let label = if on_beat {
+                    let label = if revenge {
+                        format!("REVENGE! GOT {} BACK!", stolen_count)
+                    } else if on_beat {
                         format!("RUSTLED {} — ON BEAT!", stolen_count)
                     } else {
                         format!("RUSTLED {} from {}!", stolen_count, npc_name)
@@ -495,7 +561,7 @@ impl MainState {
                     self.floating_texts.spawn(
                         label,
                         player_center - Vec2::new(90.0, 60.0),
-                        30.0,
+                        if revenge { 34.0 } else { 30.0 },
                         [0.35, 1.0, 0.55, 1.0],
                     );
                     self.screen_shake = self.screen_shake.max(if on_beat { 10.0 } else { 6.0 });
@@ -845,6 +911,29 @@ impl MainState {
                             .color(Color::new(1.0, 0.92, 0.42, 0.5 + urgency * 0.3)),
                     );
                 }
+            }
+
+            // --- Revenge "chase me" marker ----------------------------------------------------
+            // For a few seconds after a rival splices your tail it wears a beat-pulsed green ring so
+            // you know exactly which train to chase and rustle your crabs back from (ROADMAP: "you
+            // steal, they steal back"). Green reads as "your prize is here" against the red DEFEND
+            // ring's "danger". It expands and fades as the window burns down, urging a fast chase.
+            // Suppressed while a fresh splice is armed so the two rings never fight for the same frame.
+            if npc.revenge_timer > 0.0 && npc.steal_threat <= 0.0 {
+                let life = (npc.revenge_timer / REVENGE_WINDOW).clamp(0.0, 1.0); // 1 fresh → 0 lapsed
+                let beat_phase = (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                let pulse = (beat_phase * std::f32::consts::TAU).cos() * 0.5 + 0.5;
+                let base_r = 40.0 + npc.leader_scale * 12.0;
+                let ring_r = base_r + (1.0 - life) * 22.0 + pulse * 8.0; // grows as it lapses, beats on top
+                let alpha = (0.25 + life * 0.45 + pulse * 0.2).min(0.9);
+                let thickness = 3.0 + pulse * 2.5;
+                let ring = cached_stroke_circle(ctx, ring_r, thickness)?;
+                canvas.draw(
+                    &ring,
+                    DrawParam::default()
+                        .dest(npc.leader_pos)
+                        .color(Color::new(0.3, 1.0, 0.55, alpha)),
+                );
             }
 
             // Name banner floating above the King Crab — a distinct, readable-across-the-field

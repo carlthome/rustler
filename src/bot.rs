@@ -30,6 +30,12 @@ pub enum BotAction {
     // frame. A no-op when the player has no train or no rival has followers left. Fired repeatedly so
     // at least one attempt lands while a chain is present.
     ForcePlayerCross,
+    // Guards the revenge back-and-forth (ROADMAP "you steal, they steal back"): thread the player's
+    // head through the line of the rival whose revenge marker is live (it just spliced your tail) so
+    // the steal-back fires with the revenge bonus. Pair it after a ForceNpcCross, which is what sets
+    // the marker. A no-op unless a revenge-marked rival with followers exists — deterministic, since
+    // timing a chase-down against a wandering rival inside a headless budget isn't reliable.
+    ForceRevengeCross,
     // Guards the defensive parry (ROADMAP "make the defense a real on-beat play"): arm a rival's
     // splice on a mid-chain link, force the beat into the on-beat window, then run the real
     // try_defend_steal helper (the same one the Stomp/Wave casts call) and confirm it cancels the
@@ -60,6 +66,10 @@ pub enum BotAssert {
     /// Monotonic count of armed rival steals the player has parried this run (see
     /// MainState::steals_parried). Asserts the on-beat defensive counter actually cancelled a steal.
     ParriedAtLeast(usize),
+    /// Monotonic count of revenge steal-backs this run (see MainState::revenge_steals). Asserts the
+    /// back-and-forth loop closed: a rival spliced your tail, you chased it down and rustled the
+    /// crabs back inside the revenge window for the bonus.
+    RevengeStealAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -253,6 +263,37 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
+    script
+}
+
+pub fn script_revenge() -> Vec<BotEvent> {
+    // Guards the revenge back-and-forth — the "you steal, they steal back" half of the steal fight
+    // (ROADMAP headline "tune so it's fun, not punishing... a tense back-and-forth"). After a rival
+    // splices your tail it's marked for a few seconds; rustling the crabs back off that same rival
+    // inside the window pays a revenge bonus and increments revenge_steals. That loop had no
+    // coverage, so a refactor could silently break the marker or the bonus. Build a real chain with
+    // the seek-catch autopilot, then repeatedly stage "rival splices you (ForceNpcCross), then chase
+    // it and steal back (ForceRevengeCross)" and assert the revenge steal-back fired. Forcing keeps
+    // it deterministic. Runs at 3x time_scale like npc_steal so the autopilot grows a chain first.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting revenge back-and-forth test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Interleave splice-then-revenge every 0.9s. ForceNpcCross marks the nearest rival and hands it
+    // your tail; ~0.45s later ForceRevengeCross threads your head through that same marked rival so
+    // the steal-back fires inside the 6s revenge window. Each pair is a no-op unless a stealable
+    // chain exists that frame, so firing many times makes at least one land near-certain.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
+        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRevengeCross });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
     script
 }
 

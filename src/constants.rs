@@ -84,6 +84,12 @@ pub const STEAL_FUSE: f32 = 0.55;
 // tense back-and-forth, not a random tax. Shared with the npc_steal bot test so the cap can't
 // silently regress.
 pub const STEAL_MAX_LINKS: usize = 5;
+// Revenge window (seconds): after a rival splices your tail it's marked as a revenge target for
+// this long. Rustling crabs back off a still-marked rival inside the window pays a bonus (extra
+// score + groove, a distinct "GOT 'EM BACK!" cue) and a beat-pulsed marker rings the culprit so
+// you know which rival to chase. This is what turns the steal from two disconnected verbs into a
+// back-and-forth duel (ROADMAP steal headline: "you steal, they steal back", not a random tax).
+pub const REVENGE_WINDOW: f32 = 6.0;
 // Defensive parry reach: how close a rival leader must be to a tool cast to be repelled. Stomp is
 // the up-close bodyguard (short, punchy); the Beat Wave is the wide ranged save. This is the tool
 // identity — Stomp defends what's on top of you, the Wave sweeps a threat off from across the lane.

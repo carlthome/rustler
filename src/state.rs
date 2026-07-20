@@ -227,6 +227,10 @@ pub struct NpcCongaTrain {
     pub steal_target: usize,
     /// Time since this NPC last caught a free crab (throttles free-crab collection).
     pub catch_cooldown: f32,
+    /// Revenge marker: >0 for a few seconds after this rival splices your tail. While it's live the
+    /// rival wears a beat-pulsed "chase me" ring and a steal-back off it pays a revenge bonus, so
+    /// losing crabs opens a duel instead of just taxing you (see REVENGE_WINDOW).
+    pub revenge_timer: f32,
 }
 
 /// Generate a King Crab name. Hits four tones: Dark Souls boss grandiosity, crab rave energy,
@@ -372,6 +376,7 @@ impl NpcCongaTrain {
             steal_threat: 0.0,
             steal_target: 0,
             catch_cooldown: 0.0,
+            revenge_timer: 0.0,
         }
     }
 }
@@ -498,6 +503,10 @@ pub struct MainState {
     /// cast on a threatened tail cancels the splice (see `try_defend_steal`). Never drops, so the bot
     /// playtests can assert the defensive counter fired without racing the live chain count.
     pub(crate) steals_parried: usize,
+    /// Monotonic count of revenge steal-backs this run — a steal-back rustled off a rival while its
+    /// revenge marker was still live (it had just spliced your tail). Never drops, so the bot
+    /// playtests can assert the back-and-forth revenge loop fired without racing the live chain.
+    pub(crate) revenge_steals: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1498,6 +1507,7 @@ impl MainState {
             max_single_steal_by_npc: 0,
             crabs_stolen_by_player: 0,
             steals_parried: 0,
+            revenge_steals: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             beat_timer: detected_beat_interval,
