@@ -132,15 +132,21 @@ jobs:
               core.info('A release-failure issue is already open; not duplicating.');
               return;
             }
-            await github.rest.issues.create({
-              owner, repo, title,
-              body: [
-                `The **Tag and Release** workflow failed for \`${tag}\`.`,
-                '',
-                'The version bump is on `main` but the GitHub Release was **not** published.',
-                'This is a top-priority Build Engineer fix (CI correctness before speed).',
-                '',
-                `Failed run: ${runUrl}`,
-              ].join('\n'),
-            });
+            const body = [
+              `The **Tag and Release** workflow failed for \`${tag}\`.`,
+              '',
+              'The version bump is on `main` but the GitHub Release was **not** published.',
+              'This is a top-priority Build Engineer fix (CI correctness before speed).',
+              '',
+              `Failed run: ${runUrl}`,
+            ].join('\n');
+            // Label `build` so a Build-Engineer issue trigger picks it up. Fall
+            // back to no label if the label doesn't exist yet, so a labeling
+            // hiccup never stops the issue from being filed.
+            try {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['build'] });
+            } catch (e) {
+              core.info(`create with label failed (${e.message}); retrying without label`);
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
             core.setFailed(`Release failed for ${tag} — opened tracking issue.`);
