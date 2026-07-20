@@ -334,23 +334,32 @@ Steps:
 1. `git -C . pull --ff-only`
 2. Read recent commits: `git -C . log --oneline -20` and summarize
    what changed since your last post in 2-4 friendly, non-technical sentences.
-3. Try to capture a fresh screenshot so the update isn't just text:
-   a. Build if needed: `nix develop . --command cargo build`
-   b. Launch the built binary offscreen for a couple seconds and grab a frame, e.g.
-      `xvfb-run -a nix develop . --command ./target/debug/rustler` backgrounded, then
-      `import -window root screenshots/latest.png` (or `grim`/`scrot`, whatever's available),
-      then kill the game process.
-   c. Overwrite `screenshots/latest.png` in place (don't accumulate timestamped files —
-      keep repo size down) and commit + push it:
-        git -C . add screenshots/latest.png && git -C . commit -m "Update screenshot" && git -C . push origin main
-   d. This only works headless if the GPU driver supports offscreen rendering — if capture
-      fails for any reason, skip it and just post text. Never let a failed screenshot block
-      the update. Do NOT take a screenshot of the desktop — only capture the game window.
+3. Try to capture a fresh gameplay GIF so the update isn't just text. Use the helper script —
+   it drives the e2e playtest bot to produce REAL gameplay, renders it to a headless virtual
+   display, and screen-records that into a small looping GIF:
+   a. Run it: `bash scripts/record-gameplay.sh` (defaults: npc_steal scenario -> screenshots/latest.gif,
+      6s @ 8fps, 320px, ~0.5MB). Pass a scenario to show a specific mechanic, e.g.
+      `bash scripts/record-gameplay.sh player_steal` (steal-back), `menu_to_game` (catching loop),
+      `campaign_tutorial` (on-beat tutorial). It builds the game, provisions ffmpeg if missing,
+      and cleans up its own Xvfb/game processes.
+      - WHY the bot: it plays the game for you, so the clip shows the actual catch/train/steal
+        loop. Under RUSTLER_RECORD the bot renders the real scene at 1x speed instead of the
+        headless-fast black-screen skip it uses for playtests (see src/main.rs) — that env var is
+        the ONLY behaviour change and leaves the playtests byte-identical.
+      - The script self-checks the output size and exits non-zero on an empty/black grab. If it
+        fails for ANY reason, skip the GIF and just post text — never let a failed capture block
+        the update.
+   b. Overwrite `screenshots/latest.gif` in place (the script's default output — don't accumulate
+      timestamped files, keep repo size down) and commit + push it:
+        git -C . add screenshots/latest.gif && git -C . commit -m "Update gameplay GIF" && git -C . push origin main
+   c. Low quality is fine and intended — the goal is just to SEE a mechanic move (catching a crab,
+      a train forming, a steal), not a pretty render.
 4. Post to the Crab Rustler updates channel via the Slack MCP tool (slack_send_message):
    - channel_id: C05MAD5MA4F (Crab Rustler updates, workspace T05N3J5F70R)
    - Compose a 2-4 sentence summary of the changes (see step 2) in an upbeat, friendly tone
-   - If step 3 produced a fresh screenshot, include its raw GitHub URL on its own line so 
-     Slack unfurls it inline: https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.png
+   - If step 3 produced a fresh GIF, include its raw GitHub URL on its own line so Slack unfurls
+     it inline (raw GitHub GIFs animate in Slack):
+     https://raw.githubusercontent.com/carlthome/rustler/main/screenshots/latest.gif
    - **CRITICAL:** Do not skip or claim to have posted without making the actual tool call. 
      Wait for the tool result confirming the message_link before proceeding.
    - If the Slack connection fails, try once more. If it fails again, note the failure in 

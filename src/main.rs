@@ -8340,8 +8340,10 @@ impl EventHandler for MainState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
-        // Bot mode: skip all rendering to run at maximum speed.
-        if self.bot.is_some() {
+        // Bot mode: skip all rendering to run at maximum speed — UNLESS we're recording a
+        // gameplay clip (RUSTLER_RECORD set), in which case a bot drives real gameplay and we
+        // want the scene on screen for a screen-recorder to capture.
+        if self.bot.is_some() && std::env::var_os("RUSTLER_RECORD").is_none() {
             let mut canvas = Canvas::from_frame(ctx, ggez::graphics::Color::BLACK);
             canvas.finish(ctx)?;
             return Ok(());
@@ -8573,10 +8575,16 @@ fn main() -> GameResult {
         // ON-BEAT catches, which the autopilot lands by volume (a steady stream of whistle catches at
         // a ~30% on-beat rate); its script leaves a wide time margin so even an unlucky low-rate run
         // banks 3 on-beat catches and returns to the world map before the final assert.
-        state.time_scale = match name.as_str() {
-            "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-            | "steal_defense" | "steal_dodge" | "revenge" | "npc_vs_npc" => 3.0,
-            _ => 8.0,
+        state.time_scale = if std::env::var_os("RUSTLER_RECORD").is_some() {
+            // Recording a shareable clip: run at real time so the captured gameplay looks
+            // natural rather than the sped-up pace the headless playtests use.
+            1.0
+        } else {
+            match name.as_str() {
+                "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
+                | "steal_defense" | "steal_dodge" | "revenge" | "npc_vs_npc" => 3.0,
+                _ => 8.0,
+            }
         };
         state.bot = Some(match name.as_str() {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
