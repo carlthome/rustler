@@ -18,6 +18,12 @@ on:
         description: "The vX.Y.Z tag to build and publish a release for"
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The vX.Y.Z tag to build and publish a release for (must already exist)"
+        required: true
+        type: string
 
 jobs:
   build:
@@ -106,7 +112,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${TAG}" rustler-*.tar.gz \
-            --repo "${{ github.repository }}" \
             --title "Crab Rustler ${TAG}" \
             --verify-tag \
             --notes-from-tag \
