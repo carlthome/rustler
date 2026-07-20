@@ -507,6 +507,11 @@ pub struct MainState {
     /// revenge marker was still live (it had just spliced your tail). Never drops, so the bot
     /// playtests can assert the back-and-forth revenge loop fired without racing the live chain.
     pub(crate) revenge_steals: usize,
+    /// Monotonic count of armed rival steals the player *slipped* this run by yanking the threatened
+    /// tail clear of the rival's reach before the snap (the reroute defense — see the fizzle path in
+    /// `update_npc_trains`). Never drops, so the bot playtests can assert the spatial escape fired
+    /// without racing the live chain count.
+    pub(crate) steals_evaded: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1508,6 +1513,7 @@ impl MainState {
             crabs_stolen_by_player: 0,
             steals_parried: 0,
             revenge_steals: 0,
+            steals_evaded: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             beat_timer: detected_beat_interval,

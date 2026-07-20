@@ -42,6 +42,12 @@ pub enum BotAction {
     // steal. A no-op when the player has no stealable chain. Deterministic — timing an on-beat tool
     // cast against an RNG-armed steal inside a headless budget isn't reliable, so we stage it.
     ForceStealDefense,
+    // Guards the reroute defense (ROADMAP "an on-beat defensive reroute ... should cancel or reduce
+    // the steal"): arm a rival's splice on a mid-chain link, then yank the rival's leader to the far
+    // corner so the threatened tail is out of reach when the next update runs and the steal fizzles.
+    // Confirms the spatial-escape path (steals_evaded rises). A no-op when the player has no stealable
+    // chain. Deterministic — out-maneuvering a wandering rival by chance isn't reliable headless.
+    ForceStealEvade,
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +76,10 @@ pub enum BotAssert {
     /// back-and-forth loop closed: a rival spliced your tail, you chased it down and rustled the
     /// crabs back inside the revenge window for the bonus.
     RevengeStealAtLeast(usize),
+    /// Monotonic count of armed rival steals the player slipped by yanking the threatened tail clear
+    /// before the snap (see MainState::steals_evaded). Asserts the reroute/spatial-escape defense
+    /// actually fizzled a steal.
+    EvadedAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
     TutorialActive,
@@ -263,6 +273,36 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
+    script
+}
+
+pub fn script_steal_evade() -> Vec<BotEvent> {
+    // Guards the reroute defense — the spatial half of the steal fight (ROADMAP headline "an on-beat
+    // defensive reroute ... should cancel or reduce the steal"; INSPIRATION.md "a lazy spiral is easy
+    // to slice"). Yanking the threatened tail clear of a rival's reach before the snap fizzles its
+    // armed splice (the reroute-fizzle path in update_npc_trains) — a defense that isn't a tool cast,
+    // so a refactor could silently break it. Mirrors script_steal_defense: build a real player chain
+    // with the seek-catch autopilot, then repeatedly stage "arm a steal, then teleport the rival out
+    // of reach" (ForceStealEvade) and assert the steal fizzled (steals_evaded rises) without crashing.
+    // Forcing keeps it deterministic — out-maneuvering a wandering rival by chance isn't reliable
+    // headless. Runs at 3x time_scale like npc_steal so the autopilot's proximity catch grows a chain.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting steal-evade (reroute) test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+    ];
+    // Stage arm+escape every 0.9s across a wide window. Each attempt is a no-op unless a stealable
+    // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
+    // lands while the seek-catch chain is alive.
+    let mut t = 14.0_f32;
+    while t < 46.0 {
+        script.push(BotEvent { at: t, action: BotAction::ForceStealEvade });
+        t += 0.9;
+    }
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::EvadedAtLeast(1)) });
     script
 }
 

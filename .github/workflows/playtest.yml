@@ -30,6 +30,7 @@ jobs:
             npc_steal,
             player_steal,
             steal_defense,
+            steal_evade,
             revenge,
           ]
     steps:

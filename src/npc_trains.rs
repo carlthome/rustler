@@ -167,6 +167,58 @@ impl MainState {
         self.try_defend_steal(center, 400.0, "STOMP");
     }
 
+    /// Bot-test helper (see BotAction::ForceStealEvade): deterministically stage the reroute defense.
+    /// Arm a rival's splice on a mid-chain link (as a real thread would), then yank the rival's leader
+    /// to the far corner so on the next `update_npc_trains` the threatened tail is clear of its reach
+    /// and the steal FIZZLES — the exact spatial-escape path a player earns by out-maneuvering a rival.
+    /// A no-op when there's nothing stealable (no NPC trains, or a chain shorter than 2).
+    pub fn force_steal_evade(&mut self) {
+        if self.npc_trains.is_empty() || self.chain_count < 2 {
+            return;
+        }
+        let mid = self.chain_count / 2;
+        let target = self
+            .crabs
+            .iter()
+            .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx > 0))
+            .min_by_key(|c| c.chain_index.unwrap().abs_diff(mid))
+            .map(|c| (c.pos, c.chain_index.unwrap()));
+        let Some((target_pos, target_idx)) = target else {
+            return;
+        };
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Arm the splice at the mid link, then teleport the leader to whichever world corner is
+        // farthest from that link — well past ESCAPE_RANGE, so the reroute-fizzle path fires.
+        self.npc_trains[ni].steal_threat = STEAL_FUSE - 0.13; // past the telegraph-shown gate already
+        self.npc_trains[ni].steal_target = target_idx;
+        self.npc_trains[ni].steal_cooldown = 0.0;
+        let margin = 80.0;
+        let corners = [
+            Vec2::new(margin, margin),
+            Vec2::new(self.world_width - margin, margin),
+            Vec2::new(margin, self.world_height - margin),
+            Vec2::new(self.world_width - margin, self.world_height - margin),
+        ];
+        let far = corners
+            .into_iter()
+            .max_by(|a, b| {
+                a.distance_squared(target_pos)
+                    .partial_cmp(&b.distance_squared(target_pos))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(Vec2::new(margin, margin));
+        self.npc_trains[ni].leader_pos = far;
+        self.npc_trains[ni].idle_timer = 0.0;
+    }
+
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
@@ -387,6 +439,49 @@ impl MainState {
                         }
                     }
                 } else {
+                    // --- Reroute defense: the spatial half of contesting a steal ------------------
+                    // Once armed, the splice is latched to a link index and would otherwise snap on
+                    // the beat no matter where that link drifts. But routing should be a real defense
+                    // (INSPIRATION.md "a lazy spiral is easy to slice"; ROADMAP "an on-beat defensive
+                    // reroute ... should cancel or reduce the steal"): if the player yanks the whole
+                    // threatened tail clear of the rival's reach before the snap, the steal FIZZLES.
+                    // `splice_at` is None the moment no link sits within STEAL_RANGE; we then confirm
+                    // the nearest threatened link has truly escaped (beyond ESCAPE_RANGE, a bit past
+                    // arm range so a link grazing the edge doesn't count) rather than jittered a pixel.
+                    if splice_at.is_none() {
+                        const ESCAPE_RANGE: f32 = STEAL_RANGE * 1.8;
+                        let latched = self.npc_trains[i].steal_target;
+                        let nearest = self
+                            .crabs
+                            .iter()
+                            .filter(|c| c.caught && c.chain_index.map_or(false, |idx| idx >= latched))
+                            .map(|c| npc_pos.distance(c.pos))
+                            .fold(f32::INFINITY, f32::min);
+                        if nearest > ESCAPE_RANGE {
+                            // Slipped it. Clear the telegraph and give the rival a brief regroup so it
+                            // can't instantly re-arm on the same pass — the reward for out-maneuvering.
+                            self.npc_trains[i].steal_threat = 0.0;
+                            self.npc_trains[i].steal_cooldown = 1.4;
+                            self.steals_evaded += 1;
+                            // A clean defensive read feeds the groove a touch — smaller than a tool
+                            // parry, which also opens a counter-steal window; slipping is the safe
+                            // option, not the aggressive one. Rhythm-flavored: the escape is usually a
+                            // Groove Dash away.
+                            self.groove = (self.groove + 0.08).min(1.0);
+                            let npc_name = self.npc_trains[i].name.clone();
+                            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                            self.floating_texts.spawn(
+                                format!("SLIPPED {}!", npc_name),
+                                player_center - Vec2::new(72.0, 60.0),
+                                24.0,
+                                [0.55, 0.95, 1.0, 1.0],
+                            );
+                            if self.catch_shockwaves.len() < 48 {
+                                self.catch_shockwaves.push((npc_pos, 0.0, [0.55, 0.95, 1.0]));
+                            }
+                            continue;
+                        }
+                    }
                     // Armed: creep the latched target forward if the NPC threaded closer to the head
                     // (a deeper cut steals more), tremble the threatened crabs as the telegraph, and
                     // snap on the beat once the warning has shown a moment — or when the fuse runs out.

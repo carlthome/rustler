@@ -3679,6 +3679,7 @@ impl MainState {
         self.max_single_steal_by_npc = 0;
         self.crabs_stolen_by_player = 0;
         self.steals_parried = 0;
+        self.steals_evaded = 0;
         self.player_steal_cooldown = 0.0;
         self.tail_run_len = 0;
         self.kelp_snag_warn = 0.0;
@@ -6549,6 +6550,9 @@ impl MainState {
                 BotAction::ForceStealDefense => {
                     self.force_steal_defense();
                 }
+                BotAction::ForceStealEvade => {
+                    self.force_steal_evade();
+                }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                 }
@@ -6562,6 +6566,7 @@ impl MainState {
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
                         BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
                         BotAssert::RevengeStealAtLeast(n) => self.revenge_steals >= *n,
+                        BotAssert::EvadedAtLeast(n) => self.steals_evaded >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
@@ -9317,6 +9322,7 @@ fn main() -> GameResult {
         use bot::{
             BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
             script_npc_steal, script_player_steal, script_revenge, script_steal_defense,
+            script_steal_evade,
         };
         // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
         // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
@@ -9326,7 +9332,7 @@ fn main() -> GameResult {
         // banks 3 on-beat catches and returns to the world map before the final assert.
         state.time_scale = match name.as_str() {
             "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-            | "steal_defense" | "revenge" => 3.0,
+            | "steal_defense" | "steal_evade" | "revenge" => 3.0,
             _ => 8.0,
         };
         state.bot = Some(match name.as_str() {
@@ -9335,6 +9341,7 @@ fn main() -> GameResult {
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
             "player_steal" => BotState::new(script_player_steal(), 58.0),
             "steal_defense" => BotState::new(script_steal_defense(), 58.0),
+            "steal_evade" => BotState::new(script_steal_evade(), 58.0),
             "revenge" => BotState::new(script_revenge(), 58.0),
             "groove_dash" => BotState::new(script_groove_dash(), 10.0),
             other => {
