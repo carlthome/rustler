@@ -8822,6 +8822,46 @@ pub fn draw_whistle_dancer_match(
     Ok(())
 }
 
+/// Cyan "flushed out and reeled in" burst when the Whistle sweeps a skittish Sneaky crab — the
+/// whistle's flagship soft-RPS match (it folds hardest of all but the Golden, whistle_pull 1.5).
+/// Deliberately distinct from whistle/Golden (outward star glints) and whistle/Dancer (orbiting
+/// arcs): short ticks at the rim pointing INWARD, converging on the crab, so it reads as "yanked
+/// out of hiding and reeled toward you." An on-beat cast (`on_beat` true) flares brighter and wider
+/// — the beat-synced version, so gathering skittish crabs on the beat lands like a drum hit.
+pub fn draw_whistle_sneaky_match(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)],
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        let flare = if on_beat { 1.35 } else { 1.0 };
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Cyan inner bloom — the skittish crab caught in the sweep.
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(13.0 * flare))
+            .color(Color::new(0.5, 0.95, 1.0, 0.80)));
+        canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(28.0 * flare))
+            .color(Color::new(0.45, 0.9, 1.0, 0.22)));
+        // 6 short "reel-in" ticks at the rim, oriented radially so they read as converging inward
+        // on the crab — the sweep dragging the skittish thing toward the player.
+        for i in 0..6u32 {
+            let angle = i as f32 * std::f32::consts::TAU / 6.0;
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let outer = 30.0 * flare;
+            let len = 12.0 * flare;
+            // Place the dash just inside the rim, centred so it points at pos.
+            let mid = pos + dir * (outer - len * 0.5);
+            canvas.draw(sq, DrawParam::default()
+                .dest(mid).scale(Vec2::new(len, 2.0))
+                .rotation(angle).offset(Vec2::new(0.5, 0.5))
+                .color(Color::new(0.6, 0.96, 1.0, 0.78)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 /// Cyan magnetic-surge burst when the Lasso snags a Magnet — tells the player that dragging
 /// this Magnet through the herd will vacuum up surrounding crabs (the pied-piper power play).
 /// Uses concentric field rings and outward arc-lines to read as "magnetic field energised."

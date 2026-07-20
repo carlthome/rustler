@@ -118,7 +118,7 @@ use crate::graphics::{
     draw_lasso_magnet_match,
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
-    draw_whistle_golden_pull, draw_whistle_shell_deflect,
+    draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
 };
 use crate::hud_cache::{
     CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
@@ -4928,6 +4928,9 @@ impl MainState {
         if !self.whistle_dancer_hits_buf.is_empty() {
             draw_whistle_dancer_match(ctx, canvas, &self.whistle_dancer_hits_buf)?;
         }
+        if !self.whistle_sneaky_hits_buf.is_empty() {
+            draw_whistle_sneaky_match(ctx, canvas, &self.whistle_sneaky_hits_buf)?;
+        }
 
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
@@ -6094,6 +6097,7 @@ impl EventHandler for MainState {
         self.stomp_armored_hits_buf.clear();
         self.whistle_golden_hits_buf.clear();
         self.whistle_dancer_hits_buf.clear();
+        self.whistle_sneaky_hits_buf.clear();
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -7671,6 +7675,13 @@ impl EventHandler for MainState {
                     // Dancer pulled by whistle — rhythm tool meets rhythm crab, show the harmony.
                     if crab.is_dancer() && self.whistle_dancer_hits_buf.len() < 10 {
                         self.whistle_dancer_hits_buf.push(crab.pos);
+                    }
+                    // Sneaky flushed out and reeled in — the whistle's FLAGSHIP match (folds hardest
+                    // of all but the Golden, whistle_pull 1.5). This was the one whistle strong-match
+                    // still missing a tell; show it, and flag on-beat casts so the burst flares
+                    // brighter on the beat ("gather skittish crabs on the beat" reads as a drum hit).
+                    if crab.is_sneaky() && self.whistle_sneaky_hits_buf.len() < 12 {
+                        self.whistle_sneaky_hits_buf.push((crab.pos, on_beat_cast));
                     }
                     // WRONG-TOOL tell: the sonic pulse pings off a still-shelled crab (Armored /
                     // shelled Hermit) instead of charming it — pull is only a token 0.3 ("barely
