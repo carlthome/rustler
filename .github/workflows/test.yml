@@ -3,10 +3,8 @@ name: Test
 on:
   push:
     branches: [main]
-    paths-ignore: ['**.md']
   pull_request:
     branches: [main]
-    paths-ignore: ['**.md']
 
 # Cancel superseded runs on the same PR when new commits land; let main runs
 # complete so every merged commit is verified.
@@ -15,7 +13,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Detect whether anything other than Markdown changed. Docs-only PRs skip the
+  # expensive steps below, but the `build` job still runs and reports success — so
+  # the required `build` status check is present + green and branch protection /
+  # auto-merge stay satisfied (unlike paths-ignore, which omits the check entirely
+  # and blocks docs PRs). Native git diff, no external action.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect non-Markdown changes
+        id: detect
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$BASE" ]; then BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"; fi
+          # Default to running everything if the base can't be resolved (safe).
+          if [ -z "$BASE" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "Changed files:"; echo "$CHANGED"
+          # code=true unless EVERY changed file ends in .md (empty diff → true, safe).
+          if [ -z "$CHANGED" ] || echo "$CHANGED" | grep -qvE '\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false (docs-only)"; echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -55,12 +87,15 @@ jobs:
       # this gate runs on plain cargo (no Nix). The heavy `nix build` package
       # verification moved to nix.yml, which runs post-merge on main only.
       - name: Install system dependencies
+        if: needs.changes.outputs.code == 'true'
         run: bash scripts/ci-deps.sh
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: cargo build
 
       # Headless unit tests — they verify mechanic predicates like
       # Tutorial::passed() so a broken mechanic fails CI, not just a failed build.
       - name: Test
+        if: needs.changes.outputs.code == 'true'
         run: cargo test

@@ -20,7 +20,7 @@ gameplay:
   - changed-files:
       - any-glob-to-any-file: ['src/**']
 
-ci:
+build:
   - changed-files:
       - any-glob-to-any-file:
           - '.github/**'

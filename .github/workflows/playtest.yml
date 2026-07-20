@@ -3,10 +3,8 @@ name: Playtest
 on:
   push:
     branches: [main]
-    paths-ignore: ['**.md']
   pull_request:
     branches: [main]
-    paths-ignore: ['**.md']
 
 # Cancel superseded runs on the same PR when new commits land; let main runs
 # complete so every merged commit is verified.
@@ -15,7 +13,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # See test.yml — docs-only PRs skip the expensive steps but the playtest jobs
+  # still run and report success, keeping the required checks present + green.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect non-Markdown changes
+        id: detect
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$BASE" ]; then BASE="${{ github.event.before }}"; HEAD="${{ github.sha }}"; fi
+          if [ -z "$BASE" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "Changed files:"; echo "$CHANGED"
+          if [ -z "$CHANGED" ] || echo "$CHANGED" | grep -qvE '\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false (docs-only)"; echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   playtest:
+    needs: changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,9 +99,11 @@ jobs:
       # Install the system libraries from default.nix via apt and configure a
       # headless null-audio device (no Nix in this job — see PR #16).
       - name: Install system dependencies
+        if: needs.changes.outputs.code == 'true'
         run: bash scripts/ci-deps.sh
 
       # scripts/playtest.sh auto-detects the absence of Nix and falls back to
       # plain cargo, wrapping the bot in xvfb with a software GL backend.
       - name: Build and run playtest
+        if: needs.changes.outputs.code == 'true'
         run: bash scripts/playtest.sh ${{ matrix.scenario }}
