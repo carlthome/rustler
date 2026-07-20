@@ -119,6 +119,7 @@ use crate::graphics::{
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
     draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
+    draw_whistle_thief_match,
 };
 use crate::hud_cache::{
     CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
@@ -4931,6 +4932,9 @@ impl MainState {
         if !self.whistle_sneaky_hits_buf.is_empty() {
             draw_whistle_sneaky_match(ctx, canvas, &self.whistle_sneaky_hits_buf)?;
         }
+        if !self.whistle_thief_hits_buf.is_empty() {
+            draw_whistle_thief_match(ctx, canvas, &self.whistle_thief_hits_buf)?;
+        }
 
         // Draw the rhythm Call summon pulse — magenta rings collapsing toward the player.
         if self.call_pulse > 0.0 {
@@ -6098,6 +6102,7 @@ impl EventHandler for MainState {
         self.whistle_golden_hits_buf.clear();
         self.whistle_dancer_hits_buf.clear();
         self.whistle_sneaky_hits_buf.clear();
+        self.whistle_thief_hits_buf.clear();
 
         // Perf instrumentation (debug builds only): track average + worst frame time over a
         // rolling ~2s window and print it, so optimization passes have real numbers instead of
@@ -7712,6 +7717,14 @@ impl EventHandler for MainState {
                     //   - OFF BEAT: it only loosens the grip — the latch timer is pushed back so you
                     //     buy a beat, but the Thief stays on your tail and will bite again.
                     if crab.is_latched() {
+                        // Strong-match tell (whistle_pull 1.3, "yanks it off your tail nicely"): the
+                        // one whistle strong-match without a dedicated burst, and — off the beat — the
+                        // only Thief counterplay that was visually silent (the on-beat rip already pops
+                        // "THIEF NABBED!"). Show a severed-tether burst on EVERY flick at a latched
+                        // Thief so the grip breaking reads either way, bright on-beat vs dim off-beat.
+                        if self.whistle_thief_hits_buf.len() < 12 {
+                            self.whistle_thief_hits_buf.push((crab.pos, on_beat_cast));
+                        }
                         if on_beat_cast {
                             crab.latch_timer = 0.0;
                             thief_snatched.push((i, crab.pos));
