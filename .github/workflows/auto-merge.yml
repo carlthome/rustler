@@ -5,22 +5,29 @@ name: Auto-merge
 # The routine harness opens every agent PR as a *draft* into `main` and expects
 # the opening agent to come back across a stateless restart to mark-ready → wait
 # → squash-merge. That return trip is exactly what keeps failing, so green PRs
-# pile up (see AGENTS.md "Merge your green PRs"). This workflow does the merge
-# instead — it re-evaluates whenever a PR goes ready or its CI finishes, and
-# squash-merges any PR that clears every gate. It does the same thing repo-native
-# auto-merge would, so it heals the queue whether or not that toggle is ever set.
+# pile up (see AGENTS.md "Merge your green PRs"). This workflow does both halves
+# instead — it re-evaluates whenever a PR goes ready or its CI finishes, then:
+#   * auto-READIES any green `claude/*` draft (the flip the opening agent owes but
+#     never returns to make — done via the GraphQL markPullRequestReadyForReview
+#     mutation, since the REST API can't toggle draft state), and
+#   * squash-MERGES any non-draft PR that clears every gate.
+# It does the same thing repo-native auto-merge would, so it heals the queue
+# whether or not that toggle is ever set.
 #
-# Conservative by construction — it merges a PR ONLY when ALL of these hold:
-#   * not a draft
+# Conservative by construction — a draft is only readied, and a PR is only
+# merged, when ALL of these hold:
 #   * base branch is `main`
 #   * head branch starts with `claude/` (the harness prefix — this keeps it off
 #     Carl's and Copilot's PRs)
 #   * the `build` check (Test workflow) is green
 #   * every `playtest (...)` matrix check is green, and no check is failing or
 #     still running
-#   * the branch is not behind `main` (if it is, it update-branches and lets the
-#     next trigger retry) and has no conflicts
-# Anything else is skipped silently. It never force-merges a red or stale PR.
+# Merging additionally requires the branch to be current with `main` (if it is
+# behind, it update-branches and lets the next trigger retry) and conflict-free.
+# Anything else is skipped silently. It never force-merges a red or stale PR, and
+# readying a green draft is safe: the merge gate still refuses anything not
+# cleanly mergeable, so a stale one just becomes an ordinary behind/dirty PR the
+# merge gate already handles.
 
 on:
   pull_request:
@@ -63,7 +70,7 @@ jobs:
               const tag = `#${pr.number} (${pr.head.ref})`;
 
               // --- static gates ---------------------------------------------
-              if (pr.draft) { core.info(`${tag} skip: draft`); continue; }
+              // Note: draft is NOT a skip here — a green draft gets readied below.
               if (pr.base.ref !== 'main') { core.info(`${tag} skip: base ${pr.base.ref}`); continue; }
               if (!pr.head.ref.startsWith('claude/')) {
                 core.info(`${tag} skip: head not claude/*`);
@@ -105,6 +112,29 @@ jobs:
               const hasPlaytest = green.some((n) => n.startsWith('playtest'));
               if (!hasBuild || !hasPlaytest) {
                 core.info(`${tag} skip: required checks missing (build:${hasBuild} playtest:${hasPlaytest})`);
+                continue;
+              }
+
+              // --- draft-ready gate -----------------------------------------
+              // A green draft is the hand-off the opening agent never returns to
+              // make. Flip it ready (REST can't set draft state, so use GraphQL);
+              // the resulting ready_for_review event re-triggers this workflow,
+              // which then runs the merge path below on the now-non-draft PR.
+              if (pr.draft) {
+                core.info(`${tag} green draft → marking ready for review`);
+                try {
+                  await github.graphql(
+                    `mutation($id: ID!) {
+                       markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+                         pullRequest { number }
+                       }
+                     }`,
+                    { id: pr.node_id },
+                  );
+                  core.info(`${tag} readied ✅ (merge retries on the ready event)`);
+                } catch (e) {
+                  core.info(`${tag} mark-ready failed: ${e.message}`);
+                }
                 continue;
               }
 
