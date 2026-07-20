@@ -16,6 +16,43 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+/// Empty-batch guard for ggez's `Canvas::draw_instanced_mesh`.
+///
+/// ggez panics with `assertion failed: capacity > 0` (instance.rs:77) if you draw an
+/// `InstanceArray` whose param list is empty: `flush_wgpu` rebuilds the GPU buffer at
+/// `len` on every draw, and `new_wgpu(.., 0, ..)` asserts `capacity > 0`. Our batched
+/// draws routinely `.set()` a filtered iterator that can come out empty (a LOD tier with
+/// no crabs, a terrain pool the biome lacks, trails all fully retracted), so any such
+/// draw is a latent crash — one that headless playtests can't catch because the bot
+/// `draw()` returns before the scene render.
+///
+/// This trait centralizes the fix: call `draw_instanced_mesh_guarded` everywhere instead
+/// of ggez's method and an empty batch simply renders nothing (which is what it would have
+/// drawn anyway) rather than panicking. Immunizes every call site at once.
+pub(crate) trait InstancedMeshExt {
+    fn draw_instanced_mesh_guarded(
+        &mut self,
+        mesh: Mesh,
+        instances: &InstanceArray,
+        param: impl Into<DrawParam>,
+    );
+}
+
+impl InstancedMeshExt for Canvas {
+    #[inline]
+    fn draw_instanced_mesh_guarded(
+        &mut self,
+        mesh: Mesh,
+        instances: &InstanceArray,
+        param: impl Into<DrawParam>,
+    ) {
+        if instances.instances().is_empty() {
+            return;
+        }
+        self.draw_instanced_mesh(mesh, instances, param);
+    }
+}
+
 // Terrain / biome ground-layer rendering (tide pools, boss fissures, rock & kelp patches)
 // lives in its own file. Re-exported so every `graphics::draw_*` call-site path is unchanged.
 mod terrain;
@@ -548,7 +585,7 @@ pub fn flush_crab_legs(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResu
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(unit_line, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_line, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -576,7 +613,7 @@ pub fn flush_crab_bodies(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameRe
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -606,7 +643,7 @@ pub fn flush_golden_sparkles(ctx: &mut Context, canvas: &mut Canvas) -> ggez::Ga
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -635,7 +672,7 @@ pub fn flush_beat_coronas(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameR
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -663,7 +700,7 @@ pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -687,7 +724,7 @@ pub fn flush_catch_next_ticks(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(tick_mesh, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(tick_mesh, instances, DrawParam::default());
             Ok(())
         })?;
         params.clear();
@@ -715,7 +752,7 @@ pub fn flush_centerpiece_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(dot_mesh, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(dot_mesh, instances, DrawParam::default());
             Ok(())
         })?;
         canvas.set_blend_mode(orig_blend);
@@ -745,7 +782,7 @@ pub fn flush_attracted_crab_glows(ctx: &mut Context, canvas: &mut Canvas) -> gge
                 let Some(mesh) = mesh else { continue };
                 let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
-                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })?;
@@ -765,7 +802,7 @@ pub fn flush_attracted_crab_glows(ctx: &mut Context, canvas: &mut Canvas) -> gge
                 let Some(mesh) = mesh else { continue };
                 let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
-                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })?;
@@ -808,7 +845,7 @@ pub fn flush_magnet_auras(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameR
                         .entry(*key)
                         .or_insert_with(|| InstanceArray::new(ctx, None));
                     inst.set(group_params.iter().copied());
-                    canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
                 }
                 Ok(())
             })
@@ -1040,7 +1077,7 @@ pub fn draw_speed_lines(
                 .scale(Vec2::new(length, 1.5))
                 .color(col)
         }));
-        canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+        canvas.draw_instanced_mesh_guarded(line, instances, DrawParam::default());
         Ok(())
     })
 }
@@ -1081,7 +1118,7 @@ pub fn draw_sprint_whoosh(
                 .scale(Vec2::new(length, 1.7 + flutter * 0.5))
                 .color(Color::from_rgba(140, 255, 200, alpha.saturating_add((flutter * 25.0) as u8)))
         }));
-        canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+        canvas.draw_instanced_mesh_guarded(line, instances, DrawParam::default());
         Ok(())
     })
 }
@@ -1207,7 +1244,7 @@ pub fn draw_groove_vignette(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(params.iter().copied());
-                canvas.draw_instanced_mesh(sq, instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(sq, instances, DrawParam::default());
                 Ok(())
             })?;
         }
@@ -1944,10 +1981,10 @@ pub fn draw_particles(
             // Both passes guarded: ggez's flush_wgpu asserts capacity > 0 if called on an
             // InstanceArray that was set() with 0 items. Always skip the draw when empty.
             if !main.instances().is_empty() {
-                canvas.draw_instanced_mesh(unit_circle.clone(), main, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), main, DrawParam::default());
             }
             if !glow.instances().is_empty() {
-                canvas.draw_instanced_mesh(unit_circle, glow, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_circle, glow, DrawParam::default());
             }
             Ok(())
         })
@@ -2158,21 +2195,21 @@ pub fn draw_world_zones(
             let mut slot = cell.borrow_mut();
             let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             arr.set(squares.iter().copied());
-            canvas.draw_instanced_mesh(sq, arr, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(sq, arr, DrawParam::default());
             Ok(())
         })?;
         ZONE_LINE_INSTANCES.with(|cell| -> ggez::GameResult {
             let mut slot = cell.borrow_mut();
             let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             arr.set(lines.iter().copied());
-            canvas.draw_instanced_mesh(line, arr, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(line, arr, DrawParam::default());
             Ok(())
         })?;
         ZONE_DOT_INSTANCES.with(|cell| -> ggez::GameResult {
             let mut slot = cell.borrow_mut();
             let arr = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             arr.set(dots.iter().copied());
-            canvas.draw_instanced_mesh(dot, arr, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(dot, arr, DrawParam::default());
             Ok(())
         })?;
         Ok(())
@@ -2360,7 +2397,7 @@ pub fn draw_ambient_motes(
                 .scale(Vec2::splat(size))
                 .color(Color::new(accent.r, accent.g, accent.b, alpha))
         }));
-        canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+        canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
         Ok(())
     })?;
 
@@ -2555,7 +2592,7 @@ pub fn draw_world_edge(
                 );
             }
             arr.set(params.iter().copied());
-            canvas.draw_instanced_mesh(sq, arr, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(sq, arr, DrawParam::default());
             Ok(())
         })
     })
@@ -2614,7 +2651,7 @@ pub fn draw_weather(
                     .scale(Vec2::new(len, 1.4))
                     .color(Color::new(0.72, 0.80, 0.92, base_alpha.min(0.7)))
             }));
-            canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
             Ok(())
         })?;
         canvas.set_blend_mode(original_blend);
@@ -2715,7 +2752,7 @@ pub fn draw_puddle_ripples(
                 .scale(Vec2::splat(radius))
                 .color(Color::new(0.70, 0.82, 0.95, alpha))
         }));
-        canvas.draw_instanced_mesh(unit, instances, DrawParam::default());
+        canvas.draw_instanced_mesh_guarded(unit, instances, DrawParam::default());
         Ok(())
     })?;
     canvas.set_blend_mode(original_blend);
@@ -4070,7 +4107,7 @@ pub fn draw_flashlight(
             )
         }));
         if !instances.instances().is_empty() {
-            canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
         }
         Ok(())
     })?;
@@ -4355,7 +4392,7 @@ pub fn draw_conga_rope(
                         .scale(Vec2::new(len, thickness * tmult))
                         .color(color)
                 }));
-                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
 
@@ -4376,7 +4413,7 @@ pub fn draw_conga_rope(
                         .scale(Vec2::new(len, glow_width * tmult))
                         .color(glow_color)
                 }));
-                canvas.draw_instanced_mesh(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
             canvas.set_blend_mode(BlendMode::ALPHA);
@@ -4688,7 +4725,7 @@ pub fn draw_combo_meter(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(main_params.iter().copied());
-                    canvas.draw_instanced_mesh(line.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(line.clone(), instances, DrawParam::default());
                     Ok(())
                 })?;
             }
@@ -4697,7 +4734,7 @@ pub fn draw_combo_meter(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(glow_params.iter().copied());
-                    canvas.draw_instanced_mesh(line, instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(line, instances, DrawParam::default());
                     Ok(())
                 })?;
             }
@@ -4837,14 +4874,14 @@ pub fn draw_crab_radar(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(arrow_params.iter().copied());
-                    canvas.draw_instanced_mesh(triangle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(triangle.clone(), instances, DrawParam::default());
                     Ok(())
                 })?;
                 RADAR_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(glow_params.iter().copied());
-                    canvas.draw_instanced_mesh(triangle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(triangle.clone(), instances, DrawParam::default());
                     Ok(())
                 })?;
             }
@@ -4928,7 +4965,7 @@ pub fn draw_chain_rings(
                     .entry(*key)
                     .or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
-                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })
@@ -4976,7 +5013,7 @@ pub fn draw_catch_shockwaves(
                 .color(Color::new(1.0, 1.0, 1.0, flash_alpha)))
         }));
         if !flash.instances().is_empty() {
-            canvas.draw_instanced_mesh(unit_circle.clone(), flash, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(unit_circle.clone(), flash, DrawParam::default());
         }
         Ok(())
     })?;
@@ -5041,7 +5078,7 @@ pub fn draw_catch_shockwaves(
                 let Some(mesh) = mesh else { continue };
                 let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
-                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })
@@ -5135,13 +5172,13 @@ pub fn draw_catch_trails(
                 // ggez's draw_instanced flush rebuilds the buffer at len and asserts capacity > 0,
                 // so drawing an empty array panics — guard each pass to skip when it's empty.
                 if !glow.instances().is_empty() {
-                    canvas.draw_instanced_mesh(line.clone(), glow, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(line.clone(), glow, DrawParam::default());
                 }
                 if !core.instances().is_empty() {
-                    canvas.draw_instanced_mesh(line.clone(), core, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(line.clone(), core, DrawParam::default());
                 }
                 if !sparks.instances().is_empty() {
-                    canvas.draw_instanced_mesh(spark.clone(), sparks, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(spark.clone(), sparks, DrawParam::default());
                 }
                 Ok(())
                 })
@@ -5240,7 +5277,7 @@ pub fn draw_fear_rings(
                 let Some(mesh) = mesh else { continue };
                 let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
-                canvas.draw_instanced_mesh(mesh, inst, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })
@@ -8074,7 +8111,7 @@ pub fn draw_minimap(
             let mut inst_slot = inst_cell.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(params.iter().copied());
-            canvas.draw_instanced_mesh(dot.clone(), instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(dot.clone(), instances, DrawParam::default());
             Ok(())
         })
     })?;

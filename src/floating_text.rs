@@ -2,6 +2,7 @@
 //! share no logic with the rest of graphics.rs and are extracted here to keep that file smaller.
 
 use crate::constants::CRAB_SIZE;
+use crate::graphics::InstancedMeshExt;
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::graphics::{BlendMode, Canvas, Color, DrawMode, DrawParam, InstanceArray, Mesh};
@@ -284,7 +285,7 @@ pub fn draw_penned_marchers(
                     let instances =
                         inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(shadow_params.iter().copied());
-                    canvas.draw_instanced_mesh(
+                    canvas.draw_instanced_mesh_guarded(
                         unit_circle.clone(),
                         instances,
                         DrawParam::default(),
@@ -299,7 +300,7 @@ pub fn draw_penned_marchers(
                     let instances =
                         inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(body_params.iter().copied());
-                    canvas.draw_instanced_mesh(
+                    canvas.draw_instanced_mesh_guarded(
                         unit_circle.clone(),
                         instances,
                         DrawParam::default(),
@@ -314,7 +315,7 @@ pub fn draw_penned_marchers(
                     let instances =
                         inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(rim_params.iter().copied());
-                    canvas.draw_instanced_mesh(unit_circle, instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
                     Ok(())
                 })?;
                 canvas.set_blend_mode(orig_blend);
