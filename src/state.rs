@@ -658,6 +658,11 @@ pub struct MainState {
     pub(crate) level_textures: Vec<LevelTexture>, // Textures for each level
     // Beat Wave ability
     pub(crate) beat_count: u32, // Counts beats fired, every 4th triggers wave
+    // Live hi-hat kit: index of the last swung 1/16 sub-step whose hi-hat has fired, as a global
+    // step id (`beat_count * 4 + local`). Lets the sub-beat scheduler fire each offbeat hat exactly
+    // once as the beat clock crosses its swung onset, without double-firing or skipping across
+    // frames (even at low fps). Initialised to -1 so the very first offbeat can fire.
+    pub(crate) hat_last_step: i64,
     // Bar downbeat accent: the musical "1" of every 4-beat bar lands harder than the three
     // beats between it, so the rhythm reads as structured bars instead of a flat metronome.
     // Kicked to 1.0 on each `beat_count % 4 == 0` beat and decayed each frame; the beat-stepping
@@ -1653,6 +1658,7 @@ impl MainState {
             combo_count: 0,
             combo_timer: 0.0,
             beat_count: 0,
+            hat_last_step: -1,
             bar_accent: 0.0,
             drum_roll_held: false,
             drum_roll_hits: 0,
