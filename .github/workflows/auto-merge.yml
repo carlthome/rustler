@@ -77,12 +77,24 @@ jobs:
                 continue;
               }
 
+              // Pure-Markdown PRs skip the build/playtest workflows (paths-ignore
+              // in test.yml/playtest.yml), so they legitimately have no coverage
+              // checks — waive the coverage requirement for them below. A PR counts
+              // as docs-only ONLY if EVERY changed file ends in `.md`, so a code PR
+              // can never be misdetected (one `.rs` file → not docs-only).
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: pr.number, per_page: 100,
+              });
+              const docsOnly = files.length > 0 && files.every((f) => f.filename.endsWith('.md'));
+
               // --- checks gate ----------------------------------------------
               const sha = pr.head.sha;
               const checks = await github.paginate(github.rest.checks.listForRef, {
                 owner, repo, ref: sha, per_page: 100,
               });
-              if (checks.length === 0) { core.info(`${tag} skip: no checks yet`); continue; }
+              // A code PR with no checks yet is still spinning up CI — wait. A
+              // docs-only PR legitimately has none, so don't wait on it.
+              if (checks.length === 0 && !docsOnly) { core.info(`${tag} skip: no checks yet`); continue; }
 
               const running = checks.filter((c) => c.status !== 'completed');
               if (running.length) {
@@ -103,16 +115,21 @@ jobs:
                 continue;
               }
 
-              // Require the two coverage gates to actually be present AND green,
-              // so a PR with no real CI can never slip through.
-              const green = checks
-                .filter((c) => c.conclusion === 'success')
-                .map((c) => c.name);
-              const hasBuild = green.includes('build');
-              const hasPlaytest = green.some((n) => n.startsWith('playtest'));
-              if (!hasBuild || !hasPlaytest) {
-                core.info(`${tag} skip: required checks missing (build:${hasBuild} playtest:${hasPlaytest})`);
-                continue;
+              // Require the two coverage gates to actually be present AND green, so a
+              // code PR with no real CI can never slip through. Waived for docs-only
+              // PRs, which intentionally skip build/playtest via paths-ignore.
+              if (!docsOnly) {
+                const green = checks
+                  .filter((c) => c.conclusion === 'success')
+                  .map((c) => c.name);
+                const hasBuild = green.includes('build');
+                const hasPlaytest = green.some((n) => n.startsWith('playtest'));
+                if (!hasBuild || !hasPlaytest) {
+                  core.info(`${tag} skip: required checks missing (build:${hasBuild} playtest:${hasPlaytest})`);
+                  continue;
+                }
+              } else {
+                core.info(`${tag} docs-only PR → waiving build/playtest coverage requirement`);
               }
 
               // --- draft-ready gate -----------------------------------------
