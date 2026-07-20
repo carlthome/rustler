@@ -1,0 +1,28 @@
+name: Labeler
+
+# Auto-applies content + creator labels to every PR (config: .github/labeler.yml).
+# Uses pull_request_target so it has write access and reads the trusted config
+# from the base branch — it never runs PR code, so this is safe.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: labeler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      # continue-on-error: labeling is a nicety, never a merge gate. If it ever
+      # fails (e.g. a label can't be created), the check still passes so it can't
+      # block auto-merge.
+      - uses: actions/labeler@v5
+        continue-on-error: true
+        with:
+          sync-labels: false

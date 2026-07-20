@@ -1,0 +1,49 @@
+# Auto-labels PRs — consumed by .github/workflows/labeler.yml (actions/labeler v5).
+# Two axes: what the PR is about (by changed files) and which agent opened it (by
+# head-branch stem — see the Agent roster in AGENTS.md; stems change rarely, update
+# here if a routine is recreated).
+
+# --- What it's about (content) ---
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['**/*.md']
+
+agents:
+  - changed-files:
+      - any-glob-to-any-file: ['AGENTS.md']
+
+roadmap:
+  - changed-files:
+      - any-glob-to-any-file: ['ROADMAP.md']
+
+gameplay:
+  - changed-files:
+      - any-glob-to-any-file: ['src/**']
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/**'
+
+release:
+  - changed-files:
+      - any-glob-to-any-file: ['Cargo.toml', 'Cargo.lock', 'CHANGELOG.md']
+
+# --- Which agent opened it (by head branch stem) ---
+'agent: gameplay-engineer':
+  - head-branch: ['^claude/kind-franklin']
+'agent: performance-engineer':
+  - head-branch: ['^claude/stoic-hawking', '^claude/eloquent-allen']
+'agent: build-engineer':
+  - head-branch: ['^claude/vibrant-planck', '^claude/bold-gates']
+'agent: software-architect':
+  - head-branch: ['^claude/lucid-franklin']
+'agent: agent-engineer':
+  - head-branch: ['^claude/stoic-babbage', '^claude/epic-albattani']
+'agent: release-manager':
+  - head-branch: ['^claude/youthful-dijkstra', '^claude/peaceful-fermat']
+'agent: game-designer':
+  - head-branch: ['^claude/sharp-ride']
+'agent: developer-diary':
+  - head-branch: ['^claude/youthful-hypatia']
