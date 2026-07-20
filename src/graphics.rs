@@ -8280,6 +8280,57 @@ pub fn draw_beam_fast_pin(
     Ok(())
 }
 
+/// Beam-vs-Golden STRONG-match tell: the flashlight *spotlighting the prize*. Where the beam/Fast
+/// pin flashes icy cyan (a reticle clamping a sprinter), this glows warm gold — the light has the
+/// treasure revealed and reeling. Instead of clamping brackets it draws converging spotlight rays
+/// focusing inward on the Golden (the "prize under your beam" read) over a soft gold bloom, and on
+/// the beat the rays firm up with a sparkle-ring pop so the on-beat reel reads as the drum-hit
+/// version of the graze. Warm gold keeps it distinct from the cyan Fast pin and amber Hermit tell.
+pub fn draw_beam_golden_spotlight(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    hits: &[(Vec2, bool)], // (crab_pos, on_beat)
+) -> ggez::GameResult {
+    let dot = unit_circle(ctx)?;
+    let unit_sq = unit_square(ctx)?;
+    for &(pos, on_beat) in hits {
+        // On-beat is the firm reel — brighter, tighter rays, with a sparkle-ring pop.
+        let a = if on_beat { 0.8 } else { 0.45 };
+        let ray_len = if on_beat { 13.0 } else { 18.0 };
+        let ray_from = ray_len + 12.0;
+        canvas.set_blend_mode(BlendMode::ADD);
+        // Soft gold treasure bloom under the rays.
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(ray_from + 4.0))
+            .color(Color::new(1.0, 0.82, 0.3, a * 0.28)));
+        canvas.draw(dot, DrawParam::default()
+            .dest(pos)
+            .scale(Vec2::splat(ray_len))
+            .color(Color::new(1.0, 0.92, 0.55, a * 0.3)));
+        // Six spotlight rays converging inward on the prize — the light "closing on the treasure".
+        for i in 0..6 {
+            let angle = i as f32 * std::f32::consts::PI / 3.0 + std::f32::consts::FRAC_PI_6;
+            let ray_start = pos + Vec2::new(angle.cos(), angle.sin()) * ray_from;
+            canvas.draw(unit_sq, DrawParam::default()
+                .dest(ray_start)
+                .scale(Vec2::new(ray_len - ray_len * 0.15, 2.0))
+                .rotation(angle + std::f32::consts::PI) // point back toward the crab
+                .offset(Vec2::new(0.0, 0.5))
+                .color(Color::new(1.0, 0.88, 0.45, a)));
+        }
+        // On-beat sparkle-ring pop — the "reeled it!" flash.
+        if on_beat {
+            canvas.draw(dot, DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(ray_from * 2.2))
+                .color(Color::new(1.0, 0.85, 0.4, 0.16)));
+        }
+        canvas.set_blend_mode(BlendMode::ALPHA);
+    }
+    Ok(())
+}
+
 pub fn draw_stomp_dancer_match(
     ctx: &mut Context,
     canvas: &mut Canvas,
