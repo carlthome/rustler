@@ -201,7 +201,7 @@ concurrent commits to main.
 1. **Gameplay Engineer** (cron 1) writes game code — **hourly off the ROADMAP, and on any `gameplay` issue** Carl or the Game Designer files. The fleet's biggest, most frequent spend, on purpose.
 2. **Performance Engineer** (cron 5) keeps the _game_ smooth — makes whatever landed cheap to run at runtime (FPS, frame hitches). Never touches ROADMAP.md. **Build Engineer** (cron 4) is its sibling: it keeps the _pipeline_ correct and fast — fixes silently-failing workflows, trims CI wall-clock. Never touches game logic.
 3. **Software Architect** (cron 7) keeps files small and well-structured — splits files over ~500 lines, extracts shared logic, enforces single responsibility. Runs daily. Never changes game behaviour.
-4. **Release Manager** (cron 2) bumps the version once enough non-chore commits have landed (≥5 always; 3–4 if any commit is a genuinely new mechanic); CI then tags and publishes the GitHub Release automatically.
+4. **Release Manager** (cron 2) bumps the version whenever unreleased commits represent meaningful progress — early development, so releases are frequent; CI then tags and publishes the GitHub Release automatically.
 5. **Developer Diary** (cron 3) summarizes history and posts to Slack with a gameplay GIF — the feedback channel Carl actually sees.
 6. **Game Designer** (cron 6) reads Carl's reactions/replies, updates ROADMAP.md, and files issues — which feed the Gameplay Engineer (step 1).
 
@@ -298,11 +298,13 @@ Steps:
    `git -C . log -1 --grep='^Release' --format=%H` — that commit is your baseline.
 3. List non-chore commits since the baseline (exclude docs-only commits to AGENTS.md/README.md/ROADMAP.md
    and screenshot-only commits): `git -C . log <baseline>..main --oneline`.
-4. If fewer than 3 non-chore commits, do nothing this cycle — open no PR. (A quiet run is a valid run,
-   same as the Build/Perf Engineers' "nothing to do → no PR" rule.) Between 3 and 4 commits: use
-   judgment — release if any commit lands a genuinely new mechanic or experience; skip if it's
-   purely incremental polish or infra.
-5. If 5 or more non-chore commits, always release. With 3–4:
+4. If there are no non-chore commits at all, do nothing this cycle — open no PR.
+   Otherwise use judgment: this is early, frequent-release development. Release whenever the
+   unreleased commits represent meaningful forward progress — a new mechanic, a noticeable fix,
+   a juicy bit of polish. Skip only if the delta feels genuinely too thin to be worth a version
+   number (e.g. a single one-line tweak or a pure infra commit with no player-visible effect).
+   When in doubt, release.
+5. When releasing:
    - If ANY commit is a new feature or mechanic → MINOR bump (e.g. 0.20.0 → 0.21.0)
    - If ALL are bug fixes or perf only → PATCH bump (e.g. 0.20.0 → 0.20.1)
    - Update Cargo.toml: `sed -i 's/^version = ".*"/version = "<new>"/' ./Cargo.toml`, then regenerate
@@ -439,8 +441,7 @@ Steps:
    failed check is your next task.
 
 If nothing obvious stands out this run, **do nothing this cycle — open no PR.**
-A run with no genuine CI win is a valid empty run, exactly like the Release Manager's "fewer than 3 commits
-→ do nothing" and the Performance Engineer's identical rule. Do NOT fall back to "add lightweight timing visibility (per-step
+A run with no genuine CI win is a valid empty run, exactly like the Release Manager's "nothing meaningful → do nothing" and the Performance Engineer's identical rule. Do NOT fall back to "add lightweight timing visibility (per-step
 job-summary timing)" as filler: that is the same make-work trap that produced the Performance Engineer's
 redundant instrumentation PRs (#42/#47/#61) and was struck from that prompt for exactly this reason —
 manufacturing an instrumentation-only PR when you found nothing to speed up just refills the drain queue
@@ -487,8 +488,7 @@ Steps:
     your next task.
 
 If nothing obvious stands out, **do nothing this cycle — open no PR.** A run with no genuine
-runtime win is a valid empty run, exactly like the Release Manager's "fewer than 3 commits → do
-nothing." The frame-time instrumentation this fallback used to ask for already exists in `main`
+runtime win is a valid empty run, exactly like the Release Manager's "nothing meaningful → do nothing." The frame-time instrumentation this fallback used to ask for already exists in `main`
 (the rolling `[perf]` log line with avg/worst/fps + crab/chain/npc-follower counts, and the
 on-screen debug overlay) — re-adding "lightweight instrumentation" just manufactures a redundant
 instrumentation-only PR that the drain-queue step above then has to clean up. That is not
