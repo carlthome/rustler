@@ -24,6 +24,9 @@ use crate::graphics::{
     draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions,
 };
 
+const BEAT_CLOCK_MAP_CLEARANCE: f32 = 86.0;
+const BEAT_CLOCK_MIN_X: f32 = 90.0;
+const BEAT_CLOCK_Y: f32 = 60.0;
 
 impl MainState {
     /// Screen-space HUD / overlay pass. Called from `draw_game` after the world-space pass;
@@ -513,11 +516,7 @@ impl MainState {
                     .scale(Vec2::new(bar_width, wbar_h))
                     .color(Color::from_rgb(40, 40, 40)),
             );
-            let (wr, wg, wb) = if ready {
-            (255, 210, 90)
-            } else {
-            (150, 110, 40)
-            };
+            let (wr, wg, wb) = (150, 110, 40);
             canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
@@ -800,7 +799,10 @@ impl MainState {
         // The minimap owns the top-right corner. Keep the beat clock just to its left so its
         // approach and wave rings remain clear instead of drawing over map markers.
         let (map_w, _) = minimap_dimensions(width, self.world_width, self.world_height);
-        let beat_center = Vec2::new((width - map_w - 86.0).max(90.0), 60.0);
+        let beat_center = Vec2::new(
+            (width - map_w - BEAT_CLOCK_MAP_CLEARANCE).max(BEAT_CLOCK_MIN_X),
+            BEAT_CLOCK_Y,
+        );
         // Wave-incoming telegraph: while a spawn is armed, ring the beat indicator so the player
         // sees the next herd will land on the coming downbeat. Anticipation climbs across the
         // couple of beats before the drop; the ring throbs with the beat phase.
