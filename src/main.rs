@@ -1300,7 +1300,7 @@ pub(crate) fn draw_loading_screen(
     let block_count = 20;
     let bar_x = (width - bar_width) * 0.5;
     let bar_y = height * 0.5;
-    let filled_blocks = (progress.clamp(0.0, 1.0) * block_count as f32).ceil() as usize;
+    let filled_blocks = (progress.clamp(0.0, 1.0) * block_count as f32) as usize;
     let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(10, 14, 31));
 
     let border = Mesh::new_rectangle(
@@ -1329,18 +1329,20 @@ pub(crate) fn draw_loading_screen(
 
     let mut title = Text::new("CRAB RUSTLER");
     title.set_scale(32.0);
+    let title_width = title.measure(ctx)?.x;
     canvas.draw(
         &title,
         DrawParam::default()
-            .dest(Vec2::new(width * 0.5 - 124.0, bar_y - 82.0))
+            .dest(Vec2::new((width - title_width) * 0.5, bar_y - 82.0))
             .color(Color::from_rgb(250, 214, 104)),
     );
     let mut status = Text::new(label);
     status.set_scale(16.0);
+    let status_width = status.measure(ctx)?.x;
     canvas.draw(
         &status,
         DrawParam::default()
-            .dest(Vec2::new(width * 0.5 - 112.0, bar_y + 50.0))
+            .dest(Vec2::new((width - status_width) * 0.5, bar_y + 50.0))
             .color(Color::from_rgb(177, 207, 231)),
     );
     canvas.finish(ctx)
