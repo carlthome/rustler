@@ -71,6 +71,14 @@ impl MainState {
 
     fn reset_game_at(&mut self, level_index: usize, map_size: MapSize) {
         self.current_level = level_index;
+        self.level_title = self
+            .levels
+            .get(level_index)
+            .map(|level| level.title.clone())
+            .unwrap_or_default();
+        // Both modes use the same title-card language: campaign starts a fresh node, while arcade
+        // starts a fresh session. Only arcade transitions between cards without resetting the run.
+        self.level_title_timer = 3.1;
         self.world_width = self.width * map_size.viewport_multiplier();
         self.world_height = self.height * map_size.viewport_multiplier();
         self.npc_trains = (0..3)
@@ -349,7 +357,9 @@ impl MainState {
     }
 
     /// Start a campaign run (or tutorial) from the currently selected world map node.
-    /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level.
+    /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level from scratch.
+    /// Arcade never enters this path, so its title-card progression skips the tutorials and keeps
+    /// the live train, upgrades, and escalating run state intact.
     pub(crate) fn enter_campaign_level(&mut self) {
         self.sounds.world_map_pad.pause();
         // Check if the selected node is a tutorial sandbox.

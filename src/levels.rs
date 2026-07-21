@@ -139,10 +139,23 @@ pub struct Level {
     /// terrain: Water→Magnet (routing), Rock→Armored (shells to crack), Kelp→Thief (tail
     /// pressure). `None` on the beginner zone, which stays a clean, unflavored intro.
     pub emphasis: Option<CrabType>,
+    /// Bosses belong to the zone's archetype family. Arcade keeps the same level sequence alive,
+    /// while the Desktop deliberately cycles through every boss as its meme finale.
+    pub boss_sequence: Vec<CrabType>,
     /// The completion goal for this level during a campaign run. Meeting it completes the
     /// world-map node and unlocks the next one.
     pub win_condition: WinCondition,
     pub patterns: Vec<LevelPattern>,
+}
+
+impl Level {
+    pub fn boss_for_encounter(&self, encounter: usize) -> CrabType {
+        if self.boss_sequence.is_empty() {
+            CrabType::Boss
+        } else {
+            self.boss_sequence[encounter % self.boss_sequence.len()]
+        }
+    }
 }
 
 /// The player-facing name of a level's emphasized archetype, for the Control-style title banner.
@@ -150,12 +163,26 @@ pub struct Level {
 /// invisible probability bump — the zone announces its dominant threat as you cross into it.
 pub fn emphasis_label(emphasis: Option<CrabType>) -> Option<&'static str> {
     match emphasis {
+        Some(CrabType::Big) => Some("BIG CRABS"),
         Some(CrabType::Magnet) => Some("MAGNET SWARM"),
         Some(CrabType::Armored) => Some("ARMORED SHELLS"),
         Some(CrabType::Thief) => Some("THIEF INFESTATION"),
         Some(CrabType::Dancer) => Some("DANCER RAVE"),
         Some(CrabType::Hermit) => Some("HERMIT WARREN"),
+        Some(CrabType::Golden) => Some("GOLDEN HUNT"),
+        Some(CrabType::Splitter) => Some("SPLITTER RUN"),
         _ => None,
+    }
+}
+
+pub fn boss_label(boss: CrabType) -> &'static str {
+    match boss {
+        CrabType::Boss => "KING CRAB",
+        CrabType::TideBoss => "TIDE BOSS",
+        CrabType::RhythmBoss => "REEF DJ",
+        CrabType::HermitKing => "HERMIT KING",
+        CrabType::DancerKing => "DANCER KING",
+        _ => "KING CRAB",
     }
 }
 
@@ -173,6 +200,7 @@ pub fn get_levels() -> Vec<Level> {
                 terrain: TerrainKind::Open,
             },
             emphasis: None,
+            boss_sequence: vec![CrabType::Boss],
             // Clean intro: teaches the full catch -> train -> bank loop with no hazards.
             win_condition: WinCondition::BankCrabs(25),
             patterns: vec![
@@ -204,6 +232,7 @@ pub fn get_levels() -> Vec<Level> {
             // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
             // zone becomes a routing puzzle where you catch a Magnet to net the blob it gathered.
             emphasis: Some(CrabType::Magnet),
+            boss_sequence: vec![CrabType::TideBoss],
             // One gross catching move: a well-timed Magnet catch scoops the clustered herd, so the
             // win fires mid-wave the instant the train hits 15 — no banking, no patience required.
             win_condition: WinCondition::BuildTrain(15),
@@ -254,6 +283,7 @@ pub fn get_levels() -> Vec<Level> {
             // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
             // reach for the Stomp constantly — a zone of shells to crack while dodging the rocks.
             emphasis: Some(CrabType::Armored),
+            boss_sequence: vec![CrabType::HermitKing],
             // Two gates force both verbs: stomp shells open in the rock chokepoints AND hold a
             // real train — no cheesing shells from a safe corner while ignoring the herd.
             win_condition: WinCondition::CrackAndHold { shells: 8, min_train: 15 },
@@ -304,6 +334,7 @@ pub fn get_levels() -> Vec<Level> {
             // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
             // zone is one long fight to defend the train you've built. Tail pressure squared.
             emphasis: Some(CrabType::Thief),
+            boss_sequence: vec![CrabType::Boss],
             // Pure defense: getting to 20 is easy, keeping them against kelp snags and Thieves is
             // the whole game. The 30s timer resets the moment the train dips below 20.
             win_condition: WinCondition::HoldTrain { target: 20, seconds: 30.0 },
@@ -334,6 +365,82 @@ pub fn get_levels() -> Vec<Level> {
                 },
             ],
         },
+        Level {
+            title: "Moonlit Ballroom".to_string(),
+            description: "Follow the beat through a moonlit dance floor.".to_string(),
+            difficulty: 5,
+            map_size: MapSize::Large,
+            biome: Biome {
+                name: "Moonlit Ballroom",
+                tint: (126, 118, 190),
+                pulse: (255, 170, 245),
+                terrain: TerrainKind::Open,
+            },
+            emphasis: Some(CrabType::Dancer),
+            boss_sequence: vec![CrabType::RhythmBoss],
+            win_condition: WinCondition::BuildTrain(24),
+            patterns: vec![
+                LevelPattern { pattern: SpawnPattern::BeatGrid, count: 22, duration: 16.8, centroid: (0.5, 0.5) },
+                LevelPattern { pattern: SpawnPattern::Spiral, count: 28, duration: 19.6, centroid: (0.3, 0.7) },
+            ],
+        },
+        Level {
+            title: "Shellgrave Warren".to_string(),
+            description: "Crack the borrowed shells before the Warren closes in.".to_string(),
+            difficulty: 6,
+            map_size: MapSize::Large,
+            biome: Biome {
+                name: "Shellgrave Warren",
+                tint: (184, 146, 112),
+                pulse: (255, 205, 125),
+                terrain: TerrainKind::Rock,
+            },
+            emphasis: Some(CrabType::Hermit),
+            boss_sequence: vec![CrabType::HermitKing],
+            win_condition: WinCondition::CrackAndHold { shells: 12, min_train: 18 },
+            patterns: vec![
+                LevelPattern { pattern: SpawnPattern::Cluster, count: 24, duration: 16.8, centroid: (0.4, 0.4) },
+                LevelPattern { pattern: SpawnPattern::Circle, count: 30, duration: 19.6, centroid: (0.7, 0.6) },
+            ],
+        },
+        Level {
+            title: "Sunken Treasury".to_string(),
+            description: "Chase the shine before the tide hides the prize.".to_string(),
+            difficulty: 7,
+            map_size: MapSize::Large,
+            biome: Biome {
+                name: "Sunken Treasury",
+                tint: (214, 180, 106),
+                pulse: (255, 245, 130),
+                terrain: TerrainKind::Water,
+            },
+            emphasis: Some(CrabType::Golden),
+            boss_sequence: vec![CrabType::Boss],
+            win_condition: WinCondition::BankCrabs(55),
+            patterns: vec![
+                LevelPattern { pattern: SpawnPattern::UniformRandom, count: 26, duration: 16.8, centroid: (0.6, 0.3) },
+                LevelPattern { pattern: SpawnPattern::Cluster, count: 34, duration: 22.4, centroid: (0.3, 0.7) },
+            ],
+        },
+        Level {
+            title: "The Splitter's Causeway".to_string(),
+            description: "Shape the train carefully: every catch can cut it in two.".to_string(),
+            difficulty: 8,
+            map_size: MapSize::Large,
+            biome: Biome {
+                name: "The Splitter's Causeway",
+                tint: (190, 132, 156),
+                pulse: (255, 125, 180),
+                terrain: TerrainKind::Kelp,
+            },
+            emphasis: Some(CrabType::Splitter),
+            boss_sequence: vec![CrabType::Boss],
+            win_condition: WinCondition::HoldTrain { target: 24, seconds: 36.0 },
+            patterns: vec![
+                LevelPattern { pattern: SpawnPattern::SineWave, count: 28, duration: 19.6, centroid: (0.5, 0.3) },
+                LevelPattern { pattern: SpawnPattern::Spiral, count: 36, duration: 22.4, centroid: (0.5, 0.7) },
+            ],
+        },
         // The fourth-wall surprise (Inscryption / old Windows PowerToys): a special level that
         // "shouldn't be in the game." The playfield becomes a flat OS wallpaper and the terrain
         // patches render as rectangular application windows you route the conga train around. It
@@ -358,6 +465,13 @@ pub fn get_levels() -> Vec<Level> {
             // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
             // (the windows) is what reads as different, not the crabs.
             emphasis: None,
+            boss_sequence: vec![
+                CrabType::Boss,
+                CrabType::TideBoss,
+                CrabType::RhythmBoss,
+                CrabType::HermitKing,
+                CrabType::DancerKing,
+            ],
             // The hardest banking challenge: the window panels force long, risky routes to the pen.
             // (The issue's BankUnderPressure escape-tracking variant is deferred — there's no
             // "escaped off-world" concept in the sim yet — so this takes its sanctioned fallback.)
@@ -374,6 +488,24 @@ pub fn get_levels() -> Vec<Level> {
                     count: 22,
                     duration: 19.6,
                     centroid: (0.3, 0.4),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::BeatGrid,
+                    count: 28,
+                    duration: 19.6,
+                    centroid: (0.7, 0.6),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::SineWave,
+                    count: 34,
+                    duration: 22.4,
+                    centroid: (0.4, 0.7),
+                },
+                LevelPattern {
+                    pattern: SpawnPattern::Circle,
+                    count: 40,
+                    duration: 25.2,
+                    centroid: (0.6, 0.3),
                 },
             ],
         },
@@ -403,7 +535,7 @@ mod tests {
     #[test]
     fn every_campaign_level_has_the_designed_win_condition() {
         let levels = get_levels();
-        assert_eq!(levels.len(), 5);
+        assert_eq!(levels.len(), 9);
         assert_eq!(levels[0].win_condition, WinCondition::BankCrabs(25));
         assert_eq!(levels[1].win_condition, WinCondition::BuildTrain(15));
         assert_eq!(
@@ -414,7 +546,31 @@ mod tests {
             levels[3].win_condition,
             WinCondition::HoldTrain { target: 20, seconds: 30.0 }
         );
-        assert_eq!(levels[4].win_condition, WinCondition::BankCrabs(40));
+        assert_eq!(levels[4].win_condition, WinCondition::BuildTrain(24));
+        assert_eq!(
+            levels[5].win_condition,
+            WinCondition::CrackAndHold { shells: 12, min_train: 18 }
+        );
+        assert_eq!(levels[6].win_condition, WinCondition::BankCrabs(55));
+        assert_eq!(
+            levels[7].win_condition,
+            WinCondition::HoldTrain { target: 24, seconds: 36.0 }
+        );
+        assert_eq!(levels[8].win_condition, WinCondition::BankCrabs(40));
+    }
+
+    #[test]
+    fn bosses_follow_their_biome_families() {
+        let levels = get_levels();
+        assert_eq!(levels[0].boss_for_encounter(0), CrabType::Boss);
+        assert_eq!(levels[1].boss_for_encounter(0), CrabType::TideBoss);
+        assert_eq!(levels[4].emphasis, Some(CrabType::Dancer));
+        assert_eq!(levels[4].boss_for_encounter(0), CrabType::RhythmBoss);
+        assert_eq!(levels[5].emphasis, Some(CrabType::Hermit));
+        assert_eq!(levels[5].boss_for_encounter(0), CrabType::HermitKing);
+        let desktop = levels.last().unwrap();
+        assert_eq!(desktop.boss_for_encounter(4), CrabType::DancerKing);
+        assert_eq!(desktop.boss_for_encounter(5), CrabType::Boss);
     }
 
     #[test]
