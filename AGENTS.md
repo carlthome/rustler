@@ -589,9 +589,17 @@ Guidelines:
 Steps:
 0. Set your reasoning effort for token efficiency: run `/effort medium` — structural refactors, not creative work.
 1. `git -C . pull --ff-only`
-1a. Don't pile up PRs. `auto-merge` squash-merges any green `claude/*` PR within minutes, so a prior
-   green Architect PR lands on its own — leave it. Close only a genuinely stale one of your own (a
-   module-split whose source file a merged PR has since changed → "superseded, needs rebase").
+1a. Don't pile up PRs, and don't re-extract what's already in flight. `auto-merge` merges green
+   `claude/*` PRs on its own, so a prior green Architect PR lands without you — leave it. But a *draft*
+   extraction whose source file a later merge has since changed goes **dirty**, and auto-merge won't
+   touch a dirty PR — so it sits as a zombie forever unless you close it. Therefore, **before you pick a
+   target (step 4), list open PRs including drafts** (`mcp__github__list_pull_requests`, state=open) and
+   read their titles: if one already extracts the cluster you were about to, **pick a different cluster
+   this run**; if it's your own role's now-superseded/dirty draft, **close it** (this is expected
+   cleanup, not optional). This check is the fix for a real, repeated waste — three Architect runs each
+   independently extracted the same `main.rs` catch/deliver cluster to a different filename (only #205
+   landed; #181 and #199 are dead drafts) and two both re-split `update_crabs` (#171 landed, #154 is a
+   dead draft). Reading open PRs first is what prevents it.
 2. Check line counts: `wc -l ./src/*.rs`
 3. For each file over 1000 lines, get a structural map before reading anything:
    `grep -n "^pub fn \|^fn \|^impl \|^pub struct \|^struct \|^pub enum \|^mod " src/<file>.rs | head -80`
