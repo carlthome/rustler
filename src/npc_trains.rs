@@ -1117,10 +1117,16 @@ impl MainState {
             }
         }
 
-        // --- Player-vs-NPC-leader collision: painful bounce, both sides take damage ----------
-        // Deliberately touching a rival's leader is a desperate counter-attack move — you can
-        // stun them and scatter some of their followers, but you take a hit too. Painful enough
-        // to avoid unless intentional, spectacular enough to feel like a real clash.
+        // --- Player-vs-NPC-leader collision: a timed body-slam counter-attack ------------------
+        // Ramming a rival's leader is a deliberate counter-attack — but WHEN you hit it is the whole
+        // skill (Carl's #164: the clash felt unforgiving and it wasn't obvious what to time). The
+        // rule is now legible and on-beat, matching the parry: RAM ON THE BEAT and you win the
+        // exchange (a POWER CLASH — you barge through, stun the King, scatter its followers, keep
+        // your own train, and open a revenge steal-back); ram OFF the beat and it's the old painful
+        // mutual bounce (a MISTIMED CLASH — you lose tail crabs too). The `on_beat_defend` window is
+        // the forgiving reactive one (0.12s, same as the parry) so a slightly-early/late ram still
+        // reads on-beat — this is the "widen + clarify" #164 asked for, not a skill removal: the
+        // clash telegraph ring (see draw_npc_conga_train) flashes the exact "RAM NOW" frame.
         if self.king_splice_cooldown <= 0.0 {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             let mut clash_npc: Option<usize> = None;
@@ -1133,73 +1139,122 @@ impl MainState {
             }
             if let Some(ni) = clash_npc {
                 self.king_splice_cooldown = 2.0;
-                // Both sides bounce apart — physics punch
+                let on_beat = self.on_beat_defend();
                 let away_from_npc =
                     (player_center - self.npc_trains[ni].leader_pos).normalize_or_zero();
-                self.player_vel += away_from_npc * 380.0;
-                self.npc_trains[ni].leader_vel += -away_from_npc * 280.0;
-                // Camera + screen feedback — this should feel painful
-                self.screen_shake = self.screen_shake.max(16.0);
-                self.zoom_punch = self.zoom_punch.max(0.10);
-                self.hitstop_timer = self.hitstop_timer.max(0.12);
-                // Player loses tail crabs (1–2), NPC loses some followers — mutual damage
-                let player_lose = 2.min(self.chain_count.saturating_sub(1));
-                let mut released = 0;
-                for crab in self.crabs.iter_mut().rev() {
-                    if released >= player_lose {
-                        break;
+                let npc_pos = self.npc_trains[ni].leader_pos;
+                let npc_name = self.npc_trains[ni].name.clone();
+                if on_beat {
+                    // POWER CLASH — you win the exchange. Barge through: a big stun-knockback on the
+                    // King, a smaller recoil on you. You keep your whole train (no tail loss), scatter
+                    // MORE of the King's followers, and mark it for a revenge steal-back (green ring).
+                    self.player_vel += away_from_npc * 240.0;
+                    self.npc_trains[ni].leader_vel += -away_from_npc * 460.0;
+                    self.npc_trains[ni].idle_timer = self.npc_trains[ni].idle_timer.max(0.9);
+                    self.npc_trains[ni].steal_cooldown = self.npc_trains[ni].steal_cooldown.max(3.0);
+                    self.npc_trains[ni].steal_threat = 0.0; // cancel any splice it was winding up
+                    self.npc_trains[ni].revenge_timer = REVENGE_WINDOW; // "chase me — rustle 'em back"
+                    // Punchy but triumphant feedback.
+                    self.screen_shake = self.screen_shake.max(14.0);
+                    self.zoom_punch = self.zoom_punch.max(0.11);
+                    self.hitstop_timer = self.hitstop_timer.max(0.12);
+                    // Reward the clean timing like an on-beat parry: groove, streak, beat flash.
+                    self.groove = (self.groove + 0.18).min(1.0);
+                    self.beat_streak = (self.beat_streak + 1).min(99);
+                    self.on_beat_flash = (self.on_beat_flash + 0.5).min(0.9);
+                    self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+                    // The King loses its last 2–3 followers — they scatter as catchable spoils.
+                    let npc_lose = 3.min(self.npc_trains[ni].follower_types.len());
+                    for k in 0..npc_lose {
+                        self.npc_trains[ni].follower_types.pop();
+                        let scatter_angle =
+                            k as f32 * 2.1 + away_from_npc.y.atan2(away_from_npc.x);
+                        let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((
+                                npc_pos + scatter_dir * 30.0,
+                                0.0,
+                                [0.4, 1.0, 0.85],
+                            ));
+                        }
                     }
-                    if crab.caught {
-                        if let Some(idx) = crab.chain_index {
-                            if idx > 0 {
-                                crab.caught = false;
-                                crab.chain_index = None;
-                                crab.fleeing = true;
-                                crab.spooked_timer = 2.5;
-                                crab.join_pulse = 1.0; // startled pop
-                                let away = (crab.pos - player_center).normalize_or_zero();
-                                crab.vel = away * 250.0;
-                                crab.vel.y -= 70.0; // hop upward before scattering out
-                                if self.catch_shockwaves.len() < 48 {
-                                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
+                    self.floating_texts.spawn(
+                        format!("POWER CLASH! {} reeling!", npc_name),
+                        player_center - Vec2::new(96.0, 68.0),
+                        32.0,
+                        [0.4, 1.0, 0.85, 1.0],
+                    );
+                    self.floating_texts.spawn(
+                        "COUNTER — rustle 'em back!".to_string(),
+                        player_center - Vec2::new(96.0, 40.0),
+                        20.0,
+                        [0.45, 1.0, 0.7, 0.95],
+                    );
+                    self.particle_system
+                        .spawn_milestone_fireworks(player_center, 10, &mut rand::rng());
+                } else {
+                    // MISTIMED CLASH — the old painful mutual bounce. Ram off the beat and you take a
+                    // hit too: both sides recoil and you shed 1–2 tail crabs.
+                    self.player_vel += away_from_npc * 380.0;
+                    self.npc_trains[ni].leader_vel += -away_from_npc * 280.0;
+                    self.screen_shake = self.screen_shake.max(16.0);
+                    self.zoom_punch = self.zoom_punch.max(0.10);
+                    self.hitstop_timer = self.hitstop_timer.max(0.12);
+                    // Player loses tail crabs (1–2), NPC loses some followers — mutual damage
+                    let player_lose = 2.min(self.chain_count.saturating_sub(1));
+                    let mut released = 0;
+                    for crab in self.crabs.iter_mut().rev() {
+                        if released >= player_lose {
+                            break;
+                        }
+                        if crab.caught {
+                            if let Some(idx) = crab.chain_index {
+                                if idx > 0 {
+                                    crab.caught = false;
+                                    crab.chain_index = None;
+                                    crab.fleeing = true;
+                                    crab.spooked_timer = 2.5;
+                                    crab.join_pulse = 1.0; // startled pop
+                                    let away = (crab.pos - player_center).normalize_or_zero();
+                                    crab.vel = away * 250.0;
+                                    crab.vel.y -= 70.0; // hop upward before scattering out
+                                    if self.catch_shockwaves.len() < 48 {
+                                        self.catch_shockwaves
+                                            .push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
+                                    }
+                                    released += 1;
                                 }
-                                released += 1;
                             }
                         }
                     }
-                }
-                self.chain_count = self.chain_count.saturating_sub(released);
-                // NPC loses its last 1–2 followers — they scatter as free crabs (Sonic rings)
-                let npc_pos = self.npc_trains[ni].leader_pos;
-                let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
-                for k in 0..npc_lose {
-                    self.npc_trains[ni].follower_types.pop();
-                    // Spawn a fleeing crab from around the NPC leader position
-                    let scatter_angle =
-                        k as f32 * std::f32::consts::PI + away_from_npc.y.atan2(away_from_npc.x);
-                    let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
-                    // Find a free slot in crabs if any normal crab can represent the ejected follower
-                    // (simplified: just spawn a particle burst at the NPC position)
-                    if self.catch_shockwaves.len() < 48 {
-                        self.catch_shockwaves.push((
-                            npc_pos + scatter_dir * 30.0,
-                            0.0,
-                            [0.96, 0.72, 0.16],
-                        ));
+                    self.chain_count = self.chain_count.saturating_sub(released);
+                    // NPC loses its last 1–2 followers — they scatter as free crabs (Sonic rings)
+                    let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
+                    for k in 0..npc_lose {
+                        self.npc_trains[ni].follower_types.pop();
+                        let scatter_angle =
+                            k as f32 * std::f32::consts::PI + away_from_npc.y.atan2(away_from_npc.x);
+                        let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves.push((
+                                npc_pos + scatter_dir * 30.0,
+                                0.0,
+                                [0.96, 0.72, 0.16],
+                            ));
+                        }
                     }
+                    // Groove penalty for a mistimed head-on hit — you should have hit the beat.
+                    self.groove = (self.groove - 0.20).max(0.0);
+                    self.beat_streak = self.beat_streak.saturating_sub(1);
+                    self.floating_texts.spawn(
+                        format!("MISTIMED CLASH — {}!", npc_name),
+                        player_center - Vec2::new(80.0, 65.0),
+                        32.0,
+                        [1.0, 0.5, 0.15, 1.0],
+                    );
+                    self.particle_system
+                        .spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
                 }
-                // Groove penalty for taking a head-on hit — you should have dodged
-                self.groove = (self.groove - 0.20).max(0.0);
-                self.beat_streak = self.beat_streak.saturating_sub(1);
-                let npc_name = self.npc_trains[ni].name.clone();
-                self.floating_texts.spawn(
-                    format!("CLASH with {}!", npc_name),
-                    player_center - Vec2::new(80.0, 65.0),
-                    32.0,
-                    [1.0, 0.5, 0.15, 1.0],
-                );
-                self.particle_system
-                    .spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
             }
         }
 
@@ -1668,6 +1723,50 @@ impl MainState {
                             .dest(npc.leader_pos)
                             .color(Color::new(1.0, 0.92, 0.42, 0.5 + urgency * 0.3)),
                     );
+                }
+            }
+
+            // --- Clash "RAM NOW" telegraph ----------------------------------------------------
+            // When you close on a King leader and the clash is off cooldown, ring it with an amber
+            // opportunity cue that beats like the DEFEND ring — but this one means "ram ON the beat
+            // to WIN the collision" (a POWER CLASH), not "defend". It answers Carl's #164 legibility
+            // complaint that it "wasn't obvious what to time": the ring snaps tight and flashes teal
+            // on the beat — the exact "RAM NOW" frame, keyed to the same forgiving `on_beat_defend`
+            // window the clash actually uses (what you see equals what lands). It grows brighter as
+            // you approach and is suppressed while a splice is armed (the red DEFEND ring wins that
+            // frame — defense reads first). Draw-only; the timed outcome lives in update_npc_trains.
+            if self.king_splice_cooldown <= 0.0 && npc.steal_threat <= 0.0 {
+                let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
+                let arm_r = col_r + 110.0; // show the cue a beat before contact so the ram is readable
+                let dist = npc.leader_pos.distance(player_center);
+                if dist < arm_r {
+                    // 1 at contact → 0 at the arming edge, so the cue burns in as you commit the ram.
+                    let prox = (1.0 - (dist - col_r).max(0.0) / (arm_r - col_r)).clamp(0.0, 1.0);
+                    let beat_phase = (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                    let pulse = (beat_phase * std::f32::consts::TAU).cos() * 0.5 + 0.5;
+                    let base_r = 44.0 + npc.leader_scale * 12.0;
+                    let ring_r = base_r + (1.0 - pulse) * 24.0; // tight on the beat, wide off it
+                    let alpha = (0.18 + prox * 0.34 + pulse * 0.20).min(0.85);
+                    let thickness = 3.0 + pulse * 3.0;
+                    let ring = cached_stroke_circle(ctx, ring_r, thickness)?;
+                    canvas.draw(
+                        &ring,
+                        DrawParam::default()
+                            .dest(npc.leader_pos)
+                            .color(Color::new(1.0, 0.62 + pulse * 0.2, 0.18, alpha)),
+                    );
+                    // On-beat inner flash — the "RAM NOW" frame where a clash wins. Teal (like the
+                    // COUNTER cue) so on-beat reads as "good", distinct from the red DEFEND danger.
+                    if self.on_beat_defend() {
+                        let flash = cached_stroke_circle(ctx, base_r * 0.8, 2.5)?;
+                        canvas.draw(
+                            &flash,
+                            DrawParam::default()
+                                .dest(npc.leader_pos)
+                                .color(Color::new(0.4, 1.0, 0.85, 0.4 + prox * 0.4)),
+                        );
+                    }
                 }
             }
 
