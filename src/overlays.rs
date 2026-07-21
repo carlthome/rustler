@@ -926,13 +926,16 @@ impl MainState {
         let w = self.width;
         let h = self.height;
 
-        // Dark overlay — reuse the cached unit square instead of a fresh Mesh::new_rectangle GPU
-        // buffer every frame (same fix used for every other full-screen flash/fill in draw_game).
+        // Translucent scrim — this is now a LIVE overlay over the still-running game (see the draw
+        // dispatch in game_render.rs), so the fill is deliberately semi-transparent: the world keeps
+        // moving visibly behind the cards, giving the "pick fast, a rival could steal from you" urge
+        // the ROADMAP calls for, instead of the old opaque world-freeze. Reuse the cached unit square
+        // instead of a fresh Mesh::new_rectangle GPU buffer every frame.
         canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
                 .scale(Vec2::new(w, h))
-                .color(Color::from_rgba(8, 4, 22, 210)),
+                .color(Color::from_rgba(8, 4, 22, 120)),
         );
 
         // Three options rolled at queue time (see roll_upgrade_offer). Some deepen a tool lane
@@ -989,7 +992,7 @@ impl MainState {
                 title_text.set_scale(46.0);
                 let title_w = title_text.measure(ctx)?.x;
                 // Subtitle
-                let mut hint_text = Text::new("Click a card or press its number");
+                let mut hint_text = Text::new("Pick fast — the beach keeps moving! Click a card or press its number");
                 hint_text.set_scale(20.0);
                 let hint_w = hint_text.measure(ctx)?.x;
                 // Per-card texts — built explicitly for each of the 3 cards (try_from_fn is not
@@ -1056,7 +1059,10 @@ impl MainState {
                 let hovered = m.x >= cx && m.x <= cx + card_w && m.y >= y0 && m.y <= y0 + card_h;
 
                 let accent = Color::from_rgb(r, g, b);
-                let bg_a = if hovered { 190u8 } else { 115u8 };
+                // Cards sit over a LIVE, moving scene now (the scrim is only half-opaque), so keep
+                // the card fills a touch more solid than before to hold the text legible against
+                // whatever is scrolling behind them.
+                let bg_a = if hovered { 220u8 } else { 175u8 };
                 let bdr_w = if hovered { 4.0_f32 } else { 2.0_f32 };
 
                 // Card background — unit square scaled to card size, no per-frame GPU buffer alloc.

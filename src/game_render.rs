@@ -2099,15 +2099,6 @@ impl MainState {
             self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
             canvas.finish(ctx)?;
             return Ok(());
-        } else if self.pending_upgrade {
-            self.sounds.action_music.pause();
-            // Reset to screen space (the canvas may still hold the camera-offset world rect from
-            // the set_screen_coordinates call above). Upgrade cards are laid out in [0, width] x
-            // [0, height] so they need a clean viewport origin.
-            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
-            self.draw_upgrade_screen(ctx, &mut canvas)?;
-            canvas.finish(ctx)?;
-            return Ok(());
         } else if self.game_over {
             self.sounds.action_music.pause();
             if !self.sounds.outro_music.playing() {
@@ -2124,6 +2115,16 @@ impl MainState {
                 self.sounds.action_music.resume();
             }
             self.draw_game(ctx, &mut canvas, width, height)?;
+            // Upgrade choice is a LIVE overlay now, not a world-freeze: the game above keeps
+            // simulating and drawing (crabs, rivals and music all still moving), and the cards float
+            // on top as a translucent layer so the player picks under real pressure. draw_game leaves
+            // the canvas in screen space offset by the screen shake; reset to a clean viewport origin
+            // so the cards — laid out in [0,width]x[0,height] — sit exactly where the click handler
+            // and hover test expect them.
+            if self.pending_upgrade {
+                canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
+                self.draw_upgrade_screen(ctx, &mut canvas)?;
+            }
         }
         canvas.finish(ctx)?;
         Ok(())

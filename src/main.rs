@@ -2164,7 +2164,7 @@ impl EventHandler for MainState {
             }
         }
 
-        if self.show_instructions || self.show_world_map || self.game_over || self.pending_upgrade {
+        if self.show_instructions || self.show_world_map || self.game_over {
             // The run just ended — bank its result into the persistent career exactly once.
             // Every game_over set-site funnels through here on the next tick, so one guarded
             // call covers them all.
@@ -4789,15 +4789,28 @@ impl EventHandler for MainState {
 
     fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, _repeat: bool) -> GameResult {
         if self.pending_upgrade {
+            // The choice is a live overlay now, not a freeze: 1/2/3 pick a card, but every other key
+            // falls through to normal in-game handling so the player can keep steering and using
+            // tools while they decide (and a rival can steal from them mid-decision — the intended
+            // pressure to pick fast). 1/2/3 aren't bound to anything in-game (they're loadout-screen
+            // only), so consuming them here can't shadow a gameplay action.
             if let Some(key) = input.keycode {
                 match key {
-                    KeyCode::Key1 => self.apply_upgrade(1),
-                    KeyCode::Key2 => self.apply_upgrade(2),
-                    KeyCode::Key3 => self.apply_upgrade(3),
+                    KeyCode::Key1 => {
+                        self.apply_upgrade(1);
+                        return Ok(());
+                    }
+                    KeyCode::Key2 => {
+                        self.apply_upgrade(2);
+                        return Ok(());
+                    }
+                    KeyCode::Key3 => {
+                        self.apply_upgrade(3);
+                        return Ok(());
+                    }
                     _ => {}
                 }
             }
-            return Ok(());
         }
         if let Some(key) = input.keycode {
             if key == KeyCode::F {
