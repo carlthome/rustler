@@ -150,10 +150,11 @@ pub struct Level {
 
 impl Level {
     pub fn boss_for_encounter(&self, encounter: usize) -> CrabType {
-        self.boss_sequence
-            .get(encounter % self.boss_sequence.len().max(1))
-            .copied()
-            .unwrap_or(CrabType::Boss)
+        if self.boss_sequence.is_empty() {
+            CrabType::Boss
+        } else {
+            self.boss_sequence[encounter % self.boss_sequence.len()]
+        }
     }
 }
 
@@ -544,6 +545,16 @@ mod tests {
         assert_eq!(
             levels[3].win_condition,
             WinCondition::HoldTrain { target: 20, seconds: 30.0 }
+        );
+        assert_eq!(levels[4].win_condition, WinCondition::BuildTrain(24));
+        assert_eq!(
+            levels[5].win_condition,
+            WinCondition::CrackAndHold { shells: 12, min_train: 18 }
+        );
+        assert_eq!(levels[6].win_condition, WinCondition::BankCrabs(55));
+        assert_eq!(
+            levels[7].win_condition,
+            WinCondition::HoldTrain { target: 24, seconds: 36.0 }
         );
         assert_eq!(levels[8].win_condition, WinCondition::BankCrabs(40));
     }

@@ -78,6 +78,8 @@ impl MainState {
 
                 let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
                 let boss = level.boss_for_encounter(self.next_boss_kind);
+                // This string and Text are built only when the title-card cache changes, not per
+                // animation frame.
                 let threat_text = match crate::levels::emphasis_label(emphasis) {
                     Some(label) => format!("{}  •  {}", label, crate::levels::boss_label(boss)),
                     None => crate::levels::boss_label(boss).to_string(),

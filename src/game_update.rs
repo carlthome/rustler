@@ -1512,8 +1512,12 @@ impl MainState {
             // stack one pound at a time before it escapes), and the Dancer King (chase — pin down
             // the beat-teleporting evader and bank its entranced court with an on-beat catch).
             // Cycling guarantees variety instead of RNG streaks.
-            let boss_kind = self.levels
-                .get(self.current_level.min(self.levels.len().saturating_sub(1)))
+            // `current_level` can briefly point past the final pattern while the run is ending;
+            // use the last zone's boss metadata rather than letting a transition panic.
+            let boss_kind = self
+                .levels
+                .get(self.current_level)
+                .or_else(|| self.levels.last())
                 .map(|level| level.boss_for_encounter(self.next_boss_kind))
                 .unwrap_or(CrabType::Boss);
             let (boss, title, hint, title_color) = match boss_kind {
