@@ -15,7 +15,8 @@ use crate::spawnings::spawn_scattered_crab;
 use crate::state::MainState;
 
 impl MainState {
-    /// Bot-only scenarios explicitly add rivals when needed, preserving quiet tutorial maps in play.
+    /// Creates the rival fixture needed by bot-only NPC scenarios without reintroducing rivals to
+    /// tutorial gameplay.
     fn ensure_bot_npc_trains(&mut self) {
         if self.npc_trains.is_empty() {
             self.npc_trains = (0..3)

@@ -570,7 +570,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn first_four_campaign_levels_are_quiet_tutorial_maps() {
+    fn first_four_campaign_levels_are_tutorial_sized() {
         let levels = get_levels();
         assert!(levels[..4]
             .iter()
