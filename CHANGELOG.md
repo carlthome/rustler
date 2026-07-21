@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.30.1 — 2026-07-21
+
+### Gameplay
+- Widen the on-beat window for the defensive steal parry to improve feel and forgiveness
+
 ## v0.30.0 — 2026-07-21
 
 ### Features
