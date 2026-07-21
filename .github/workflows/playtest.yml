@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# The workflow only checks out code and restores caches.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same PR when new commits land; let main runs
 # complete so every merged commit is verified.
 concurrency:
@@ -46,16 +50,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Each scenario gets its own runner so the bot scripts run
-      # concurrently instead of back-to-back in one job — the slowest single
-      # scenario sets the wall-clock instead of their sum. Same coverage,
-      # same scripts, just fanned out.
+      # Each focused scenario gets its own runner so PR checks run concurrently
+      # instead of back-to-back. The sequential full-campaign check runs after
+      # main pushes below, where its coverage does not delay review.
       matrix:
         scenario:
           [
             groove_dash,
             menu_to_game,
             campaign_tutorial,
+            campaign_escape,
             campaign_loss,
             npc_steal,
             player_steal,
@@ -108,3 +112,36 @@ jobs:
       - name: Build and run playtest
         if: needs.changes.outputs.code == 'true'
         run: bash scripts/playtest.sh ${{ matrix.scenario }}
+
+  campaign-full:
+    needs: changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache apt packages
+        uses: actions/cache@v6
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
+
+      - name: Install system dependencies
+        if: needs.changes.outputs.code == 'true'
+        run: bash scripts/ci-deps.sh
+
+      - name: Run full campaign playtest
+        if: needs.changes.outputs.code == 'true'
+        run: bash scripts/playtest.sh campaign_full
