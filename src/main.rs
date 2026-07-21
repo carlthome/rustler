@@ -780,6 +780,14 @@ impl MainState {
         for layer in self.music_layers.iter_mut() {
             layer.set_pitch(1.0);
         }
+        // Motifs are beat-started by the ambient mixer. Stop a phrase left from the
+        // prior run so its next start is a fresh downbeat at base tempo.
+        for (left, right) in self.sounds.king_crab_motif.iter_mut() {
+            left.stop();
+            right.stop();
+            left.set_pitch(1.0);
+            right.set_pitch(1.0);
+        }
         self.on_beat_flash = 0.0;
         self.groove = 0.0;
         self.slam_active = 0.0;

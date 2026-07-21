@@ -86,13 +86,15 @@ impl MainState {
             self.sounds.king_crab_r.set_volume(new_r);
             self.sounds.king_crab_soft.set_volume(new_s);
 
-            // Start/stop sources based on audibility threshold.
+            // Start the rhythmic King Crab texture only on the master grid. Its
+            // one-bar buffer then stays phase-locked with the player groove.
+            let on_beat = self.on_beat_now();
             for (src, vol) in [
                 (&mut self.sounds.king_crab_l, new_l),
                 (&mut self.sounds.king_crab_r, new_r),
                 (&mut self.sounds.king_crab_soft, new_s),
             ] {
-                if vol > 0.01 && !src.playing() {
+                if vol > 0.01 && !src.playing() && on_beat {
                     let _ = src.play();
                 } else if vol <= 0.01 && src.playing() {
                     src.pause();

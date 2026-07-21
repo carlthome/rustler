@@ -51,6 +51,15 @@ impl MainState {
                         let _ = layer.play();
                     }
                 }
+                for (left, right) in self.sounds.king_crab_motif.iter_mut() {
+                    let was_playing = left.playing() || right.playing();
+                    left.set_pitch(desired_pitch);
+                    right.set_pitch(desired_pitch);
+                    if was_playing {
+                        let _ = left.play();
+                        let _ = right.play();
+                    }
+                }
             }
         }
         // Snare: fades in on the backbeat (beats 2 & 4) while a boss is alive, raising the

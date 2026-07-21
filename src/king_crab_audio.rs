@@ -4,6 +4,7 @@
 //! share the same xorshift-noise shell-click / claw-snap / mandible-chitter synthesis
 //! recipe, just tuned for different contexts (boss vs. ambient NPC train, near vs. far).
 
+use crate::constants::BEAT_INTERVAL;
 use crate::sounds::{
     encode_wav_mono16, encode_wav_stereo16, master_limiter, oscillator_sample, samples_to_pcm,
     Waveform, SAMPLE_RATE,
@@ -17,8 +18,9 @@ use ggez::{Context, GameResult};
 /// sound like the same creature. Returns `f32` samples in -1..1 before any panning or
 /// brightness shaping, so the callers can apply L/R gain independently.
 fn king_crab_rumble_mono_samples() -> Vec<f32> {
-    // One bar at 98.4 BPM = 4 × 0.61s ≈ 2.44s — loop snaps to a musical boundary.
-    let loop_len = 60.0_f32 / 98.4 * 4.0;
+    // Exactly one game bar. The claw snaps below land on beats 1 and 3, so this
+    // texture shares the master grid rather than carrying an independent tempo.
+    let loop_len = BEAT_INTERVAL * 4.0;
     let n = (SAMPLE_RATE as f32 * loop_len) as usize;
     let dt = 1.0 / SAMPLE_RATE as f32;
     let mut samples = vec![0.0_f32; n];
