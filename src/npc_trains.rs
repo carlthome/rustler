@@ -208,32 +208,21 @@ impl MainState {
         let Some(ni) = ni else {
             return;
         };
-        // Guarantee the marked rival has followers to rustle back at the moment the steal-back fires.
-        // A landed steal (the `revenge` scenario) fattens the culprit so it always has spoils, but a
-        // dodge (the `steal_dodge` scenario) doesn't — and the ambient rival-vs-rival churn can empty a
-        // marked rival in the fraction of a second between the dodge and this cross. Topping it up here,
-        // in the same frame the cross fires, closes that gap for good (mirrors bot_prime_chain on the
-        // player side); the real steal-back/split_off/transfer path stays fully exercised.
-        while self.npc_trains[ni].follower_types.len() < 4 {
-            self.npc_trains[ni].follower_types.push(CrabType::Normal);
-        }
-        // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab.
-        // Walk down from the mid slot to the first follower whose slot is actually recorded in
-        // path_history — a rival that hasn't wandered far enough to have sampled its deep mid slot yet
-        // still gets threaded at a shallower one, instead of the whole cross silently no-oping.
-        let mid_fi = self.npc_trains[ni].follower_types.len() / 2;
-        for fi in (0..=mid_fi).rev() {
-            if let Some(&fpos) = self.npc_trains[ni].path_history.get((fi + 1) * STEPS) {
-                self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
-                self.player_steal_cooldown = 0.0;
-                // Hold the head on this slot for the frame — the seek-catch autopilot in
-                // handle_player_movement runs before the steal detection and would otherwise drift it
-                // off (see BotState.hold_position). Guards against a slow-frame drift past steal range.
-                if let Some(bot) = self.bot.as_mut() {
-                    bot.hold_position = true;
-                }
-                break;
-            }
+        // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab —
+        // but never past the deepest follower slot that actually exists in path_history. A rival that
+        // just gained followers (e.g. right after ForceNpcCross spliced the player's tail onto it, as
+        // the `revenge` scenario stages) hasn't trailed a deep enough path yet, so the fixed mid slot
+        // can be missing and the crossing silently wouldn't place — the frame-rate-dependent half of
+        // the #170 flake in the revenge scenario. Clamping to the deepest resolvable slot makes the
+        // crossing land whenever the rival has any followers and any trail, without racing path depth.
+        let flen = self.npc_trains[ni].follower_types.len();
+        let plen = self.npc_trains[ni].path_history.len();
+        // Largest fi whose slot (fi+1)*STEPS is a valid index (<= plen-1).
+        let max_slot_fi = (plen.saturating_sub(1) / STEPS).saturating_sub(1);
+        let mid_fi = (flen / 2).min(max_slot_fi).min(flen.saturating_sub(1));
+        if let Some(&fpos) = self.npc_trains[ni].path_history.get((mid_fi + 1) * STEPS) {
+            self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
+            self.player_steal_cooldown = 0.0;
         }
     }
 
@@ -283,6 +272,53 @@ impl MainState {
         self.try_defend_steal(center, 400.0, "STOMP");
     }
 
+    /// Bot-test staging helper: guarantee rival `ni` has a stealable train of at least `min` followers
+    /// with a `path_history` deep enough that every follower slot `(fi+1)*STEPS` resolves — the exact
+    /// layout `force_player_revenge` and the real player steal-back read. The ambient headless rivals
+    /// get depleted of followers over a long run, so without this the dodge→revenge counter (steal_dodge
+    /// test) can't reliably cash and RevengeStealAtLeast(1) flakes with frame rate (#170). Topping up
+    /// followers and synthesising a uniform trailing path is bot-only staging (in the same spirit as the
+    /// leader teleports the other Force* helpers do); it leaves the real steal-back code path untouched.
+    fn ensure_stealable_train(&mut self, ni: usize, min: usize) {
+        const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
+        // Top up the retinue so there's a meaningful tail to rustle back.
+        let defaults = [
+            CrabType::Normal,
+            CrabType::Fast,
+            CrabType::Sneaky,
+            CrabType::Dancer,
+            CrabType::Armored,
+        ];
+        let mut d = 0usize;
+        while self.npc_trains[ni].follower_types.len() < min {
+            self.npc_trains[ni]
+                .follower_types
+                .push(defaults[d % defaults.len()]);
+            d += 1;
+        }
+        // Synthesise a uniform trail trailing the leader toward the world centre (so points stay in
+        // bounds) so every follower slot exists. index 0 is the leader; deeper indices are further back,
+        // matching path_history's front=newest ordering. Depth carries margin over the deepest slot the
+        // steal-back reads, and stays under update_npc_trains' max_len cap (followers*16+20) so the next
+        // frame doesn't trim it away.
+        let need = (self.npc_trains[ni].follower_types.len() + 2) * STEPS;
+        if self.npc_trains[ni].path_history.len() < need {
+            let leader = self.npc_trains[ni].leader_pos;
+            let center = Vec2::new(self.world_width * 0.5, self.world_height * 0.5);
+            let mut dir = (center - leader).normalize_or_zero();
+            if dir == Vec2::ZERO {
+                dir = Vec2::new(-1.0, 0.0);
+            }
+            let lo = Vec2::splat(20.0);
+            let hi = Vec2::new(self.world_width - 20.0, self.world_height - 20.0);
+            self.npc_trains[ni].path_history.clear();
+            for k in 0..need {
+                let p = (leader + dir * (k as f32 * 10.0)).clamp(lo, hi);
+                self.npc_trains[ni].path_history.push_back(p);
+            }
+        }
+    }
+
     /// Bot-test helper (see BotAction::ForceStealDodge): deterministically stage the movement dodge —
     /// the reroute half of the defense. Arm a rival's splice on a mid-chain link, then teleport the
     /// rival's leader well clear of that link, so the next `update_npc_trains` sees the thread broken
@@ -311,15 +347,39 @@ impl MainState {
             return;
         };
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-        let nearest = |a: &usize, b: &usize| {
-            let da = self.npc_trains[*a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[*b].leader_pos.distance_squared(player_center);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        };
-        let ni = (0..self.npc_trains.len()).min_by(nearest);
+        // Prefer to stage the dodge against a rival that STILL HAS FOLLOWERS, then nearest. A clean
+        // dodge marks the juked rival for revenge and opens a counter-steal window — but that window is
+        // only *cashable* (a following ForceRevengeCross can rustle its tail back) if the marked rival
+        // actually has a train to steal. Picking purely by distance meant the dodge often marked a lone
+        // rival with no followers, so the revenge steal-back had nothing to grab and RevengeStealAtLeast
+        // depended on the emergent luck of the nearest rival happening to have a train. That coincidence
+        // shifts with frame rate (the ggez-0.10 headless stack renders ~3x faster), which is the #170
+        // flake. Keying selection on "has followers, then nearest" makes the dodge→revenge counter
+        // deterministic and frame-rate-independent; the fallback to nearest-overall keeps the dodge
+        // itself (DodgedAtLeast) firing even when no rival currently has a train. This is a bot-staging
+        // choice only — the real dodge/revenge game code it exercises is unchanged.
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let a_empty = self.npc_trains[a].follower_types.is_empty();
+            let b_empty = self.npc_trains[b].follower_types.is_empty();
+            a_empty.cmp(&b_empty).then_with(|| {
+                let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+                let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
         let Some(ni) = ni else {
             return;
         };
+        // Deterministically guarantee the dodge opens a *cashable* counter window. A clean dodge marks
+        // the juked rival for revenge, but a revenge steal-back can only fire if that rival actually
+        // has a tail to rustle back — and the ambient headless rivals get depleted of followers over a
+        // 48s run (natural player/rival steals), emergently and frame-rate-dependently. That depletion
+        // is the #170 flake: whether any marked rival happens to still have a train shifts with frame
+        // rate (the ggez-0.10 headless stack renders ~3x faster). Stock the staged rival with a stealable
+        // train here so the counter is always cashable. Bot-only staging (only reachable via BotAction),
+        // in the same spirit as the leader teleports/cooldown clears above — the real dodge/revenge game
+        // code it exercises is untouched.
+        self.ensure_stealable_train(ni, 5);
         // Arm a splice on this rival at the mid link (as update_npc_trains would once threaded)...
         self.npc_trains[ni].steal_threat = STEAL_FUSE;
         self.npc_trains[ni].steal_target = target_idx;

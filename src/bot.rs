@@ -363,15 +363,20 @@ pub fn script_revenge() -> Vec<BotEvent> {
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
     ];
-    // Interleave splice-then-revenge every 0.9s. ForceNpcCross marks the nearest rival and hands it
-    // your tail; ~0.45s later ForceRevengeCross threads your head through that same marked rival so
-    // the steal-back fires inside the 6s revenge window. Each pair is a no-op unless a stealable
-    // chain exists that frame, so firing many times makes at least one land near-certain.
-    let mut t = 14.0_f32;
-    while t < 46.0 {
+    // Interleave splice-then-revenge every 0.7s across a wide window. ForceNpcCross marks the nearest
+    // rival and hands it your tail; ~0.5s later ForceRevengeCross threads your head through that same
+    // marked rival so the steal-back fires inside the 6s revenge window. Each pair is a no-op unless a
+    // stealable chain exists that frame, and the splice only completes when the seek-catch chain survives
+    // the ~one-beat steal fuse — which at a high frame rate can whole-run-miss if the attempts are too
+    // sparse. A moderately denser, wider stream than the old 0.9s (but not so dense it out-drains the
+    // seek-catch chain) makes at least one splice complete and one steal-back land near-certain across
+    // frame rates (#170), without changing what's asserted. The revenge cross lags its splice by 0.5s so
+    // the real ~one-beat fuse has fired and set the marker before the cross tries to cash it.
+    let mut t = 13.0_f32;
+    while t < 47.0 {
         script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
-        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRevengeCross });
-        t += 0.9;
+        script.push(BotEvent { at: t + 0.5, action: BotAction::ForceRevengeCross });
+        t += 0.7;
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
