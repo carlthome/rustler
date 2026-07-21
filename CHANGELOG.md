@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.39.0 — 2026-07-21
+
+### Features
+- Rework Q into a space-clearing shockwave
+- Add Wave/Call to the tool roster with useful-glow
+
+### Polish
+- Give the King Crab clash an on-beat audio cue (win/loss sting)
+
 ## v0.38.0 — 2026-07-21
 
 ### Features
