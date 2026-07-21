@@ -76,6 +76,11 @@ mod tests {
         assert_eq!(reveal.moon_bloom, 0.0);
         assert_eq!(reveal.menu_flash, 1.0);
 
+        let rising = presentation(MENU_REVEAL_AT + 0.1);
+        assert!(rising.moon_rise > 0.0);
+        assert_eq!(rising.moon_bloom, 0.0);
+        assert!(rising.menu_flash > 0.0);
+
         let settling = presentation(MENU_REVEAL_AT + 0.2);
         assert!(settling.moon_rise > 0.0);
         assert!(settling.moon_bloom > 0.0);
