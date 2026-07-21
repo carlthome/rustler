@@ -139,6 +139,7 @@ pub fn draw_menu(
         scale,
         spawn_time: 10.0,
         crab_type,
+        chain_color: None,
         spooked_timer: 0.0,
         beat_phase_offset: idx as f32 * 0.4,
         join_pulse: 0.0,

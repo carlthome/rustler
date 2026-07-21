@@ -55,6 +55,7 @@ impl MainState {
                     scale: npc.leader_scale * 0.33, // followers scale with leader tier
                     spawn_time: 999.0,
                     crab_type,
+                    chain_color: None,
                     spooked_timer: 0.0,
                     beat_phase_offset: i as f32 * 0.4,
                     join_pulse: 0.0,
@@ -112,6 +113,7 @@ impl MainState {
                     scale: npc.leader_scale,
                     spawn_time: 999.0,
                     crab_type: CrabType::Boss,
+                    chain_color: None,
                     spooked_timer: 0.0,
                     beat_phase_offset: 0.0,
                     join_pulse: 0.0,

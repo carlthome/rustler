@@ -33,6 +33,7 @@ fn make_crab(
         scale,
         spawn_time,
         crab_type,
+        chain_color: None,
         spooked_timer: 0.0,
         beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
         join_pulse: 0.0,
@@ -88,6 +89,7 @@ pub fn spawn_stolen_crab(
         scale,
         spawn_time: 999.0,
         crab_type,
+        chain_color: None,
         spooked_timer: 0.0,
         beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
         join_pulse: 1.0, // scale-pop as it snaps into the train
@@ -138,6 +140,7 @@ pub fn spawn_scattered_crab(
         scale,
         spawn_time: 999.0,
         crab_type,
+        chain_color: None,
         spooked_timer: 0.4, // a brief startle so it visibly bursts loose from the collision
         beat_phase_offset: rng.random_range(0.0..std::f32::consts::TAU),
         join_pulse: 1.0, // scale-pop as it scatters
