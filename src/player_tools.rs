@@ -191,8 +191,54 @@ impl MainState {
             );
             1.25
         } else {
+            // #164 legibility: an off-beat cast used to be *silent*, so the player never learned the
+            // cast was even timed — nor which way they missed ("it's not obvious what you're timing").
+            // Coach a NEAR miss with a dim "EARLY"/"LATE" tick: it teaches the on-beat window without
+            // punishing (teach-don't-punish, like the wrong-tool deflect tells). Two deliberate limits
+            // keep it from ever nagging: (1) only the cooldown-gated ranged casts get it (`audible` —
+            // the dash stays silent, honouring Carl's "the dash feels good, do NOT touch it"), and
+            // (2) only a genuine near miss just outside the window coaches — a wildly-off cast shows
+            // nothing, so the cue reads as "so close, adjust" rather than a running scold.
+            if audible {
+                self.coach_off_beat_cast(at);
+            }
             1.0
         }
+    }
+    /// Spawn the #164 near-miss timing coach for an off-beat *ranged* cast (whistle/stomp/wave/lasso).
+    /// `beat_timer` resets to 0 on each beat and counts up to `beat_interval`, so a small timer means
+    /// the beat just passed (the press was LATE) and a near-`beat_interval` timer means the next beat
+    /// is imminent (the press was EARLY). Only a press within one extra `ACTION_BEAT_WINDOW` past the
+    /// on-beat edge coaches — a genuine near miss — and the cue dims as the miss widens, so a close
+    /// call reads brighter than a loose one and a wild cast stays silent.
+    fn coach_off_beat_cast(&mut self, at: Vec2) {
+        let t = self.beat_timer;
+        let interval = self.beat_interval;
+        // Which side of the beat did the press fall on, and how far past the on-beat window edge?
+        let (past_edge, late) = if t < interval * 0.5 {
+            (t - ACTION_BEAT_WINDOW, true) // after the beat → late
+        } else {
+            (interval - t - ACTION_BEAT_WINDOW, false) // before the next beat → early
+        };
+        // Coach only a near miss: strictly outside the window, within one more window's width.
+        if past_edge <= 0.0 || past_edge > ACTION_BEAT_WINDOW {
+            return;
+        }
+        // Brighter the closer the miss (1.0 at the window edge → 0.0 at the band's far end).
+        let closeness = 1.0 - past_edge / ACTION_BEAT_WINDOW;
+        let alpha = 0.30 + 0.45 * closeness;
+        // Muted, cool-grey label (never the gold of a PERFECT) so it reads as a quiet coach, not a hit.
+        let (word, col) = if late {
+            ("LATE", [0.72, 0.78, 0.88, alpha])
+        } else {
+            ("EARLY", [0.88, 0.82, 0.70, alpha])
+        };
+        self.floating_texts.spawn(
+            word.to_string(),
+            at - Vec2::new(38.0, 74.0),
+            17.0,
+            col,
+        );
     }
     /// Fire the Drum Roll: the player released T after banking `drum_roll_hits` on-beat roll hits,
     /// so unleash a focused beam blast down the flashlight's aim. The catch itself is handled by
