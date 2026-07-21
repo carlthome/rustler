@@ -111,8 +111,14 @@ pub struct GameSounds {
 
 impl MainState {
     pub(crate) fn action_music_index(&self) -> usize {
+        // MainState::new synthesizes exactly one track for every entry from get_levels(); creation
+        // fails before MainState exists if any synthesis fails, so live state can never be empty.
+        assert!(
+            !self.sounds.action_music.is_empty(),
+            "campaign levels must provide at least one music track"
+        );
         self.current_level
-            .min(self.sounds.action_music.len().saturating_sub(1))
+            .min(self.sounds.action_music.len() - 1)
     }
 
     /// The tutorial on-ramp begins with rhythm and sound effects almost alone, then introduces more
