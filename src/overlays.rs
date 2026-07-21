@@ -115,24 +115,31 @@ impl MainState {
             let a = (alpha * 255.0) as u8;
             let a_dim = (alpha * 120.0) as u8;
 
+            // Every rect here (strip/accent/rule) animates each frame (alpha fades, slide_x slides
+            // the overlay in), so their geometry can't be cached like the Text above. Draw them by
+            // scaling the shared unit-square mesh via DrawParam instead of building three fresh
+            // Mesh::new_rectangle GPU buffers every frame the title is on screen — the same trick the
+            // beat pulse / world-map background use.
+            let sq = unit_square(ctx)?;
+
             // Dark translucent backing strip — full width, left-anchored
             let strip_h = title_h + sub_h + 28.0;
-            let strip = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(0.0, anchor_y - 8.0, width, strip_h + 16.0),
-                Color::from_rgba(0, 0, 0, (alpha * 140.0) as u8),
-            )?;
-            canvas.draw(&strip, DrawParam::default());
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, anchor_y - 8.0))
+                    .scale(Vec2::new(width, strip_h + 16.0))
+                    .color(Color::from_rgba(0, 0, 0, (alpha * 140.0) as u8)),
+            );
 
             // Accent line — thin white vertical bar to the left of the text, Control-style
-            let accent = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(margin_left + slide_x - 16.0, anchor_y, 3.0, strip_h - 12.0),
-                Color::from_rgba(255, 255, 255, a),
-            )?;
-            canvas.draw(&accent, DrawParam::default());
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(margin_left + slide_x - 16.0, anchor_y))
+                    .scale(Vec2::new(3.0, strip_h - 12.0))
+                    .color(Color::from_rgba(255, 255, 255, a)),
+            );
 
             // Subtitle (biome) ABOVE the title — small caps, dimmed
             let (pr, pg, pb) = biome.pulse;
@@ -153,13 +160,13 @@ impl MainState {
 
             // Horizontal rule under title
             let rule_y = anchor_y + sub_h + 4.0 + title_h + 6.0;
-            let rule = Mesh::new_rectangle(
-                ctx,
-                ggez::graphics::DrawMode::fill(),
-                Rect::new(margin_left + slide_x, rule_y, title_w * 0.6, 1.5),
-                Color::from_rgba(200, 200, 210, a_dim),
-            )?;
-            canvas.draw(&rule, DrawParam::default());
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(margin_left + slide_x, rule_y))
+                    .scale(Vec2::new(title_w * 0.6, 1.5))
+                    .color(Color::from_rgba(200, 200, 210, a_dim)),
+            );
 
             // Threat tag below rule
             if let Some((threat, tw)) = threat_opt {
