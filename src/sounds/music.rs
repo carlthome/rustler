@@ -712,8 +712,8 @@ fn synth_groove(
 
     // --- Render every note onto the mix bus at its swung onset time. ---
     let total_steps = bars * steps_per_bar;
-    let total_s = total_steps as f32 * step_s + 0.3;
-    let mut mix: Vec<f32> = vec![0.0; (SAMPLE_RATE as f32 * total_s) as usize];
+    let loop_samples = (total_steps as f32 * step_s * SAMPLE_RATE as f32) as usize;
+    let mut mix: Vec<f32> = vec![0.0; loop_samples];
 
     for note in &notes {
         // Swing: push odd 1/16 steps late by up to half a step × swing.
@@ -766,6 +766,15 @@ fn synth_groove(
             }
         }
     }
+
+    // Fold release tails into the next phrase, then retain exactly the requested number
+    // of bars. Otherwise each loop includes its tails after the final downbeat and drifts.
+    if mix.len() > loop_samples {
+        for i in loop_samples..mix.len() {
+            mix[i - loop_samples] += mix[i];
+        }
+    }
+    mix.truncate(loop_samples);
 
     // Glue the layered voices and bring up to clean full loudness.
     compress(&mut mix, 0.5, 3.0, 0.005, 0.08);

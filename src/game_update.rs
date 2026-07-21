@@ -13,6 +13,14 @@ use rand::Rng;
 
 use crate::*;
 
+pub(crate) fn treasure_groove_level(current: f32, on_beat: bool) -> f32 {
+    if on_beat {
+        1.0
+    } else {
+        current.max(0.5)
+    }
+}
+
 impl MainState {
     pub(crate) fn tick(&mut self, ctx: &mut Context) -> GameResult {
         if !self.fullscreen_applied {
@@ -582,6 +590,80 @@ impl MainState {
         let area = (self.world_width, self.world_height);
         handle_player_movement(self, ctx, dt, SPEED, area);
 
+        // Pirate treasure is a rare detour: it appears far enough away to route toward, then grades
+        // the pickup with the same tight window as catches. A late grab still protects half a meter,
+        // while landing on the beat locks the whole groove in.
+        if let Some(pos) = self.treasure_chest {
+            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            if player_center.distance_squared(pos)
+                <= TREASURE_CHEST_PICKUP_RADIUS * TREASURE_CHEST_PICKUP_RADIUS
+            {
+                let on_beat = self.on_beat_now();
+                self.groove = treasure_groove_level(self.groove, on_beat);
+                self.treasure_chest = None;
+                self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
+                self.particle_system
+                    .spawn_milestone_fireworks(
+                        pos,
+                        if on_beat {
+                            TREASURE_CHEST_ON_BEAT_PARTICLES
+                        } else {
+                            TREASURE_CHEST_OFF_BEAT_PARTICLES
+                        },
+                        &mut crate::rng::rng(),
+                    );
+                self.spawn_catch_shockwave(
+                    pos,
+                    if on_beat {
+                        [1.0, 0.82, 0.2]
+                    } else {
+                        [0.85, 0.55, 0.2]
+                    },
+                );
+                self.floating_texts.spawn(
+                    if on_beat {
+                        "TREASURE! GROOVE FULL".to_string()
+                    } else {
+                        "TREASURE! GROOVE HALF".to_string()
+                    },
+                    pos - Vec2::new(116.0, 48.0),
+                    34.0,
+                    if on_beat {
+                        [1.0, 0.88, 0.25, 1.0]
+                    } else {
+                        [1.0, 0.62, 0.25, 1.0]
+                    },
+                );
+            }
+        } else {
+            self.treasure_chest_timer -= dt;
+            if self.treasure_chest_timer <= 0.0 {
+                self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
+                let mut rng = crate::rng::rng();
+                if rng.random_bool(TREASURE_CHEST_SPAWN_CHANCE) {
+                    let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                    let mut pos = player_center;
+                    for _ in 0..TREASURE_CHEST_SPAWN_ATTEMPTS {
+                        let candidate = Vec2::new(
+                            rng.random_range(
+                                TREASURE_CHEST_SPAWN_MARGIN
+                                    ..self.world_width - TREASURE_CHEST_SPAWN_MARGIN,
+                            ),
+                            rng.random_range(
+                                TREASURE_CHEST_SPAWN_MARGIN
+                                    ..self.world_height - TREASURE_CHEST_SPAWN_MARGIN,
+                            ),
+                        );
+                        if candidate.distance(player_center) >= TREASURE_CHEST_MIN_SPAWN_DISTANCE {
+                            pos = candidate;
+                            break;
+                        }
+                    }
+                    self.treasure_chest = Some(pos);
+                }
+            }
+        }
+
         // Drum Roll (hold T): poll the held key here rather than off the key-down event, since the
         // event fires unreliably on key-repeat and we need a clean "held across beats" charge. The
         // per-beat hit counting lives in the beat handler; here we only edge-detect press/release
@@ -597,6 +679,7 @@ impl MainState {
             if self.drum_roll_hits > 0 {
                 self.fire_drum_roll();
             }
+
             self.drum_roll_hits = 0;
         }
         self.drum_roll_held = t_held;
@@ -1478,5 +1561,17 @@ impl MainState {
         // draw) agree on the screen<->world mapping this frame.
         self.camera_origin = self.compute_camera_origin();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::treasure_groove_level;
+
+    #[test]
+    fn treasure_fills_groove_only_on_beat() {
+        assert_eq!(treasure_groove_level(0.0, true), 1.0);
+        assert_eq!(treasure_groove_level(0.0, false), 0.5);
+        assert_eq!(treasure_groove_level(0.8, false), 0.8);
     }
 }

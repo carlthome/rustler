@@ -781,6 +781,14 @@ impl MainState {
         for layer in self.music_layers.iter_mut() {
             layer.set_pitch(1.0);
         }
+        // Motifs are beat-started by the ambient mixer. Stop a phrase left from the
+        // prior run so its next start is a fresh downbeat at base tempo.
+        for (left, right) in self.sounds.king_crab_motif.iter_mut() {
+            left.stop();
+            right.stop();
+            left.set_pitch(1.0);
+            right.set_pitch(1.0);
+        }
         self.on_beat_flash = 0.0;
         self.groove = 0.0;
         self.slam_active = 0.0;
@@ -922,6 +930,8 @@ impl MainState {
         self.next_upgrade_score = UPGRADE_FIRST_AT;
         self.speed_mult = 1.0;
         self.spawn_timer = 0.0;
+        self.treasure_chest = None;
+        self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
         self.time_elapsed = 0.0;
         self.game_over = false;
         self.run_recorded = false;
