@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.38.0 — 2026-07-21
+
+### Features
+- Lock gameplay music to a melodic pirate groove
+- Unify biome-linked bosses and campaign progression
+
+### Performance
+- Cull off-screen crabs and NPC train bodies before drawing
+
+### Refactoring
+- Extract the steal/deflect subsystem into chain_steal.rs
+
+### Fixes
+- Don't complete a campaign node when you lose the level
+
 ## v0.37.1 — 2026-07-21
 
 ### Performance
