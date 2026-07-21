@@ -78,9 +78,7 @@ pub fn draw_conga_rope(
     // motion, while short/medium trains (the common case) keep the full smooth 14.
     const MAX_TOTAL_SEGS: usize = 700;
     let segs: usize = if total_links > 0.0 {
-        (MAX_TOTAL_SEGS as f32 / total_links)
-            .floor()
-            .clamp(4.0, 14.0) as usize
+        (MAX_TOTAL_SEGS as f32 / total_links).floor().clamp(4.0, 14.0) as usize
     } else {
         14
     };
@@ -98,8 +96,7 @@ pub fn draw_conga_rope(
     // Speed of the wave traveling along the rope (faster on beat, faster still when overheating)
     let wave_speed = 3.5 + beat_intensity * 2.5 + heat * 3.0;
     let thickness = 3.0 + beat_intensity * 4.5 + heat * 2.5 + length_power * 2.5;
-    let alpha_base: f32 =
-        (0.55 + beat_intensity * 0.4 + heat * 0.25 + length_power * 0.12).min(1.0);
+    let alpha_base: f32 = (0.55 + beat_intensity * 0.4 + heat * 0.25 + length_power * 0.12).min(1.0);
 
     // Build the full ordered list of waypoints: player → crab0 → crab1 → …
     let player_center = player_pos + Vec2::new(24.0, 24.0);
@@ -146,8 +143,9 @@ pub fn draw_conga_rope(
                     let t = seg as f32 / segs as f32;
 
                     // Travelling sine wave: phase depends on position-along-rope + time
-                    let phase =
-                        t * std::f32::consts::TAU * 1.5 + link_idx as f32 * 0.9 - time * wave_speed;
+                    let phase = t * std::f32::consts::TAU * 1.5
+                        + link_idx as f32 * 0.9
+                        - time * wave_speed;
                     let offset = perp * wiggle_amp * phase.sin();
                     let point = start.lerp(end, t) + offset;
 
@@ -166,8 +164,8 @@ pub fn draw_conga_rope(
                         // segment flicker keeps the fire alive rather than a flat tint. The rainbow
                         // still shows through underneath so a hot rope reads as the same rope, lit.
                         if heat > 0.0 {
-                            let flicker =
-                                0.85 + 0.15 * (time * 11.0 + link_idx as f32 * 2.3 + t * 6.0).sin();
+                            let flicker = 0.85
+                                + 0.15 * (time * 11.0 + link_idx as f32 * 2.3 + t * 6.0).sin();
                             let hot = heat * flicker;
                             rr = rr + (1.0 - rr) * hot;
                             gg = gg + (0.72 - gg) * hot;
@@ -223,13 +221,7 @@ pub fn draw_conga_rope(
                         let seg_len = seg_delta.length();
                         if seg_len > 0.5 {
                             let seg_angle = seg_delta.y.atan2(seg_delta.x);
-                            seg_buf.push((
-                                prev_point,
-                                seg_angle,
-                                seg_len,
-                                [rr, gg, bb],
-                                seg_thick_mult,
-                            ));
+                            seg_buf.push((prev_point, seg_angle, seg_len, [rr, gg, bb], seg_thick_mult));
                         }
                     }
                     prev_point = point;
@@ -250,11 +242,7 @@ pub fn draw_conga_rope(
                         .scale(Vec2::new(len, thickness * tmult))
                         .color(color)
                 }));
-                canvas.draw_instanced_mesh_guarded(
-                    unit_line.clone(),
-                    instances,
-                    DrawParam::default(),
-                );
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
 
@@ -275,11 +263,7 @@ pub fn draw_conga_rope(
                         .scale(Vec2::new(len, glow_width * tmult))
                         .color(glow_color)
                 }));
-                canvas.draw_instanced_mesh_guarded(
-                    unit_line.clone(),
-                    instances,
-                    DrawParam::default(),
-                );
+                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
                 Ok(())
             })?;
             canvas.set_blend_mode(BlendMode::ALPHA);
@@ -329,18 +313,17 @@ pub fn draw_lasso(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh =
-                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
 
     // Rope tension: the reel-in phase strains the rope taut and bright; a miss lets it go slack.
     let (rope_thick, rope_bright): (f32, u8) = match phase {
-        LassoDrawPhase::Drag => (3.6, 245), // straining under the weight of the haul
+        LassoDrawPhase::Drag => (3.6, 245),   // straining under the weight of the haul
         LassoDrawPhase::Snag => (3.2, 240),
         LassoDrawPhase::Throw => (2.5, 220),
-        LassoDrawPhase::Miss => (1.6, 120), // gone limp
+        LassoDrawPhase::Miss => (1.6, 120),   // gone limp
     };
     let rope_delta = tip - player_center;
     let rope_len = rope_delta.length();
@@ -445,16 +428,8 @@ pub fn draw_lasso(
     }
 
     // Bright center dot at the tip knot — swells on the snag pop, steady otherwise.
-    let knot_scale = if phase == LassoDrawPhase::Snag {
-        5.0 + (1.0 - phase_t) * 5.0
-    } else {
-        5.0
-    };
-    let knot_alpha = if phase == LassoDrawPhase::Miss {
-        ((1.0 - phase_t) * 240.0) as u8
-    } else {
-        240
-    };
+    let knot_scale = if phase == LassoDrawPhase::Snag { 5.0 + (1.0 - phase_t) * 5.0 } else { 5.0 };
+    let knot_alpha = if phase == LassoDrawPhase::Miss { ((1.0 - phase_t) * 240.0) as u8 } else { 240 };
     canvas.draw(
         unit_circle,
         DrawParam::default()
@@ -482,8 +457,7 @@ pub fn draw_lasso_windup(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh =
-                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -556,3 +530,4 @@ pub fn draw_lasso_windup(
 
     Ok(())
 }
+

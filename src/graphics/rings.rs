@@ -105,8 +105,7 @@ pub fn draw_catch_shockwaves(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh =
-                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -119,18 +118,14 @@ pub fn draw_catch_shockwaves(
         let mut flash_slot = flash_cell.borrow_mut();
         let flash = flash_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
         flash.set(shockwaves.iter().filter_map(|&(pos, age, _)| {
-            if age >= 0.22 {
-                return None;
-            }
+            if age >= 0.22 { return None; }
             let flash_t = age / 0.22;
             let flash_alpha = (1.0 - flash_t) * 0.9;
             let flash_r = 10.0 + flash_t * 26.0;
-            Some(
-                DrawParam::default()
-                    .dest(pos)
-                    .scale(Vec2::splat(flash_r))
-                    .color(Color::new(1.0, 1.0, 1.0, flash_alpha)),
-            )
+            Some(DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(flash_r))
+                .color(Color::new(1.0, 1.0, 1.0, flash_alpha)))
         }));
         if !flash.instances().is_empty() {
             canvas.draw_instanced_mesh_guarded(unit_circle.clone(), flash, DrawParam::default());
@@ -145,9 +140,7 @@ pub fn draw_catch_shockwaves(
     SHOCKWAVE_GROUPS.with(|groups_cell| -> ggez::GameResult {
         let mut groups = groups_cell.borrow_mut();
         // Keep the key set bounded to crabs touched this frame rather than all ages ever seen.
-        for v in groups.values_mut() {
-            v.clear();
-        }
+        for v in groups.values_mut() { v.clear(); }
 
         // Ensure all meshes are cached and collect DrawParams grouped by (radius, thickness) key.
         // Two sub-groups per shockwave: leading edge (key) and inner glow (glow_key, age < 0.8).
@@ -166,15 +159,11 @@ pub fn draw_catch_shockwaves(
             let edge_b = (color[2] * age + (1.0 - age)).min(1.0);
             let key = stroke_circle_key(radius, thickness);
             cached_stroke_circle(ctx, radius, thickness)?;
-            groups
-                .entry(key)
-                .or_default()
-                .push(DrawParam::default().dest(pos).color(Color::new(
-                    edge_r,
-                    edge_g,
-                    edge_b,
-                    fade * 0.95,
-                )));
+            groups.entry(key).or_default().push(
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(edge_r, edge_g, edge_b, fade * 0.95)),
+            );
 
             // Inner glow (only while young enough to show)
             if age < 0.8 {
@@ -187,12 +176,9 @@ pub fn draw_catch_shockwaves(
                 // non-negative; negating and subtracting 1 guarantees a distinct key range.
                 let signed_glow_key = (-(glow_key.0 + 1), glow_key.1);
                 groups.entry(signed_glow_key).or_default().push(
-                    DrawParam::default().dest(pos).color(Color::new(
-                        color[0],
-                        color[1],
-                        color[2],
-                        fade * 0.28,
-                    )),
+                    DrawParam::default()
+                        .dest(pos)
+                        .color(Color::new(color[0], color[1], color[2], fade * 0.28)),
                 );
             }
         }
@@ -200,20 +186,12 @@ pub fn draw_catch_shockwaves(
         SHOCKWAVE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut instances = inst_cell.borrow_mut();
             for (key, params) in groups.iter() {
-                if params.is_empty() {
-                    continue;
-                }
+                if params.is_empty() { continue; }
                 // Recover the real stroke-circle key: glow keys were stored negated/offset.
-                let real_key = if key.0 < 0 {
-                    (-(key.0 + 1), key.1)
-                } else {
-                    *key
-                };
+                let real_key = if key.0 < 0 { (-(key.0 + 1), key.1) } else { *key };
                 let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&real_key).cloned());
                 let Some(mesh) = mesh else { continue };
-                let inst = instances
-                    .entry(*key)
-                    .or_insert_with(|| InstanceArray::new(ctx, None));
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
                 canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
@@ -250,94 +228,74 @@ pub fn draw_catch_trails(
     TRAIL_GEOM_BUF.with(|geom_cell| {
         let mut geom = geom_cell.borrow_mut();
         geom.clear();
-        geom.extend(
-            trails
-                .iter()
-                .map(|&(from, to, age, _)| trail_geometry(from, to, age)),
-        );
+        geom.extend(trails.iter().map(|&(from, to, age, _)| trail_geometry(from, to, age)));
     });
 
     TRAIL_GLOW_INSTANCES.with(|glow_cell| -> ggez::GameResult {
         TRAIL_CORE_INSTANCES.with(|core_cell| -> ggez::GameResult {
             TRAIL_SPARK_INSTANCES.with(|spark_cell| -> ggez::GameResult {
                 TRAIL_GEOM_BUF.with(|geom_cell| -> ggez::GameResult {
-                    let geom = geom_cell.borrow();
+                let geom = geom_cell.borrow();
 
-                    let mut glow_slot = glow_cell.borrow_mut();
-                    let mut core_slot = core_cell.borrow_mut();
-                    let mut spark_slot = spark_cell.borrow_mut();
-                    let glow = glow_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                    let core = core_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-                    let sparks = spark_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                let mut glow_slot = glow_cell.borrow_mut();
+                let mut core_slot = core_cell.borrow_mut();
+                let mut spark_slot = spark_cell.borrow_mut();
+                let glow = glow_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                let core = core_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                let sparks = spark_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
 
-                    glow.set(trails.iter().zip(geom.iter()).filter_map(
-                        |(&(_, _, _, color), g)| {
-                            let (tail, seg_len, angle, fade) = (*g)?;
-                            let thickness = (2.0 + fade * 5.0).max(1.0);
-                            Some(
-                                DrawParam::default()
-                                    .dest(tail)
-                                    .rotation(angle)
-                                    .scale(Vec2::new(seg_len, thickness * 2.4))
-                                    .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
-                            )
-                        },
-                    ));
-                    core.set(trails.iter().zip(geom.iter()).filter_map(
-                        |(&(_, _, _, color), g)| {
-                            let (tail, seg_len, angle, fade) = (*g)?;
-                            let thickness = (2.0 + fade * 5.0).max(1.0);
-                            // Bright core line, blending from the crab color toward white-hot.
-                            let cr = (color[0] * 0.5 + 0.5).min(1.0);
-                            let cg = (color[1] * 0.5 + 0.5).min(1.0);
-                            let cb = (color[2] * 0.5 + 0.5).min(1.0);
-                            Some(
-                                DrawParam::default()
-                                    .dest(tail)
-                                    .rotation(angle)
-                                    .scale(Vec2::new(seg_len, thickness))
-                                    .color(Color::new(cr, cg, cb, fade * 0.85)),
-                            )
-                        },
-                    ));
-                    sparks.set(geom.iter().filter_map(|g| {
-                        let (tail, _, _, fade) = (*g)?;
-                        // White-hot spark riding the retracting tail — the crab being reeled in.
-                        let spark_r = (2.5 + fade * 5.0).max(1.0);
-                        Some(
-                            DrawParam::default()
-                                .dest(tail)
-                                .scale(Vec2::splat(spark_r))
-                                .color(Color::new(1.0, 1.0, 1.0, fade * 0.9)),
-                        )
-                    }));
+                glow.set(trails.iter().zip(geom.iter()).filter_map(|(&(_, _, _, color), g)| {
+                    let (tail, seg_len, angle, fade) = (*g)?;
+                    let thickness = (2.0 + fade * 5.0).max(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .rotation(angle)
+                            .scale(Vec2::new(seg_len, thickness * 2.4))
+                            .color(Color::new(color[0], color[1], color[2], fade * 0.30)),
+                    )
+                }));
+                core.set(trails.iter().zip(geom.iter()).filter_map(|(&(_, _, _, color), g)| {
+                    let (tail, seg_len, angle, fade) = (*g)?;
+                    let thickness = (2.0 + fade * 5.0).max(1.0);
+                    // Bright core line, blending from the crab color toward white-hot.
+                    let cr = (color[0] * 0.5 + 0.5).min(1.0);
+                    let cg = (color[1] * 0.5 + 0.5).min(1.0);
+                    let cb = (color[2] * 0.5 + 0.5).min(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .rotation(angle)
+                            .scale(Vec2::new(seg_len, thickness))
+                            .color(Color::new(cr, cg, cb, fade * 0.85)),
+                    )
+                }));
+                sparks.set(geom.iter().filter_map(|g| {
+                    let (tail, _, _, fade) = (*g)?;
+                    // White-hot spark riding the retracting tail — the crab being reeled in.
+                    let spark_r = (2.5 + fade * 5.0).max(1.0);
+                    Some(
+                        DrawParam::default()
+                            .dest(tail)
+                            .scale(Vec2::splat(spark_r))
+                            .color(Color::new(1.0, 1.0, 1.0, fade * 0.9)),
+                    )
+                }));
 
-                    // Every trail can filter out (short/fully-retracted segments return None from
-                    // trail_geometry), leaving an InstanceArray that `.set()` shrank to zero capacity.
-                    // ggez's draw_instanced flush rebuilds the buffer at len and asserts capacity > 0,
-                    // so drawing an empty array panics — guard each pass to skip when it's empty.
-                    if !glow.instances().is_empty() {
-                        canvas.draw_instanced_mesh_guarded(
-                            line.clone(),
-                            glow,
-                            DrawParam::default(),
-                        );
-                    }
-                    if !core.instances().is_empty() {
-                        canvas.draw_instanced_mesh_guarded(
-                            line.clone(),
-                            core,
-                            DrawParam::default(),
-                        );
-                    }
-                    if !sparks.instances().is_empty() {
-                        canvas.draw_instanced_mesh_guarded(
-                            spark.clone(),
-                            sparks,
-                            DrawParam::default(),
-                        );
-                    }
-                    Ok(())
+                // Every trail can filter out (short/fully-retracted segments return None from
+                // trail_geometry), leaving an InstanceArray that `.set()` shrank to zero capacity.
+                // ggez's draw_instanced flush rebuilds the buffer at len and asserts capacity > 0,
+                // so drawing an empty array panics — guard each pass to skip when it's empty.
+                if !glow.instances().is_empty() {
+                    canvas.draw_instanced_mesh_guarded(line.clone(), glow, DrawParam::default());
+                }
+                if !core.instances().is_empty() {
+                    canvas.draw_instanced_mesh_guarded(line.clone(), core, DrawParam::default());
+                }
+                if !sparks.instances().is_empty() {
+                    canvas.draw_instanced_mesh_guarded(spark.clone(), sparks, DrawParam::default());
+                }
+                Ok(())
                 })
             })
         })
@@ -393,9 +351,7 @@ pub fn draw_fear_rings(
     // the same age and thus the same key each frame, so they collapse into one instanced draw.
     FEAR_RING_GROUPS.with(|groups_cell| -> ggez::GameResult {
         let mut groups = groups_cell.borrow_mut();
-        for v in groups.values_mut() {
-            v.clear();
-        }
+        for v in groups.values_mut() { v.clear(); }
 
         for &(pos, age) in rings {
             let ease = 1.0 - (1.0 - age).powi(2);
@@ -406,15 +362,11 @@ pub fn draw_fear_rings(
             // Leading edge (cyan-white)
             let key = stroke_circle_key(radius, thickness);
             cached_stroke_circle(ctx, radius, thickness)?;
-            groups
-                .entry(key)
-                .or_default()
-                .push(DrawParam::default().dest(pos).color(Color::new(
-                    0.55,
-                    0.9,
-                    1.0,
-                    fade * 0.85,
-                )));
+            groups.entry(key).or_default().push(
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(0.55, 0.9, 1.0, fade * 0.85)),
+            );
 
             // Inner echo (age < 0.75), encoded with negated key to share the map without collision
             if age < 0.75 {
@@ -434,19 +386,11 @@ pub fn draw_fear_rings(
         FEAR_RING_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut instances = inst_cell.borrow_mut();
             for (key, params) in groups.iter() {
-                if params.is_empty() {
-                    continue;
-                }
-                let real_key = if key.0 < 0 {
-                    (-(key.0 + 1), key.1)
-                } else {
-                    *key
-                };
+                if params.is_empty() { continue; }
+                let real_key = if key.0 < 0 { (-(key.0 + 1), key.1) } else { *key };
                 let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(&real_key).cloned());
                 let Some(mesh) = mesh else { continue };
-                let inst = instances
-                    .entry(*key)
-                    .or_insert_with(|| InstanceArray::new(ctx, None));
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
                 canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
@@ -526,12 +470,9 @@ pub fn draw_whistle_ring(
     let front = cached_stroke_circle(ctx, radius, thickness)?;
     canvas.draw(
         &front,
-        DrawParam::default().dest(center).color(Color::new(
-            1.0,
-            0.82,
-            0.35,
-            (fade * 0.9).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.82, 0.35, (fade * 0.9).clamp(0.0, 1.0))),
     );
 
     // A couple of trailing echo rings for a "wub" of concentric pulses chasing the front.
@@ -587,12 +528,9 @@ pub fn draw_catch_bloom_ring(
     let ring = cached_stroke_circle(ctx, radius, thickness)?;
     canvas.draw(
         &ring,
-        DrawParam::default().dest(center).color(Color::new(
-            0.20,
-            0.90,
-            0.80,
-            (base_alpha * beat).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(0.20, 0.90, 0.80, (base_alpha * beat).clamp(0.0, 1.0))),
     );
 
     // A brighter leading dashed hint just inside the edge while the window is wide open, so the
@@ -787,12 +725,9 @@ pub fn draw_centerpiece_ring(
     let ring = cached_stroke_circle(ctx, r, 1.4)?;
     canvas.draw(
         &ring,
-        DrawParam::default().dest(center).color(Color::new(
-            amber[0],
-            amber[1],
-            amber[2],
-            alpha * 0.35,
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(amber[0], amber[1], amber[2], alpha * 0.35)),
     );
 
     canvas.set_blend_mode(original_blend);
@@ -826,12 +761,9 @@ pub fn draw_call_ring(
             let hue = 0.5 + 0.5 * i as f32 / 3.0;
             canvas.draw(
                 &ring,
-                DrawParam::default().dest(center).color(Color::new(
-                    1.0,
-                    0.3 + 0.2 * hue,
-                    0.9,
-                    alpha,
-                )),
+                DrawParam::default()
+                    .dest(center)
+                    .color(Color::new(1.0, 0.3 + 0.2 * hue, 0.9, alpha)),
             );
         }
     }
@@ -1012,23 +944,17 @@ pub fn draw_stomp_ring(
     let front = cached_stroke_circle(ctx, radius, thickness)?;
     canvas.draw(
         &front,
-        DrawParam::default().dest(center).color(Color::new(
-            0.85,
-            0.74,
-            0.5,
-            (fade * 0.85).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(0.85, 0.74, 0.5, (fade * 0.85).clamp(0.0, 1.0))),
     );
     // A brighter thin crest riding the front for a bit of snap.
     let crest = cached_stroke_circle(ctx, radius, 1.5)?;
     canvas.draw(
         &crest,
-        DrawParam::default().dest(center).color(Color::new(
-            1.0,
-            0.95,
-            0.8,
-            (fade * 0.9).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.95, 0.8, (fade * 0.9).clamp(0.0, 1.0))),
     );
 
     canvas.set_blend_mode(original_blend);
@@ -1060,23 +986,17 @@ pub fn draw_slam_ring(
     let front = cached_stroke_circle(ctx, radius, thickness)?;
     canvas.draw(
         &front,
-        DrawParam::default().dest(center).color(Color::new(
-            1.0,
-            0.85,
-            0.25,
-            (fade * 0.95).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 0.85, 0.25, (fade * 0.95).clamp(0.0, 1.0))),
     );
     // Hot white crest riding the very front for a snappy leading edge.
     let crest = cached_stroke_circle(ctx, radius, 2.5)?;
     canvas.draw(
         &crest,
-        DrawParam::default().dest(center).color(Color::new(
-            1.0,
-            1.0,
-            0.92,
-            (fade * 1.0).clamp(0.0, 1.0),
-        )),
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(1.0, 1.0, 0.92, (fade * 1.0).clamp(0.0, 1.0))),
     );
     // Two trailing echo rings for a booming, layered "wham".
     for (offset, alpha_scale) in [(40.0_f32, 0.5_f32), (84.0_f32, 0.28_f32)] {

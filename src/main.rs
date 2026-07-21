@@ -113,11 +113,11 @@ pub(crate) fn how_to_play_body_text() -> String {
 use ggez::audio::SoundSource;
 use ggez::conf::{FullscreenType, WindowMode, WindowSetup};
 use ggez::event;
+use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Text};
 use ggez::input::keyboard::{KeyCode, KeyInput};
 use ggez::input::mouse::MouseButton;
-use ggez::winit::dpi::LogicalSize;
 use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
 
@@ -775,10 +775,14 @@ impl MainState {
         }
     }
 
+
+
+
     // --- Effective per-tool values, derived from the chosen upgrade lanes ---
     // These fold each lane's rank into the base constants at the point of use, so a run that pours
     // level-ups into one tool visibly transforms it (a whistle build sweeps the whole screen; a
     // stomp build fires almost on demand) instead of every build feeling the same.
+
 
     // apply_upgrade now lives in src/upgrade.rs (impl MainState there).
 }
@@ -997,10 +1001,7 @@ fn main() -> GameResult {
         let scale = monitor.scale_factor();
         let logical_w = (size.width as f64 / scale) as f32;
         let logical_h = (size.height as f64 / scale) as f32;
-        let _ = ctx
-            .gfx
-            .window()
-            .request_inner_size(LogicalSize::new(logical_w, logical_h));
+        let _ = ctx.gfx.window().request_inner_size(LogicalSize::new(logical_w, logical_h));
     }
     let mut app = if bot_script.is_some() {
         AppState::Ready(MainState::new(&mut ctx)?)
@@ -1067,8 +1068,14 @@ fn main() -> GameResult {
                 // step small enough that catches register reliably, trading a little wall-clock (still
                 // a parallel matrix leg) for a green that isn't a coin-flip.
                 "steal_defense" | "steal_dodge" | "revenge" => 2.0,
-                "campaign_escape" | "campaign_loss" | "menu_to_game" | "campaign_tutorial"
-                | "campaign_full" | "npc_steal" | "player_steal" | "npc_vs_npc" => 3.0,
+                "campaign_escape"
+                | "campaign_loss"
+                | "menu_to_game"
+                | "campaign_tutorial"
+                | "campaign_full"
+                | "npc_steal"
+                | "player_steal"
+                | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };

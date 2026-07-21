@@ -7,8 +7,8 @@
 //! file navigable. Pure structural move — no behaviour change; the caller still owns the
 //! `beat_timer` countdown and only invokes this when a beat actually lands.
 
-use ggez::Context;
 use ggez::glam::Vec2;
+use ggez::Context;
 use rand::Rng;
 
 use crate::*;
@@ -118,9 +118,8 @@ impl MainState {
                     }
                 }
                 for (left, right) in self.sounds.king_crab_motif.iter_mut() {
-                    let was_playing = !self.music_muted
-                        && (left.playing() || right.playing())
-                        && left.volume() > 0.01;
+                    let was_playing =
+                        !self.music_muted && (left.playing() || right.playing()) && left.volume() > 0.01;
                     left.set_pitch(desired_pitch);
                     right.set_pitch(desired_pitch);
                     if was_playing {
@@ -456,8 +455,7 @@ impl MainState {
                     self.catch_shockwaves.push((old, 0.0, [1.0, 0.62, 0.45]));
                 }
                 if self.catch_shockwaves.len() < 48 {
-                    self.catch_shockwaves
-                        .push((crab.pos, 0.0, [1.0, 0.62, 0.45]));
+                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.62, 0.45]));
                 }
             }
         }
@@ -846,7 +844,9 @@ impl MainState {
                 // Armored/Hermit (its shell isn't the aura's to crack), or an already-caught
                 // link. A Golden is fair game: parking a Dancer link where a snared Golden
                 // sits is a legit way to bank the prize on the beat.
-                if self.crabs[i].caught || !self.crabs[i].is_catchable() || self.crabs[i].is_boss()
+                if self.crabs[i].caught
+                    || !self.crabs[i].is_catchable()
+                    || self.crabs[i].is_boss()
                 {
                     continue;
                 }

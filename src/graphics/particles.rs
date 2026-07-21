@@ -69,26 +69,20 @@ impl ParticleSystem {
         }
     }
 
-    pub fn spawn_catch_effect(
-        &mut self,
-        pos: Vec2,
-        crab_color: [f32; 3],
-        crab_type: CrabType,
-        rng: &mut impl Rng,
-    ) {
+    pub fn spawn_catch_effect(&mut self, pos: Vec2, crab_color: [f32; 3], crab_type: CrabType, rng: &mut impl Rng) {
         let (particle_count, speed_range, size_range, special_effect) = match crab_type {
             CrabType::Normal => (20, 80.0..180.0, 3.0..6.0, false),
             CrabType::Fast => (35, 120.0..300.0, 2.0..5.0, true), // More particles, faster
             CrabType::Big => (40, 60.0..150.0, 4.0..10.0, false), // Larger particles
             CrabType::Sneaky => (15, 100.0..250.0, 1.5..4.0, true), // Fewer, sneaky particles
             CrabType::Armored => (40, 60.0..150.0, 4.0..10.0, false), // Chunky, shell-cracking burst
-            CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true),   // Lively disco confetti burst
-            CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true), // Chunky lodestone burst — the cluster pops with it
-            CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true), // Wiry poison-green burst — catching it feels like relief
-            CrabType::Hermit => (42, 70.0..200.0, 3.0..8.0, true), // Chunky coppery shell-shard burst — the borrowed shell scatters as it pops out
+            CrabType::Dancer => (30, 110.0..280.0, 2.0..5.0, true), // Lively disco confetti burst
+            CrabType::Magnet => (45, 90.0..260.0, 3.0..7.0, true),  // Chunky lodestone burst — the cluster pops with it
+            CrabType::Thief => (28, 120.0..300.0, 2.0..5.0, true),  // Wiry poison-green burst — catching it feels like relief
+            CrabType::Hermit => (42, 70.0..200.0, 3.0..8.0, true),  // Chunky coppery shell-shard burst — the borrowed shell scatters as it pops out
             CrabType::Golden => (55, 100.0..320.0, 2.5..7.0, true), // Lavish gold coin-burst — the treasure catch pops
             CrabType::Splitter => (48, 130.0..340.0, 2.5..6.0, true), // Fast bright teal cleave-burst that flings apart — reads as the train splitting open
-            CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),     // Huge celebratory burst
+            CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
             CrabType::RhythmBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge violet disco burst
             CrabType::HermitKing => (70, 90.0..320.0, 4.0..13.0, true), // Huge coppery shell-shard burst — the fortress finally falls
@@ -146,7 +140,7 @@ impl ParticleSystem {
                     CrabType::Sneaky => [0.7, 0.9, 1.0], // Blue sparkles for sneaky crabs
                     CrabType::Dancer => [1.0, 0.5, 0.95], // Hot-pink disco confetti
                     CrabType::Magnet => [1.0, 0.55, 0.2], // Molten lodestone sparks
-                    CrabType::Thief => [0.5, 1.0, 0.6], // Poison-green thief sparks
+                    CrabType::Thief => [0.5, 1.0, 0.6],   // Poison-green thief sparks
                     CrabType::Golden => [1.0, 0.85, 0.25], // Bright treasure-gold coin sparks
                     _ => [1.0, 1.0, 0.9],
                 };
@@ -181,13 +175,7 @@ impl ParticleSystem {
         }
     }
 
-    pub fn spawn_movement_trail(
-        &mut self,
-        pos: Vec2,
-        velocity: Vec2,
-        time: f32,
-        rng: &mut impl Rng,
-    ) {
+    pub fn spawn_movement_trail(&mut self, pos: Vec2, velocity: Vec2, time: f32, rng: &mut impl Rng) {
         let speed = velocity.length();
         if speed < 15.0 {
             return;
@@ -201,11 +189,14 @@ impl ParticleSystem {
             let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
             let spread_angle = rng.random_range(0.0..std::f32::consts::TAU);
             let spread_dist = rng.random_range(0.0..12.0);
-            let vel =
-                Vec2::new(spread_angle.cos(), spread_angle.sin()) * spread_dist - velocity * 0.08;
+            let vel = Vec2::new(spread_angle.cos(), spread_angle.sin()) * spread_dist
+                - velocity * 0.08;
             let life = rng.random_range(0.12..0.30);
             self.push(Particle {
-                pos: pos + Vec2::new(rng.random_range(-5.0..5.0), rng.random_range(-5.0..5.0)),
+                pos: pos + Vec2::new(
+                    rng.random_range(-5.0..5.0),
+                    rng.random_range(-5.0..5.0),
+                ),
                 vel,
                 life,
                 max_life: life,
@@ -225,15 +216,7 @@ impl ParticleSystem {
     /// `move_speed = move_len / dt` (both already calculated by the caller for the facing-angle
     /// update and normalize), so this function avoids the redundant sqrts that used to run per
     /// chain-link per frame even when the train barely moved.
-    pub fn spawn_conga_dust(
-        &mut self,
-        pos: Vec2,
-        move_delta: Vec2,
-        dt: f32,
-        move_len: f32,
-        move_speed: f32,
-        rng: &mut impl Rng,
-    ) {
+    pub fn spawn_conga_dust(&mut self, pos: Vec2, move_delta: Vec2, dt: f32, move_len: f32, move_speed: f32, rng: &mut impl Rng) {
         if move_speed < 40.0 {
             return;
         }
@@ -244,11 +227,7 @@ impl ParticleSystem {
             return;
         }
         // Normalize using the pre-computed length to skip a second sqrt.
-        let back = if move_len > 1e-6 {
-            -move_delta / move_len
-        } else {
-            Vec2::ZERO
-        };
+        let back = if move_len > 1e-6 { -move_delta / move_len } else { Vec2::ZERO };
         let perp = Vec2::new(-back.y, back.x);
         // Mostly backward, with a little sideways scatter and a gentle upward kick so the puff
         // rises before the particle system's gravity settles it back down.
@@ -270,11 +249,7 @@ impl ParticleSystem {
 
     pub fn spawn_dash_burst(&mut self, pos: Vec2, move_dir: Vec2, rng: &mut impl Rng) {
         // shoot particles mostly backward from the movement direction, spread into a fan
-        let back = if move_dir.length() > 0.1 {
-            -move_dir.normalize()
-        } else {
-            Vec2::new(0.0, 1.0)
-        };
+        let back = if move_dir.length() > 0.1 { -move_dir.normalize() } else { Vec2::new(0.0, 1.0) };
         for _ in 0..30 {
             let spread = rng.random_range(-0.9_f32..0.9_f32);
             let perp = Vec2::new(-back.y, back.x);
@@ -284,11 +259,7 @@ impl ParticleSystem {
             // Cyan-white colour with slight variation
             let g = rng.random_range(0.85_f32..1.0_f32);
             self.push(Particle {
-                pos: pos
-                    + Vec2::new(
-                        rng.random_range(-6.0_f32..6.0_f32),
-                        rng.random_range(-6.0_f32..6.0_f32),
-                    ),
+                pos: pos + Vec2::new(rng.random_range(-6.0_f32..6.0_f32), rng.random_range(-6.0_f32..6.0_f32)),
                 vel: dir * speed,
                 life,
                 max_life: life,
@@ -298,16 +269,8 @@ impl ParticleSystem {
         }
     }
 
-    pub fn spawn_beat_pulse(
-        &mut self,
-        positions: &[Vec2],
-        beat_intensity: f32,
-        chain_len: usize,
-        rng: &mut impl Rng,
-    ) {
-        if positions.is_empty() {
-            return;
-        }
+    pub fn spawn_beat_pulse(&mut self, positions: &[Vec2], beat_intensity: f32, chain_len: usize, rng: &mut impl Rng) {
+        if positions.is_empty() { return; }
         // Scale ring size with chain length — bigger train = bigger burst
         let base_count = (4 + chain_len / 3).min(16) as usize;
         let ring_speed = 180.0 + beat_intensity * 120.0;
@@ -320,8 +283,7 @@ impl ParticleSystem {
                 let speed = ring_speed * rng.random_range(0.7_f32..1.3_f32);
                 let life = rng.random_range(0.25_f32..0.55_f32);
                 // Rainbow hue per particle, offset by position for variety
-                let hue =
-                    (angle / std::f32::consts::TAU + center.x * 0.001 + center.y * 0.0007) % 1.0;
+                let hue = (angle / std::f32::consts::TAU + center.x * 0.001 + center.y * 0.0007) % 1.0;
                 let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
                 let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
                 let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
@@ -385,10 +347,7 @@ impl ParticleSystem {
             let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
             let speed = rng.random_range(12.0_f32..40.0_f32);
             // Drift outward but bias upward so the puff wafts off like a settling sigh.
-            let vel = Vec2::new(
-                angle.cos() * speed,
-                angle.sin() * speed - rng.random_range(20.0_f32..55.0_f32),
-            );
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed - rng.random_range(20.0_f32..55.0_f32));
             let life = rng.random_range(0.5_f32..0.95_f32);
             self.push(Particle {
                 pos,
@@ -410,10 +369,7 @@ impl ParticleSystem {
             let angle = rng.random_range(0.0_f32..std::f32::consts::TAU);
             let speed = rng.random_range(40.0_f32..130.0_f32);
             // Fling outward, mostly flat, with only a small upward hop so it settles fast like sand.
-            let vel = Vec2::new(
-                angle.cos() * speed,
-                angle.sin() * speed * 0.5 - rng.random_range(5.0_f32..30.0_f32),
-            );
+            let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed * 0.5 - rng.random_range(5.0_f32..30.0_f32));
             let life = rng.random_range(0.22_f32..0.45_f32);
             let shade = rng.random_range(0.0_f32..0.1_f32);
             self.push(Particle {
@@ -456,12 +412,7 @@ impl ParticleSystem {
         }
     }
 
-    pub fn spawn_milestone_fireworks(
-        &mut self,
-        center: Vec2,
-        milestone: usize,
-        rng: &mut impl Rng,
-    ) {
+    pub fn spawn_milestone_fireworks(&mut self, center: Vec2, milestone: usize, rng: &mut impl Rng) {
         // Scale particle count with milestone tier, capped at 200
         let count = (120 + (milestone / 5).min(8) * 10).min(200);
 
@@ -474,8 +425,7 @@ impl ParticleSystem {
             let vel = Vec2::new(angle.cos() * speed, angle.sin() * speed - upward_bias);
             let life = rng.random_range(1.2_f32..2.8_f32);
             // Full rainbow: spread hue evenly across particles with random jitter
-            let hue =
-                ((i as f32 / count as f32) + rng.random_range(-0.05_f32..0.05_f32)).rem_euclid(1.0);
+            let hue = ((i as f32 / count as f32) + rng.random_range(-0.05_f32..0.05_f32)).rem_euclid(1.0);
             let r = ((hue * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0);
             let g = (2.0 - (hue * 6.0 - 2.0).abs()).clamp(0.0, 1.0);
             let b = (2.0 - (hue * 6.0 - 4.0).abs()).clamp(0.0, 1.0);
@@ -541,8 +491,7 @@ pub fn draw_particles(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh.clone(),
         None => {
-            let mesh =
-                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
@@ -577,26 +526,20 @@ pub fn draw_particles(
                     .color(color)
             }));
 
-            glow.set(
-                particle_system
-                    .particles
-                    .iter()
-                    .filter(|p| p.size > 4.0)
-                    .map(|particle| {
-                        let life_ratio = particle.life / particle.max_life;
-                        let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
-                        let glow_color = Color::new(
-                            particle.color[0],
-                            particle.color[1],
-                            particle.color[2],
-                            alpha * 0.3,
-                        );
-                        DrawParam::default()
-                            .dest(particle.pos)
-                            .scale(Vec2::splat(particle.size * 1.5))
-                            .color(glow_color)
-                    }),
-            );
+            glow.set(particle_system.particles.iter().filter(|p| p.size > 4.0).map(|particle| {
+                let life_ratio = particle.life / particle.max_life;
+                let alpha = (life_ratio * 0.8).clamp(0.0, 1.0);
+                let glow_color = Color::new(
+                    particle.color[0],
+                    particle.color[1],
+                    particle.color[2],
+                    alpha * 0.3,
+                );
+                DrawParam::default()
+                    .dest(particle.pos)
+                    .scale(Vec2::splat(particle.size * 1.5))
+                    .color(glow_color)
+            }));
 
             // Both passes guarded: ggez's flush_wgpu asserts capacity > 0 if called on an
             // InstanceArray that was set() with 0 items. Always skip the draw when empty.

@@ -20,14 +20,14 @@ pub enum CrabType {
     Big,
     Sneaky,
     Armored, // hard-shelled: lasso slips off and the whistle barely moves it — crack it with a Stomp
-    Dancer, // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
-    Magnet, // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
-    Thief, // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
-    Hermit, // "Hermit Crab": hunkers inside a borrowed shell that the beam CAN'T wear down — only the ecosystem cracks it (a Stomp pops it, a Dancer's on-beat hop chips it, and a roaming Magnet's field RIPS it clean out). While shelled it periodically darts to a new host spot; once cracked it pops out defenceless and bolts, opening a brief catch window. Three existing verbs, one new target — the archetype web's newest edge.
-    Golden, // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
+    Dancer,  // rhythm crab: freezes between beats, then lunges a fixed hop on the beat — catch it mid-freeze
+    Magnet,  // draws nearby free crabs toward itself as it roams — catching it nets the cluster it gathered (two-for-one)
+    Thief,   // skittish parasite: latches onto the conga tail and peels a link loose on a timer unless you catch/dislodge it — pressures the train you've already built
+    Hermit,  // "Hermit Crab": hunkers inside a borrowed shell that the beam CAN'T wear down — only the ecosystem cracks it (a Stomp pops it, a Dancer's on-beat hop chips it, and a roaming Magnet's field RIPS it clean out). While shelled it periodically darts to a new host spot; once cracked it pops out defenceless and bolts, opening a brief catch window. Three existing verbs, one new target — the archetype web's newest edge.
+    Golden,  // rare shiny "Golden Crab" — flees fast and sparkles; catching it pays a big lump-sum score bonus. A pure risk/reward chase decision: break off your herding to snag it before it bolts, or let it go.
     Splitter, // "Splitter Crab" — catching it cleaves your conga train at the midpoint and BANKS the back half for points. It's a real arrangement *bet*, gated on timing: catch it ON the beat for a clean cut — full payout plus a Jackpot on Goldens/Magnets/a cashed match-run in the slice; catch it OFF the beat for a sloppy cut — half payout and no jackpot. So time it to the beat to cash a hot tail for its full worth, or dodge it to keep building a run you'd only half-cash off-beat. Reuses the delivery payout verb.
 
-    Boss,       // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
+    Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
     RhythmBoss, // rare oversized "Reef DJ" — its shell only drops on the beat, so the beam only wears it down when you hold it *on-beat*
     HermitKing, // rare oversized "Hermit King" — drags a stack of shell houses. The beam can't touch it: only Stomps crack it, one shell layer per pound (5 total). After 2 cracks it darts erratically and only ON-BEAT stomps land; after 4 it panics and flees for the world edge — escape and it drags a fresh shell back in (shell resets). The final crack exposes it; catching the big boy pays a triple score bonus (75-a-combo vs the usual 25 — see on_boss_caught).
@@ -133,13 +133,13 @@ impl CrabType {
             CrabType::Big => 20.0..40.0,
             CrabType::Sneaky => 40.0..80.0,
             CrabType::Armored => 22.0..42.0, // heavy shell — trundles along
-            CrabType::Dancer => 20.0..40.0, // drifts slowly between beats; its real speed is the beat hop
-            CrabType::Magnet => 26.0..48.0, // roams steadily — you chase it because the herd trails it
-            CrabType::Thief => 55.0..95.0,  // quick and darty — it makes a beeline for your tail
+            CrabType::Dancer => 20.0..40.0,  // drifts slowly between beats; its real speed is the beat hop
+            CrabType::Magnet => 26.0..48.0,  // roams steadily — you chase it because the herd trails it
+            CrabType::Thief => 55.0..95.0,   // quick and darty — it makes a beeline for your tail
             CrabType::Hermit => 70.0..120.0, // the *popped* Hermit bolts fast once cracked; while shelled it barely drifts and darts in scripted hops (see the host-swap block in main.rs)
             CrabType::Golden => 85.0..135.0, // skittish and fast — the shiny prize bolts, so you have to commit to the chase
             CrabType::Splitter => 48.0..88.0, // darts at a lively clip — quick enough that snagging it is a deliberate move you set up, not an accident
-            CrabType::Boss => 18.0..34.0,     // slow and lumbering
+            CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
             CrabType::RhythmBoss => 20.0..38.0, // grooves around at a steady mid-pace, bobbing to the beat
             CrabType::HermitKing => 16.0..26.0, // a dragging shell-house tank — its Rattled/Panicked phases multiply this (see the hermit-king branch in crab_update.rs)
@@ -168,16 +168,16 @@ impl CrabType {
         match self {
             CrabType::Sneaky => 1.5, // evasive and light — folds hard to a whistle
             CrabType::Normal => 1.0,
-            CrabType::Fast => 0.85,      // squirrely, harder to herd cleanly
-            CrabType::Big => 0.4,        // heavy — shrugs most of it off
-            CrabType::Armored => 0.3,    // shelled and stubborn — the whistle barely nudges it
+            CrabType::Fast => 0.85, // squirrely, harder to herd cleanly
+            CrabType::Big => 0.4,   // heavy — shrugs most of it off
+            CrabType::Armored => 0.3, // shelled and stubborn — the whistle barely nudges it
             CrabType::Dancer => 1.2, // light and lively — the whistle catches it easily between hops
             CrabType::Magnet => 0.9, // a touch heavy from all the crabs it's dragging along
             CrabType::Thief => 1.3,  // light and skittish — a whistle yanks it off your tail nicely
             CrabType::Hermit => 0.35, // the borrowed shell is heavy and it clamps to the ground — a whistle barely budges a shelled Hermit (crack it first, then it's catchable)
             CrabType::Golden => 1.6, // flighty featherweight — a whistle is the surest way to reel the shiny prize in before it bolts
             CrabType::Splitter => 1.1, // light and jittery — the whistle reels it in cleanly when you decide to commit to the cleave
-            CrabType::Boss => 0.0,     // the King Crab is unshakeable
+            CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
             CrabType::RhythmBoss => 0.0, // the Reef DJ is unshakeable
             CrabType::HermitKing => 0.0, // the Hermit King is unshakeable
@@ -191,15 +191,15 @@ impl CrabType {
             CrabType::Fast => 0.24..=0.36,
             CrabType::Big => 0.50..=0.80,
             CrabType::Sneaky => 0.30..=0.40,
-            CrabType::Armored => 0.42..=0.62,  // stocky, tank-like
-            CrabType::Dancer => 0.30..=0.44,   // sprightly, mid-size
-            CrabType::Magnet => 0.40..=0.56,   // chunky, so its aura reads at a glance
-            CrabType::Thief => 0.26..=0.38, // small and wiry — easy to lose against the herd until it's on your tail
-            CrabType::Hermit => 0.40..=0.56, // stocky like the Armored — the borrowed shell reads as a chunky lump the herd could bunch near
-            CrabType::Golden => 0.34..=0.48, // a hair bigger than a normal crab so the shine reads at a glance
+            CrabType::Armored => 0.42..=0.62, // stocky, tank-like
+            CrabType::Dancer => 0.30..=0.44,  // sprightly, mid-size
+            CrabType::Magnet => 0.40..=0.56,  // chunky, so its aura reads at a glance
+            CrabType::Thief => 0.26..=0.38,   // small and wiry — easy to lose against the herd until it's on your tail
+            CrabType::Hermit => 0.40..=0.56,  // stocky like the Armored — the borrowed shell reads as a chunky lump the herd could bunch near
+            CrabType::Golden => 0.34..=0.48,  // a hair bigger than a normal crab so the shine reads at a glance
             CrabType::Splitter => 0.34..=0.46, // mid-size, but its split-halves aura is what reads at a glance, not its bulk
-            CrabType::Boss => 1.7..=2.1,       // towering
-            CrabType::TideBoss => 1.7..=2.1,   // just as towering as the King Crab
+            CrabType::Boss => 1.7..=2.1,      // towering
+            CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
             CrabType::RhythmBoss => 1.7..=2.1, // just as towering as the other bosses
             CrabType::HermitKing => 1.9..=2.3, // the biggest of the bunch — it IS a big boy (counts as 3 in the chain)
             CrabType::DancerKing => 1.5..=1.8, // a touch lighter than the tanks — it's a dancer, after all
@@ -222,28 +222,28 @@ pub struct EnemyCrab {
     pub spooked_timer: f32,
     pub beat_phase_offset: f32,
     pub join_pulse: f32,
-    pub fleeing: bool,        // true when actively panic-fleeing from the player
-    pub facing_angle: f32,    // current facing direction in radians (0 = right)
-    pub in_flashlight: bool,  // true while crab is inside the flashlight cone being attracted
-    pub startle_timer: f32, // >0 while bolting away after a nearby catch spooked it (stampede ripple)
-    pub charm_timer: f32, // >0 while soothed by a whistle pulse: won't flee and is immune to beat-startle panic
+    pub fleeing: bool,  // true when actively panic-fleeing from the player
+    pub facing_angle: f32,  // current facing direction in radians (0 = right)
+    pub in_flashlight: bool, // true while crab is inside the flashlight cone being attracted
+    pub startle_timer: f32,  // >0 while bolting away after a nearby catch spooked it (stampede ripple)
+    pub charm_timer: f32,    // >0 while soothed by a whistle pulse: won't flee and is immune to beat-startle panic
     pub answering_call: f32, // >0 while a Dancer is answering an on-beat player Call: it hops *toward* the player on the beat instead of fleeing
-    pub boss_health: f32, // >0 while a boss still needs wearing down under the beam; 0 for regular crabs
+    pub boss_health: f32,    // >0 while a boss still needs wearing down under the beam; 0 for regular crabs
     pub boss_max_health: f32, // starting boss_health, so the fight can reason about health *fraction* (enrage phase)
-    pub enraged: bool, // latched true once a boss crosses into its final enrage phase — drives the one-shot telegraph
+    pub enraged: bool,        // latched true once a boss crosses into its final enrage phase — drives the one-shot telegraph
     pub charge_state: BossCharge, // King Crab charge phase; always Idle for the herd
-    pub charge_cooldown: f32, // seconds until a roaming boss may wind up its next charge
-    pub stun_timer: f32, // King Crab only: >0 while dazed after ramming a parked Armored shell — can't charge and its shell drains far faster under the beam, turning the block into a damage window
-    pub latch_timer: f32, // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
-    pub panic_amp: f32, // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
-    pub magnet_snared: f32, // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
-    pub magnet_lured: f32, // Magnet only: >0 while this roaming Magnet is being pulled off its cluster toward a nearby fleeing Golden — the shiny prize's shine luring the lodestone. Counts down; refreshed each frame it keeps chasing. Drives the aura shifting gold-ward.
-    pub thief_lured: f32, // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
-    pub magnet_charged: f32, // Magnet only: >0 while this Magnet is pinning a snared Golden — the prize's shine supercharges the lodestone into a wider, stronger herd-vacuum. Counts down; refreshed each frame it holds a snared Golden. Drives the aura flaring gold and wide.
-    pub slingshot_spent: f32, // Golden only: >0 for a brief window after a Tide Boss surge FIRED this Golden through a loaded Magnet at the boss. While it counts down the Magnet field can't re-snare the Golden, so the shot genuinely spends the prize (the trade the slingshot promises) instead of it reloading in place next frame.
-    pub host_swap_timer: f32, // Hermit only: counts down while shelled; when it fires the Hermit darts to a new host spot (a scripted hop, like the Dancer's beat hop but on its own irregular timer), then resets. Gives the shelled Hermit its signature "hides and swaps hosts" movement so it isn't a stationary Armored reskin.
-    pub surge_timer: f32, // On-beat herd stampede: kicked to 1.0 on every downbeat for idle (non-spooked, non-caught) free crabs, decays over the beat. While it's live the crab DARTS along its own heading (an extra positional shove on top of base drift), then coasts between beats — so the whole loose herd visibly lurches on the "1" and glides between. Makes *where a free crab lands* a rhythm read: a groove-savvy player predicts the on-beat surge and positions to intercept the herd on the bar, rather than chasing it flatly. Distinct from every pull tool (Groove Call/Slam/Dash/whistle) — it shoves nothing toward the player, it just moves the herd on the beat.
-    pub entranced: f32, // >0 while a free crab is spellbound by the Dancer King: it stops fleeing and shadows the King's drift instead. Refreshed each beat the crab is near the King; catching the King frees them all — and catching it exactly ON the beat banks every entranced crab into the train at once (the Perfect Catch payoff).
+    pub charge_cooldown: f32,     // seconds until a roaming boss may wind up its next charge
+    pub stun_timer: f32,          // King Crab only: >0 while dazed after ramming a parked Armored shell — can't charge and its shell drains far faster under the beam, turning the block into a damage window
+    pub latch_timer: f32,         // Thief only: >0 while clamped onto the conga tail, counts down to the next link it peels off
+    pub panic_amp: f32,           // >=1.0 fear-ripple amplitude carried while startled: a fleeing Golden seeds this high so its panic bomb keeps rippling harder than baseline for a few beats
+    pub magnet_snared: f32,       // Golden or Thief: >0 while a roaming Magnet's field has overpowered its movement and tethered it — for a Golden, the "grab the prize now" window; for a homing Thief, an interception that stops it reaching your tail. Counts down; refreshed each frame the crab stays deep in the field. Drives the snare visual + slowed movement.
+    pub magnet_lured: f32,        // Magnet only: >0 while this roaming Magnet is being pulled off its cluster toward a nearby fleeing Golden — the shiny prize's shine luring the lodestone. Counts down; refreshed each frame it keeps chasing. Drives the aura shifting gold-ward.
+    pub thief_lured: f32,         // Thief only: >0 while a homing Thief has been lured off its beeline toward your tail by a nearby fleeing Golden — a thief can't resist a shiny thing, so it chases the prize instead of raiding your train. Counts down; refreshed each frame the divert holds. Drives the Thief aura bleeding gold-ward.
+    pub magnet_charged: f32,      // Magnet only: >0 while this Magnet is pinning a snared Golden — the prize's shine supercharges the lodestone into a wider, stronger herd-vacuum. Counts down; refreshed each frame it holds a snared Golden. Drives the aura flaring gold and wide.
+    pub slingshot_spent: f32,     // Golden only: >0 for a brief window after a Tide Boss surge FIRED this Golden through a loaded Magnet at the boss. While it counts down the Magnet field can't re-snare the Golden, so the shot genuinely spends the prize (the trade the slingshot promises) instead of it reloading in place next frame.
+    pub host_swap_timer: f32,     // Hermit only: counts down while shelled; when it fires the Hermit darts to a new host spot (a scripted hop, like the Dancer's beat hop but on its own irregular timer), then resets. Gives the shelled Hermit its signature "hides and swaps hosts" movement so it isn't a stationary Armored reskin.
+    pub surge_timer: f32,         // On-beat herd stampede: kicked to 1.0 on every downbeat for idle (non-spooked, non-caught) free crabs, decays over the beat. While it's live the crab DARTS along its own heading (an extra positional shove on top of base drift), then coasts between beats — so the whole loose herd visibly lurches on the "1" and glides between. Makes *where a free crab lands* a rhythm read: a groove-savvy player predicts the on-beat surge and positions to intercept the herd on the bar, rather than chasing it flatly. Distinct from every pull tool (Groove Call/Slam/Dash/whistle) — it shoves nothing toward the player, it just moves the herd on the beat.
+    pub entranced: f32,           // >0 while a free crab is spellbound by the Dancer King: it stops fleeing and shadows the King's drift instead. Refreshed each beat the crab is near the King; catching the King frees them all — and catching it exactly ON the beat banks every entranced crab into the train at once (the Perfect Catch payoff).
 }
 
 impl EnemyCrab {
@@ -261,11 +261,11 @@ impl EnemyCrab {
             CrabType::Armored => [0.52 + 0.18 * t, 0.58, 0.66], // cold steely slate-blue shell
             CrabType::Dancer => [1.0, 0.35 + 0.25 * t, 0.85],   // hot disco magenta-pink
             CrabType::Magnet => [0.95, 0.30 + 0.15 * t, 0.20],  // magnetic lodestone red-orange
-            CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t], // sly poison-green — reads as "trouble" against the herd
-            CrabType::Hermit => [0.72, 0.44, 0.24], // warm coppery-brown borrowed shell — reads as an earthy shelled lump, distinct from Armored's cold steel
-            CrabType::Golden => [1.0, 0.86, 0.28], // bright treasure-gold — the shiny prize pops against the whole herd
-            CrabType::Splitter => [0.20, 0.90, 0.80], // bright split-cyan/teal — reads as "cleaver", distinct from every warm herd tone
-            CrabType::Boss => [0.96, 0.72, 0.16],     // regal king-crab gold
+            CrabType::Thief => [0.30, 0.85, 0.45 + 0.2 * t],    // sly poison-green — reads as "trouble" against the herd
+            CrabType::Hermit => [0.72, 0.44, 0.24],             // warm coppery-brown borrowed shell — reads as an earthy shelled lump, distinct from Armored's cold steel
+            CrabType::Golden => [1.0, 0.86, 0.28],              // bright treasure-gold — the shiny prize pops against the whole herd
+            CrabType::Splitter => [0.20, 0.90, 0.80],           // bright split-cyan/teal — reads as "cleaver", distinct from every warm herd tone
+            CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
             CrabType::RhythmBoss => [0.72, 0.30, 0.95], // pulsing disco violet
             CrabType::HermitKing => [0.82, 0.48, 0.20], // burnished royal copper — the Hermit's earthy brown crowned into a gleaming shell-house king

@@ -97,10 +97,8 @@ impl MainState {
         hype_dancer_hits.clear();
         for crab in &mut self.crabs {
             if crab.is_catchable()
-                && (self.player_pos.x - crab.pos.x).abs()
-                    < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
-                && (self.player_pos.y - crab.pos.y).abs()
-                    < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
+                && (self.player_pos.x - crab.pos.x).abs() < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
+                && (self.player_pos.y - crab.pos.y).abs() < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
             {
                 if crab.is_boss() {
                     boss_catches.push((crab.pos, crab.crab_type));

@@ -48,32 +48,18 @@ impl WinCondition {
         match *self {
             WinCondition::BankCrabs(n) => banked >= n,
             WinCondition::BuildTrain(n) => train >= n,
-            WinCondition::CrackAndHold {
-                shells: s,
-                min_train,
-            } => shells >= s && train >= min_train,
+            WinCondition::CrackAndHold { shells: s, min_train } => shells >= s && train >= min_train,
             WinCondition::HoldTrain { seconds, .. } => hold_secs >= seconds,
         }
     }
 
     /// Short live-progress line for the HUD corner counter, so the player always knows where they
     /// stand against the goal.
-    pub fn progress_text(
-        &self,
-        banked: usize,
-        train: usize,
-        shells: usize,
-        hold_secs: f32,
-    ) -> String {
+    pub fn progress_text(&self, banked: usize, train: usize, shells: usize, hold_secs: f32) -> String {
         match *self {
             WinCondition::BankCrabs(n) => format!("GOAL  Bank crabs: {} / {}", banked.min(n), n),
-            WinCondition::BuildTrain(n) => {
-                format!("GOAL  Train of {} at once: {} / {}", n, train.min(n), n)
-            }
-            WinCondition::CrackAndHold {
-                shells: s,
-                min_train,
-            } => format!(
+            WinCondition::BuildTrain(n) => format!("GOAL  Train of {} at once: {} / {}", n, train.min(n), n),
+            WinCondition::CrackAndHold { shells: s, min_train } => format!(
                 "GOAL  Shells cracked: {} / {}  |  Train: {} (keep \u{2265} {})",
                 shells.min(s),
                 s,
@@ -89,10 +75,7 @@ impl WinCondition {
                         seconds
                     )
                 } else {
-                    format!(
-                        "GOAL  Build a train of {} and hold it {:.0}s",
-                        target, seconds
-                    )
+                    format!("GOAL  Build a train of {} and hold it {:.0}s", target, seconds)
                 }
             }
         }
@@ -339,10 +322,7 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::HermitKing],
             // Two gates force both verbs: stomp shells open in the rock chokepoints AND hold a
             // real train — no cheesing shells from a safe corner while ignoring the herd.
-            win_condition: WinCondition::CrackAndHold {
-                shells: 8,
-                min_train: 15,
-            },
+            win_condition: WinCondition::CrackAndHold { shells: 8, min_train: 15 },
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
@@ -395,10 +375,7 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::Boss],
             // Pure defense: getting to 20 is easy, keeping them against kelp snags and Thieves is
             // the whole game. The 30s timer resets the moment the train dips below 20.
-            win_condition: WinCondition::HoldTrain {
-                target: 20,
-                seconds: 30.0,
-            },
+            win_condition: WinCondition::HoldTrain { target: 20, seconds: 30.0 },
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
@@ -443,18 +420,8 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::RhythmBoss],
             win_condition: WinCondition::BuildTrain(24),
             patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::BeatGrid,
-                    count: 22,
-                    duration: 16.8,
-                    centroid: (0.5, 0.5),
-                },
-                LevelPattern {
-                    pattern: SpawnPattern::Spiral,
-                    count: 28,
-                    duration: 19.6,
-                    centroid: (0.3, 0.7),
-                },
+                LevelPattern { pattern: SpawnPattern::BeatGrid, count: 22, duration: 16.8, centroid: (0.5, 0.5) },
+                LevelPattern { pattern: SpawnPattern::Spiral, count: 28, duration: 19.6, centroid: (0.3, 0.7) },
             ],
         },
         Level {
@@ -472,23 +439,10 @@ pub fn get_levels() -> Vec<Level> {
             },
             emphasis: Some(CrabType::Hermit),
             boss_sequence: vec![CrabType::HermitKing],
-            win_condition: WinCondition::CrackAndHold {
-                shells: 12,
-                min_train: 18,
-            },
+            win_condition: WinCondition::CrackAndHold { shells: 12, min_train: 18 },
             patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
-                    count: 24,
-                    duration: 16.8,
-                    centroid: (0.4, 0.4),
-                },
-                LevelPattern {
-                    pattern: SpawnPattern::Circle,
-                    count: 30,
-                    duration: 19.6,
-                    centroid: (0.7, 0.6),
-                },
+                LevelPattern { pattern: SpawnPattern::Cluster, count: 24, duration: 16.8, centroid: (0.4, 0.4) },
+                LevelPattern { pattern: SpawnPattern::Circle, count: 30, duration: 19.6, centroid: (0.7, 0.6) },
             ],
         },
         Level {
@@ -508,18 +462,8 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::Boss],
             win_condition: WinCondition::BankCrabs(55),
             patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::UniformRandom,
-                    count: 26,
-                    duration: 16.8,
-                    centroid: (0.6, 0.3),
-                },
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
-                    count: 34,
-                    duration: 22.4,
-                    centroid: (0.3, 0.7),
-                },
+                LevelPattern { pattern: SpawnPattern::UniformRandom, count: 26, duration: 16.8, centroid: (0.6, 0.3) },
+                LevelPattern { pattern: SpawnPattern::Cluster, count: 34, duration: 22.4, centroid: (0.3, 0.7) },
             ],
         },
         Level {
@@ -537,23 +481,10 @@ pub fn get_levels() -> Vec<Level> {
             },
             emphasis: Some(CrabType::Splitter),
             boss_sequence: vec![CrabType::Boss],
-            win_condition: WinCondition::HoldTrain {
-                target: 24,
-                seconds: 36.0,
-            },
+            win_condition: WinCondition::HoldTrain { target: 24, seconds: 36.0 },
             patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::SineWave,
-                    count: 28,
-                    duration: 19.6,
-                    centroid: (0.5, 0.3),
-                },
-                LevelPattern {
-                    pattern: SpawnPattern::Spiral,
-                    count: 36,
-                    duration: 22.4,
-                    centroid: (0.5, 0.7),
-                },
+                LevelPattern { pattern: SpawnPattern::SineWave, count: 28, duration: 19.6, centroid: (0.5, 0.3) },
+                LevelPattern { pattern: SpawnPattern::Spiral, count: 36, duration: 22.4, centroid: (0.5, 0.7) },
             ],
         },
         // The fourth-wall surprise (Inscryption / old Windows PowerToys): a special level that
@@ -637,11 +568,9 @@ mod tests {
     fn campaign_maps_grow_after_the_first_level() {
         let levels = get_levels();
         assert_eq!(levels[0].map_size, MapSize::Medium);
-        assert!(
-            levels[1..]
-                .iter()
-                .all(|level| level.map_size == MapSize::Large)
-        );
+        assert!(levels[1..]
+            .iter()
+            .all(|level| level.map_size == MapSize::Large));
     }
 
     #[test]
@@ -652,11 +581,7 @@ mod tests {
         assert_eq!(levels[6].biome.layout, MapLayout::Underwater);
         assert_eq!(levels[3].biome.layout, MapLayout::River);
         assert_eq!(levels[7].biome.layout, MapLayout::River);
-        assert!(
-            levels
-                .iter()
-                .any(|level| level.biome.layout == MapLayout::Coast)
-        );
+        assert!(levels.iter().any(|level| level.biome.layout == MapLayout::Coast));
     }
 
     #[test]
@@ -674,33 +599,21 @@ mod tests {
         assert_eq!(levels[1].win_condition, WinCondition::BuildTrain(15));
         assert_eq!(
             levels[2].win_condition,
-            WinCondition::CrackAndHold {
-                shells: 8,
-                min_train: 15
-            }
+            WinCondition::CrackAndHold { shells: 8, min_train: 15 }
         );
         assert_eq!(
             levels[3].win_condition,
-            WinCondition::HoldTrain {
-                target: 20,
-                seconds: 30.0
-            }
+            WinCondition::HoldTrain { target: 20, seconds: 30.0 }
         );
         assert_eq!(levels[4].win_condition, WinCondition::BuildTrain(24));
         assert_eq!(
             levels[5].win_condition,
-            WinCondition::CrackAndHold {
-                shells: 12,
-                min_train: 18
-            }
+            WinCondition::CrackAndHold { shells: 12, min_train: 18 }
         );
         assert_eq!(levels[6].win_condition, WinCondition::BankCrabs(55));
         assert_eq!(
             levels[7].win_condition,
-            WinCondition::HoldTrain {
-                target: 24,
-                seconds: 36.0
-            }
+            WinCondition::HoldTrain { target: 24, seconds: 36.0 }
         );
         assert_eq!(levels[8].win_condition, WinCondition::BankCrabs(40));
     }
@@ -726,11 +639,9 @@ mod tests {
         let levels = get_levels();
         let themes: HashSet<_> = levels.iter().map(|level| level.biome.music).collect();
         assert_eq!(themes.len(), levels.len());
-        assert!(
-            levels
-                .windows(2)
-                .all(|pair| pair[0].difficulty <= pair[1].difficulty)
-        );
+        assert!(levels
+            .windows(2)
+            .all(|pair| pair[0].difficulty <= pair[1].difficulty));
     }
 
     #[test]
@@ -742,19 +653,13 @@ mod tests {
         assert!(WinCondition::BuildTrain(15).met(0, 15, 0, 0.0));
         assert!(!WinCondition::BuildTrain(15).met(99, 14, 0, 0.0));
         // CrackAndHold needs BOTH gates at once.
-        let cah = WinCondition::CrackAndHold {
-            shells: 8,
-            min_train: 15,
-        };
+        let cah = WinCondition::CrackAndHold { shells: 8, min_train: 15 };
         assert!(cah.met(0, 15, 8, 0.0));
         assert!(!cah.met(0, 14, 8, 0.0));
         assert!(!cah.met(0, 15, 7, 0.0));
         // HoldTrain is satisfied purely by the accumulated hold time (the caller resets it when
         // the train dips below target).
-        let hold = WinCondition::HoldTrain {
-            target: 20,
-            seconds: 30.0,
-        };
+        let hold = WinCondition::HoldTrain { target: 20, seconds: 30.0 };
         assert!(hold.met(0, 20, 0, 30.0));
         assert!(!hold.met(0, 20, 0, 29.9));
     }

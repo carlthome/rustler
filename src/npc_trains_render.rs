@@ -15,11 +15,7 @@ use crate::hud_cache::NPC_NAME_CACHE;
 use crate::state::MainState;
 
 impl MainState {
-    pub(crate) fn draw_npc_conga_train(
-        &self,
-        ctx: &mut Context,
-        canvas: &mut Canvas,
-    ) -> GameResult {
+    pub(crate) fn draw_npc_conga_train(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         let t = self.time_elapsed;
 
         // Followers trail the leader using path_history. Each follower sits 14 history-steps
@@ -32,8 +28,7 @@ impl MainState {
         // off camera. A rival train can grow unboundedly by stealing crabs, so this matters more
         // the longer a session runs.
         let view_min = self.camera_origin - Vec2::splat(CULL_MARGIN);
-        let view_max =
-            self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
+        let view_max = self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
         let in_view = |p: Vec2| {
             p.x >= view_min.x && p.x <= view_max.x && p.y >= view_min.y && p.y <= view_max.y
         };
@@ -292,12 +287,9 @@ impl MainState {
                 let ring = cached_stroke_circle(ctx, ring_r, thickness)?;
                 canvas.draw(
                     &ring,
-                    DrawParam::default().dest(npc.leader_pos).color(Color::new(
-                        1.0,
-                        0.22 + pulse * 0.22,
-                        0.12,
-                        alpha,
-                    )),
+                    DrawParam::default()
+                        .dest(npc.leader_pos)
+                        .color(Color::new(1.0, 0.22 + pulse * 0.22, 0.12, alpha)),
                 );
                 // On-beat inner flash — the drum-hit frame where a parry lands cleanly. Keyed to the
                 // wider defend window (not the tight BEAT_WINDOW) so the flash lasts exactly as long
@@ -306,12 +298,9 @@ impl MainState {
                     let flash = cached_stroke_circle(ctx, base_r * 0.78, 2.5)?;
                     canvas.draw(
                         &flash,
-                        DrawParam::default().dest(npc.leader_pos).color(Color::new(
-                            1.0,
-                            0.92,
-                            0.42,
-                            0.5 + urgency * 0.3,
-                        )),
+                        DrawParam::default()
+                            .dest(npc.leader_pos)
+                            .color(Color::new(1.0, 0.92, 0.42, 0.5 + urgency * 0.3)),
                     );
                 }
             }
@@ -333,8 +322,7 @@ impl MainState {
                 if dist < arm_r {
                     // 1 at contact → 0 at the arming edge, so the cue burns in as you commit the ram.
                     let prox = (1.0 - (dist - col_r).max(0.0) / (arm_r - col_r)).clamp(0.0, 1.0);
-                    let beat_phase =
-                        (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
+                    let beat_phase = (self.beat_timer / self.beat_interval.max(0.0001)).clamp(0.0, 1.0);
                     let pulse = (beat_phase * std::f32::consts::TAU).cos() * 0.5 + 0.5;
                     let base_r = 44.0 + npc.leader_scale * 12.0;
                     let ring_r = base_r + (1.0 - pulse) * 24.0; // tight on the beat, wide off it
@@ -343,12 +331,9 @@ impl MainState {
                     let ring = cached_stroke_circle(ctx, ring_r, thickness)?;
                     canvas.draw(
                         &ring,
-                        DrawParam::default().dest(npc.leader_pos).color(Color::new(
-                            1.0,
-                            0.62 + pulse * 0.2,
-                            0.18,
-                            alpha,
-                        )),
+                        DrawParam::default()
+                            .dest(npc.leader_pos)
+                            .color(Color::new(1.0, 0.62 + pulse * 0.2, 0.18, alpha)),
                     );
                     // On-beat inner flash — the "RAM NOW" frame where a clash wins. Teal (like the
                     // COUNTER cue) so on-beat reads as "good", distinct from the red DEFEND danger.
@@ -356,12 +341,9 @@ impl MainState {
                         let flash = cached_stroke_circle(ctx, base_r * 0.8, 2.5)?;
                         canvas.draw(
                             &flash,
-                            DrawParam::default().dest(npc.leader_pos).color(Color::new(
-                                0.4,
-                                1.0,
-                                0.85,
-                                0.4 + prox * 0.4,
-                            )),
+                            DrawParam::default()
+                                .dest(npc.leader_pos)
+                                .color(Color::new(0.4, 1.0, 0.85, 0.4 + prox * 0.4)),
                         );
                     }
                 }

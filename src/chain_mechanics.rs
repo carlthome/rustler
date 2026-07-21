@@ -686,12 +686,11 @@ impl MainState {
             let mid = keep / 2;
             let mut run_len = 0usize;
             let mut run_start = 0usize;
-            let mut flush =
-                |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
-                    if len >= 3 && start < mid && end_exclusive > mid {
-                        out.extend(start..end_exclusive);
-                    }
-                };
+            let mut flush = |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
+                if len >= 3 && start < mid && end_exclusive > mid {
+                    out.extend(start..end_exclusive);
+                }
+            };
             for i in 0..keep {
                 let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
                 if extends {

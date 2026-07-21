@@ -48,42 +48,24 @@ pub fn handle_player_movement(
         .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowRight));
 
     let mut dir = Vec2::ZERO;
-    if ctx
-        .keyboard
-        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowUp))
-        || ctx
-            .keyboard
-            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyW))
-        || bot_up
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowUp)) || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyW)) || bot_up
     {
         dir.y -= 1.0;
     }
-    if ctx
-        .keyboard
-        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowDown))
-        || ctx
-            .keyboard
-            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyS))
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowDown))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyS))
         || bot_down
     {
         dir.y += 1.0;
     }
-    if ctx
-        .keyboard
-        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowLeft))
-        || ctx
-            .keyboard
-            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyA))
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowLeft))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyA))
         || bot_left
     {
         dir.x -= 1.0;
     }
-    if ctx
-        .keyboard
-        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowRight))
-        || ctx
-            .keyboard
-            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyD))
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowRight))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyD))
         || bot_right
     {
         dir.x += 1.0;
@@ -152,12 +134,8 @@ pub fn handle_player_movement(
         }
     }
 
-    let sprint_held = ctx
-        .keyboard
-        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
-        || ctx
-            .keyboard
-            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight));
+    let sprint_held = ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight));
     let sprinting =
         sprint_held && dir != Vec2::ZERO && state.boost_timer <= 0.0 && state.sprint_stamina > 0.0;
 

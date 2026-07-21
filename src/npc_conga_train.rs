@@ -106,8 +106,8 @@ pub struct NpcCongaTrain {
 /// names ("Kevin") for comedic deflation.
 pub fn gen_king_crab_name(rng: &mut impl rand::Rng) -> String {
     const SOLO_NAMES: &[&str] = &[
-        "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet", "Barry", "Brenda", "Trevor",
-        "Karen", "Gary", "Susan", "Nigel", "Deborah", "Keith", "Linda", "Wayne", "Sharon",
+        "Kevin", "Sandra", "Dave", "Gerald", "Steve", "Janet", "Barry", "Brenda", "Trevor", "Karen",
+        "Gary", "Susan", "Nigel", "Deborah", "Keith", "Linda", "Wayne", "Sharon",
     ];
     let solo_roll: f32 = rng.random();
     if solo_roll < 0.15 {

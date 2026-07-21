@@ -293,8 +293,10 @@ pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -
     // Ring out from the boss so the dancer reads as *its* summon, not a stray herd crab.
     let angle = rng.random_range(0.0..std::f32::consts::TAU);
     let dist = rng.random_range(80.0..160.0);
-    let pos = (boss_pos + Vec2::new(angle.cos(), angle.sin()) * dist)
-        .clamp(Vec2::splat(20.0), Vec2::new(width - 20.0, height - 20.0));
+    let pos = (boss_pos + Vec2::new(angle.cos(), angle.sin()) * dist).clamp(
+        Vec2::splat(20.0),
+        Vec2::new(width - 20.0, height - 20.0),
+    );
     let vel = Vec2::new(angle.cos(), angle.sin());
     let mut crab = make_crab(pos, vel, 0.0, None, rng);
     crab.crab_type = CrabType::Dancer;

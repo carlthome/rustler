@@ -5,9 +5,9 @@
 //! and bot-driver hooks while this one holds the *verbs* — same methods on `impl MainState`, same
 //! behaviour, just grouped by subsystem.
 
-use ggez::Context;
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
+use ggez::Context;
 use rand::Rng;
 
 use crate::constants::*;
@@ -480,8 +480,7 @@ impl MainState {
             return;
         }
         self.lasso_charge = LASSO_MAX_CHARGE_TIME;
-        let origin =
-            self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        let origin = self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
         let throw_range = LASSO_MAX_RANGE;
         let aim_point = self.lasso_aim_point(origin, throw_range);
         let to_aim = aim_point - origin;

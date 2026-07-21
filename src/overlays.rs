@@ -3,12 +3,12 @@ use ggez::graphics::{Canvas, Color, DrawParam, Mesh, Rect, Text};
 use ggez::{Context, GameResult};
 
 use crate::MainState;
-use crate::graphics::{cached_stroke_rect, unit_square};
 use crate::hud_cache::{
     FRENZY_BANNER_CACHE, GAME_OVER_CACHE, LEVEL_TITLE_OVERLAY_CACHE, STAGE_BANNER_CACHE,
     TUTORIAL_OVERLAY_CACHE, UPGRADE_SCREEN_CACHE,
 };
 use crate::upgrade::{UPGRADE_POOL, UpgradeId};
+use crate::graphics::{cached_stroke_rect, unit_square};
 
 /// Full-screen overlay and HUD-screen drawing: level title cards, frenzy/stage banners, the
 /// tutorial instruction card, and the game-over and upgrade-choice screens. Split out of
@@ -77,19 +77,11 @@ impl MainState {
                     biome.name,
                     title,
                     // bg_rect slot — unused now, store a dummy
-                    Mesh::new_rectangle(
-                        ctx,
-                        ggez::graphics::DrawMode::fill(),
-                        Rect::new(0.0, 0.0, 1.0, 1.0),
-                        Color::from_rgba(0, 0, 0, 0),
-                    )?,
+                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
                     // border_rect slot — unused now
-                    Mesh::new_rectangle(
-                        ctx,
-                        ggez::graphics::DrawMode::fill(),
-                        Rect::new(0.0, 0.0, 1.0, 1.0),
-                        Color::from_rgba(0, 0, 0, 0),
-                    )?,
+                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
                     subtitle,
                     title_dims.x,
                     title_dims.y,
@@ -466,11 +458,7 @@ impl MainState {
         })
     }
 
-    pub(crate) fn draw_game_over_screen(
-        &self,
-        ctx: &mut Context,
-        canvas: &mut Canvas,
-    ) -> GameResult {
+    pub(crate) fn draw_game_over_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         const BOX_WIDTH: f32 = 600.0;
         const BOX_HEIGHT: f32 = 260.0;
         const BOX_X: f32 = 340.0;
@@ -622,9 +610,7 @@ impl MainState {
                 title_text.set_scale(46.0);
                 let title_w = title_text.measure(ctx)?.x;
                 // Subtitle
-                let mut hint_text = Text::new(
-                    "Pick fast — the beach keeps moving! Click a card or press its number",
-                );
+                let mut hint_text = Text::new("Pick fast — the beach keeps moving! Click a card or press its number");
                 hint_text.set_scale(20.0);
                 let hint_w = hint_text.measure(ctx)?.x;
                 // Per-card texts — built explicitly for each of the 3 cards (try_from_fn is not

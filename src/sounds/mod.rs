@@ -19,22 +19,23 @@ mod music;
 // --- Public API (was `pub` in the flat `sounds.rs`) -----------------------------------------
 // Synthesis / SFX voices.
 pub use audio::{
-    BeatSynth, PadPreset, Waveform, synth_ambient_pad, synth_coin_chime, synth_flashlight_toggle,
-    synth_hihat, synth_lasso_throw, synth_perfect_sparkle, synth_rival_steal, synth_startup_pling,
-    synth_steal_gain, synth_steal_loss, synth_stomp, synth_tool_accent, synth_whistle,
+    synth_ambient_pad, synth_coin_chime, synth_flashlight_toggle, synth_hihat, synth_lasso_throw,
+    synth_perfect_sparkle, synth_rival_steal, synth_startup_pling, synth_steal_gain,
+    synth_steal_loss, synth_stomp, synth_tool_accent, synth_whistle, BeatSynth, PadPreset,
+    Waveform,
 };
 // Musical structure.
 pub use music::{
-    ACTION_KEY_ROOT_MIDI, GROOVE_SWING, biome_rival_motif_tuning, detect_bpm_from_ogg,
-    synth_biome_action_groove, synth_intro_menu, synth_theme_deus_ambient, synth_theme_deus_tense,
-    synth_theme_duck_bounce, synth_theme_duck_funky, synth_theme_duck_golden,
+    biome_rival_motif_tuning, detect_bpm_from_ogg, synth_biome_action_groove, synth_intro_menu,
+    synth_theme_deus_ambient, synth_theme_deus_tense, synth_theme_duck_bounce, synth_theme_duck_funky,
+    synth_theme_duck_golden, ACTION_KEY_ROOT_MIDI, GROOVE_SWING,
 };
 
 // --- Crate-internal helpers (were `pub(crate)` in the flat `sounds.rs`) ----------------------
 // `king_crab_audio` reaches these via `crate::sounds::…`, so keep them exposed at this path.
 pub(crate) use audio::{
-    SAMPLE_RATE, encode_wav_mono16, encode_wav_stereo16, master_limiter, oscillator_sample,
-    samples_to_pcm,
+    encode_wav_mono16, encode_wav_stereo16, master_limiter, oscillator_sample, samples_to_pcm,
+    SAMPLE_RATE,
 };
 
 // King Crab boss / NPC-train audio lives in its own file but is part of the `sounds` public API.

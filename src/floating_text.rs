@@ -139,9 +139,7 @@ pub struct PennedMarcherSystem {
 
 impl PennedMarcherSystem {
     pub fn new() -> Self {
-        Self {
-            marchers: Vec::new(),
-        }
+        Self { marchers: Vec::new() }
     }
 
     /// Queue the just-banked train to march into the pen. `crabs` is (pos, color, size) per
@@ -284,7 +282,8 @@ pub fn draw_penned_marchers(
                 // Shadows first (normal blend so they read as ground contact).
                 MARCHER_SHADOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
-                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    let instances =
+                        inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(shadow_params.iter().copied());
                     canvas.draw_instanced_mesh_guarded(
                         unit_circle.clone(),
@@ -298,7 +297,8 @@ pub fn draw_penned_marchers(
                 let orig_blend = canvas.blend_mode();
                 MARCHER_BODY_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
-                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    let instances =
+                        inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(body_params.iter().copied());
                     canvas.draw_instanced_mesh_guarded(
                         unit_circle.clone(),
@@ -312,13 +312,10 @@ pub fn draw_penned_marchers(
                 canvas.set_blend_mode(BlendMode::ADD);
                 MARCHER_RIM_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
-                    let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+                    let instances =
+                        inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(rim_params.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(
-                        unit_circle,
-                        instances,
-                        DrawParam::default(),
-                    );
+                    canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
                     Ok(())
                 })?;
                 canvas.set_blend_mode(orig_blend);
