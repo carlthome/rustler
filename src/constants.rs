@@ -38,6 +38,13 @@ pub const CHAIN_LINK_FRAMES: usize = 12;
 pub const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 pub const BEAT_WINDOW: f32 = 0.08; // seconds around a beat that count as "on beat"
 pub const PERFECT_WINDOW: f32 = 0.032; // seconds around a beat that count as a PERFECT hit (tighter than BEAT_WINDOW)
+// Wider on-beat window for the *defensive* steal parry only (Stomp/Wave save against an armed
+// rival splice). The parry is reactive — you're tracking the rival's telegraph AND the beat at
+// once — so it earns more forgiveness than a proactive verb like the dash, which keeps its tight
+// BEAT_WINDOW feel. This cuts the "my save was 20 ms late so I lost my tail" false-negatives
+// (Carl's feedback: on-beat defense felt too unforgiving) without trivializing it — the window is
+// still short enough that a clean on-beat read pays and a lazy mash misses.
+pub const DEFEND_BEAT_WINDOW: f32 = 0.12;
 
 pub const DRUM_ROLL_MAX: u32 = 4;
 

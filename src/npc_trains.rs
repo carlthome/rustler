@@ -1497,8 +1497,10 @@ impl MainState {
                         .dest(npc.leader_pos)
                         .color(Color::new(1.0, 0.22 + pulse * 0.22, 0.12, alpha)),
                 );
-                // On-beat inner flash — the drum-hit frame where a parry lands cleanly.
-                if self.on_beat_now() {
+                // On-beat inner flash — the drum-hit frame where a parry lands cleanly. Keyed to the
+                // wider defend window (not the tight BEAT_WINDOW) so the flash lasts exactly as long
+                // as a Stomp/Wave parry actually works: what you see is what lands.
+                if self.on_beat_defend() {
                     let flash = cached_stroke_circle(ctx, base_r * 0.78, 2.5)?;
                     canvas.draw(
                         &flash,
