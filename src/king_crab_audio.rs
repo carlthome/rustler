@@ -606,7 +606,8 @@ fn rival_motif_mono_samples(
             }
         }
         1 => {
-            // Wanderer — a jaunty mid-register concertina phrase.
+            // Wanderer — a jaunty mid-register concertina phrase on the offbeat pulse only, leaving
+            // space for the player's hook instead of doubling its fast 16th-note movement.
             let pat = [
                 (0usize, 4usize),
                 (4, 7),
@@ -629,7 +630,8 @@ fn rival_motif_mono_samples(
             }
         }
         _ => {
-            // Elder — a woody low bouzouki pulse under a full concertina answer.
+            // Elder — a woody low bouzouki pulse under a full concertina answer. Its quarter-note
+            // arpeggio gives the largest rival presence without becoming a competing scale run.
             let bass = [(0usize, 0usize), (8, 2), (16, 0), (24, 3)]; // A2 E3 A2 G3
             for &(s, ni) in &bass {
                 add_note(
