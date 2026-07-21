@@ -91,8 +91,9 @@ pub(crate) fn how_to_play_body_text() -> String {
 }
 
 use ggez::audio::SoundSource;
-use ggez::conf::WindowMode;
+use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
+use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
 use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Sampler};
 use ggez::input::keyboard::{KeyCode, KeyInput};
@@ -1369,9 +1370,25 @@ fn main() -> GameResult {
 
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
-        .window_mode(WindowMode::default())
+        .window_mode(WindowMode {
+            fullscreen_type: FullscreenType::Desktop,
+            logical_size: Some(LogicalSize::new(1280.0, 960.0)),
+            ..WindowMode::default()
+        })
         .build()?;
     ctx.gfx.window().set_cursor_visible(false);
+    // Skip real fullscreen: with ggez 0.10 + winit 0.30 on macOS every fullscreen
+    // path (ggez's Desktop, winit's Borderless, WindowExtMacOS's simple_fullscreen,
+    // even the OS green-button transition) either fails to activate or hangs the
+    // wgpu surface with a beachball. Instead, size the window to (roughly) the
+    // current monitor so it *looks* fullscreen without touching the fullscreen API.
+    if let Some(monitor) = ctx.gfx.window().current_monitor() {
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let logical_w = (size.width as f64 / scale) as f32;
+        let logical_h = (size.height as f64 / scale) as f32;
+        let _ = ctx.gfx.window().request_inner_size(LogicalSize::new(logical_w, logical_h));
+    }
     let mut state = MainState::new(&mut ctx)?;
 
     if let Some(ref name) = bot_script {
