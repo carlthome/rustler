@@ -30,10 +30,20 @@ impl MainState {
     pub(crate) fn on_beat_now(&self) -> bool {
         self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW
     }
-    /// True on the first beat of the bar (the downbeat) while in the on-beat window — the big-hit
-    /// moment. `beat_count % 4 == 0` is beat 1 of a 4/4 bar (same convention as `bar_phase`).
-    fn on_downbeat_now(&self) -> bool {
-        self.on_beat_now() && self.beat_count % 4 == 0
+    /// The defensive-parry on-beat window: a touch wider than `on_beat_now` (see `DEFEND_BEAT_WINDOW`).
+    /// The parry is the one reactive on-beat verb — you're reading a rival's steal telegraph AND the
+    /// beat simultaneously — so it gets more forgiveness than the proactive verbs (dash/whistle/stomp
+    /// catch), which keep the tight `BEAT_WINDOW`. Keep this the single source of truth for "a parry
+    /// works now" so the DEFEND telegraph's hit-now flash can key off the same window (what you see
+    /// equals what works).
+    pub(crate) fn on_beat_defend(&self) -> bool {
+        self.beat_timer < DEFEND_BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - DEFEND_BEAT_WINDOW
+    }
+    /// Downbeat inside the wider defend window — the "big save" parry. `beat_count % 4 == 0` is
+    /// beat 1 of a 4/4 bar (same convention as `bar_phase`), gated on the forgiving defend window.
+    fn on_downbeat_defend(&self) -> bool {
+        self.on_beat_defend() && self.beat_count % 4 == 0
     }
     /// Defensive counter to an armed rival steal — the skill half of the steal fight
     /// (ROADMAP "make the defense a real on-beat play"). When a reach-out tool (Stomp/Wave) is cast
@@ -49,8 +59,8 @@ impl MainState {
     ///     and the rival gets a small shove — sloppy defense still helps, the clean cancel is on-beat.
     /// Returns true if any armed steal was cancelled. "Keys as drum pads": defending is a timed hit.
     pub(crate) fn try_defend_steal(&mut self, center: Vec2, radius: f32, label: &str) -> bool {
-        let on_beat = self.on_beat_now();
-        let downbeat = self.on_downbeat_now();
+        let on_beat = self.on_beat_defend();
+        let downbeat = self.on_downbeat_defend();
         let mut parried = false;
         let margin = 80.0;
         for i in 0..self.npc_trains.len() {
