@@ -7,7 +7,8 @@ name: Auto-merge
 # → squash-merge. That return trip is exactly what keeps failing, so green PRs
 # pile up (see AGENTS.md "Merge your green PRs"). This workflow does both halves
 # instead — it re-evaluates whenever a PR goes ready or its CI finishes, then:
-#   * auto-READIES any green `claude/*` draft (the flip the opening agent owes but
+#   * auto-READIES any green `claude/*` or `copilot/*` draft (the flip the opening
+#     agent owes but
 #     never returns to make — done via the GraphQL markPullRequestReadyForReview
 #     mutation, since the REST API can't toggle draft state), and
 #   * squash-MERGES any non-draft PR that clears every gate.
@@ -17,8 +18,8 @@ name: Auto-merge
 # Conservative by construction — a draft is only readied, and a PR is only
 # merged, when ALL of these hold:
 #   * base branch is `main`
-#   * head branch starts with `claude/` (the harness prefix — this keeps it off
-#     Carl's and Copilot's PRs)
+#   * head branch starts with `claude/` or `copilot/` (the agent prefixes — this
+#     keeps it off Carl's PRs)
 #   * the `build` check (Test workflow) is green
 #   * every `playtest (...)` matrix check is green, and no check is failing or
 #     still running
@@ -72,8 +73,8 @@ jobs:
               // --- static gates ---------------------------------------------
               // Note: draft is NOT a skip here — a green draft gets readied below.
               if (pr.base.ref !== 'main') { core.info(`${tag} skip: base ${pr.base.ref}`); continue; }
-              if (!pr.head.ref.startsWith('claude/')) {
-                core.info(`${tag} skip: head not claude/*`);
+              if (!pr.head.ref.startsWith('claude/') && !pr.head.ref.startsWith('copilot/')) {
+                core.info(`${tag} skip: head not claude/* or copilot/*`);
                 continue;
               }
 
