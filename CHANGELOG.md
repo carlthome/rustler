@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.33.4 — 2026-07-21
+
+### Fixes
+- macOS window: HiDPI logical size + size-to-monitor at startup
+
+### Refactoring
+- Extract world-map/minimap/tool-roster HUD draws from graphics.rs into map_hud.rs
+- Extract rhythm/combo/wave HUD draws from graphics.rs into hud_indicators.rs
+
 ## v0.33.3 — 2026-07-21
 
 ### Performance
