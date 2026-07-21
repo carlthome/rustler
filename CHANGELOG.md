@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.32.0 — 2026-07-21
+
+### Features
+- Upgrade ggez 0.9.3 to 0.10.0 (wgpu 29, winit 0.30, rodio 0.22)
+
+### Gameplay
+- Tool roster pads pulse on the beat
+
 ## v0.31.0 — 2026-07-21
 
 ### Gameplay
