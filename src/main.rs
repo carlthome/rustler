@@ -1013,6 +1013,7 @@ impl MainState {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
         }
+        self.stop_level_audio();
         self.show_instructions = false;
         self.show_how_to_play_text = false;
         self.show_world_map = true;
@@ -1022,9 +1023,60 @@ impl MainState {
         let _ = self.sounds.world_map_pad.play();
     }
 
+    /// Stop sounds that belong to a campaign level before returning to the world map.
+    fn stop_level_audio(&mut self) {
+        self.sounds.action_music.pause();
+        self.sounds.outro_music.pause();
+        for layer in &mut self.music_layers {
+            layer.stop();
+        }
+        for theme in &mut self.sounds.crab_themes {
+            theme.stop();
+        }
+        for source in [
+            &mut self.sounds.king_crab_rumble_l,
+            &mut self.sounds.king_crab_rumble_r,
+            &mut self.sounds.king_crab_l,
+            &mut self.sounds.king_crab_r,
+            &mut self.sounds.king_crab_soft,
+            &mut self.sounds.whistle_sfx,
+            &mut self.sounds.stomp_sfx,
+            &mut self.sounds.lasso_sfx,
+            &mut self.sounds.steal_loss_sfx,
+            &mut self.sounds.steal_gain_sfx,
+            &mut self.sounds.rival_steal_l,
+            &mut self.sounds.rival_steal_r,
+            &mut self.sounds.hihat,
+            &mut self.sounds.coin_chime,
+        ] {
+            source.stop();
+        }
+        for (left, right) in &mut self.sounds.king_crab_motif {
+            left.stop();
+            right.stop();
+        }
+    }
+
+    /// Return to the title menu without terminating the application.
+    fn return_to_main_menu(&mut self) {
+        if let Some(map) = &mut self.world_map {
+            map.cancel_skip();
+        }
+        self.stop_level_audio();
+        self.sounds.world_map_pad.pause();
+        self.show_world_map = false;
+        self.show_instructions = true;
+        self.show_how_to_play_text = false;
+        self.game_over = false;
+        self.in_campaign = false;
+        self.tutorial = None;
+        self.menu_page = 0;
+    }
+
     /// Start a campaign run (or tutorial) from the currently selected world map node.
     /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level.
     fn enter_campaign_level(&mut self) {
+        self.sounds.world_map_pad.pause();
         // Check if the selected node is a tutorial sandbox.
         let tutorial_kind = self
             .world_map
@@ -1058,6 +1110,8 @@ impl MainState {
         self.game_over = false;
         self.show_world_map = true;
         self.in_campaign = false;
+        self.stop_level_audio();
+        let _ = self.sounds.world_map_pad.play();
     }
 
     fn enter_tutorial(&mut self, kind: TutorialKind) {
@@ -1452,9 +1506,9 @@ fn main() -> GameResult {
 
     if let Some(ref name) = bot_script {
         use bot::{
-            BotState, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
-            script_npc_steal, script_npc_vs_npc, script_player_steal, script_revenge,
-            script_steal_defense, script_steal_dodge,
+            BotState, script_campaign_escape, script_campaign_tutorial, script_groove_dash,
+            script_menu_to_game, script_npc_steal, script_npc_vs_npc, script_player_steal,
+            script_revenge, script_steal_defense, script_steal_dodge,
         };
         // ── Determinism, root-cause fix for playtest flakiness ────────────────────────────────
         // The bot asserts on emergent outcomes ("a revenge steal happened"), which are only a
@@ -1505,13 +1559,14 @@ fn main() -> GameResult {
                 // step small enough that catches register reliably, trading a little wall-clock (still
                 // a parallel matrix leg) for a green that isn't a coin-flip.
                 "steal_defense" | "steal_dodge" | "revenge" => 2.0,
-                "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-                | "npc_vs_npc" => 3.0,
+                "campaign_escape" | "menu_to_game" | "campaign_tutorial" | "npc_steal"
+                | "player_steal" | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };
         state.bot = Some(match name.as_str() {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
+            "campaign_escape" => BotState::new(script_campaign_escape(), 8.0),
             "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
             "player_steal" => BotState::new(script_player_steal(), 58.0),

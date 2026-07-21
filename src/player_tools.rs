@@ -740,6 +740,7 @@ impl MainState {
                         BotAssert::RivalHuntTelegraphAtLeast(n) => self.rival_hunt_telegraphs >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::ShowWorldMap => self.show_world_map,
+                        BotAssert::MainMenu => self.show_instructions && !self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
                         BotAssert::TutorialDone => self.tutorial.is_none() && self.show_world_map,
                         BotAssert::InGame => {
