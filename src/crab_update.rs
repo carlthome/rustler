@@ -1658,6 +1658,8 @@ impl MainState {
         // Hermit King escape: it won the race to the world edge and dragged a fresh shell-house
         // stack back in — announce the reset so the player knows the crack progress is gone.
         for &pos in hermit_king_reshells.iter() {
+            // Banner text anchors to the player so the message is readable on screen (the escape
+            // happens at the world edge, often off-camera); the shockwave fires at the actual spot.
             self.floating_texts.spawn(
                 "THE HERMIT KING RE-SHELLS!".to_string(),
                 self.player_pos + Vec2::new(-230.0, -190.0),
