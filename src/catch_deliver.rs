@@ -736,6 +736,9 @@ impl MainState {
         if let Some((kpos, on_beat)) = dancer_king_catch {
             if on_beat {
                 let mut banked: u32 = 0;
+                // Safe direct mutation: this loop only writes scalar fields on each crab and
+                // disjoint self fields (chain_count/total_caught/catch_shockwaves) — it never
+                // inserts into or removes from self.crabs, mirroring the main catch loop above.
                 for crab in &mut self.crabs {
                     if !crab.caught && !crab.is_boss() && crab.entranced > 0.0 {
                         crab.entranced = 0.0;

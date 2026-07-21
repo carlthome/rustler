@@ -92,6 +92,16 @@ pub const BOSS_ENRAGE_CHARGE_SPEED_SCALE: f32 = 1.25;
 // of the Dancer King's entrancement spell (free crabs inside it on a beat become spellbound).
 pub const HERMIT_KING_SHELLS: f32 = 5.0;
 pub const DANCER_KING_ENTRANCE_RADIUS: f32 = 260.0;
+// Hermit King phase speed multipliers (over its base per-crab speed): Rattled darts and the
+// Panicked escape sprint. Panicked is deliberately a hair faster so the edge race feels urgent.
+pub const HERMIT_KING_RATTLED_SPEED_MULT: f32 = 3.2;
+pub const HERMIT_KING_PANICKED_SPEED_MULT: f32 = 3.6;
+// Per-pound i-frame on the Hermit King so one expanding Stomp ring cracks exactly one shell
+// layer, not the whole stack across the frames the ring keeps overlapping it.
+pub const HERMIT_KING_CRACK_IFRAME: f32 = 0.9;
+// How long the Dancer King's spell holds, in beats. It re-casts on every beat while a crab stays
+// in radius, so this is really "how many missed beats before a strayed crab snaps out".
+pub const DANCER_KING_ENTRANCE_BEATS: f32 = 2.5;
 pub const BOSS_STUN_DURATION: f32 = 1.6;
 pub const TIDE_PULSE_COOLDOWN: f32 = 5.0;
 pub const TIDE_PULSE_WINDUP: f32 = 1.0;

@@ -1199,7 +1199,7 @@ impl MainState {
                         ) || on_beat_cast;
                         if lands {
                             crab.boss_health = (crab.boss_health - 1.0).max(0.0);
-                            crab.stun_timer = 0.9;
+                            crab.stun_timer = HERMIT_KING_CRACK_IFRAME;
                             crab.join_pulse = 1.2; // reel from the pound
                             king_cracks.push((crab.pos, crab.boss_health));
                         } else {

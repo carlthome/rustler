@@ -27,7 +27,7 @@ pub enum CrabType {
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
     RhythmBoss, // rare oversized "Reef DJ" — its shell only drops on the beat, so the beam only wears it down when you hold it *on-beat*
-    HermitKing, // rare oversized "Hermit King" — drags a stack of shell houses. The beam can't touch it: only Stomps crack it, one shell layer per pound (5 total). After 2 cracks it darts erratically and only ON-BEAT stomps land; after 4 it panics and flees for the world edge — escape and it drags a fresh shell back in (shell resets). The final crack exposes it; catching the big boy counts as 3 chain links.
+    HermitKing, // rare oversized "Hermit King" — drags a stack of shell houses. The beam can't touch it: only Stomps crack it, one shell layer per pound (5 total). After 2 cracks it darts erratically and only ON-BEAT stomps land; after 4 it panics and flees for the world edge — escape and it drags a fresh shell back in (shell resets). The final crack exposes it; catching the big boy pays a triple score bonus (75-a-combo vs the usual 25 — see on_boss_caught).
     DancerKing, // rare golden "Dancer King" — catchable immediately, but it EVADES: every 2 beats it teleports to a mirrored position across the world. Nearby free crabs become ENTRANCED and mirror its movement; catching the King frees them — and catching it exactly ON the beat is a Perfect Catch that banks every entranced crab into your train at once.
 }
 

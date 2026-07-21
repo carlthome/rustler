@@ -271,7 +271,9 @@ pub fn spawn_dancer_king(area: (f32, f32), rng: &mut impl Rng) -> EnemyCrab {
     boss.crab_type = CrabType::DancerKing;
     boss.speed = rng.random_range(CrabType::DancerKing.speed_range());
     boss.scale = rng.random_range(CrabType::DancerKing.scale_range());
-    // No shell: catchable from the first frame — the teleport IS its defence.
+    // No shell: catchable from the first frame — the teleport IS its defence. The near-zero
+    // (not zero) max is the same "no shell" sentinel spawn_hype_dancer uses, so the HUD ring's
+    // health/max division stays finite and draws an empty ring.
     boss.boss_health = 0.0;
     boss.boss_max_health = 0.0001;
     boss

@@ -577,7 +577,7 @@ impl MainState {
                             crab.host_swap_timer -= dt;
                             if crab.host_swap_timer <= 0.0 {
                                 let ang = rng.random_range(0.0_f32..std::f32::consts::TAU);
-                                crab.vel = Vec2::new(ang.cos(), ang.sin()) * crab.speed * 3.2;
+                                crab.vel = Vec2::new(ang.cos(), ang.sin()) * crab.speed * HERMIT_KING_RATTLED_SPEED_MULT;
                                 crab.join_pulse = crab.join_pulse.max(0.7); // squash-pop as it darts
                                 crab.host_swap_timer = rng.random_range(0.5..0.9);
                             }
@@ -602,7 +602,7 @@ impl MainState {
                             } else {
                                 Vec2::new(0.0, 1.0)
                             };
-                            crab.vel = crab.vel.lerp(dir * crab.speed * 3.6, (4.0 * dt).min(1.0));
+                            crab.vel = crab.vel.lerp(dir * crab.speed * HERMIT_KING_PANICKED_SPEED_MULT, (4.0 * dt).min(1.0));
                             crab.pos += crab.vel * dt;
                             // Escaped! It scuttles off the sand line and drags a whole fresh
                             // shell-house stack back in — the panic race lost, start over.

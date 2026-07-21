@@ -370,7 +370,7 @@ impl MainState {
                     }
                     // Holds through a couple of missed beats, so the court stays synchronized even
                     // when the King's own teleport briefly carries it out of range.
-                    crab.entranced = self.beat_interval * 2.5;
+                    crab.entranced = self.beat_interval * DANCER_KING_ENTRANCE_BEATS;
                 }
             }
             if self.beat_count % 2 == 0 {
