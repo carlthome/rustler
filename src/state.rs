@@ -393,6 +393,9 @@ pub struct MainState {
     /// instead of chasing where it currently is. Never drops, so the bot playtest can assert the
     /// interception path fired without racing the live hunt state, which resets after each strike.
     pub(crate) hunt_intercepts: usize,
+    /// Monotonic tally of rival leaders shoved by the Wave's proactive crowd-control (fire_wave).
+    /// Never drops, so a bot playtest can prove the shove path fired without racing live state.
+    pub(crate) rivals_wave_shoved: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,

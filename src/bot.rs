@@ -42,6 +42,10 @@ pub enum BotAction {
     // steal. A no-op when the player has no stealable chain. Deterministic — timing an on-beat tool
     // cast against an RNG-armed steal inside a headless budget isn't reliable, so we stage it.
     ForceStealDefense,
+    // Guards the Wave's proactive crowd-control (fire_wave): deterministically place the nearest
+    // rival beside the player, then cast the Wave and confirm the shove path shoved it. Staged for
+    // the same reason as ForceStealDefense — headless on-beat timing against a live rival is flaky.
+    ForceWaveShove,
     // Guards the movement dodge — the reroute half of the defense (INSPIRATION.md item 2: "an on-beat
     // defensive reroute OR a tool hit"). Arm a rival's splice on a mid-chain link, then teleport its
     // leader clear of that link, so the next update sees the thread broken and fizzles the splice
@@ -90,6 +94,9 @@ pub enum BotAssert {
     /// Monotonic count of armed rival steals the player has parried this run (see
     /// MainState::steals_parried). Asserts the on-beat defensive counter actually cancelled a steal.
     ParriedAtLeast(usize),
+    /// Monotonic count of rival leaders shoved by the Wave's proactive crowd-control (see
+    /// MainState::rivals_wave_shoved). Asserts the Q shockwave's shove path actually fired.
+    WaveShovedAtLeast(usize),
     /// Monotonic count of armed rival steals the player has dodged this run (see
     /// MainState::steals_dodged). Asserts the movement-reroute defense actually broke a splice.
     DodgedAtLeast(usize),
@@ -365,8 +372,14 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
         script.push(BotEvent { at: t, action: BotAction::ForceStealDefense });
         t += 0.9;
     }
+    // Also exercise the Wave's proactive shove (fire_wave) a few times across the window — each stages
+    // the nearest rival beside the player and casts, so the shove path is regression-covered too.
+    for wt in [20.0_f32, 28.0, 36.0, 44.0] {
+        script.push(BotEvent { at: wt, action: BotAction::ForceWaveShove });
+    }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::WaveShovedAtLeast(1)) });
     script
 }
 

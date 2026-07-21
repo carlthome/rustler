@@ -119,6 +119,7 @@ pub const WHISTLE_COOLDOWN: f32 = 4.5;
 pub const WHISTLE_RING_SPEED: f32 = 1000.0;
 pub const WHISTLE_MAX_RADIUS: f32 = 360.0;
 pub const WHISTLE_PULL_SPEED: f32 = 240.0;
+pub const CALL_COOLDOWN: f32 = 1.5; // Dancer Call (T) recharge — also the roster slot's cooldown max.
 pub const STOMP_COOLDOWN: f32 = 3.0;
 pub const STOMP_RING_SPEED: f32 = 900.0;
 pub const STOMP_MAX_RADIUS: f32 = 155.0;

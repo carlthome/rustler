@@ -526,7 +526,9 @@ pub fn handle_key_down_event(
                 }
             }
             if key == KeyCode::KeyQ {
-                // Wave: the wide ranged beat pulse / ranged parry. Same cast as the SPACE+Q chord.
+                // Wave: an on-beat space-clearing shockwave — shoves nearby rival leaders back and
+                // stuns them (and still cancels a rival mid-steal as a save). Distinct from the
+                // Stomp's precise close parry. Same cast as the SPACE+Q chord.
                 state.fire_wave();
             }
             if key == KeyCode::KeyE {

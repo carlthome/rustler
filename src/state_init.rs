@@ -456,6 +456,7 @@ impl MainState {
             rival_spill_crabs: 0,
             rival_hunt_telegraphs: 0,
             hunt_intercepts: 0,
+            rivals_wave_shoved: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             rival_steal_sfx: None,
