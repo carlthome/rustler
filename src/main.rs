@@ -1880,6 +1880,14 @@ impl MainState {
         self.beat_timer = BEAT_INTERVAL;
         self.beat_intensity = 0.0;
         self.music_intensity = 0.0;
+        // Reset the music tempo to the base (WARM-UP) speed so a fresh run starts locked to the
+        // grid. set_pitch only takes effect on the next play(), which the draw-side state machine
+        // fires on game entry, so applying it here (no ctx needed) is enough.
+        self.music_pitch = 1.0;
+        self.sounds.action_music.set_pitch(1.0);
+        for layer in self.music_layers.iter_mut() {
+            layer.set_pitch(1.0);
+        }
         self.on_beat_flash = 0.0;
         self.groove = 0.0;
         self.slam_active = 0.0;
@@ -2479,6 +2487,33 @@ impl EventHandler for MainState {
             // accent structure. This block only runs during live gameplay (the update guard returns
             // early on menu/upgrade/game-over screens), so the kick never thumps through menus.
             self.beat_synth.play_kick(ctx, downbeat);
+            // Keep the music loop tempo- AND phase-locked to the master beat clock. The intensity
+            // ramp speeds the clock up (`beat_interval = BEAT_INTERVAL / tempo_mul`), but the groove
+            // is a pre-baked loop that can't re-pitch itself — so without this it drifts off the beat
+            // exactly when the party peaks (the reported bug). We DJ it: the playback speed the loop
+            // needs to line back up is `BEAT_INTERVAL / beat_interval` (= the stage's tempo_mul), so
+            // we turntable it to match. `set_pitch` only bites on the next `play()`, and we restart
+            // ON the downbeat so the loop's bar-1 re-anchors to the grid's "1" — phase-aligned, not
+            // just tempo-matched. It only fires at the 4 stage boundaries (a fresh "drop" as the run
+            // escalates), never per-beat. Null-audio-safe (no-ops on a headless device) and
+            // deterministic (stage transitions are), so the bots see byte-identical behaviour.
+            if downbeat && self.beat_interval > 1e-4 {
+                let desired_pitch = (BEAT_INTERVAL / self.beat_interval).clamp(0.5, 3.0);
+                if (desired_pitch - self.music_pitch).abs() > 1e-3 {
+                    self.music_pitch = desired_pitch;
+                    self.sounds.action_music.set_pitch(desired_pitch);
+                    if self.sounds.action_music.playing() {
+                        let _ = self.sounds.action_music.play(ctx);
+                    }
+                    for layer in self.music_layers.iter_mut() {
+                        let was_playing = layer.playing();
+                        layer.set_pitch(desired_pitch);
+                        if was_playing {
+                            let _ = layer.play(ctx);
+                        }
+                    }
+                }
+            }
             // Snare: fades in on the backbeat (beats 2 & 4) while a boss is alive, raising the
             // stakes audibly as the fight escalates. Fades back out once the boss is caught.
             let boss_present = self.crabs.iter().any(|c| c.is_boss() && !c.caught);

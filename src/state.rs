@@ -658,6 +658,11 @@ pub struct MainState {
     pub(crate) groove_full_flash: f32,
     pub(crate) music_muted: bool, // Whether music playback is muted (M key toggle)
     pub(crate) music_layers: Vec<Source>,
+    // Playback speed currently applied to the music sources (action groove + layers), = the
+    // gameplay tempo multiplier so the loop stays tempo-locked to the beat grid as the intensity
+    // stage ramps `beat_interval`. 1.0 at WARM-UP; rises with each stage. Re-applied (set_pitch +
+    // restart) only when it changes, so the music turntables up with the run instead of drifting.
+    pub(crate) music_pitch: f32,
     pub(crate) catch_radius_upgrade: f32,
     // On-beat catch bloom — a rhythm read on *ordinary catching*, not a discrete ability. Every
     // beat the train's catch radius blooms wider (widest on the downbeat) and settles back before the
@@ -1302,10 +1307,10 @@ impl MainState {
             world_height / 2.0 - PLAYER_SIZE / 2.0,
         );
 
-        // Detect the actual BPM of action.ogg FIRST, so the beat grid AND the
-        // procedurally-generated action groove are both built at the same tempo.
-        // The groove is synthesised from this value below — a hardcoded groove BPM
-        // would loop against the visual beats and beat-synced mechanics.
+        // BPM detection is kept only for the informational startup log line below. The
+        // groove is NOT baked at this tempo — see `action_bpm` after the block: the music
+        // must match the gameplay beat grid, whose base is the BEAT_INTERVAL constant
+        // (120 BPM), not whatever tempo a (now-unused) action.ogg happens to have.
         let detected_beat_interval: f32 = {
             use std::io::Read as _;
             let mut bytes = Vec::new();
@@ -1339,7 +1344,14 @@ impl MainState {
                 }
             }
         };
-        let action_bpm = 60.0 / detected_beat_interval;
+        // Bake the music at the gameplay grid's canonical base tempo — the BEAT_INTERVAL the
+        // reset and the intensity ramp both key off (`beat_interval = BEAT_INTERVAL / tempo_mul`).
+        // A groove baked at any other base drifts against the on-beat catch window from the very
+        // first frame; the live tempo ramp is then followed by re-pitching the music each stage
+        // (see `music_pitch` in EventHandler::update), so the loop stays locked to the clock.
+        let action_bpm = 60.0 / BEAT_INTERVAL;
+        // detected_beat_interval still seeds the pre-game beat clock (reset_game overrides it to
+        // BEAT_INTERVAL on entry) and the log line above; it no longer drives the music tempo.
 
         // TODO Load all sound effects.
         let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
@@ -1706,6 +1718,7 @@ impl MainState {
             beat_interval: detected_beat_interval,
             beat_intensity: 0.0,
             music_intensity: 0.0,
+            music_pitch: 1.0,
             on_beat_flash: 0.0,
             beat_gamble_mult: 1.0,
             beat_gamble_flash: 0.0,
