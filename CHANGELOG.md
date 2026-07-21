@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.37.2 — 2026-07-21
+
+### Fixes
+- Don't complete a campaign node when you lose the level
+
 ## v0.37.1 — 2026-07-21
 
 ### Performance
