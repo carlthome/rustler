@@ -1375,10 +1375,12 @@ impl MainState {
             if self.sounds.intro_music.playing() {
                 self.sounds.intro_music.pause();
             }
-            if !self.sounds.action_music.playing() {
-                self.sounds.action_music.play();
-            } else {
-                self.sounds.action_music.resume();
+            if self.hitstop_timer <= 0.0 {
+                if self.sounds.action_music.stopped() {
+                    self.sounds.action_music.play();
+                } else if self.sounds.action_music.paused() {
+                    self.sounds.action_music.resume();
+                }
             }
             self.draw_game(ctx, &mut canvas, width, height)?;
             // Upgrade choice is a LIVE overlay now, not a world-freeze: the game above keeps

@@ -98,7 +98,12 @@ impl MainState {
         // per-frame in EventHandler::update (pan by bearing, swell by distance + train length).
         let mut king_crab_motif = Vec::with_capacity(3);
         for tier in 0..3 {
-            king_crab_motif.push(sounds::synth_rival_motif(ctx, action_bpm, tier)?);
+            king_crab_motif.push(sounds::synth_rival_motif(
+                ctx,
+                action_bpm,
+                sounds::ACTION_KEY_ROOT_MIDI,
+                tier,
+            )?);
         }
         let sounds = GameSounds {
             intro_music: Source::new(ctx, "/intro.ogg")?,
