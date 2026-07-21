@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.33.5 — 2026-07-21
+
+### Performance
+- Hoist per-hit blend-mode toggling out of tool-match draw loops
+
+### Refactoring
+- Extract conga-rope and lasso tether rendering from graphics.rs into lasso.rs
+
 ## v0.33.4 — 2026-07-21
 
 ### Fixes
