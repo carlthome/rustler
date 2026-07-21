@@ -10,8 +10,9 @@ use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
 
 use super::audio::{
-    bitcrush, compress, encode_wav_mono16, encode_wav_stereo16, gb_pulse_note, master_limiter, mix_into,
-    normalize_and_saturate, samples_to_pcm, synth_note, Adsr, Waveform, SAMPLE_RATE,
+    bitcrush, compress, encode_wav_mono16, encode_wav_stereo16_at_rate, gb_pulse_note,
+    master_limiter, mix_into, normalize_and_saturate, samples_to_pcm, synth_note, Adsr, Waveform,
+    SAMPLE_RATE,
 };
 
 /// Detect the dominant BPM from a raw OGG file and return the beat interval in seconds.
@@ -132,36 +133,29 @@ pub const GROOVE_SWING: f32 = 0.66;
 /// Canonical key center for every gameplay music source: A3 / A minor.
 pub const ACTION_KEY_ROOT_MIDI: i32 = 57;
 
-/// Build the distant menu loop: a sparse, low-register A-minor motif under a wide, gently
-/// shifting bed of filtered wind and shoreline hiss. The deliberately imperfect noise keeps the
-/// menu from feeling like a sterile synth pad, while the long attacks and soft stereo movement
-/// make the music feel like it is arriving from far down the beach.
-pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
-    const LOOP_SECONDS: f32 = 8.0;
-    let n = (SAMPLE_RATE as f32 * LOOP_SECONDS) as usize;
-    let dt = 1.0 / SAMPLE_RATE as f32;
-    let mut left = vec![0.0_f32; n];
-    let mut right = vec![0.0_f32; n];
-    // A minor colour: A3, C4, E4, then D4 as a gentle unresolved turn.
-    let notes = [220.0_f32, 261.63, 329.63, 293.66];
-    // Fixed non-zero seed keeps the shoreline texture deterministic across launches.
+/// Keep the original intro recording, but soften and weather it so it sounds farther down the
+/// beach: a low-passed wet layer, a quiet cross-channel reflection, and faint shoreline noise.
+fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) {
+    let n = left.len().min(right.len());
+    if n == 0 {
+        return;
+    }
+
+    let dry_left = left[..n].to_vec();
+    let dry_right = right[..n].to_vec();
+    let cutoff_hz = 1_800.0_f32;
+    let low_pass_alpha =
+        1.0 - (-std::f32::consts::TAU * cutoff_hz / sample_rate as f32).exp();
+    let mut soft_left = 0.0_f32;
+    let mut soft_right = 0.0_f32;
     let mut noise_state = 0x51EA_BEEFu32;
     let mut wind_l = 0.0_f32;
     let mut wind_r = 0.0_f32;
 
     for i in 0..n {
-        let t = i as f32 * dt;
-        let phrase = (t / 2.0).floor() as usize;
-        let phrase_t = t % 2.0;
-        let note = notes[phrase % notes.len()];
-        let fade_in = (phrase_t / 0.55).min(1.0);
-        let fade_out = ((2.0 - phrase_t) / 0.7).min(1.0);
-        let env = fade_in * fade_out;
-        let phase = std::f32::consts::TAU * note * t;
-        let sub = std::f32::consts::TAU * (note * 0.5) * t;
-        let music = (phase.sin() * 0.72 + sub.sin() * 0.28) * env * 0.11;
-
-        // A slow one-pole low-pass turns deterministic noise into a soft, irregular sea breeze.
+        let t = i as f32 / sample_rate as f32;
+        soft_left += (dry_left[i] - soft_left) * low_pass_alpha;
+        soft_right += (dry_right[i] - soft_right) * low_pass_alpha;
         noise_state ^= noise_state << 13;
         noise_state ^= noise_state >> 17;
         noise_state ^= noise_state << 5;
@@ -169,30 +163,68 @@ pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
         wind_l += (raw - wind_l) * 0.0018;
         wind_r += (raw * 0.73 - wind_r) * 0.0015;
         let gust = 0.72 + 0.28 * (std::f32::consts::TAU * 0.11 * t).sin();
-        let hiss = raw * 0.004 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
-        let ambience_l = (wind_l * 0.07 + hiss) * gust;
-        let ambience_r = (wind_r * 0.07 + hiss * 0.8) * gust;
-
-        // Slow, opposing movement keeps the image broad without sounding like a hard pan.
-        let pan = (std::f32::consts::TAU * 0.045 * t).sin() * 0.72;
-        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
-        left[i] = ambience_l + music * angle.cos();
-        right[i] = ambience_r + music * angle.sin();
+        let hiss = raw * 0.0025 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
+        left[i] = dry_left[i] * 0.72 + soft_left * 0.28 + (wind_l * 0.035 + hiss) * gust;
+        right[i] =
+            dry_right[i] * 0.72 + soft_right * 0.28 + (wind_r * 0.035 + hiss * 0.8) * gust;
     }
 
-    // A quiet cross-channel reflection suggests a distant beach wall without an obvious echo and
-    // prevents the dry motif from sitting directly between the speakers.
-    let delay = (0.19 * SAMPLE_RATE as f32) as usize;
+    let delay = (0.19 * sample_rate as f32) as usize;
     for i in delay..n {
-        left[i] += right[i - delay] * 0.12;
-        right[i] += left[i - delay] * 0.12;
+        left[i] += dry_right[i - delay] * 0.08;
+        right[i] += dry_left[i - delay] * 0.08;
     }
-    let wav = encode_wav_stereo16(&left, &right);
+}
+
+/// Decode and gently treat the existing intro track without changing its composition.
+pub fn synth_intro_menu(ctx: &mut Context, ogg_bytes: &[u8]) -> GameResult<Source> {
+    use lewton::inside_ogg::OggStreamReader;
+    use std::io::Cursor;
+
+    let mut reader = OggStreamReader::new(Cursor::new(ogg_bytes))
+        .map_err(|error| ggez::GameError::AudioError(error.to_string()))?;
+    let sample_rate = reader.ident_hdr.audio_sample_rate;
+    let channels = reader.ident_hdr.audio_channels as usize;
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    while let Some(packet) = reader
+        .read_dec_packet_itl()
+        .map_err(|error| ggez::GameError::AudioError(error.to_string()))?
+    {
+        for frame in packet.chunks_exact(channels) {
+            left.push(frame[0] as f32 / i16::MAX as f32);
+            right.push(frame[channels.saturating_sub(1)] as f32 / i16::MAX as f32);
+        }
+    }
+    treat_intro_recording(&mut left, &mut right, sample_rate);
+
+    let wav = encode_wav_stereo16_at_rate(&left, &right, sample_rate);
     let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     src.set_volume(0.34);
     Ok(src)
+}
+
+#[cfg(test)]
+mod intro_tests {
+    use super::treat_intro_recording;
+
+    #[test]
+    fn intro_treatment_preserves_the_original_signal() {
+        let sample_rate = 100;
+        let mut left = vec![0.0; 50];
+        let mut right = vec![0.0; 50];
+        left[0] = 1.0;
+        right[0] = -1.0;
+
+        treat_intro_recording(&mut left, &mut right, sample_rate);
+
+        assert!(left[0] > 0.9);
+        assert!(right[0] < -0.9);
+        assert!(left[19] < 0.0);
+        assert!(right[19] > 0.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
