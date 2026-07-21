@@ -418,6 +418,18 @@ pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// A brighter, higher "perfect" sparkle layered ON TOP of the normal catch chime the instant a
+/// catch lands in the tight PERFECT window (see `play_catch_sound`/`play_perfect_sparkle`). Same
+/// happy major-triad arpeggio as the coin chime but a full octave up (1320Hz vs 660Hz) and a hair
+/// quieter, so precision reads audibly as a crisp twinkle over the base "coin get" — the ear can
+/// tell a nailed tight-window hit from a merely on-beat one. Pitch-shifted up further per flawless
+/// step at the call site, so a sustained in-the-pocket run *sounds* like it's climbing.
+pub fn synth_perfect_sparkle(ctx: &mut Context) -> GameResult<Source> {
+    let wav = synth_coin_arpeggio_wav(1320.0, 0.6); // an octave above the coin chime — bright ping.
+    let data = SoundData::from_bytes(&wav)?;
+    Source::from_data(ctx, data)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Ambient synth pads: long-swell drones with a sweeping resonant filter, a feedback delay, and
 // slow stereo auto-panning, for a calm/atmospheric moment (e.g. opening the campaign world map)
@@ -510,6 +522,14 @@ fn apply_stereo_pan(mono: &[f32], pan_rate_hz: f32) -> (Vec<f32>, Vec<f32>) {
 /// Wrap interleaved stereo `-1..1` sample pairs in a canonical 44-byte WAV header (2-channel,
 /// 16-bit PCM), mirroring `encode_wav_mono16` but for the panned pad output.
 pub(crate) fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
+    encode_wav_stereo16_at_rate(left, right, SAMPLE_RATE)
+}
+
+pub(crate) fn encode_wav_stereo16_at_rate(
+    left: &[f32],
+    right: &[f32],
+    sample_rate: u32,
+) -> Vec<u8> {
     let n_frames = left.len().min(right.len());
     // Normalize both channels together so the gain decision is made on the combined peak,
     // preserving relative panning while keeping the output at a consistent level.
@@ -531,7 +551,7 @@ pub(crate) fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
     }
     let num_channels: u16 = 2;
     let bits_per_sample: u16 = 16;
-    let byte_rate = SAMPLE_RATE * num_channels as u32 * (bits_per_sample as u32 / 8);
+    let byte_rate = sample_rate * num_channels as u32 * (bits_per_sample as u32 / 8);
     let block_align = num_channels * (bits_per_sample / 8);
     let data_len = (n_frames * 2 * 2) as u32;
     let riff_len = 36 + data_len;
@@ -544,7 +564,7 @@ pub(crate) fn encode_wav_stereo16(left: &[f32], right: &[f32]) -> Vec<u8> {
     out.extend_from_slice(&16u32.to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes()); // PCM
     out.extend_from_slice(&num_channels.to_le_bytes());
-    out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
     out.extend_from_slice(&byte_rate.to_le_bytes());
     out.extend_from_slice(&block_align.to_le_bytes());
     out.extend_from_slice(&bits_per_sample.to_le_bytes());

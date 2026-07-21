@@ -721,6 +721,13 @@ impl MainState {
                 // Snap the camera in a hair on every catch, harder on the beat, for extra impact.
                 self.zoom_punch = self.zoom_punch.max(if on_beat { 0.055 } else { 0.035 });
                 play_catch_sound(&mut self.sounds, ctx, &mut rng, self.beat_streak);
+                // A PERFECT (tight-window) catch also fires the bright sparkle on top, so nailing
+                // the precise window is audible, not just a screen flash — the "satisfying drum
+                // hit" the rhythm loop wants. perfect_streak was just bumped above, so the pitch
+                // climbs with the flawless run. Ordinary on-beat catches skip this entirely.
+                if perfect {
+                    play_perfect_sparkle(&mut self.sounds, self.perfect_streak);
+                }
             }
         }
         // Deferred out of the `&mut self.crabs` loop above: check_upgrade_unlock borrows all of

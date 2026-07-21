@@ -60,6 +60,11 @@ pub struct GameSounds {
     /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
     /// sampled `success`/`success2` catch sounds for extra retro sparkle.
     pub(crate) coin_chime: Source,
+    /// Bright octave-up twinkle layered over `coin_chime` only when a catch lands in the tight
+    /// PERFECT window — makes precision *audible*, not just a `perfect_flash` on screen (the visual
+    /// side already existed). Pitched up per flawless step so an in-the-pocket run sounds like it
+    /// climbs. See `play_perfect_sparkle`.
+    pub(crate) perfect_chime: Source,
     /// Ambient synth pad played on entering the campaign world map — a calm, atmospheric moment
     /// between levels, long swell/tail with a slow filter sweep, delay and stereo auto-pan.
     pub(crate) world_map_pad: Source,
@@ -135,6 +140,21 @@ pub fn play_catch_sound(
     // when many copies played simultaneously, and fits the retro chiptune direction.
     sounds.coin_chime.set_pitch(pitch);
     let _ = sounds.coin_chime.play();
+}
+
+/// Layer the bright PERFECT sparkle over the base catch chime the instant a catch lands in the
+/// tight PERFECT window. The base `play_catch_sound` walks its pitch by `beat_streak` (any on-beat
+/// catch), which means a nailed tight-window hit sounded identical to a merely on-beat one — the
+/// precision reward was visual (`perfect_flash`) but silent. This adds the audible half: a crisp
+/// octave-up twinkle whose pitch climbs a little with the flawless run (`perfect_streak`), capped
+/// so it stays bright rather than turning to chipmunk. Called only from the one authoritative
+/// PERFECT catch site, so ordinary/off-beat catches are completely unchanged.
+pub fn play_perfect_sparkle(sounds: &mut GameSounds, perfect_streak: u32) {
+    // A gentle semitone-ish climb per flawless step (~6% per hit), capped near a fourth up so a
+    // long run brightens audibly without running away in pitch.
+    let climb = 1.0 + 0.06 * (perfect_streak.min(6) as f32);
+    sounds.perfect_chime.set_pitch(climb);
+    let _ = sounds.perfect_chime.play();
 }
 
 pub struct Flashlight {

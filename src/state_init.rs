@@ -105,8 +105,14 @@ impl MainState {
                 tier,
             )?);
         }
+        let intro_music = {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            ctx.fs.open("/intro.ogg")?.read_to_end(&mut bytes)?;
+            sounds::synth_intro_menu(ctx, &bytes)?
+        };
         let sounds = GameSounds {
-            intro_music: Source::new(ctx, "/intro.ogg")?,
+            intro_music,
             // Procedurally generated action groove — a driving pentatonic shuffle
             // with a generative riff, swing, call-and-response phrasing, and a
             // layered bass line (see sounds::synth_action_groove). Replaces the
@@ -123,6 +129,7 @@ impl MainState {
             flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
             startup_pling: sounds::synth_startup_pling(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,
+            perfect_chime: sounds::synth_perfect_sparkle(ctx)?,
             world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
             whistle_sfx: sounds::synth_whistle(ctx)?,
             stomp_sfx: sounds::synth_stomp(ctx)?,
