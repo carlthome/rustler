@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.42.1 — 2026-07-21
+
+### Fixes
+- Fix wgpu buffer overrun by separating MainState initialization from first game draw
+
 ## v0.42.0 — 2026-07-21
 
 ### Features
