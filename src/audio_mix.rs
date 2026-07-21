@@ -256,8 +256,15 @@ impl MainState {
                 }
                 let t = &self.npc_trains[i];
                 let dist = t.leader_pos.distance(self.player_pos);
-                // Same swell curve as the rumble: full within ~200px, silent past ~800px.
-                let dist_factor = ((800.0 - dist) / 600.0).clamp(0.0, 1.0);
+                // Rival motifs should emerge only at close range: keep them inaudible past 500px,
+                // then use a squared swell so the competing grooves stay faint until the train is
+                // genuinely nearby. The creature rumble remains the longer-range directional cue.
+                const FULL_MOTIF_DIST: f32 = 120.0;
+                const SILENT_MOTIF_DIST: f32 = 500.0;
+                let distance_swell =
+                    ((SILENT_MOTIF_DIST - dist) / (SILENT_MOTIF_DIST - FULL_MOTIF_DIST))
+                        .clamp(0.0, 1.0);
+                let dist_factor = distance_swell * distance_swell;
                 // Tier from the scale floor: scout 1.2 -> 0, wanderer 1.8 -> 0.5, elder 2.4 -> 1.0.
                 let tier_floor = ((t.base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
                 let len = t.follower_types.len() as f32;
