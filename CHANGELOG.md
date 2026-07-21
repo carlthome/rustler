@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.30.5 — 2026-07-21
+
+### Fixes
+- Fix npc_vs_npc playtest flake (deterministic forced rival-vs-rival cross)
+
+### Refactoring
+- Extract the per-beat handler from main.rs into src/beat.rs
+
 ## v0.30.4 — 2026-07-21
 
 ### Gameplay
