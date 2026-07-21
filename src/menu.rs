@@ -658,11 +658,12 @@ pub fn draw_menu(
         let button_y = panel_y + 222.0;
         let button_w = 230.0;
         let button_h = 54.0;
+        let button_margin = 54.0;
         for (continue_anyway, label, x) in [
-            (true, "CONTINUE ANYWAY", panel_x + 54.0),
-            (false, "GO BACK", panel_x + panel_w - button_w - 54.0),
+            (true, "CONTINUE ANYWAY", panel_x + button_margin),
+            (false, "GO BACK", panel_x + panel_w - button_w - button_margin),
         ] {
-            let selected = state.play_recommendation_continue_focused == continue_anyway;
+            let selected = state.continue_button_focused == continue_anyway;
             let button = Mesh::new_rounded_rectangle(
                 ctx,
                 DrawMode::fill(),

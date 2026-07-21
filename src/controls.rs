@@ -371,12 +371,11 @@ pub fn handle_key_down_event(
             }
             if state.show_play_recommendation {
                 match key {
-                    KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::ArrowLeft | KeyCode::ArrowRight => {
-                        state.play_recommendation_continue_focused =
-                            !state.play_recommendation_continue_focused;
+                    KeyCode::ArrowLeft | KeyCode::ArrowRight => {
+                        state.continue_button_focused = !state.continue_button_focused;
                     }
                     KeyCode::Space | KeyCode::Enter => {
-                        if state.play_recommendation_continue_focused {
+                        if state.continue_button_focused {
                             state.reset_game();
                             state.show_instructions = false;
                         }
@@ -427,7 +426,7 @@ pub fn handle_key_down_event(
                                 state.show_play_recommendation = true;
                                 // Keep the direct Play action convenient while making the Campaign
                                 // recommendation visible before the run starts.
-                                state.play_recommendation_continue_focused = true;
+                                state.continue_button_focused = true;
                             } // Play
                             1 => {
                                 state.enter_world_map(ctx);
