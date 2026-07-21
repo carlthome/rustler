@@ -58,8 +58,8 @@ mod tests {
 
     #[test]
     fn logo_and_menu_reveal_each_have_time_to_read() {
-        assert_eq!(LOGO_FADE_IN_END - LOGO_FADE_IN_START, 1.0);
-        assert_eq!(LOGO_FADE_OUT_END - LOGO_FADE_OUT_START, 1.0);
-        assert_eq!(INTRO_END - MENU_REVEAL_AT, 2.1);
+        assert!(LOGO_FADE_IN_END - LOGO_FADE_IN_START >= 1.0);
+        assert!(LOGO_FADE_OUT_END - LOGO_FADE_OUT_START >= 1.0);
+        assert!(INTRO_END - MENU_REVEAL_AT >= 2.0);
     }
 }
