@@ -32,9 +32,6 @@ thread_local! {
     // mismatch — a rare event for 14 of 15 slots, and just a two-way flip for the 15th.
     static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 21]> =
         RefCell::new([const { None }; 21]);
-
-    // King Crab loadout labels only change when a colored King is caught or a tool rank changes.
-    // Keeping the shaped text here makes the persistent build readout free between those events.
     static KING_LOADOUT_TEXT_CACHE: RefCell<Option<([u32; 5], [u32; 4], Vec<Text>)>> =
         RefCell::new(None);
 
@@ -583,6 +580,93 @@ pub fn draw_day_weather_hud(
     Ok(())
 }
 
+/// Color-coded King Crab build strip. Dim cards preview the next build choice; captured colors
+/// pulse with their count and the rank they contributed to.
+pub fn draw_king_loadout(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    powers: [u32; 5],
+    tool_ranks: [u32; 4],
+    conga_tint: [f32; 3],
+    time: f32,
+) -> ggez::GameResult {
+    let captured = powers.iter().sum::<u32>();
+    if captured == 0 {
+        return Ok(());
+    }
+    let cards = [
+        ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08], powers[0], tool_ranks[0]),
+        ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0], powers[1], tool_ranks[2]),
+        ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0], powers[2], tool_ranks[3]),
+        ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16], powers[3], tool_ranks[1]),
+        ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62], powers[4], tool_ranks[2]),
+    ];
+    let strip_width = (width - 24.0).min(652.0);
+    let gap = 5.0;
+    let card_w = (strip_width - gap * 4.0) / 5.0;
+    let x0 = (width - strip_width) * 0.5;
+    let y = height - 108.0;
+    let sq = unit_square(ctx)?;
+
+    KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
+        let mut cache = cache.borrow_mut();
+        if cache.as_ref().map_or(true, |(saved_powers, saved_ranks, _)| {
+            *saved_powers != powers || *saved_ranks != tool_ranks
+        }) {
+            let mut labels = Vec::with_capacity(6);
+            let mut title = Text::new(format!("KING CONGA  ·  {} COLOR POWERS", captured));
+            title.set_scale(12.0);
+            labels.push(title);
+            for (name, effect, _, count, rank) in cards {
+                let mut label = Text::new(if count == 0 {
+                    format!("{}\n{}", name, effect)
+                } else {
+                    format!("{} ×{}\n{} · LV {}", name, count, effect, rank)
+                });
+                label.set_scale(10.0);
+                labels.push(label);
+            }
+            *cache = Some((powers, tool_ranks, labels));
+        }
+
+        let (_, _, labels) = cache.as_ref().unwrap();
+        canvas.draw(
+            &labels[0],
+            DrawParam::default()
+                .dest(Vec2::new(x0, y - 15.0))
+                .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
+        );
+        for (i, (_, _, color, count, _)) in cards.iter().enumerate() {
+            let x = x0 + i as f32 * (card_w + gap);
+            let active = *count > 0;
+            let pulse = ((time * 6.0 + i as f32 * 0.7).sin() * 0.5 + 0.5) * 0.10;
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, 38.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 0.25 + pulse } else { 0.07 })),
+            );
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.35 })),
+            );
+            canvas.draw(
+                &labels[i + 1],
+                DrawParam::default()
+                    .dest(Vec2::new(x + 5.0, y + 5.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.45 })),
+            );
+        }
+        Ok(())
+    })
+}
+
 /// Compact tool roster at the bottom centre — shows each tool's key, name, matchup hint, and
 /// cooldown bar so the player always knows what's ready and what each key does.
 pub fn draw_tool_roster(
@@ -626,100 +710,6 @@ pub fn draw_tool_roster(
         color: [f32; 3],
         cooldown_ratio: f32,
         useful: bool,
-    }
-
-    /// Color-coded King Crab build strip. Every color previews its exact reward while dimmed cards show
-    /// the player which King to pursue next; captured colors glow with their count and current tool rank.
-    pub fn draw_king_loadout(
-        ctx: &mut Context,
-        canvas: &mut Canvas,
-        width: f32,
-        height: f32,
-        powers: [u32; 5],
-        tool_ranks: [u32; 4],
-        conga_tint: [f32; 3],
-        time: f32,
-    ) -> ggez::GameResult {
-        let captured = powers.iter().sum::<u32>();
-        if captured == 0 {
-            return Ok(());
-        }
-
-        let cards = [
-            ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08], powers[0], tool_ranks[0]),
-            ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0], powers[1], tool_ranks[2]),
-            ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0], powers[2], tool_ranks[3]),
-            ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16], powers[3], tool_ranks[1]),
-            ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62], powers[4], tool_ranks[2]),
-        ];
-        let strip_width = (width - 24.0).min(652.0);
-        let gap = 5.0;
-        let card_w = (strip_width - gap * 4.0) / 5.0;
-        let card_h = 38.0;
-        let x0 = (width - strip_width) * 0.5;
-        let y = height - 108.0;
-        let sq = unit_square(ctx)?;
-
-        KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
-            let mut cache = cache.borrow_mut();
-            if cache
-                .as_ref()
-                .map_or(true, |(cached_powers, cached_ranks, _)| {
-                    *cached_powers != powers || *cached_ranks != tool_ranks
-                })
-            {
-                let mut labels = Vec::with_capacity(6);
-                let mut title = Text::new(format!("KING CONGA  ·  {} COLOR POWERS", captured));
-                title.set_scale(12.0);
-                labels.push(title);
-                for (name, effect, _, count, rank) in cards {
-                    let text = if count == 0 {
-                        format!("{}\n{}", name, effect)
-                    } else {
-                        format!("{}  ×{}\n{}  ·  LV {}", name, count, effect, rank)
-                    };
-                    let mut label = Text::new(text);
-                    label.set_scale(10.0);
-                    labels.push(label);
-                }
-                *cache = Some((powers, tool_ranks, labels));
-            }
-
-            let (_, _, labels) = cache.as_ref().unwrap();
-            canvas.draw(
-                &labels[0],
-                DrawParam::default()
-                    .dest(Vec2::new(x0, y - 15.0))
-                    .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
-            );
-            for (i, (_, _, color, count, _)) in cards.iter().enumerate() {
-                let x = x0 + i as f32 * (card_w + gap);
-                let active = *count > 0;
-                let beat_pulse = ((time * 6.0 + i as f32 * 0.7).sin() * 0.5 + 0.5) * 0.10;
-                let fill_alpha = if active { 0.25 + beat_pulse } else { 0.07 };
-                canvas.draw(
-                    sq,
-                    DrawParam::default()
-                        .dest(Vec2::new(x, y))
-                        .scale(Vec2::new(card_w, card_h))
-                        .color(Color::new(color[0], color[1], color[2], fill_alpha)),
-                );
-                canvas.draw(
-                    sq,
-                    DrawParam::default()
-                        .dest(Vec2::new(x, y))
-                        .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
-                        .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.35 })),
-                );
-                canvas.draw(
-                    &labels[i + 1],
-                    DrawParam::default()
-                        .dest(Vec2::new(x + 5.0, y + 5.0))
-                        .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.45 })),
-                );
-            }
-            Ok(())
-        })
     }
 
     let whistle_max_safe = if whistle_max <= 0.0 { 1.0 } else { whistle_max };
