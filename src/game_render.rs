@@ -63,28 +63,43 @@ impl MainState {
         );
 
         if alpha > 0.0 {
-            let mut logo = Text::new("CARLTHOME");
-            logo.set_scale(LOGO_SCALE);
-            let logo_width = logo.measure(ctx)?.x;
-            canvas.draw(
-                &logo,
-                DrawParam::default()
-                    .dest(Vec2::new((width - logo_width) * 0.5, height * LOGO_Y))
-                    .color(Color::new(0.88, 0.94, 1.0, alpha)),
-            );
+            // Static strings, drawn every frame for the whole intro — cache the shaped Text (and
+            // its measured width) once instead of rebuilding + re-shaping glyphs each frame.
+            let logo_width = STARTUP_LOGO_TEXT_CACHE.with(|c| -> GameResult<f32> {
+                let mut cache = c.borrow_mut();
+                if cache.is_none() {
+                    let mut logo = Text::new("CARLTHOME");
+                    logo.set_scale(LOGO_SCALE);
+                    let w = logo.measure(ctx)?.x;
+                    *cache = Some((logo, w));
+                }
+                let (text, w) = cache.as_ref().unwrap();
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - w) * 0.5, height * LOGO_Y))
+                        .color(Color::new(0.88, 0.94, 1.0, alpha)),
+                );
+                Ok(*w)
+            })?;
 
-            let mut presents = Text::new("P R E S E N T S");
-            presents.set_scale(PRESENTS_SCALE);
-            let presents_width = presents.measure(ctx)?.x;
-            canvas.draw(
-                &presents,
-                DrawParam::default()
-                    .dest(Vec2::new(
-                        (width - presents_width) * 0.5,
-                        height * LOGO_Y + 82.0,
-                    ))
-                    .color(Color::new(0.55, 0.68, 0.82, alpha * 0.8)),
-            );
+            STARTUP_PRESENTS_TEXT_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                if cache.is_none() {
+                    let mut presents = Text::new("P R E S E N T S");
+                    presents.set_scale(PRESENTS_SCALE);
+                    let w = presents.measure(ctx)?.x;
+                    *cache = Some((presents, w));
+                }
+                let (text, w) = cache.as_ref().unwrap();
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(Vec2::new((width - w) * 0.5, height * LOGO_Y + 82.0))
+                        .color(Color::new(0.55, 0.68, 0.82, alpha * 0.8)),
+                );
+                Ok(())
+            })?;
 
             let sparkle = unit_circle(ctx)?;
             let center = Vec2::new(width * 0.5 + logo_width * 0.55, height * LOGO_Y + 8.0);
@@ -102,15 +117,23 @@ impl MainState {
             }
         }
 
-        let mut skip = Text::new("SPACE TO SKIP");
-        skip.set_scale(15.0);
-        let skip_width = skip.measure(ctx)?.x;
-        canvas.draw(
-            &skip,
-            DrawParam::default()
-                .dest(Vec2::new((width - skip_width) * 0.5, height * SKIP_Y))
-                .color(Color::new(0.5, 0.56, 0.66, 0.7)),
-        );
+        STARTUP_SKIP_TEXT_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut skip = Text::new("SPACE TO SKIP");
+                skip.set_scale(15.0);
+                let w = skip.measure(ctx)?.x;
+                *cache = Some((skip, w));
+            }
+            let (text, w) = cache.as_ref().unwrap();
+            canvas.draw(
+                text,
+                DrawParam::default()
+                    .dest(Vec2::new((width - w) * 0.5, height * SKIP_Y))
+                    .color(Color::new(0.5, 0.56, 0.66, 0.7)),
+            );
+            Ok(())
+        })?;
         Ok(())
     }
 
