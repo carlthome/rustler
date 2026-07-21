@@ -55,6 +55,8 @@ pub struct GameSounds {
     pub(crate) hihat: Source,
     /// Short bright chirp for the flashlight toggle (F key) — a snappy UI beep.
     pub(crate) flashlight_toggle: Source,
+    /// Feather-light studio-logo sparkle heard once during the startup cinematic.
+    pub(crate) startup_pling: Source,
     /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
     /// sampled `success`/`success2` catch sounds for extra retro sparkle.
     pub(crate) coin_chime: Source,
@@ -63,6 +65,10 @@ pub struct GameSounds {
     /// side already existed). Pitched up per flawless step so an in-the-pocket run sounds like it
     /// climbs. See `play_perfect_sparkle`.
     pub(crate) perfect_chime: Source,
+    /// Crisp woodblock "tok" layered over a ranged tool cast (whistle/stomp/wave/lasso) the instant
+    /// it lands on the beat — the audible "each tool key is a drum pad" accent. Pitched up per
+    /// on-beat streak at the call site (`play_tool_accent`) so a hot run of casts climbs.
+    pub(crate) tool_accent: Source,
     /// Ambient synth pad played on entering the campaign world map — a calm, atmospheric moment
     /// between levels, long swell/tail with a slow filter sweep, delay and stereo auto-pan.
     pub(crate) world_map_pad: Source,
@@ -153,6 +159,21 @@ pub fn play_perfect_sparkle(sounds: &mut GameSounds, perfect_streak: u32) {
     let climb = 1.0 + 0.06 * (perfect_streak.min(6) as f32);
     sounds.perfect_chime.set_pitch(climb);
     let _ = sounds.perfect_chime.play();
+}
+
+/// Play the crisp woodblock "tok" the instant a ranged tool cast lands on the beat — the audible
+/// half of "each tool key is a drum pad" (INSPIRATION.md). Latched by `reward_on_beat_action` and
+/// fired once from the audio pass (which owns `ctx`), it layers over the tool's own SFX just as
+/// `play_perfect_sparkle` layers over the catch chime. Pitch walks up a major-pentatonic step per
+/// on-beat streak (capped +1 octave) so a sustained in-the-pocket run of casts sounds like a
+/// climbing drum fill rather than a flat repeat; a cold streak (0) sits at the neutral root.
+pub fn play_tool_accent(sounds: &mut GameSounds, beat_streak: u32) {
+    const PENTATONIC: [f32; 5] = [1.0, 9.0 / 8.0, 5.0 / 4.0, 3.0 / 2.0, 5.0 / 3.0];
+    let step = (beat_streak as usize) % PENTATONIC.len();
+    let octave = (beat_streak / PENTATONIC.len() as u32).min(1); // cap at +1 octave — stays woody
+    let pitch = PENTATONIC[step] * 2.0_f32.powi(octave as i32);
+    sounds.tool_accent.set_pitch(pitch);
+    let _ = sounds.tool_accent.play();
 }
 
 pub struct Flashlight {
@@ -247,6 +268,9 @@ pub struct MainState {
     pub(crate) treasure_chest_timer: f32,
     pub(crate) time_elapsed: f32,             // Time since game start
     pub(crate) menu_time: f32, // Free-running clock for the title/menu screen animation
+    pub(crate) menu_intro_time: f32,
+    pub(crate) menu_intro_complete: bool,
+    pub(crate) menu_intro_pling_played: bool,
     pub(crate) game_over: bool, // Game over flag
     pub(crate) sounds: GameSounds, // All game sound effects
     pub(crate) beat_synth: sounds::BeatSynth, // Procedural kick drum played on every beat tick
@@ -419,6 +443,11 @@ pub struct MainState {
     /// Monotonic tally of rival leaders shoved by the Wave's proactive crowd-control (fire_wave).
     /// Never drops, so a bot playtest can prove the shove path fired without racing live state.
     pub(crate) rivals_wave_shoved: usize,
+    /// One-frame flag: a ranged tool cast (whistle/stomp/wave/lasso) landed on the beat this frame —
+    /// play the crisp woodblock drum-pad accent. Latched by `reward_on_beat_action` (no `ctx` there)
+    /// and consumed with `ctx` in the audio pass. The dash deliberately does NOT set it (Carl: "the
+    /// dash feels good — do NOT touch it"), so its feel stays byte-for-byte unchanged.
+    pub(crate) on_beat_tool_sfx: bool,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1115,6 +1144,12 @@ pub struct MainState {
 }
 
 impl MainState {
+    pub(crate) fn skip_menu_intro(&mut self) {
+        self.menu_intro_time = crate::menu_intro::INTRO_END;
+        self.menu_intro_complete = true;
+        self.menu_intro_pling_played = true;
+    }
+
     /// The per-frame simulation delta, in seconds. In a deterministic bot run this is a fixed
     /// constant (so the sim advances identically regardless of machine speed or ggez version);
     /// in real gameplay it's the true wall-clock frame delta for smooth motion. Every in-game

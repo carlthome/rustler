@@ -48,6 +48,22 @@ impl MainState {
             // is paused here.
             let mdt = self.frame_dt(ctx);
             self.menu_time += mdt;
+            if self.show_instructions
+                && !self.show_how_to_play_text
+                && self.menu_page == 0
+                && !self.menu_intro_complete
+            {
+                self.menu_intro_time += mdt;
+                if !self.menu_intro_pling_played
+                    && self.menu_intro_time >= crate::menu_intro::PLING_AT
+                {
+                    let _ = self.sounds.startup_pling.play();
+                    self.menu_intro_pling_played = true;
+                }
+                if self.menu_intro_time >= crate::menu_intro::INTRO_END {
+                    self.menu_intro_complete = true;
+                }
+            }
             // In bot mode, time_elapsed must advance and bot events must fire even while a paused
             // screen is showing — e.g. TapKey(Space) at t=0.5 dismisses the title screen, and a
             // tutorial that passes hands control back to the world map where the script's remaining

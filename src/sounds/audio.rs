@@ -163,6 +163,27 @@ pub fn synth_fm_note(
     )
 }
 
+/// A tiny glass-bell arpeggio for the startup studio card: bright at the attack, then almost
+/// weightless as its high harmonics overlap and decay.
+pub fn synth_startup_pling(ctx: &mut Context) -> GameResult<Source> {
+    const NOTE_GAP_SAMPLES: usize = SAMPLE_RATE as usize / 13; // About 77 ms between sparkles.
+    let adsr = Adsr {
+        attack: 0.004,
+        decay: 0.12,
+        sustain: 0.18,
+        release: 0.75,
+    };
+    let mut mix = Vec::new();
+    // E6 → G♯6 → C7: a bright augmented triad that reads as a tiny shower of light.
+    for (index, frequency) in [1318.51, 1661.22, 2093.0].into_iter().enumerate() {
+        let note = synth_fm_note(frequency, 3.5, 2.4, 8.0, 0.16, &adsr, 0.22);
+        mix_into(&mut mix, &note, index * NOTE_GAP_SAMPLES);
+    }
+    let pcm = samples_to_pcm(&mut mix, 14, 1); // Near-clean 14-bit, no sample-and-hold crunch.
+    let wav = encode_wav_mono16(&pcm);
+    Source::from_data(ctx, SoundData::from_bytes(&wav)?)
+}
+
 /// FM note variant with the short upward pitch bend used by NES-style hit-confirm sounds.
 fn synth_fm_note_pitch_attack(
     carrier_hz: f32,
@@ -405,6 +426,42 @@ pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
 /// step at the call site, so a sustained in-the-pocket run *sounds* like it's climbing.
 pub fn synth_perfect_sparkle(ctx: &mut Context) -> GameResult<Source> {
     let wav = synth_coin_arpeggio_wav(1320.0, 0.6); // an octave above the coin chime — bright ping.
+    let data = SoundData::from_bytes(&wav)?;
+    Source::from_data(ctx, data)
+}
+
+/// A crisp woodblock/rimshot "tok" — the on-beat TOOL accent (see `play_tool_accent`). The whole
+/// game's thesis is "each tool key is a drum pad; hitting it on the beat feels like a drum hit"
+/// (INSPIRATION.md), but an on-beat ranged cast (whistle/stomp/wave/lasso) only *looked* rewarded
+/// (the "PERFECT!" flash + groove kick) — it made no percussive sound of its own, so nailing the
+/// beat was silent. This layers a short, bright wood-tone click OVER the tool's own SFX the instant
+/// a cast lands on the beat, exactly like `synth_perfect_sparkle` layers over the catch chime — so
+/// the drum-pad hit is finally audible. Two detuned sine partials (a woodblock's tonal body) under
+/// a very fast exponential decay, with a tiny highpassed-noise attack transient for the stick
+/// "tick". Short (~55 ms) and modest-gain so it accents rather than masks. Pitch is walked up per
+/// on-beat streak at the call site, so a hot in-the-pocket run of casts sounds like a climbing fill.
+pub fn synth_tool_accent(ctx: &mut Context) -> GameResult<Source> {
+    let dur = 0.055_f32;
+    let n = (SAMPLE_RATE as f32 * dur) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    let f0 = 1000.0_f32; // wood-tone fundamental
+    let f1 = f0 * 1.5; // a fifth above — the hollow "block" character
+    let tau = std::f32::consts::TAU;
+    let mut noise_state: u32 = 0x1d37;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        // Very fast attack (0.4 ms) then a hard exponential decay so it reads as a tight "tok".
+        let attack = (t / 0.0004).min(1.0);
+        let env = attack * (-70.0 * t).exp();
+        // Tonal body: fundamental plus its fifth, the fifth a touch quieter.
+        let body = (tau * f0 * t).sin() + 0.5 * (tau * f1 * t).sin();
+        // Stick "tick": a brief noise transient only in the first few ms, decaying much faster.
+        let tick = lfsr_noise(&mut noise_state) * (-320.0 * t).exp() * 0.35;
+        samples.push((body * 0.62 + tick) * env);
+    }
+    let pcm = samples_to_pcm(&mut samples, 5, 1);
+    let wav = encode_wav_mono16(&pcm);
     let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
