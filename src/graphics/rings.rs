@@ -858,6 +858,69 @@ pub fn draw_downbeat_pulse_ring(
     Ok(())
 }
 
+/// Draw the player-anchored beat-keeper: an anticipatory ring that contracts onto the rustler and
+/// snaps bright exactly on each beat, so a player whose eyes are on the herd can still *see the beat
+/// arrive* and tap in time — the "obvious to play while steering" cue (#164/#165). The ring is widest
+/// just after a beat and collapses to a tight cuff on the player right as the next beat lands, like a
+/// visual metronome you catch on the "1". Gold and bigger on the bar downbeat, cooler teal between.
+/// `guide` (0..1) fades the whole cue: bold while the train is short (learning the tap), a faint tick
+/// once you're grooving with a big train, so it never fights the catch-bloom on a veteran's screen.
+pub fn draw_beat_keeper_ring(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    center: Vec2,
+    beat_progress: f32, // 0 just after a beat → 1 as the next beat lands
+    on_beat_flash: f32,
+    downbeat: bool,
+    guide: f32,
+) -> ggez::GameResult {
+    let guide = guide.clamp(0.0, 1.0);
+    if guide <= 0.01 {
+        return Ok(());
+    }
+    let original_blend = canvas.blend_mode();
+    canvas.set_blend_mode(BlendMode::ADD);
+
+    let p = beat_progress.clamp(0.0, 1.0);
+    // Contracting radius: reach (widest, just after a beat) → inner cuff (tight, on the beat).
+    let inner = crate::PLAYER_SIZE * 0.62;
+    let reach = crate::PLAYER_SIZE * (if downbeat { 1.7 } else { 1.35 });
+    let r = inner + (reach - inner) * (1.0 - p);
+    // Gold on the downbeat (the "1"), teal on the off-beats so the bar's shape reads.
+    let (cr, cg, cb) = if downbeat {
+        (1.0, 0.82, 0.32)
+    } else {
+        (0.35, 0.85, 0.95)
+    };
+    // Brightens as it closes (anticipation) and pops on the on-beat snap frame.
+    let approach = 0.10 + 0.22 * p;
+    let alpha = ((approach + on_beat_flash * 0.9) * guide).clamp(0.0, 0.85);
+    let thickness = 1.5 + 2.5 * on_beat_flash + if downbeat { 1.0 } else { 0.0 };
+    let ring = cached_stroke_circle(ctx, r, thickness)?;
+    canvas.draw(
+        &ring,
+        DrawParam::default()
+            .dest(center)
+            .color(Color::new(cr, cg, cb, alpha)),
+    );
+    // A tight inner cuff that flashes on the snap frame so the exact "tap now" moment reads.
+    if on_beat_flash > 0.15 {
+        let cuff = cached_stroke_circle(ctx, inner, 2.0 + 2.0 * on_beat_flash)?;
+        canvas.draw(
+            &cuff,
+            DrawParam::default().dest(center).color(Color::new(
+                cr,
+                cg,
+                cb,
+                (on_beat_flash * 0.8 * guide).clamp(0.0, 0.85),
+            )),
+        );
+    }
+
+    canvas.set_blend_mode(original_blend);
+    Ok(())
+}
+
 /// Draw the Stomp ground-pound shockwave — a fast, dusty ring that slams outward from the player.
 /// Earthier and heavier than the whistle's bright horn-blast so the two abilities read differently.
 pub fn draw_stomp_ring(
