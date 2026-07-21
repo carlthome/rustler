@@ -430,6 +430,42 @@ pub fn synth_perfect_sparkle(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// A crisp woodblock/rimshot "tok" — the on-beat TOOL accent (see `play_tool_accent`). The whole
+/// game's thesis is "each tool key is a drum pad; hitting it on the beat feels like a drum hit"
+/// (INSPIRATION.md), but an on-beat ranged cast (whistle/stomp/wave/lasso) only *looked* rewarded
+/// (the "PERFECT!" flash + groove kick) — it made no percussive sound of its own, so nailing the
+/// beat was silent. This layers a short, bright wood-tone click OVER the tool's own SFX the instant
+/// a cast lands on the beat, exactly like `synth_perfect_sparkle` layers over the catch chime — so
+/// the drum-pad hit is finally audible. Two detuned sine partials (a woodblock's tonal body) under
+/// a very fast exponential decay, with a tiny highpassed-noise attack transient for the stick
+/// "tick". Short (~55 ms) and modest-gain so it accents rather than masks. Pitch is walked up per
+/// on-beat streak at the call site, so a hot in-the-pocket run of casts sounds like a climbing fill.
+pub fn synth_tool_accent(ctx: &mut Context) -> GameResult<Source> {
+    let dur = 0.055_f32;
+    let n = (SAMPLE_RATE as f32 * dur) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut samples = Vec::with_capacity(n);
+    let f0 = 1000.0_f32; // wood-tone fundamental
+    let f1 = f0 * 1.5; // a fifth above — the hollow "block" character
+    let tau = std::f32::consts::TAU;
+    let mut noise_state: u32 = 0x1d37;
+    for i in 0..n {
+        let t = i as f32 * dt;
+        // Very fast attack (0.4 ms) then a hard exponential decay so it reads as a tight "tok".
+        let attack = (t / 0.0004).min(1.0);
+        let env = attack * (-70.0 * t).exp();
+        // Tonal body: fundamental plus its fifth, the fifth a touch quieter.
+        let body = (tau * f0 * t).sin() + 0.5 * (tau * f1 * t).sin();
+        // Stick "tick": a brief noise transient only in the first few ms, decaying much faster.
+        let tick = lfsr_noise(&mut noise_state) * (-320.0 * t).exp() * 0.35;
+        samples.push((body * 0.62 + tick) * env);
+    }
+    let pcm = samples_to_pcm(&mut samples, 5, 1);
+    let wav = encode_wav_mono16(&pcm);
+    let data = SoundData::from_bytes(&wav)?;
+    Source::from_data(ctx, data)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Ambient synth pads: long-swell drones with a sweeping resonant filter, a feedback delay, and
 // slow stereo auto-panning, for a calm/atmospheric moment (e.g. opening the campaign world map)
