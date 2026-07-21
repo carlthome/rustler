@@ -56,6 +56,11 @@ pub struct WorldMap {
     pub nodes: Vec<WorldMapNode>,
     /// Index of the currently highlighted node.
     pub selected: usize,
+    /// Soft "skip ahead" confirm. When a *locked* node is selected and Confirm is pressed, this is
+    /// armed to a small countdown and a one-line warning shows; a second Confirm while it's armed
+    /// commits the skip. Moving the selection or backing out cancels it, and it decays to 0 on its
+    /// own so the warning auto-hides. 0 means no skip is pending.
+    pub skip_warn_timer: f32,
 }
 
 impl WorldMap {
@@ -113,7 +118,7 @@ impl WorldMap {
             });
         }
 
-        WorldMap { nodes, selected: 0 }
+        WorldMap { nodes, selected: 0, skip_warn_timer: 0.0 }
     }
 
     /// The `Level` index that should be loaded when the player confirms from this map.
@@ -136,19 +141,56 @@ impl WorldMap {
         }
     }
 
-    /// Move selection left (delta = -1) or right (delta = +1), skipping locked nodes.
-    /// Clamps at the ends so it never wraps.
+    /// Move selection left (delta = -1) or right (delta = +1) to the *adjacent* node — locked or
+    /// not (the campaign is an on-ramp, not a hard gate; a playtester or impatient player can walk
+    /// to any node and skip ahead with a soft warning, see `arm_skip_warning`). Clamps at the ends
+    /// so it never wraps. Any move cancels a pending skip warning.
     pub fn move_selection(&mut self, delta: i32) {
         let len = self.nodes.len() as i32;
-        let mut target = self.selected as i32 + delta;
-        while target >= 0 && target < len {
-            if self.nodes[target as usize].unlocked {
-                self.selected = target as usize;
-                return;
-            }
-            target += delta;
+        let target = self.selected as i32 + delta;
+        if target >= 0 && target < len {
+            self.selected = target as usize;
         }
-        // Nothing unlocked in that direction — stay put.
+        self.skip_warn_timer = 0.0;
+    }
+
+    /// True when the currently selected node is already unlocked (Confirm launches it directly).
+    pub fn selected_unlocked(&self) -> bool {
+        self.nodes[self.selected].unlocked
+    }
+
+    /// True while a skip-ahead confirm is armed (the warning is showing and a second Confirm will
+    /// commit the skip).
+    pub fn skip_pending(&self) -> bool {
+        self.skip_warn_timer > 0.0
+    }
+
+    /// Arm the soft skip-ahead warning: shows a one-line message and waits ~2s for a second Confirm.
+    pub fn arm_skip_warning(&mut self) {
+        self.skip_warn_timer = 2.0;
+    }
+
+    /// Cancel a pending skip warning (e.g. the player backed out).
+    pub fn cancel_skip(&mut self) {
+        self.skip_warn_timer = 0.0;
+    }
+
+    /// Decay the skip warning so it auto-hides after ~2s of no second Confirm.
+    pub fn tick_skip_warning(&mut self, dt: f32) {
+        if self.skip_warn_timer > 0.0 {
+            self.skip_warn_timer = (self.skip_warn_timer - dt).max(0.0);
+        }
+    }
+
+    /// Commit a skip-ahead: unlock AND complete every node from the start up to and including the
+    /// selected one, so the world map reflects that the earlier nodes were skipped over. The caller
+    /// then launches the selected node as usual. Clears the pending warning.
+    pub fn unlock_through_selected(&mut self) {
+        for node in self.nodes.iter_mut().take(self.selected + 1) {
+            node.unlocked = true;
+            node.completed = true;
+        }
+        self.skip_warn_timer = 0.0;
     }
 
     /// True once every node has been completed (end of campaign).

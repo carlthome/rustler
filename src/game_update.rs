@@ -54,6 +54,10 @@ impl MainState {
             // Decay the perk-shop buy/deny flashes so they're a brief pop, not a stuck glow.
             self.shop_flash = (self.shop_flash - mdt * 2.5).max(0.0);
             self.shop_denied = (self.shop_denied - mdt * 2.5).max(0.0);
+            // Auto-hide the world-map "skip ahead" warning after ~2s of no second Confirm.
+            if let Some(map) = &mut self.world_map {
+                map.tick_skip_warning(mdt);
+            }
             return Ok(());
         }
 

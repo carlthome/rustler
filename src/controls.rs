@@ -302,10 +302,31 @@ pub fn handle_key_down_event(
                     return true;
                 }
                 KeyCode::Space | KeyCode::Return => {
-                    state.enter_campaign_level();
+                    if let Some(map) = &mut state.world_map {
+                        if map.selected_unlocked() {
+                            // Already unlocked — launch straight into it.
+                            map.cancel_skip();
+                            state.enter_campaign_level();
+                        } else if map.skip_pending() {
+                            // Second Confirm on a locked node — commit the skip and launch.
+                            map.unlock_through_selected();
+                            state.enter_campaign_level();
+                        } else {
+                            // First Confirm on a locked node — arm the soft warning.
+                            map.arm_skip_warning();
+                        }
+                    }
                     return true;
                 }
                 KeyCode::Escape => {
+                    // If a skip warning is armed, the first Esc just cancels it (back out of the
+                    // skip); otherwise Esc leaves the map back to the menu.
+                    if let Some(map) = &mut state.world_map {
+                        if map.skip_pending() {
+                            map.cancel_skip();
+                            return true;
+                        }
+                    }
                     state.show_world_map = false;
                     state.show_instructions = true;
                     state.show_how_to_play_text = false;
