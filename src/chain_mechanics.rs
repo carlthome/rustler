@@ -15,11 +15,20 @@ use crate::state::MainState;
 
 use std::cell::RefCell;
 
-// Scratch buffer for count_chain_bonds — reused across calls to avoid a per-call heap alloc
-// every frame. The Vec is grown-but-not-shrunk, so it reaches steady state after the first
-// run at max chain length and never allocates again during normal gameplay.
+// Scratch buffer for the rare keep > chain_count fallback in with_bond_index (see below) — reused
+// across calls to avoid a per-call heap alloc. The Vec is grown-but-not-shrunk, so it reaches
+// steady state after the first run at max chain length and never allocates again during normal
+// gameplay.
 thread_local! {
     static BOND_INDEX_BUF: RefCell<Vec<Option<CrabType>>> = RefCell::new(Vec::new());
+    // Cache of the chain_index -> crab_type lookup, keyed by chain_count. Every event that changes
+    // a caught crab's chain_index (catch, release, steal, snap) also reassigns self.chain_count
+    // (see the assignments across chain_mechanics.rs, catch_effects.rs, npc_trains.rs) — the same
+    // invalidation contract CHAIN_ORDER_CACHE (game_render.rs) already relies on. So on an
+    // unchanged-chain frame, every caller below reuses this cached lookup instead of re-scanning
+    // self.crabs (which includes free crabs too — a scan over the WHOLE herd, not just the ~keep
+    // caught ones this lookup needs).
+    static BOND_INDEX_CACHE: RefCell<Option<(usize, Vec<Option<CrabType>>)>> = RefCell::new(None);
 }
 
 impl MainState {
@@ -1072,95 +1081,133 @@ impl MainState {
         self.count_bonds_and_sandwiches(keep).1
     }
 
-    /// Combined bond + sandwich + run-streak tally in a single O(n) scan. Fills BOND_INDEX_BUF once
-    /// and returns (bonds, sandwiches, run_bonus_points) — callers that need several avoid a second
-    /// full walk over self.crabs. `run_bonus_points` is already in points (RUN_STREAK_BONUS summed
-    /// over every same-type run beyond length 2), not a count, so callers add it directly. The
-    /// individual wrappers above exist for call sites that only need one value.
+    /// Combined bond + sandwich + run-streak tally in a single O(keep) pass over a cached
+    /// chain_index->type lookup (see with_bond_index) — returns (bonds, sandwiches,
+    /// run_bonus_points, centerpiece_bonus). `run_bonus_points` is already in points
+    /// (RUN_STREAK_BONUS summed over every same-type run beyond length 2), not a count, so callers
+    /// add it directly. The individual wrappers above exist for call sites that only need one value.
     pub(crate) fn count_bonds_and_sandwiches(&self, keep: usize) -> (usize, usize, usize, usize) {
         if keep < 2 {
             return (0, 0, 0, 0);
         }
-        BOND_INDEX_BUF.with(|buf| {
-            let mut by_index = buf.borrow_mut();
-            // Grow-only: resize to `keep` slots, or clear+resize if the buffer is already large
-            // enough (cheaper than realloc for small trains after a long one). Either way no
-            // shrink — we keep the capacity for future calls.
-            by_index.clear();
-            by_index.resize(keep, None);
-            for c in self.crabs.iter().filter(|c| c.caught) {
-                if let Some(ci) = c.chain_index {
-                    if ci < keep {
-                        by_index[ci] = Some(c.crab_type);
+        self.with_bond_index(keep, Self::tally_bond_index)
+    }
+
+    /// Hand `f` a slice of the chain_index->crab_type lookup for links `0..keep`. The lookup is
+    /// cached by chain_count (BOND_INDEX_CACHE) so repeated calls in the same frame — or across
+    /// frames where the chain hasn't changed — reuse it instead of re-scanning self.crabs. Falls
+    /// back to a direct, uncached build when `keep` exceeds `self.chain_count` (the defensive
+    /// "drift" case in try_deliver_train, where a stale chain_count undercounts the actually-caught
+    /// crabs) — that's rare enough it isn't worth complicating the cache to cover.
+    fn with_bond_index<R>(&self, keep: usize, f: impl FnOnce(&[Option<CrabType>]) -> R) -> R {
+        let chain_count = self.chain_count;
+        if keep > chain_count {
+            return BOND_INDEX_BUF.with(|buf| {
+                let mut by_index = buf.borrow_mut();
+                by_index.clear();
+                by_index.resize(keep, None);
+                for c in self.crabs.iter().filter(|c| c.caught) {
+                    if let Some(ci) = c.chain_index {
+                        if ci < keep {
+                            by_index[ci] = Some(c.crab_type);
+                        }
                     }
                 }
-            }
-            let mut bonds = 0;
-            for i in 1..keep {
-                if by_index[i].is_some() && by_index[i] == by_index[i - 1] {
-                    bonds += 1;
-                }
-            }
-            let mut sandwiches = 0;
-            if keep >= 3 {
-                for i in 1..keep - 1 {
-                    // Both neighbors must be the SAME figurehead archetype (Golden or Dancer). The
-                    // filling itself can be anything — including another figurehead, so a G-G-G run
-                    // makes the middle a sandwich too (and still pays its two adjacency bonds; that's a
-                    // deliberately-arranged cluster, so paying both is intended).
-                    let left = by_index[i - 1];
-                    let right = by_index[i + 1];
-                    if left == right
-                        && matches!(left, Some(CrabType::Golden) | Some(CrabType::Dancer))
-                        && by_index[i].is_some()
-                    {
-                        sandwiches += 1;
+                f(&by_index)
+            });
+        }
+        BOND_INDEX_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            let needs_rebuild = cache.as_ref().map_or(true, |(cc, _)| *cc != chain_count);
+            if needs_rebuild {
+                // Reuse the Vec already stored in the cache (if any) to avoid a heap allocation on
+                // every catch/release event — grow-only, never shrunk.
+                let mut by_index = cache.take().map(|(_, v)| v).unwrap_or_default();
+                by_index.clear();
+                by_index.resize(chain_count, None);
+                for c in self.crabs.iter().filter(|c| c.caught) {
+                    if let Some(ci) = c.chain_index {
+                        if ci < chain_count {
+                            by_index[ci] = Some(c.crab_type);
+                        }
                     }
                 }
+                *cache = Some((chain_count, by_index));
             }
-            // Deep-run escalator: walk the contiguous same-type runs and pay RUN_STREAK_BONUS for
-            // every crab beyond the third in each run (a run of length L pays L-2 kickers). Same
-            // by_index lookup as bonds/sandwiches — one more linear pass, no extra crab scan.
-            let mut run_bonus_points = 0;
-            // CENTERPIECE: a same-type run of length >= 3 that straddles the train's midpoint pays
-            // a flat bonus once per qualifying run — positional identity for the MIDDLE of the line
-            // (a deep run seated in the protected center beats one dangling at the snappable tail).
-            // The midpoint is a link boundary at keep/2; a run [start..=end] straddles it when it
-            // spans that boundary, i.e. start <= mid-1 and end >= mid (using half-open indices).
-            let mut centerpiece_bonus = 0;
-            let mid = keep / 2;
-            let mut run_len = 0usize; // length of the current same-type run ending at i-1
-            let mut run_start = 0usize; // chain_index where the current run began
-            let close_run = |len: usize, start: usize, end_exclusive: usize| -> usize {
-                // Runs of length >= 3 straddling the midpoint earn the centerpiece kicker.
-                if len >= 3 && start < mid && end_exclusive > mid {
-                    CENTERPIECE_BONUS
-                } else {
-                    0
-                }
-            };
-            for i in 0..keep {
-                let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
-                if extends {
-                    run_len += 1;
-                } else {
-                    // A run just ended (or the chain begins). Score the run we were building, then
-                    // start a fresh one at this link (length 1 if occupied, 0 if a gap).
-                    run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
-                    if run_len > 0 {
-                        centerpiece_bonus += close_run(run_len, run_start, i);
-                    }
-                    run_len = if by_index[i].is_some() { 1 } else { 0 };
-                    run_start = i;
-                }
-            }
-            // Score the final trailing run, which never hit a boundary to close it above.
-            run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
-            if run_len > 0 {
-                centerpiece_bonus += close_run(run_len, run_start, keep);
-            }
-            (bonds, sandwiches, run_bonus_points, centerpiece_bonus)
+            f(&cache.as_ref().unwrap().1[..keep])
         })
+    }
+
+    /// Arithmetic half of count_bonds_and_sandwiches: given the chain_index->type lookup for links
+    /// `0..keep` (keep == by_index.len()), tally (bonds, sandwiches, run_bonus_points,
+    /// centerpiece_bonus). Split out so with_bond_index's cached lookup can feed it directly.
+    fn tally_bond_index(by_index: &[Option<CrabType>]) -> (usize, usize, usize, usize) {
+        let keep = by_index.len();
+        let mut bonds = 0;
+        for i in 1..keep {
+            if by_index[i].is_some() && by_index[i] == by_index[i - 1] {
+                bonds += 1;
+            }
+        }
+        let mut sandwiches = 0;
+        if keep >= 3 {
+            for i in 1..keep - 1 {
+                // Both neighbors must be the SAME figurehead archetype (Golden or Dancer). The
+                // filling itself can be anything — including another figurehead, so a G-G-G run
+                // makes the middle a sandwich too (and still pays its two adjacency bonds; that's a
+                // deliberately-arranged cluster, so paying both is intended).
+                let left = by_index[i - 1];
+                let right = by_index[i + 1];
+                if left == right
+                    && matches!(left, Some(CrabType::Golden) | Some(CrabType::Dancer))
+                    && by_index[i].is_some()
+                {
+                    sandwiches += 1;
+                }
+            }
+        }
+        // Deep-run escalator: walk the contiguous same-type runs and pay RUN_STREAK_BONUS for
+        // every crab beyond the third in each run (a run of length L pays L-2 kickers). Same
+        // by_index lookup as bonds/sandwiches — one more linear pass, no extra crab scan.
+        let mut run_bonus_points = 0;
+        // CENTERPIECE: a same-type run of length >= 3 that straddles the train's midpoint pays
+        // a flat bonus once per qualifying run — positional identity for the MIDDLE of the line
+        // (a deep run seated in the protected center beats one dangling at the snappable tail).
+        // The midpoint is a link boundary at keep/2; a run [start..=end] straddles it when it
+        // spans that boundary, i.e. start <= mid-1 and end >= mid (using half-open indices).
+        let mut centerpiece_bonus = 0;
+        let mid = keep / 2;
+        let mut run_len = 0usize; // length of the current same-type run ending at i-1
+        let mut run_start = 0usize; // chain_index where the current run began
+        let close_run = |len: usize, start: usize, end_exclusive: usize| -> usize {
+            // Runs of length >= 3 straddling the midpoint earn the centerpiece kicker.
+            if len >= 3 && start < mid && end_exclusive > mid {
+                CENTERPIECE_BONUS
+            } else {
+                0
+            }
+        };
+        for i in 0..keep {
+            let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
+            if extends {
+                run_len += 1;
+            } else {
+                // A run just ended (or the chain begins). Score the run we were building, then
+                // start a fresh one at this link (length 1 if occupied, 0 if a gap).
+                run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
+                if run_len > 0 {
+                    centerpiece_bonus += close_run(run_len, run_start, i);
+                }
+                run_len = if by_index[i].is_some() { 1 } else { 0 };
+                run_start = i;
+            }
+        }
+        // Score the final trailing run, which never hit a boundary to close it above.
+        run_bonus_points += run_len.saturating_sub(2) * RUN_STREAK_BONUS;
+        if run_len > 0 {
+            centerpiece_bonus += close_run(run_len, run_start, keep);
+        }
+        (bonds, sandwiches, run_bonus_points, centerpiece_bonus)
     }
 
     /// Which seated chain_index links currently belong to a PAYING centerpiece run, so the live
@@ -1178,26 +1225,18 @@ impl MainState {
         if keep < 3 {
             return;
         }
-        BOND_INDEX_BUF.with(|buf| {
-            let mut by_index = buf.borrow_mut();
-            by_index.clear();
-            by_index.resize(keep, None);
-            for c in self.crabs.iter().filter(|c| c.caught) {
-                if let Some(ci) = c.chain_index {
-                    if ci < keep {
-                        by_index[ci] = Some(c.crab_type);
-                    }
-                }
-            }
+        // Shares BOND_INDEX_CACHE with count_bonds_and_sandwiches — this is the same lookup at the
+        // same `keep` (both called once per draw frame with self.chain_count), so reusing it here
+        // means the chain_index->type build happens at most once per frame instead of twice.
+        self.with_bond_index(keep, |by_index| {
             let mid = keep / 2;
             let mut run_len = 0usize;
             let mut run_start = 0usize;
-            let mut flush =
-                |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
-                    if len >= 3 && start < mid && end_exclusive > mid {
-                        out.extend(start..end_exclusive);
-                    }
-                };
+            let mut flush = |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
+                if len >= 3 && start < mid && end_exclusive > mid {
+                    out.extend(start..end_exclusive);
+                }
+            };
             for i in 0..keep {
                 let extends = i > 0 && by_index[i].is_some() && by_index[i] == by_index[i - 1];
                 if extends {
