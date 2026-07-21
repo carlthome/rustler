@@ -3074,10 +3074,12 @@ impl EventHandler for MainState {
             // Compute scaled range from charge: tap = MIN_RANGE_FRAC × MAX_RANGE, full = MAX_RANGE.
             let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);
             let range_frac = LASSO_MIN_RANGE_FRAC + (1.0 - LASSO_MIN_RANGE_FRAC) * charge_frac;
-            // On-beat release bonus: extra reach + groove reward.
-            let on_beat_bonus = if self.on_beat_now() {
+            // On-beat release bonus: extra reach + groove reward. Uses the wider ranged-cast window
+            // (#164) so a slightly-early/late release still reads on-beat — the lasso is a
+            // cooldown-gated throw, not the tight dash.
+            let on_beat_bonus = if self.on_beat_action() {
                 let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
-                self.reward_on_beat_tool(center, "LASSO");
+                self.reward_on_beat_action(center, "LASSO");
                 LASSO_ONBEAT_BONUS
             } else {
                 1.0

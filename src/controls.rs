@@ -475,7 +475,7 @@ pub fn handle_key_down_event(
                     state.beat_wave_radius = 0.0;
                     let center = state.player_pos
                         + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    state.reward_on_beat_tool(center, "WAVE");
+                    state.reward_on_beat_action(center, "WAVE");
                     // Defensive parry: the Wave is the wide ranged save — an on-beat cast repels a
                     // rival mid-steal from clear across the lane.
                     state.try_defend_steal(center, crate::WAVE_DEFEND_RADIUS, "WAVE");
@@ -491,7 +491,7 @@ pub fn handle_key_down_event(
                     state.whistle_cooldown = state.whistle_cooldown_dur();
                     // On-beat whistle reaches farther and pulls harder this cast.
                     state.whistle_beat_bonus =
-                        state.reward_on_beat_tool(state.whistle_center, "WHISTLE");
+                        state.reward_on_beat_action(state.whistle_center, "WHISTLE");
                     {
                         use ggez::audio::SoundSource;
                         let _ = state.sounds.whistle_sfx.play_detached(ctx);
@@ -517,7 +517,7 @@ pub fn handle_key_down_event(
                     state.screen_shake_vel = ggez::glam::Vec2::new(0.0, 1.0) * 22.0 * 60.0;
                     state.zoom_punch = state.zoom_punch.max(0.08);
                     // On-beat stomp slams wider this cast.
-                    state.stomp_beat_bonus = state.reward_on_beat_tool(center, "STOMP");
+                    state.stomp_beat_bonus = state.reward_on_beat_action(center, "STOMP");
                     // Defensive parry: the Stomp is the up-close bodyguard — an on-beat pound cancels
                     // a rival's armed splice if it's threading your tail right on top of you.
                     state.try_defend_steal(center, crate::STOMP_DEFEND_RADIUS, "STOMP");
