@@ -682,28 +682,47 @@ impl MainState {
             // commits harder, which naturally means a lazy sprawling spiral gets sliced while a tight
             // line trailing straight behind keeps the reachable links bunched at the far tail (small cut).
             const PURSUIT_RANGE: f32 = 550.0;
+            // Opportunism (#160 "smarter, scarier rival AI"): a rival reads when you're exposed and
+            // presses in from farther, like a Rain-World predator that senses weakness. The clearest
+            // "exposed" signal is a LOW GROOVE — you've fallen out of the pocket, off the beat — so
+            // staying on-beat literally keeps the hunters at arm's length and lapsing invites the
+            // steal. That folds the scare back into the rhythm contract (INSPIRATION "steal to win",
+            // "keys as drum pads"): playing the groove well IS the defense. This only ever *extends*
+            // reach and commitment (floored at the on-beat baseline via `exposure >= 0`), so a
+            // grooving player sees exactly today's behavior and an off-beat one gets stalked sooner
+            // and harder — it never makes rivals gentler than before, so the guarded steal playtests
+            // can't regress. It's legible for free: the wider reach trips the existing hunt-intent
+            // telegraph (the marching-dots warning) sooner, so you *see* a rival commit the moment
+            // you slip, in time to tighten your line or reroute.
+            let exposure = (1.0 - self.groove).clamp(0.0, 1.0); // 0 in the pocket, 1 fully off-beat
+            let pursuit_range = PURSUIT_RANGE + exposure * 180.0;
             // Hunt intent smooths toward 1 while this rival is committed to a steal route and back
             // toward 0 otherwise, so the early-warning tell fades in/out instead of popping. Updated
             // every non-idle frame (goal 0 when not hunting) so it always relaxes once the chase ends.
             let hunting = self.chain_count >= 2
-                && dist_to_player < PURSUIT_RANGE
+                && dist_to_player < pursuit_range
                 && self.cached_steal_target_pos.or(self.cached_tail_pos).is_some();
             let hunt_goal = if hunting { 1.0 } else { 0.0 };
             let hunt_rate = if hunting { 1.4 } else { 2.4 };
             self.npc_trains[i].hunt_intent +=
                 (hunt_goal - self.npc_trains[i].hunt_intent) * (hunt_rate * dt).min(1.0);
             if self.chain_count >= 2
-                && dist_to_player < PURSUIT_RANGE
+                && dist_to_player < pursuit_range
                 && self.npc_trains[i].idle_timer <= 0.0
             {
                 // Route toward the back-half thread point when the chain is long enough to have one,
                 // else the tail. Both are cached once per frame in update_crabs — no O(n_crabs) scan.
                 if let Some(steal_pos) = self.cached_steal_target_pos.or(self.cached_tail_pos) {
                     // Base blend ramps as the rival closes in; a longer train adds up to +0.4 commit so
-                    // big trains get pursued with real intent instead of a lazy drift.
+                    // big trains get pursued with real intent instead of a lazy drift. An exposed
+                    // (off-beat, low-groove) player adds up to +0.3 more (opportunism, above): the
+                    // rival commits harder the moment you slip out of the pocket — floored so an
+                    // on-beat player sees exactly the old, gentler pursuit.
                     let length_urge = ((self.chain_count as f32 - 2.0) / 8.0).clamp(0.0, 0.4);
                     let pursuit_blend =
-                        (((PURSUIT_RANGE - dist_to_player) / PURSUIT_RANGE) + length_urge)
+                        (((pursuit_range - dist_to_player) / pursuit_range)
+                            + length_urge
+                            + exposure * 0.3)
                             .clamp(0.0, 1.0);
                     self.npc_trains[i].target = self.npc_trains[i]
                         .target
