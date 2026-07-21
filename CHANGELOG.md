@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.35.0 — 2026-07-21
+
+### Features
+- Enhance NPC King Crab AI with two-phase hunt behavior: stalking → committed intercept
+
 ## v0.34.0 — 2026-07-21
 
 ### Features
