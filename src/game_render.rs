@@ -1330,10 +1330,10 @@ impl MainState {
             self.time_elapsed,
         )?;
 
-        // Show stats. The HUD line (score/train/combo) only changes on catch/combo events, not
-        // every tick, so cache the built Text and only rebuild it (fresh format! String + fresh
-        // Text, which re-triggers glyph shaping) when the underlying values actually differ from
-        // last frame's — same pattern as the per-level label cache above. Also use the
+        // Show stats. The HUD line changes only on score/combo/tempo events, not every tick, so cache
+        // the built Text and only rebuild it (fresh format! String + fresh Text, which re-triggers
+        // glyph shaping) when the underlying values actually differ from last frame's.
+        // Same pattern as the per-level label cache above. Also use the
         // already-maintained self.chain_count instead of re-scanning every crab for `.caught`
         // every frame just to display the same number (crabs are never removed from the vec —
         // caught state only flips via chain_count-tracked catches/snaps — so the two stay in
@@ -1344,33 +1344,40 @@ impl MainState {
         } else {
             0
         };
+        let bpm = if self.beat_interval > 0.0 {
+            (60.0 / self.beat_interval).round() as u32
+        } else {
+            0
+        };
         HUD_TEXT_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
-                Some((s, cl, cc, m, _)) => {
+                Some((s, cl, cc, m, cached_bpm, _)) => {
                     *s != self.score || *cl != chain_len || *cc != self.combo_count || *m != mult
+                        || *cached_bpm != bpm
                 }
                 None => true,
             };
             if needs_rebuild {
                 let hud = if self.combo_count >= 3 {
                     format!(
-                        "Score: {}  |  Train: {}  |  Combo x{}  [{}x pts]",
-                        self.score, chain_len, self.combo_count, mult
+                        "Score: {}  |  {} BPM  |  Train: {}  |  Combo x{}  [{}x pts]",
+                        self.score, bpm, chain_len, self.combo_count, mult
                     )
                 } else {
-                    format!("Score: {}  |  Train: {}", self.score, chain_len)
+                    format!("Score: {}  |  {} BPM  |  Train: {}", self.score, bpm, chain_len)
                 };
                 *cache = Some((
                     self.score,
                     chain_len,
                     self.combo_count,
                     mult,
+                    bpm,
                     Text::new(hud),
                 ));
             }
             canvas.draw(
-                &cache.as_ref().unwrap().4,
+                &cache.as_ref().unwrap().5,
                 DrawParam::default()
                     .dest(Vec2::new(10.0, 10.0))
                     .color(Color::from_rgb(255, 255, 00)),

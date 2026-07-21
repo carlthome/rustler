@@ -9,7 +9,7 @@ thread_local! {
     pub static FRENZY_BANNER_CACHE: RefCell<Option<(Text, Vec2)>> = RefCell::new(None);
     pub static STAGE_BANNER_CACHE: RefCell<Option<(&'static str, Text, Vec2)>> = RefCell::new(None);
 
-    pub static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, Text)>> = RefCell::new(None);
+    pub static HUD_TEXT_CACHE: RefCell<Option<(usize, usize, usize, usize, u32, Text)>> = RefCell::new(None);
 
     pub static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
 
