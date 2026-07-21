@@ -20,6 +20,11 @@ impl MapSize {
             Self::Large => 4.0,
         }
     }
+
+    /// Tutorial maps are deliberately quiet single-screen lessons, without roaming King Crab trains.
+    pub const fn spawns_npc_trains(self) -> bool {
+        !matches!(self, Self::Tutorial)
+    }
 }
 
 /// The completion goal for a campaign level. Each condition tests the mechanic the biome was
@@ -222,7 +227,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "First Landing".to_string(),
             description: "Learn the full catch, train, and bank loop on open sand.".to_string(),
             difficulty: 0,
-            map_size: MapSize::Medium,
+            map_size: MapSize::Tutorial,
             biome: Biome {
                 name: "Sunny Meadow",
                 tint: (255, 248, 214),
@@ -254,7 +259,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Undertow Shuffle".to_string(),
             description: "Route a growing train through dragging tidal pools.".to_string(),
             difficulty: 2,
-            map_size: MapSize::Large,
+            map_size: MapSize::Tutorial,
             biome: Biome {
                 name: "Tide Pools",
                 tint: (150, 215, 255),
@@ -307,7 +312,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Breaker's Passage".to_string(),
             description: "Crack shells while threading the rocky chokepoints.".to_string(),
             difficulty: 3,
-            map_size: MapSize::Large,
+            map_size: MapSize::Tutorial,
             biome: Biome {
                 name: "Rocky Shore",
                 tint: (178, 192, 208),
@@ -360,7 +365,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Kelp After Dark".to_string(),
             description: "Defend a packed conga line on a snagging neon dance floor.".to_string(),
             difficulty: 4,
-            map_size: MapSize::Large,
+            map_size: MapSize::Tutorial,
             biome: Biome {
                 name: "Neon Kelp Forest",
                 tint: (120, 185, 150),
@@ -565,10 +570,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn campaign_maps_grow_after_the_first_level() {
+    fn first_four_campaign_levels_are_quiet_tutorial_maps() {
         let levels = get_levels();
-        assert_eq!(levels[0].map_size, MapSize::Medium);
-        assert!(levels[1..]
+        assert!(levels[..4]
+            .iter()
+            .all(|level| level.map_size == MapSize::Tutorial));
+        assert!(levels[4..]
             .iter()
             .all(|level| level.map_size == MapSize::Large));
     }
@@ -589,6 +596,13 @@ mod tests {
         assert_eq!(MapSize::Tutorial.viewport_multiplier(), 1.0);
         assert_eq!(MapSize::Medium.viewport_multiplier(), 2.0);
         assert_eq!(MapSize::Large.viewport_multiplier(), 4.0);
+    }
+
+    #[test]
+    fn only_tutorial_maps_skip_npc_trains() {
+        assert!(!MapSize::Tutorial.spawns_npc_trains());
+        assert!(MapSize::Medium.spawns_npc_trains());
+        assert!(MapSize::Large.spawns_npc_trains());
     }
 
     #[test]
