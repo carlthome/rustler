@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.40.2 — 2026-07-21
+
+### Performance
+- Cache the Home menu's crab-preview panel and button meshes/text
+
+### Refactoring
+- Extract ggez EventHandler impl from main.rs into event_handler.rs
+
+## v0.40.1 — 2026-07-21
+
+### Performance
+- Cache startup-cinematic Text objects instead of rebuilding every frame
+
+## v0.40.0 — 2026-07-21
+
+### Features
+- Add cinematic startup and main-menu reveal
+- Make PERFECT catch audible with bright sparkle over the catch chime
+- Develop gameplay mechanics for king crab color upgrades
+
+### Audio
+- Tweak the original intro music
+
+### Performance
+- Cache static ground-detail geometry in draw_world_zones
+
+### Refactoring
+- Extract boss-crab movement AI into crab_boss_update.rs
+- Extract world-space crab rendering out of overlays.rs into crab_render.rs
+
 ## v0.39.0 — 2026-07-21
 
 ### Features
