@@ -1059,6 +1059,9 @@ impl MainState {
 
     /// Return to the title menu without terminating the application.
     fn return_to_main_menu(&mut self) {
+        if let Some(map) = &mut self.world_map {
+            map.cancel_skip();
+        }
         self.stop_level_audio();
         self.sounds.world_map_pad.pause();
         self.show_world_map = false;

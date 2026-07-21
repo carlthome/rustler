@@ -320,6 +320,14 @@ pub fn handle_key_down_event(
                     return true;
                 }
                 KeyCode::Escape => {
+                    // If a skip warning is armed, the first Esc just cancels it (back out of the
+                    // skip); otherwise Esc leaves the map back to the menu.
+                    if let Some(map) = &mut state.world_map {
+                        if map.skip_pending() {
+                            map.cancel_skip();
+                            return true;
+                        }
+                    }
                     state.return_to_main_menu();
                     return true;
                 }
