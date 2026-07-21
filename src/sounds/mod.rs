@@ -20,7 +20,8 @@ mod music;
 // Synthesis / SFX voices.
 pub use audio::{
     synth_ambient_pad, synth_coin_chime, synth_flashlight_toggle, synth_hihat, synth_lasso_throw,
-    synth_rival_steal, synth_steal_gain, synth_steal_loss, synth_stomp, synth_whistle, BeatSynth,
+    synth_perfect_sparkle, synth_rival_steal, synth_steal_gain, synth_steal_loss, synth_stomp,
+    synth_whistle, BeatSynth,
     PadPreset, Waveform,
 };
 // Musical structure.
