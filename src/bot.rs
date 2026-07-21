@@ -52,6 +52,10 @@ pub enum BotAction {
     // steal. A no-op when the player has no stealable chain. Deterministic — timing an on-beat tool
     // cast against an RNG-armed steal inside a headless budget isn't reliable, so we stage it.
     ForceStealDefense,
+    // Guards the Wave's proactive crowd-control (fire_wave): deterministically place the nearest
+    // rival beside the player, then cast the Wave and confirm the shove path shoved it. Staged for
+    // the same reason as ForceStealDefense — headless on-beat timing against a live rival is flaky.
+    ForceWaveShove,
     // Guards the movement dodge — the reroute half of the defense (INSPIRATION.md item 2: "an on-beat
     // defensive reroute OR a tool hit"). Arm a rival's splice on a mid-chain link, then teleport its
     // leader clear of that link, so the next update sees the thread broken and fizzles the splice
@@ -69,6 +73,10 @@ pub enum BotAction {
     /// so the natural rival-hunt urge arms the gold "predator closing" telegraph this frame. Guards the
     /// anticipatory tell that lets the player read an impending rival-vs-rival clash (ROADMAP step 3).
     ForceRivalHunt,
+    /// End the current run immediately (sets game_over). Used by the campaign_loss scenario to prove
+    /// that LOSING a campaign level does not complete its world-map node (#182): the win condition,
+    /// not merely finishing, is what unlocks the next level.
+    ForceGameOver,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +104,9 @@ pub enum BotAssert {
     /// Monotonic count of armed rival steals the player has parried this run (see
     /// MainState::steals_parried). Asserts the on-beat defensive counter actually cancelled a steal.
     ParriedAtLeast(usize),
+    /// Monotonic count of rival leaders shoved by the Wave's proactive crowd-control (see
+    /// MainState::rivals_wave_shoved). Asserts the Q shockwave's shove path actually fired.
+    WaveShovedAtLeast(usize),
     /// Monotonic count of armed rival steals the player has dodged this run (see
     /// MainState::steals_dodged). Asserts the movement-reroute defense actually broke a splice.
     DodgedAtLeast(usize),
@@ -116,6 +127,12 @@ pub enum BotAssert {
     /// train visibly committed to a smaller rival, so the player can read the impending clash and swoop.
     RivalHuntTelegraphAtLeast(usize),
     ScoreAtLeast(usize),
+    /// Whether the world-map node AFTER the currently selected one is unlocked. Asserts campaign
+    /// progression gating: after LOSING a campaign level the next node must still be locked
+    /// (`false`), so only meeting the win condition unlocks the next level (#182). (The played node
+    /// itself is already completed here because it was reached via a skip-confirm, so its own flag
+    /// can't distinguish win from loss — the next node's unlock is the observable regression.)
+    SelectedNextUnlocked(bool),
     ShowWorldMap,
     MainMenu,
     TutorialActive,
@@ -318,6 +335,33 @@ pub fn script_campaign_escape() -> Vec<BotEvent> {
     ]
 }
 
+pub fn script_campaign_loss() -> Vec<BotEvent> {
+    // Regression guard for the campaign win-condition gate (#182): LOSING a level must NOT complete
+    // its world-map node — only meeting the WinCondition unlocks the next level. The bug was that
+    // return_to_world_map called complete_selected unconditionally, so dismissing the game-over
+    // screen after a loss still unlocked the next node. Mirror campaign_escape's navigation into the
+    // first regular campaign node (skip-confirm past the tutorials), then force a game over, dismiss
+    // it with Space, and assert we're back on the map with the NEXT node still locked.
+    vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting campaign loss test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.1, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.2, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.3, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.6, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
+        // Lose the run, then dismiss the game-over screen (Space in campaign returns to the map).
+        BotEvent { at: 3.0, action: BotAction::ForceGameOver },
+        BotEvent { at: 3.5, action: BotAction::TapKey(KeyCode::Space) },
+        // Back on the map — and crucially losing did NOT unlock the next level (the win condition,
+        // not merely finishing the run, is what advances the campaign).
+        BotEvent { at: 4.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent { at: 4.0, action: BotAction::Assert(BotAssert::SelectedNextUnlocked(false)) },
+    ]
+}
+
 pub fn script_npc_steal() -> Vec<BotEvent> {
     // Guards the reverse-Snake train-vs-train steal — the core conga-ecology mechanic (see ROADMAP.md
     // headline and INSPIRATION.md "The core steal mechanic"). The steal path (rival NPC King Crab
@@ -414,8 +458,14 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
         script.push(BotEvent { at: t, action: BotAction::ForceStealDefense });
         t += 0.9;
     }
+    // Also exercise the Wave's proactive shove (fire_wave) a few times across the window — each stages
+    // the nearest rival beside the player and casts, so the shove path is regression-covered too.
+    for wt in [20.0_f32, 28.0, 36.0, 44.0] {
+        script.push(BotEvent { at: wt, action: BotAction::ForceWaveShove });
+    }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::WaveShovedAtLeast(1)) });
     script
 }
 

@@ -2,9 +2,9 @@
 //!
 //! Wraps the existing `Level` list as a linear chain of `WorldMapNode`s laid out on a map
 //! canvas. The player navigates with arrow keys, selects a node, and launches it as a campaign
-//! run. Completing a node unlocks the next. Content is intentionally sparse at this stage —
-//! the skeleton is here so future agents can add branches, story beats, and biome art without
-//! rearchitecting anything.
+//! run. Completing a node unlocks the next. The same `Level` metadata also drives arcade title
+//! cards; campaign resets at each selected node, while arcade keeps the train and upgrades alive
+//! as it crosses the same sequence.
 //!
 //! The first four nodes are tutorial sandboxes — the new-player on-ramp lives here, not on a
 //! separate "How to Play" menu screen. Each one teaches one core mechanic, then hands off to
@@ -82,17 +82,13 @@ impl WorldMap {
             (0.78, 0.38),
             (0.90, 0.55),
             (0.84, 0.78),
+            (0.70, 0.22),
+            (0.58, 0.12),
+            (0.45, 0.22),
+            (0.32, 0.14),
             // The Desktop sits off on its own, past the "end" of the map — you shouldn't be here.
             (0.96, 0.30),
         ];
-        let campaign_names: &[&'static str] = &[
-            "Sunny Meadow",
-            "Tide Pools",
-            "Crab Rave",
-            "Neon Kelp",
-            "The Desktop",
-        ];
-
         let levels = get_levels();
         let total = tutorial_nodes.len() + levels.len();
         let mut nodes: Vec<WorldMapNode> = Vec::with_capacity(total);
@@ -107,11 +103,14 @@ impl WorldMap {
             });
         }
 
-        for (i, _level) in levels.iter().enumerate() {
+        for (i, level) in levels.iter().enumerate() {
             let map_i = tutorial_nodes.len() + i;
             nodes.push(WorldMapNode {
                 kind: NodeKind::Level(i),
-                name: campaign_names.get(i).copied().unwrap_or("???"),
+                // The map and in-game title card share the biome's canonical name. The card can
+                // still use the more expressive level title, but the place never changes names
+                // between the two views.
+                name: level.biome.name,
                 position: campaign_positions.get(i).copied().unwrap_or((0.5, 0.5)),
                 completed: false,
                 unlocked: map_i == 0,

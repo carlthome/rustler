@@ -4,8 +4,11 @@ mod bot;
 mod catch_deliver;
 mod catch_effects;
 mod chain_mechanics;
+mod chain_steal;
 mod constants;
 mod controls;
+mod crab_boss_update;
+mod crab_render;
 mod crab_update;
 mod enemies;
 mod floating_text;
@@ -83,7 +86,7 @@ pub(crate) fn how_to_play_body_text() -> String {
         "- Space  Dash: burst to a crab, or shake off a King Crab",
         "- E  Whistle: yank skittish crabs toward you",
         "- R  Stomp: crack armored shells, and guard your tail",
-        "- Q  Wave: ranged parry — knock a rival off mid-steal",
+        "- Q  Wave: on-beat shockwave — shove nearby rivals back to clear space",
         "- F  Flashlight: toggle it on to auto-melt the nearest King Crab catchable",
         "- T  Call: charm nearby Dancer crabs to hop over to you on the beat",
         "- X  Cycle: rotate the train — tuck your best crabs up front",
@@ -1111,9 +1114,10 @@ fn main() -> GameResult {
 
     if let Some(ref name) = bot_script {
         use bot::{
-            BotState, script_campaign_escape, script_campaign_full, script_campaign_tutorial, script_groove_dash,
-            script_menu_to_game, script_npc_steal, script_npc_vs_npc, script_player_steal,
-            script_revenge, script_steal_defense, script_steal_dodge,
+            BotState, script_campaign_escape, script_campaign_full, script_campaign_loss,
+            script_campaign_tutorial, script_groove_dash, script_menu_to_game, script_npc_steal,
+            script_npc_vs_npc, script_player_steal, script_revenge, script_steal_defense,
+            script_steal_dodge,
         };
         // ── Determinism, root-cause fix for playtest flakiness ────────────────────────────────
         // The bot asserts on emergent outcomes ("a revenge steal happened"), which are only a
@@ -1164,14 +1168,21 @@ fn main() -> GameResult {
                 // step small enough that catches register reliably, trading a little wall-clock (still
                 // a parallel matrix leg) for a green that isn't a coin-flip.
                 "steal_defense" | "steal_dodge" | "revenge" => 2.0,
-                "campaign_escape" | "menu_to_game" | "campaign_tutorial" | "campaign_full" | "npc_steal"
-                | "player_steal" | "npc_vs_npc" => 3.0,
+                "campaign_escape"
+                | "campaign_loss"
+                | "menu_to_game"
+                | "campaign_tutorial"
+                | "campaign_full"
+                | "npc_steal"
+                | "player_steal"
+                | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };
         state.bot = Some(match name.as_str() {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
             "campaign_escape" => BotState::new(script_campaign_escape(), 8.0),
+            "campaign_loss" => BotState::new(script_campaign_loss(), 8.0),
             "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
             "campaign_full" => BotState::new(script_campaign_full(), 322.0),
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),

@@ -13,7 +13,63 @@ use rand::Rng;
 
 use crate::*;
 
+pub(crate) fn downbeat_started(beat_count: u32, beat_timer: f32, beat_interval: f32) -> bool {
+    beat_interval > 1e-4
+        && beat_count % 4 == 0
+        && beat_timer <= beat_interval
+        && beat_timer > beat_interval - BEAT_WINDOW
+}
+
+#[cfg(test)]
+mod tests {
+    use super::downbeat_started;
+
+    #[test]
+    fn loop_start_gate_only_opens_after_bar_downbeat() {
+        assert!(downbeat_started(4, 0.49, 0.5));
+        assert!(!downbeat_started(4, 0.01, 0.5));
+        assert!(!downbeat_started(3, 0.49, 0.5));
+        assert!(!downbeat_started(4, 0.51, 0.5));
+    }
+}
+
 impl MainState {
+    /// Advances the master groove from undilated frame time.
+    ///
+    /// Hitstop and cinematic slow-motion freeze the simulation, not the backing track. Keeping
+    /// this clock ahead of those early returns prevents repeated catches and dashes from letting
+    /// the live kick/snare grid fall behind the looping melody.
+    pub(crate) fn update_master_beat(&mut self, ctx: &mut Context, dt: f32) {
+        if self.beat_interval <= 1e-4 {
+            return;
+        }
+
+        let frac = (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
+        let train_fill = (self.chain_count as f32 / 24.0).clamp(0.0, 1.0);
+        let stage_span = (INTENSITY_STAGES.len().saturating_sub(1)).max(1) as f32;
+        let stage_fill = (self.intensity_stage as f32 / stage_span).clamp(0.0, 1.0);
+        let busy = self.chain_count >= 8 || self.intensity_stage >= 1;
+        let base_vol = 0.26 + 0.16 * train_fill + 0.10 * stage_fill;
+        let swing_late = crate::sounds::GROOVE_SWING * 0.125;
+        for local in 1..=3u32 {
+            let onset = local as f32 * 0.25 + if local % 2 == 1 { swing_late } else { 0.0 };
+            let gstep = self.beat_count as i64 * 4 + local as i64;
+            if frac + 1e-6 >= onset && gstep > self.hat_last_step {
+                self.hat_last_step = gstep;
+                if local == 2 {
+                    self.beat_synth.play_hihat(ctx, base_vol);
+                } else if busy {
+                    self.beat_synth.play_hihat(ctx, base_vol * 0.55);
+                }
+            }
+        }
+
+        self.beat_timer -= dt;
+        while self.beat_timer <= 0.0 {
+            self.on_beat(ctx);
+        }
+    }
+
     /// Runs once per beat, immediately after `beat_timer` wraps. `ctx` is needed for the
     /// synthesised percussion voices; all other state lives on `self`.
     pub(crate) fn on_beat(&mut self, ctx: &mut Context) {
@@ -37,8 +93,14 @@ impl MainState {
         // escalates), never per-beat. Null-audio-safe (no-ops on a headless device) and
         // deterministic (stage transitions are), so the bots see byte-identical behaviour.
         if downbeat && self.beat_interval > 1e-4 {
-            let desired_pitch = (BEAT_INTERVAL / self.beat_interval).clamp(0.5, 3.0);
+            let desired_pitch = INTENSITY_STAGES
+                [self.intensity_stage.min(INTENSITY_STAGES.len() - 1)]
+            .3
+            .clamp(0.5, 3.0);
             if (desired_pitch - self.music_pitch).abs() > 1e-3 {
+                let old_interval = self.beat_interval;
+                self.beat_interval = BEAT_INTERVAL / desired_pitch;
+                self.beat_timer *= self.beat_interval / old_interval;
                 self.music_pitch = desired_pitch;
                 self.sounds.action_music.set_pitch(desired_pitch);
                 if self.sounds.action_music.playing() {

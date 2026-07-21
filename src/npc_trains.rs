@@ -804,6 +804,12 @@ impl MainState {
                     self.beat_streak = (self.beat_streak + 1).min(99);
                     self.on_beat_flash = (self.on_beat_flash + 0.5).min(0.9);
                     self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
+                    // Land the win as a drum hit: the rising triumphant "gain" sting (#164 — the
+                    // clash had rich visuals but was silent). A POWER CLASH scatters the King's
+                    // followers and opens a revenge steal-back, so the gain sting fits exactly and
+                    // makes "I won the exchange" read by ear too. No ctx here, so latch the flag —
+                    // the audio pass plays it (same pattern as the steal-back sting above).
+                    self.steal_gain_sfx = true;
                     // The King loses its last 2–3 followers — they scatter as catchable spoils.
                     let npc_lose = 3.min(self.npc_trains[ni].follower_types.len());
                     for k in 0..npc_lose {
@@ -887,6 +893,10 @@ impl MainState {
                     // Groove penalty for a mistimed head-on hit — you should have hit the beat.
                     self.groove = (self.groove - 0.20).max(0.0);
                     self.beat_streak = self.beat_streak.saturating_sub(1);
+                    // Voice the botched ram: the descending "loss" sting — you shed tail crabs on a
+                    // mistimed clash, exactly what that sting already means, so the ear reads the
+                    // mistake as clearly as the eye. Latched for the audio pass (no ctx here).
+                    self.steal_loss_sfx = true;
                     self.floating_texts.spawn(
                         format!("MISTIMED CLASH — {}!", npc_name),
                         player_center - Vec2::new(80.0, 65.0),

@@ -279,7 +279,7 @@ impl MainState {
             return;
         }
         let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-        self.call_cooldown = 1.5;
+        self.call_cooldown = crate::CALL_COOLDOWN;
         if self.on_beat_now() {
             // On beat: the Call lands. Charm every nearby free Dancer so it answers on the next beat.
             const CALL_RADIUS: f32 = 420.0;
@@ -680,8 +680,80 @@ impl MainState {
         self.beat_wave_radius = 0.0;
         let center =
             self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        let on_beat = self.on_beat_action();
         self.reward_on_beat_action(center, "WAVE");
+        // Reactive save (unchanged): a rival mid-splice inside reach gets its steal cancelled and a
+        // counter-steal window opened — the Wave keeps its "get off my tail!" utility, and the steal
+        // playtests drive this helper directly.
         self.try_defend_steal(center, crate::WAVE_DEFEND_RADIUS, "WAVE");
+        // Proactive identity (Q rework): the Wave is a SPACE-CLEARING SHOCKWAVE, not only a parry.
+        // On the beat it shoves EVERY nearby rival leader outward and briefly stuns it, so you can
+        // fire it pre-emptively to break up a crowd or buy room — a distinct job from the Stomp,
+        // which stays the precise up-close parry. Off the beat it only nudges (timing is the skill).
+        self.wave_shove_rivals(center, crate::WAVE_DEFEND_RADIUS, on_beat);
+    }
+
+    /// The Wave's proactive crowd-control: shove every rival King Crab leader within `radius` of
+    /// `center` outward and briefly stun it. On-beat casts hit hard (a real knockback + stun that
+    /// interrupts a committed hunt so the rival has to re-stalk); off-beat casts barely nudge. This
+    /// is what gives Q an identity separate from the Stomp — a readable "get back!" burst you can
+    /// throw before a steal even starts, matching the beat-wave ring the player already sees expand.
+    fn wave_shove_rivals(&mut self, center: Vec2, radius: f32, on_beat: bool) {
+        let margin = 80.0;
+        let mut shoved = 0u32;
+        for i in 0..self.npc_trains.len() {
+            let lead = self.npc_trains[i].leader_pos;
+            let d = lead.distance(center);
+            if d > radius {
+                continue;
+            }
+            let away = {
+                let a = (lead - center).normalize_or_zero();
+                if a == Vec2::ZERO { Vec2::X } else { a }
+            };
+            // Closer rivals get shoved harder; on-beat roughly triples the push.
+            let falloff = 0.5 + 0.5 * (1.0 - d / radius).clamp(0.0, 1.0);
+            let knock = if on_beat { 150.0 } else { 45.0 } * falloff;
+            let mut pushed = lead + away * knock;
+            pushed.x = pushed.x.clamp(margin, self.world_width - margin);
+            pushed.y = pushed.y.clamp(margin, self.world_height - margin);
+            self.npc_trains[i].leader_pos = pushed;
+            self.npc_trains[i].leader_vel = away * (knock * 2.0);
+            let stun = if on_beat { 0.7 } else { 0.3 };
+            self.npc_trains[i].idle_timer = self.npc_trains[i].idle_timer.max(stun);
+            self.npc_trains[i].hunt_committed = false;
+            if self.catch_shockwaves.len() < 48 {
+                self.catch_shockwaves.push((lead, 0.0, [0.4, 0.85, 1.0]));
+            }
+            shoved += 1;
+        }
+        // Monotonic tally so a bot can prove the shove path ran (a rival was in range and pushed).
+        self.rivals_wave_shoved = self.rivals_wave_shoved.saturating_add(shoved as usize);
+        if on_beat {
+            if shoved > 0 {
+                self.zoom_punch = self.zoom_punch.max(0.05);
+                self.screen_shake = self.screen_shake.max(9.0);
+                let msg = if shoved == 1 {
+                    "WAVE! rival shoved back".to_string()
+                } else {
+                    format!("WAVE! {shoved} rivals shoved back")
+                };
+                self.floating_texts.spawn(
+                    msg,
+                    center - Vec2::new(96.0, 40.0),
+                    24.0,
+                    [0.45, 0.9, 1.0, 1.0],
+                );
+            } else {
+                // A dead press explains itself instead of feeling broken.
+                self.floating_texts.spawn(
+                    "WAVE — no rivals in range".to_string(),
+                    center - Vec2::new(88.0, 56.0),
+                    20.0,
+                    [0.6, 0.8, 0.95, 0.85],
+                );
+            }
+        }
     }
 
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
@@ -768,6 +840,9 @@ impl MainState {
                 BotAction::ForceStealDefense => {
                     self.force_steal_defense();
                 }
+                BotAction::ForceWaveShove => {
+                    self.force_wave_shove();
+                }
                 BotAction::ForceStealDodge => {
                     self.force_steal_dodge();
                 }
@@ -776,6 +851,9 @@ impl MainState {
                 }
                 BotAction::ForceRivalHunt => {
                     self.force_rival_hunt();
+                }
+                BotAction::ForceGameOver => {
+                    self.game_over = true;
                 }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
@@ -790,12 +868,18 @@ impl MainState {
                         BotAssert::MaxSingleStealAtMost(n) => self.max_single_steal_by_npc <= *n,
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
                         BotAssert::ParriedAtLeast(n) => self.steals_parried >= *n,
+                        BotAssert::WaveShovedAtLeast(n) => self.rivals_wave_shoved >= *n,
                         BotAssert::DodgedAtLeast(n) => self.steals_dodged >= *n,
                         BotAssert::RevengeStealAtLeast(n) => self.revenge_steals >= *n,
                         BotAssert::RivalStealAtLeast(n) => self.rival_vs_rival_steals >= *n,
                         BotAssert::RivalSpillAtLeast(n) => self.rival_spill_crabs >= *n,
                         BotAssert::RivalHuntTelegraphAtLeast(n) => self.rival_hunt_telegraphs >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
+                        BotAssert::SelectedNextUnlocked(want) => {
+                            self.world_map.as_ref().map_or(false, |m| {
+                                m.nodes.get(m.selected + 1).map_or(false, |n| n.unlocked)
+                            }) == *want
+                        }
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::MainMenu => self.show_instructions && !self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),

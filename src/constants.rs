@@ -23,6 +23,14 @@ pub const LASSO_MIN_RANGE_FRAC: f32 = 0.28; // quick tap reaches 28% of max rang
 pub const LASSO_ONBEAT_BONUS: f32 = 1.35; // 35% extra range+speed when released on-beat
 
 pub const CRAB_SIZE: f32 = 36.0;
+// Draw-time visibility culling margin (world px) around the camera viewport. The world can be up
+// to 4x the viewport per axis (MapSize::Large), so a large fraction of the free-crab herd and any
+// ambient NPC train can sit fully off-screen every frame; skipping their per-crab draw work saves
+// real CPU there. Must stay wider than the largest aura/ring drawn centered on a crab's own
+// position that could otherwise pop in/out at the frame edge — the widest is the Magnet field aura
+// at 240px, so 400px leaves comfortable headroom (shake jitter, LOD hints, etc.) with zero
+// observable change: anything actually visible is always well inside this margin.
+pub const CULL_MARGIN: f32 = 400.0;
 // Universal crab velocity cap — prevents runaway speed from compounding forces (wall
 // bounces, scatter kicks, lasso drag) from producing visually broken teleport-level movement.
 // 600 px/s is well above any intentional top speed (boss charge is 540, scatter kicks ~280–300)
@@ -111,6 +119,7 @@ pub const WHISTLE_COOLDOWN: f32 = 4.5;
 pub const WHISTLE_RING_SPEED: f32 = 1000.0;
 pub const WHISTLE_MAX_RADIUS: f32 = 360.0;
 pub const WHISTLE_PULL_SPEED: f32 = 240.0;
+pub const CALL_COOLDOWN: f32 = 1.5; // Dancer Call (T) recharge — also the roster slot's cooldown max.
 pub const STOMP_COOLDOWN: f32 = 3.0;
 pub const STOMP_RING_SPEED: f32 = 900.0;
 pub const STOMP_MAX_RADIUS: f32 = 155.0;
