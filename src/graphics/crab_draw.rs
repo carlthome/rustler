@@ -144,7 +144,7 @@ fn push_claw(
 // Kept in the signature so call sites don't need to change and so a future direct-draw effect
 // (e.g. a one-off overlay) has it on hand without threading it through again.
 pub fn draw_crab(
-    ctx: &mut Context,
+    _ctx: &mut Context,
     _canvas: &mut Canvas,
     crab: &EnemyCrab,
     draw_pos: Vec2,

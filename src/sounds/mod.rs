@@ -25,7 +25,7 @@ pub use audio::{
 };
 // Musical structure.
 pub use music::{
-    ACTION_KEY_ROOT_MIDI, GROOVE_SWING, biome_rival_motif_tuning, detect_bpm_from_ogg,
+    GROOVE_SWING, biome_rival_motif_tuning, detect_bpm_from_ogg,
     synth_biome_action_groove, synth_intro_menu, synth_theme_deus_ambient, synth_theme_deus_tense,
     synth_theme_duck_bounce, synth_theme_duck_funky, synth_theme_duck_golden,
 };
@@ -39,6 +39,6 @@ pub(crate) use audio::{
 
 // King Crab boss / NPC-train audio lives in its own file but is part of the `sounds` public API.
 pub use crate::king_crab_audio::{
-    synth_king_crab_ambient_spatial, synth_king_crab_rumble, synth_king_crab_spatial,
+    synth_king_crab_ambient_spatial, synth_king_crab_spatial,
     synth_rival_motif,
 };

@@ -154,7 +154,7 @@ impl MainState {
 /// self.crabs`), where a whole-`self` method call wouldn't type-check.
 pub fn play_catch_sound(
     sounds: &mut GameSounds,
-    ctx: &mut Context,
+    _ctx: &mut Context,
     rng: &mut impl rand::Rng,
     beat_streak: u32,
 ) {

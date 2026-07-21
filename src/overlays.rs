@@ -100,7 +100,7 @@ impl MainState {
                 ));
             }
 
-            let (_, _, title, _, _, subtitle, title_w, title_h, sub_h, sub_w, _, threat_opt) =
+            let (_, _, title, _, _, subtitle, title_w, title_h, sub_h, _sub_w, _, threat_opt) =
                 cache.as_ref().unwrap();
 
             // Layout: anchored to lower-left, ~35% up from bottom — Control style
@@ -629,7 +629,7 @@ impl MainState {
                 let hint_w = hint_text.measure(ctx)?.x;
                 // Per-card texts — built explicitly for each of the 3 cards (try_from_fn is not
                 // stable yet on this toolchain) and stored as a fixed-size array.
-                let mut build_card = |i: usize| -> ggez::GameResult<(
+                let build_card = |i: usize| -> ggez::GameResult<(
                     Text,
                     f32,
                     Text,

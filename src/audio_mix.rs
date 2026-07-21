@@ -46,7 +46,7 @@ impl MainState {
 
     /// Spatial King Crab boss rumble + intensity-scaled music layers. Runs once per
     /// frame from `update`, right after boss spawning and before the game-over tally.
-    pub(crate) fn update_boss_and_music_audio(&mut self, ctx: &mut Context, dt: f32) {
+    pub(crate) fn update_boss_and_music_audio(&mut self, _ctx: &mut Context, dt: f32) {
         // Spatial audio for King Crab boss crabs.
         //
         // Three looping stereo sources are blended by boss distance and angle each frame:

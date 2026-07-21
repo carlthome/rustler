@@ -143,7 +143,7 @@ impl MainState {
     /// the threshold by a rising step so later upgrades are rarer and earned. Uses `>=` because
     /// score can overshoot the threshold in one banked jump (combo-multiplier steps). Call this
     /// after any score increase; it's the single knob for upgrade cadence.
-    pub fn check_upgrade_unlock(&mut self, ctx: &mut Context) {
+    pub fn check_upgrade_unlock(&mut self, _ctx: &mut Context) {
         // The upgrade choice is now a LIVE overlay — the world keeps running while the player
         // deliberates — so a big combo can still push the score past the next threshold before they
         // pick. Guard on `!pending_upgrade` so we never re-roll the offer (swapping the cards out

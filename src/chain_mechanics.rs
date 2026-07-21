@@ -686,7 +686,7 @@ impl MainState {
             let mid = keep / 2;
             let mut run_len = 0usize;
             let mut run_start = 0usize;
-            let mut flush =
+            let flush =
                 |len: usize, start: usize, end_exclusive: usize, out: &mut Vec<usize>| {
                     if len >= 3 && start < mid && end_exclusive > mid {
                         out.extend(start..end_exclusive);

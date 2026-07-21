@@ -356,7 +356,7 @@ pub fn draw_combo_meter(
                 let p1 = center + Vec2::new(angle1.cos(), angle1.sin()) * radius;
                 let d = p0.distance(p1);
                 if d > 0.5 {
-                    let rot = ((p1 - p0) / d);
+                    let rot = (p1 - p0) / d;
                     main_params.push(
                         DrawParam::default()
                             .dest(p0)

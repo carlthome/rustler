@@ -305,7 +305,7 @@ impl MainState {
     /// wide radius straight into the conga train at once (a mass catch), pays out a score bonus, and
     /// drains the whole meter. This is the spectacle payoff for playing in the pocket. Off-beat, or
     /// with a meter that isn't topped out, it fizzles with a distinct message so the miss reads.
-    pub(crate) fn downbeat_slam(&mut self, ctx: &mut Context) {
+    pub(crate) fn downbeat_slam(&mut self, _ctx: &mut Context) {
         let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         // Gate 1: needs high groove (75%+) — earnable without farming to 100%.
         if self.groove < 0.75 {

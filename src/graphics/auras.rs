@@ -108,7 +108,7 @@ pub fn draw_hermit_shell(
 /// `crab_color` is [r, g, b] 0..1. `time` is total elapsed seconds. `beat_intensity` 0..1.
 pub fn draw_attracted_crab_glow(
     ctx: &mut Context,
-    canvas: &mut Canvas,
+    _canvas: &mut Canvas,
     pos: Vec2,
     size: f32,
     crab_color: [f32; 3],
@@ -177,7 +177,7 @@ pub fn draw_attracted_crab_glow(
 /// exactly how big the catchment is. `time` is total elapsed seconds.
 pub fn draw_magnet_aura(
     ctx: &mut Context,
-    canvas: &mut Canvas,
+    _canvas: &mut Canvas,
     pos: Vec2,
     size: f32,
     pull_radius: f32,
@@ -280,7 +280,7 @@ pub fn draw_magnet_aura(
 /// progress reads at a glance and the player knows to whistle/stomp it off.
 pub fn draw_thief_aura(
     ctx: &mut Context,
-    canvas: &mut Canvas,
+    _canvas: &mut Canvas,
     pos: Vec2,
     size: f32,
     latched: bool,
@@ -372,7 +372,7 @@ pub fn draw_thief_aura(
 /// via DrawParam) so no fresh GPU buffers are allocated.
 pub fn draw_golden_sparkle(
     ctx: &mut Context,
-    canvas: &mut Canvas,
+    _canvas: &mut Canvas,
     pos: Vec2,
     size: f32,
     time: f32,
@@ -448,7 +448,7 @@ pub fn draw_golden_sparkle(
 /// this doesn't toggle blend mode itself. Reuses cached meshes so no fresh GPU buffers are uploaded.
 pub fn draw_splitter_aura(
     ctx: &mut Context,
-    canvas: &mut Canvas,
+    _canvas: &mut Canvas,
     pos: Vec2,
     size: f32,
     time: f32,

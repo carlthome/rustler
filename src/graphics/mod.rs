@@ -1236,7 +1236,7 @@ pub fn draw_sprint_whoosh(
     let angle = wake.y.atan2(wake.x);
     let perp = Vec2::new(-wake.y, wake.x);
     let alpha = (intensity.clamp(0.0, 1.0) * 90.0) as u8;
-    let col = Color::from_rgba(140, 255, 200, alpha);
+    let _col = Color::from_rgba(140, 255, 200, alpha);
     SPEED_LINE_INSTANCES.with(|cell| -> ggez::GameResult {
         let mut slot = cell.borrow_mut();
         let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
@@ -1748,7 +1748,7 @@ pub fn draw_flashlight(
     cam: Vec2,
 ) -> ggez::GameResult {
     // To position the flashlight in the player sprite hand.
-    let offset = Vec2 { x: -50.0, y: -5.0 };
+    let _offset = Vec2 { x: -50.0, y: -5.0 };
 
     // Flicker logic
     let time = ctx.time.time_since_start().as_secs_f32();

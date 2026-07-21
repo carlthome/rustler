@@ -1119,7 +1119,7 @@ impl BeatSynth {
     /// Play a closed hi-hat at `volume` (0..1). The caller schedules these on the swung 1/16 grid
     /// between the kicks, so the live kit grooves in the pocket instead of clicking straight
     /// quarter-notes. `volume < 0.01` is treated as silent (skipped) so a fully calm kit is free.
-    pub fn play_hihat(&mut self, ctx: &mut Context, volume: f32) {
+    pub fn play_hihat(&mut self, _ctx: &mut Context, volume: f32) {
         use ggez::audio::SoundSource;
         if volume < 0.01 {
             return;
@@ -1140,7 +1140,7 @@ impl BeatSynth {
     }
 
     /// Play a kick for this beat. `downbeat` picks the heavier voice on the "1".
-    pub fn play_kick(&mut self, ctx: &mut Context, downbeat: bool) {
+    pub fn play_kick(&mut self, _ctx: &mut Context, downbeat: bool) {
         use ggez::audio::SoundSource;
         let src = if downbeat {
             &mut self.downbeat_kick
@@ -1152,7 +1152,7 @@ impl BeatSynth {
 
     /// Play the snare if it has audible volume. `beat_index` is the beat position within the bar
     /// (0-based); the snare lands on beats 1 and 3 (the "2" and "4" of the bar in 1-based terms).
-    pub fn play_snare(&mut self, ctx: &mut Context, beat_index: u32) {
+    pub fn play_snare(&mut self, _ctx: &mut Context, beat_index: u32) {
         use ggez::audio::SoundSource;
         // Only fire on the backbeat (beats 2 & 4 in musical 1-based terms).
         if beat_index % 4 != 1 && beat_index % 4 != 3 {
@@ -1179,7 +1179,7 @@ pub fn synth_whistle(ctx: &mut Context) -> GameResult<Source> {
     let start_hz = 900.0_f32; // slide-in from a lower note
 
     let attack = 0.03_f32; // pitch-slide / volume attack
-    let decay = 0.10_f32; // amplitude decay begins here
+    let _decay = 0.10_f32; // amplitude decay begins here
     let vibrato_rate = 6.5_f32;
     let vibrato_depth = 0.012_f32; // fraction of freq
 
