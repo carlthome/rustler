@@ -805,7 +805,9 @@ impl event::EventHandler for AppState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         match self {
             Self::Loading { has_drawn } if *has_drawn => {
-                *self = Self::Warming(MainState::new(ctx)?);
+                *self = Self::Warming(MainState::new_with_progress(ctx, |ctx, progress, label| {
+                    draw_loading_screen(ctx, progress, label)
+                })?);
                 Ok(())
             }
             Self::Loading { has_drawn } => {
