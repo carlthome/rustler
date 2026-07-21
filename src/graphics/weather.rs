@@ -1,4 +1,4 @@
-//! Environment / weather backdrop rendering: the three-zone ground (grass/beach/water),
+//! Environment / weather backdrop rendering: varied biome ground compositions,
 //! grass detail, drifting ambient motes, the day/night sky overlay, the world-edge fade,
 //! rain and its puddle ripples. Extracted from `graphics/mod.rs` to keep that file
 //! navigable — these draw the backdrop behind the crabs and rope and lean on the shared
@@ -27,7 +27,7 @@ thread_local! {
     // single draw call for content that's always on screen. Now it's built once per world size
     // (i.e. once per level load) and just copied into the per-frame buffers below, which then only
     // compute the genuinely time-varying water ripples + foam twinkle fresh each frame.
-    static ZONE_STATIC_CACHE: RefCell<Option<(u32, u32, Vec<DrawParam>, Vec<DrawParam>, Vec<DrawParam>)>> =
+    static ZONE_STATIC_CACHE: RefCell<Option<(u32, u32, u8, Vec<DrawParam>, Vec<DrawParam>, Vec<DrawParam>)>> =
         const { RefCell::new(None) };
 }
 
@@ -42,11 +42,9 @@ fn zone_rand(seed: u32) -> f32 {
     (h & 0x00ff_ffff) as f32 / 0x0100_0000 as f32
 }
 
-/// Draw the three vertical world zones — grass (left), beach (middle), water (right) — with
-/// procedural texture and character: varied greens + mowing stripes + tufts + flowers on grass;
-/// warm sand + pebbles + shells + ripples on the beach; deep water with time-animated ripple
-/// lines, a bright surface strip and foam dots. Zone borders are feathered with blended
-/// transition strips rather than hard vertical seams. `time` drives only the water ripple phase.
+/// Draw a campaign map's terrain composition with procedural texture and character. Each level
+/// chooses a distinct broad layout: meadow, beach, underwater, coastal, or a diagonal river.
+/// `time` drives the water ripple phase.
 ///
 /// All detail batches into three instanced draws (squares, lines, dots) so the density is cheap.
 /// Detail density scales with world area but is kept modest per unit area so the instance counts
@@ -57,31 +55,42 @@ pub fn draw_world_zones(
     world_w: f32,
     world_h: f32,
     time: f32,
+    layout: crate::levels::MapLayout,
 ) -> ggez::GameResult {
     let sq = unit_square(ctx)?.clone();
     let line = unit_line(ctx)?.clone();
     let dot = unit_circle(ctx)?.clone();
-    let third = world_w / 3.0;
-    let g0 = 0.0;
-    let g1 = third; // grass→beach seam
-    let b1 = third * 2.0; // beach→water seam
-
-    let cache_key = (world_w.to_bits(), world_h.to_bits());
+    let (grass_w, beach_w, water_w) = match layout {
+        crate::levels::MapLayout::Meadow | crate::levels::MapLayout::River => (world_w, 0.0, 0.0),
+        crate::levels::MapLayout::Beach => (0.0, world_w, 0.0),
+        crate::levels::MapLayout::Underwater => (0.0, 0.0, world_w),
+        // A narrow, defensible shore rather than the old equal thirds.
+        crate::levels::MapLayout::Coast => (world_w * 0.55, world_w * 0.25, world_w * 0.20),
+    };
+    let beach_x = grass_w;
+    let water_x = grass_w + beach_w;
+    let cache_key = (world_w.to_bits(), world_h.to_bits(), layout as u8);
     ZONE_STATIC_CACHE.with(|cache| -> ggez::GameResult {
         let mut cache = cache.borrow_mut();
-        let stale = !matches!(&*cache, Some((w, h, ..)) if *w == cache_key.0 && *h == cache_key.1);
+        let stale = !matches!(&*cache, Some((w, h, l, ..)) if *w == cache_key.0 && *h == cache_key.1 && *l == cache_key.2);
         if stale {
             let mut squares = Vec::new();
             let mut lines = Vec::new();
             let mut dots = Vec::new();
 
             // ---- Base fills ----
-            squares.push(DrawParam::default().dest([g0, 0.0]).scale(Vec2::new(third, world_h))
-                .color(Color::from_rgb(38, 82, 30)));
-            squares.push(DrawParam::default().dest([g1, 0.0]).scale(Vec2::new(third, world_h))
-                .color(Color::from_rgb(196, 168, 112)));
-            squares.push(DrawParam::default().dest([b1, 0.0]).scale(Vec2::new(third, world_h))
-                .color(Color::from_rgb(18, 66, 108)));
+            if grass_w > 0.0 {
+                squares.push(DrawParam::default().dest([0.0, 0.0]).scale(Vec2::new(grass_w, world_h))
+                    .color(Color::from_rgb(38, 82, 30)));
+            }
+            if beach_w > 0.0 {
+                squares.push(DrawParam::default().dest([beach_x, 0.0]).scale(Vec2::new(beach_w, world_h))
+                    .color(Color::from_rgb(196, 168, 112)));
+            }
+            if water_w > 0.0 {
+                squares.push(DrawParam::default().dest([water_x, 0.0]).scale(Vec2::new(water_w, world_h))
+                    .color(Color::from_rgb(18, 66, 108)));
+            }
 
             // ---- Grass: mowing stripes (broad alternating light/dark bands) ----
             let stripe_h = 90.0_f32.max(world_h / 12.0);
@@ -89,14 +98,14 @@ pub fn draw_world_zones(
             for i in 0..n_stripes {
                 let y = i as f32 * stripe_h;
                 let (c, a) = if i % 2 == 0 { (0.55, 0.06) } else { (0.05, 0.05) };
-                squares.push(DrawParam::default().dest([g0, y])
-                    .scale(Vec2::new(third, stripe_h + 1.0))
+                squares.push(DrawParam::default().dest([0.0, y])
+                    .scale(Vec2::new(grass_w, stripe_h + 1.0))
                     .color(Color::new(c, c + 0.25, c * 0.5, a)));
             }
             // Grass tufts: 2-3 short angled lines each, plus occasional flower dot. Density ~ area.
-            let grass_tufts = ((third * world_h) / 5200.0) as u32;
+            let grass_tufts = ((grass_w * world_h) / 5200.0) as u32;
             for i in 0..grass_tufts {
-                let x = g0 + 6.0 + zone_rand(i * 3 + 1) * (third - 12.0);
+                let x = 6.0 + zone_rand(i * 3 + 1) * (grass_w - 12.0);
                 let y = 6.0 + zone_rand(i * 3 + 2) * (world_h - 12.0);
                 let shade = 0.35 + zone_rand(i * 3 + 3) * 0.4;
                 let col = Color::new(0.20 * shade, 0.55 * shade + 0.1, 0.15 * shade, 0.85);
@@ -118,10 +127,10 @@ pub fn draw_world_zones(
             }
 
             // ---- Beach: pebbles, shells, and sand ripple lines near the water edge ----
-            let pebbles = ((third * world_h) / 6000.0) as u32;
+            let pebbles = ((beach_w * world_h) / 6000.0) as u32;
             for i in 0..pebbles {
                 let seed = i + 5000;
-                let x = g1 + 5.0 + zone_rand(seed * 3 + 1) * (third - 10.0);
+                let x = beach_x + 5.0 + zone_rand(seed * 3 + 1) * (beach_w - 10.0);
                 let y = 5.0 + zone_rand(seed * 3 + 2) * (world_h - 10.0);
                 let r = 1.6 + zone_rand(seed * 3 + 3) * 2.4;
                 let d = 0.4 + zone_rand(seed * 5 + 7) * 0.35; // darker than sand
@@ -129,20 +138,20 @@ pub fn draw_world_zones(
                     .color(Color::new(0.55 * d + 0.2, 0.48 * d + 0.18, 0.38 * d + 0.12, 0.9)));
             }
             // Speckle to break up flat sand
-            let speckle = ((third * world_h) / 3500.0) as u32;
+            let speckle = ((beach_w * world_h) / 3500.0) as u32;
             for i in 0..speckle {
                 let seed = i + 9000;
-                let x = g1 + zone_rand(seed * 3 + 1) * third;
+                let x = beach_x + zone_rand(seed * 3 + 1) * beach_w;
                 let y = zone_rand(seed * 3 + 2) * world_h;
                 let light = zone_rand(seed * 3 + 3) > 0.5;
                 let col = if light { Color::new(1.0, 0.95, 0.8, 0.10) } else { Color::new(0.4, 0.32, 0.2, 0.10) };
                 dots.push(DrawParam::default().dest([x, y]).scale(Vec2::splat(1.1)).color(col));
             }
             // Shells: a tiny ellipse (short wide dot) + a line for the hinge/ridge
-            let shells = ((third * world_h) / 42000.0).max(3.0) as u32;
+            let shells = ((beach_w * world_h) / 42000.0).max(if beach_w > 0.0 { 3.0 } else { 0.0 }) as u32;
             for i in 0..shells {
                 let seed = i + 13000;
-                let x = g1 + 8.0 + zone_rand(seed * 3 + 1) * (third - 16.0);
+                let x = beach_x + 8.0 + zone_rand(seed * 3 + 1) * (beach_w - 16.0);
                 let y = 8.0 + zone_rand(seed * 3 + 2) * (world_h - 16.0);
                 let scol = Color::from_rgb(232, 214, 196);
                 dots.push(DrawParam::default().dest([x, y]).scale(Vec2::new(4.2, 2.6)).color(scol));
@@ -151,27 +160,29 @@ pub fn draw_world_zones(
                     .scale(Vec2::new(8.0, 0.8)).color(Color::from_rgb(200, 180, 160)));
             }
             // Damp sand ripple lines hugging the water edge (right portion of the beach band)
-            let ripple_x0 = b1 - third * 0.4;
-            for i in 0..14u32 {
+            let ripple_x0 = water_x - beach_w * 0.4;
+            for i in 0..if beach_w > 0.0 { 14 } else { 0 } {
                 let y = zone_rand(i + 21000) * world_h;
                 let wob = (zone_rand(i + 22000) - 0.5) * 8.0;
                 lines.push(DrawParam::default().dest([ripple_x0, y + wob])
-                    .scale(Vec2::new(third * 0.4, 1.4))
+                    .scale(Vec2::new(beach_w * 0.4, 1.4))
                     .color(Color::new(0.55, 0.45, 0.32, 0.18)));
             }
 
             // ---- Water: bright surface strip (static; ripples/foam are computed fresh below) ----
             // Lighter highlight near the beach edge (the "surface" nearest land).
-            squares.push(DrawParam::default().dest([b1, 0.0]).scale(Vec2::new(third * 0.18, world_h))
-                .color(Color::new(0.55, 0.8, 0.95, 0.22)));
+            if water_w > 0.0 {
+                squares.push(DrawParam::default().dest([water_x, 0.0]).scale(Vec2::new(water_w * 0.18, world_h))
+                    .color(Color::new(0.55, 0.8, 0.95, 0.22)));
+            }
 
             // ---- Feathered zone transitions (soft blended edges, not hard seams) ----
             let blend = (world_w * 0.02).clamp(18.0, 30.0);
             let steps = 10u32;
             // grass→beach: interpolate green→tan across the seam
-            for s in 0..steps {
+            for s in 0..if grass_w > 0.0 && beach_w > 0.0 { steps } else { 0 } {
                 let f = s as f32 / steps as f32;
-                let x = g1 - blend + f * (blend * 2.0);
+                let x = beach_x - blend + f * (blend * 2.0);
                 let seg = blend * 2.0 / steps as f32 + 1.0;
                 // fade from grass color to sand across the strip, low alpha so both show through
                 let (r, g, b) = (0.15 + f * 0.62, 0.32 + f * 0.34, 0.12 + f * 0.32);
@@ -179,18 +190,29 @@ pub fn draw_world_zones(
                     .color(Color::new(r, g, b, 0.30)));
             }
             // beach→water: interpolate tan→blue, and a hint of wet-sand darkening
-            for s in 0..steps {
+            for s in 0..if beach_w > 0.0 && water_w > 0.0 { steps } else { 0 } {
                 let f = s as f32 / steps as f32;
-                let x = b1 - blend + f * (blend * 2.0);
+                let x = water_x - blend + f * (blend * 2.0);
                 let seg = blend * 2.0 / steps as f32 + 1.0;
                 let (r, g, b) = (0.62 - f * 0.5, 0.55 - f * 0.28, 0.36 + f * 0.12);
                 squares.push(DrawParam::default().dest([x, 0.0]).scale(Vec2::new(seg, world_h))
                     .color(Color::new(r, g, b, 0.32)));
             }
 
-            *cache = Some((cache_key.0, cache_key.1, squares, lines, dots));
+            // A diagonal river turns the kelp maps into a crossing problem instead of another
+            // shoreline. It remains visual-only; the biome's patch mechanics handle the routing.
+            if layout == crate::levels::MapLayout::River {
+                squares.push(
+                    DrawParam::default()
+                        .dest(Vec2::new(world_w * 0.08, -world_h * 0.14))
+                        .rotation(0.48)
+                        .scale(Vec2::new(world_w * 0.22, world_h * 1.42))
+                        .color(Color::from_rgb(20, 79, 120)),
+                );
+            }
+            *cache = Some((cache_key.0, cache_key.1, cache_key.2, squares, lines, dots));
         }
-        let (_, _, static_squares, static_lines, static_dots) = cache.as_ref().unwrap();
+        let (_, _, _, static_squares, static_lines, static_dots) = cache.as_ref().unwrap();
 
         ZONE_SQ_BUF.with(|sqb| {
         ZONE_LINE_BUF.with(|lb| {
@@ -208,22 +230,22 @@ pub fn draw_world_zones(
             // ---- Water: animated ripples + foam — the only parts that actually depend on `time`,
             // so these (and only these) are computed fresh every frame. ----
             // Animated horizontal ripple lines that drift with time via sin(time + offset).
-            let ripples = (world_h / 34.0) as u32;
+            let ripples = if water_w > 0.0 { (world_h / 34.0) as u32 } else { 0 };
             for i in 0..ripples {
                 let base_y = i as f32 * 34.0 + 8.0;
                 let off = zone_rand(i + 30000) * 6.28;
                 let sway = (time * 0.8 + off).sin() * 5.0;
                 let a = 0.10 + ((time * 0.6 + off).sin() * 0.5 + 0.5) * 0.10;
-                let inset = 6.0 + (off.sin() * 0.5 + 0.5) * (third * 0.25);
-                lines.push(DrawParam::default().dest([b1 + inset, base_y + sway])
-                    .scale(Vec2::new(third - inset - 6.0, 1.5))
+                let inset = 6.0 + (off.sin() * 0.5 + 0.5) * (water_w * 0.25);
+                lines.push(DrawParam::default().dest([water_x + inset, base_y + sway])
+                    .scale(Vec2::new(water_w - inset - 6.0, 1.5))
                     .color(Color::new(0.5, 0.75, 0.95, a)));
             }
             // Foam dots: small white flecks, gently twinkling with time.
-            let foam = ((third * world_h) / 9000.0) as u32;
+            let foam = ((water_w * world_h) / 9000.0) as u32;
             for i in 0..foam {
                 let seed = i + 40000;
-                let x = b1 + 4.0 + zone_rand(seed * 3 + 1) * (third - 8.0);
+                let x = water_x + 4.0 + zone_rand(seed * 3 + 1) * (water_w - 8.0);
                 let y = 4.0 + zone_rand(seed * 3 + 2) * (world_h - 8.0);
                 let tw = (time * 1.3 + zone_rand(seed * 3 + 3) * 6.28).sin() * 0.5 + 0.5;
                 dots.push(DrawParam::default().dest([x, y]).scale(Vec2::splat(1.3 + tw * 0.8))
