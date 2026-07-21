@@ -142,7 +142,9 @@ pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
     let dt = 1.0 / SAMPLE_RATE as f32;
     let mut left = vec![0.0_f32; n];
     let mut right = vec![0.0_f32; n];
+    // A minor colour: A3, C4, E4, then D4 as a gentle unresolved turn.
     let notes = [220.0_f32, 261.63, 329.63, 293.66];
+    // Fixed non-zero seed keeps the shoreline texture deterministic across launches.
     let mut noise_state = 0x51EA_BEEFu32;
     let mut wind_l = 0.0_f32;
     let mut wind_r = 0.0_f32;
@@ -180,6 +182,7 @@ pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
 
     // A quiet cross-channel reflection supplies natural distance and prevents the dry motif from
     // sitting directly between the speakers.
+    // A short cross-channel reflection suggests a distant beach wall without an obvious echo.
     let delay = (0.19 * SAMPLE_RATE as f32) as usize;
     for i in delay..n {
         left[i] += right[i - delay] * 0.12;
