@@ -10,6 +10,7 @@ mod crab_update;
 mod enemies;
 mod floating_text;
 mod game_render;
+mod game_render_hud;
 mod game_update;
 mod graphics;
 mod hud_cache;
