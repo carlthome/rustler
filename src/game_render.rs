@@ -48,24 +48,109 @@ impl MainState {
         height: f32,
     ) -> GameResult {
         if self.show_how_to_play_text {
+            // Moonlit-beach backdrop — the same night mood as the main menu, so the two screens
+            // read as one place instead of the flat green clear behind this page. Draw-only: a
+            // vertical gradient, a scatter of twinkling stars, a soft moon, and a translucent panel
+            // behind the text so the words stay crisp over the gradient.
+            let t = self.menu_time;
+            let strips = 28;
+            let top = Color::from_rgb(9, 12, 34);
+            let mid = Color::from_rgb(48, 26, 66);
+            let sand = Color::from_rgb(74, 58, 78);
+            let lerp = |a: Color, b: Color, k: f32| {
+                Color::new(
+                    a.r + (b.r - a.r) * k,
+                    a.g + (b.g - a.g) * k,
+                    a.b + (b.b - a.b) * k,
+                    1.0,
+                )
+            };
+            let strip_h = height / strips as f32;
+            let sq = unit_square(ctx)?;
+            for i in 0..strips {
+                let k = i as f32 / (strips - 1) as f32;
+                let c = if k < 0.65 {
+                    lerp(top, mid, k / 0.65)
+                } else {
+                    lerp(mid, sand, (k - 0.65) / 0.35)
+                };
+                canvas.draw(
+                    sq,
+                    DrawParam::default()
+                        .dest(Vec2::new(0.0, i as f32 * strip_h))
+                        .scale(Vec2::new(width, strip_h + 1.0))
+                        .color(c),
+                );
+            }
+            let dot = unit_circle(ctx)?;
+            let hash = |n: u32| {
+                let mut x = n.wrapping_mul(2654435761);
+                x ^= x >> 15;
+                x = x.wrapping_mul(2246822519);
+                x ^= x >> 13;
+                x
+            };
+            for i in 0..60u32 {
+                let sx = (hash(i) % 1000) as f32 / 1000.0 * width;
+                let sy = (hash(i * 7 + 1) % 1000) as f32 / 1000.0 * height * 0.55;
+                let phase = (hash(i * 13 + 3) % 628) as f32 / 100.0;
+                let speed = 1.2 + (hash(i * 17 + 5) % 200) as f32 / 100.0;
+                let twinkle = 0.25 + 0.75 * (t * speed + phase).sin().abs();
+                let r = 0.7 + (hash(i * 19 + 7) % 100) as f32 / 100.0 * 1.6;
+                canvas.draw(
+                    dot,
+                    DrawParam::default()
+                        .dest(Vec2::new(sx, sy))
+                        .scale(Vec2::splat(r))
+                        .color(Color::new(1.0, 1.0, 0.92, twinkle)),
+                );
+            }
+            let moon = Vec2::new(width * 0.84, height * 0.18);
+            for ring in (0..6).rev() {
+                let rr = 30.0 + ring as f32 * 14.0;
+                let a = 0.05 + (5 - ring) as f32 * 0.03;
+                canvas.draw(
+                    dot,
+                    DrawParam::default()
+                        .dest(moon)
+                        .scale(Vec2::splat(rr))
+                        .color(Color::new(0.95, 0.93, 0.8, a)),
+                );
+            }
+            canvas.draw(
+                dot,
+                DrawParam::default()
+                    .dest(moon)
+                    .scale(Vec2::splat(26.0))
+                    .color(Color::new(0.98, 0.96, 0.86, 1.0)),
+            );
+            // Translucent panel behind the text so it reads cleanly over the gradient.
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(width * 0.08, height * 0.2))
+                    .scale(Vec2::new(width * 0.84, height * 0.66))
+                    .color(Color::from_rgba(10, 14, 30, 170)),
+            );
+
             let mut title = Text::new("HOW TO PLAY");
             title.set_scale(56.0);
             let title_w = title.measure(ctx)?.x;
             canvas.draw(
                 &title,
                 DrawParam::default()
-                    .dest(Vec2::new((width - title_w) * 0.5, height * 0.12))
-                    .color(Color::from_rgb(235, 235, 220)),
+                    .dest(Vec2::new((width - title_w) * 0.5, height * 0.1))
+                    .color(Color::from_rgb(245, 238, 210)),
             );
 
             let body = how_to_play_body_text();
             let mut text = Text::new(body);
-            text.set_scale(28.0);
+            text.set_scale(27.0);
             canvas.draw(
                 &text,
                 DrawParam::default()
-                    .dest(Vec2::new(width * 0.16, height * 0.27))
-                    .color(Color::from_rgb(215, 215, 215)),
+                    .dest(Vec2::new(width * 0.13, height * 0.23))
+                    .color(Color::from_rgb(226, 226, 226)),
             );
             return Ok(());
         }

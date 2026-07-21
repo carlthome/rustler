@@ -535,14 +535,16 @@ pub fn handle_key_down_event(
                 // Stomp: cracks armored shells / up-close parry. Same cast as the SPACE+R chord.
                 state.fire_stomp();
             }
-            if key == KeyCode::KeyF {
-                // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.
+            if key == KeyCode::KeyT {
+                // Call (T): a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward
+                // you. Lives on T because F is the flashlight toggle (handled in main.rs, which
+                // returns before this runs) — so this was previously dead-keyed on F and unreachable.
                 state.issue_call();
             }
             if key == KeyCode::KeyX {
-                // Cycle: the reposition verb. On the beat: aim at an interior link to BUBBLE that
-                // crab one slot toward the centre (build a centerpiece on purpose); aim at nothing
-                // to rotate the whole train one slot and arrange the coveted head/tail ends.
+                // Cycle: the reposition verb. On the beat it rotates the whole train one slot,
+                // arranging the coveted head/tail ends (mouse-free; the old interior-bubble mode was
+                // removed with the mouse dependency).
                 state.cycle_train();
             }
             if key == KeyCode::KeyV {

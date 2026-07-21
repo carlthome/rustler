@@ -72,25 +72,24 @@ pub(crate) fn sanitize_player_name(name: &str) -> String {
 /// Returns the instructions shown on the "How to Play" menu card.
 pub(crate) fn how_to_play_body_text() -> String {
     [
-        "1. Move with WASD or arrow keys (hold Shift to sprint).",
-        "2. Keep crabs inside your flashlight beam.",
-        "3. Catch crabs on the beat for better rewards.",
-        "4. Bring caught crabs to the pen to bank points.",
-        "5. Avoid losing your train before banking.",
-        "6. Tip: tap Space on the beat. Hold a tool (E/R/Q) + tap Space",
-        "   to flavor that beat-tap with a tool instead of a dash.",
+        "Gather wild crabs into a conga train, then bank it at the pen.",
+        "Everything you do pays more ON THE BEAT.",
+        "Move with WASD / arrows  ·  hold Shift to sprint.",
+        "Tap Space on the beat to Dash — or hold a tool (E/R/Q) and tap",
+        "Space to 'chord' that tool onto the beat instead of dashing.",
         "",
-        "Controls:",
-        "- Left click hold/release: lasso",
-        "- Space: dash (beat-tap) — hold E/R/Q + Space to chord a tool",
-        "- Q: wave",
-        "- E: whistle",
-        "- R: stomp",
-        "- F: call",
-        "- X: cycle",
-        "- V: groove call",
-        "- G: downbeat slam",
-        "- B: bank (+ jam)",
+        "Your tools — each is for a different job:",
+        "- Space  Dash: burst to a crab, or shake off a King Crab",
+        "- E  Whistle: yank skittish crabs toward you",
+        "- R  Stomp: crack armored shells, and guard your tail",
+        "- Q  Wave: ranged parry — knock a rival off mid-steal",
+        "- F  Flashlight: toggle it on to auto-melt the nearest King Crab catchable",
+        "- T  Call: charm nearby Dancer crabs to hop over to you on the beat",
+        "- X  Cycle: rotate the train — tuck your best crabs up front",
+        "- V  Groove Call: lure the whole field in over a few bars",
+        "- G  Slam: full-groove finisher — mass-catch everything near",
+        "- B  Bank: lock in your gamble streak (and jam!)",
+        "- Mouse (hold / release): lasso a cluster and reel it in",
         "",
         "Press Enter, Space, or Esc to go back.",
     ]
@@ -1606,21 +1605,24 @@ mod how_to_play_tests {
         let text = how_to_play_body_text();
         for expected in [
             "Shift",
-            "Space: dash",
-            "Q: wave",
-            "E: whistle",
-            "R: stomp",
-            "F: call",
-            "X: cycle",
-            "V: groove call",
-            "G: downbeat slam",
-            "B: bank",
+            "Space  Dash",
+            "Q  Wave",
+            "E  Whistle",
+            "R  Stomp",
+            "F  Flashlight",
+            "T  Call",
+            "X  Cycle",
+            "V  Groove Call",
+            "G  Slam",
+            "B  Bank",
         ] {
             assert!(
                 text.contains(expected),
                 "missing expected control text: {expected}"
             );
         }
+        // F is the flashlight toggle, not Call — the Call summon now lives on T.
+        assert!(!text.contains("F  Call"));
         assert!(!text.contains("Z: whistle"));
         assert!(!text.contains("C: cycle"));
     }
