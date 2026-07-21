@@ -110,7 +110,7 @@ use ggez::conf::{FullscreenType, WindowMode};
 use ggez::event::{self, EventHandler};
 use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
-use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Sampler};
+use ggez::graphics::{BlendMode, Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Sampler, Text};
 use ggez::input::keyboard::{KeyCode, KeyInput};
 use ggez::winit::keyboard::PhysicalKey;
 use ggez::input::mouse::MouseButton;
@@ -1059,6 +1059,85 @@ impl EventHandler for MainState {
     }
 }
 
+enum AppState {
+    Loading { has_drawn: bool },
+    Ready(MainState),
+}
+
+impl EventHandler for AppState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
+        match self {
+            Self::Loading { has_drawn } if *has_drawn => {
+                *self = Self::Ready(MainState::new(ctx)?);
+                Ok(())
+            }
+            Self::Loading { has_drawn } => {
+                *has_drawn = true;
+                Ok(())
+            }
+            Self::Ready(state) => state.update(ctx),
+        }
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        match self {
+            Self::Loading { .. } => draw_loading_screen(ctx, 0.20, "LOADING THE RAVE..."),
+            Self::Ready(state) => state.draw(ctx),
+        }
+    }
+
+    fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, repeat: bool) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.key_down_event(ctx, input, repeat)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_motion_event(
+        &mut self,
+        ctx: &mut Context,
+        x: f32,
+        y: f32,
+        xrel: f32,
+        yrel: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_motion_event(ctx, x, y, xrel, yrel)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_button_down_event(
+        &mut self,
+        ctx: &mut Context,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_button_down_event(ctx, button, x, y)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_button_up_event(
+        &mut self,
+        ctx: &mut Context,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_button_up_event(ctx, button, x, y)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn main() -> GameResult {
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
@@ -1110,9 +1189,16 @@ fn main() -> GameResult {
         let logical_h = (size.height as f64 / scale) as f32;
         let _ = ctx.gfx.window().request_inner_size(LogicalSize::new(logical_w, logical_h));
     }
-    let mut state = MainState::new(&mut ctx)?;
+    let mut app = if bot_script.is_some() {
+        AppState::Ready(MainState::new(&mut ctx)?)
+    } else {
+        AppState::Loading { has_drawn: false }
+    };
 
     if let Some(ref name) = bot_script {
+        let AppState::Ready(state) = &mut app else {
+            unreachable!("bot startup always initializes the game state");
+        };
         use bot::{
             BotState, script_campaign_escape, script_campaign_full, script_campaign_loss,
             script_campaign_tutorial, script_groove_dash, script_menu_to_game, script_npc_steal,
@@ -1199,7 +1285,65 @@ fn main() -> GameResult {
         });
     }
 
-    event::run(ctx, event_loop, state)
+    event::run(ctx, event_loop, app)
+}
+
+pub(crate) fn draw_loading_screen(
+    ctx: &mut Context,
+    progress: f32,
+    label: &str,
+) -> GameResult {
+    let (width, height) = ctx.gfx.drawable_size();
+    let bar_width = 400.0;
+    let block_width = 16.0;
+    let block_gap = 4.0;
+    let block_count = 20;
+    let bar_x = (width - bar_width) * 0.5;
+    let bar_y = height * 0.5;
+    let filled_blocks = (progress.clamp(0.0, 1.0) * block_count as f32).ceil() as usize;
+    let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(10, 14, 31));
+
+    let border = Mesh::new_rectangle(
+        ctx,
+        DrawMode::stroke(3.0),
+        Rect::new(bar_x - 10.0, bar_y - 10.0, bar_width + 20.0, 40.0),
+        Color::from_rgb(250, 214, 104),
+    )?;
+    canvas.draw(&border, DrawParam::default());
+
+    for block in 0..block_count {
+        let color = if block < filled_blocks {
+            Color::from_rgb(90, 228, 142)
+        } else {
+            Color::from_rgb(38, 54, 83)
+        };
+        let x = bar_x + block as f32 * (block_width + block_gap);
+        let segment = Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(x, bar_y, block_width, 20.0),
+            color,
+        )?;
+        canvas.draw(&segment, DrawParam::default());
+    }
+
+    let mut title = Text::new("CRAB RUSTLER");
+    title.set_scale(32.0);
+    canvas.draw(
+        &title,
+        DrawParam::default()
+            .dest(Vec2::new(width * 0.5 - 124.0, bar_y - 82.0))
+            .color(Color::from_rgb(250, 214, 104)),
+    );
+    let mut status = Text::new(label);
+    status.set_scale(16.0);
+    canvas.draw(
+        &status,
+        DrawParam::default()
+            .dest(Vec2::new(width * 0.5 - 112.0, bar_y + 50.0))
+            .color(Color::from_rgb(177, 207, 231)),
+    );
+    canvas.finish(ctx)
 }
 
 #[cfg(test)]
