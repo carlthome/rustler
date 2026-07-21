@@ -30,6 +30,16 @@ impl MainState {
     pub(crate) fn on_beat_now(&self) -> bool {
         self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW
     }
+    /// The on-beat window for the *proactive ranged tool casts* (whistle/stomp/beat-wave/lasso) — a
+    /// touch wider than `on_beat_now` (see `ACTION_BEAT_WINDOW`). Those verbs are cooldown-gated, so
+    /// you fire them far less often than the dash and a missed on-beat cast stings more; #164 flagged
+    /// that as feeling unforgiving. This softens their on-beat read without touching the dash or the
+    /// catch, both of which keep the tight `BEAT_WINDOW`. Keep this the single source of truth for
+    /// "a ranged tool cast counts as on-beat now".
+    pub(crate) fn on_beat_action(&self) -> bool {
+        self.beat_timer < ACTION_BEAT_WINDOW
+            || self.beat_timer > self.beat_interval - ACTION_BEAT_WINDOW
+    }
     /// The defensive-parry on-beat window: a touch wider than `on_beat_now` (see `DEFEND_BEAT_WINDOW`).
     /// The parry is the one reactive on-beat verb — you're reading a rival's steal telegraph AND the
     /// beat simultaneously — so it gets more forgiveness than the proactive verbs (dash/whistle/stomp
@@ -141,11 +151,25 @@ impl MainState {
         }
         parried
     }
-    /// A tool was fired on the beat: bank a "PERFECT!" flash, feed the groove meter, and punch up
-    /// the juice (extra beat flash + a hair of zoom). Returns the on-beat multiplier the caller can
-    /// apply to the tool's effect (radius/duration), so an on-beat cast simply hits harder.
+    /// A tool was fired on the beat (tight `BEAT_WINDOW`): bank a "PERFECT!" flash, feed the groove
+    /// meter, and punch up the juice. Returns the on-beat multiplier the caller can apply to the
+    /// tool's effect (radius/duration), so an on-beat cast simply hits harder. This is the DASH's
+    /// path — kept on the tight window so its feel is untouched (Carl, #164). Cooldown-gated ranged
+    /// casts use `reward_on_beat_action` (wider window) instead.
     pub(crate) fn reward_on_beat_tool(&mut self, at: Vec2, label: &str) -> f32 {
-        if self.on_beat_now() {
+        self.reward_on_beat_windowed(at, label, self.on_beat_now())
+    }
+    /// Like `reward_on_beat_tool` but keyed off the wider `on_beat_action` window — for the
+    /// cooldown-gated ranged tool casts (whistle/stomp/beat-wave/lasso) that #164 flagged as feeling
+    /// too unforgiving. Same reward/juice; only the on-beat window differs. The dash deliberately does
+    /// NOT use this (it stays on the tight `reward_on_beat_tool`).
+    pub(crate) fn reward_on_beat_action(&mut self, at: Vec2, label: &str) -> f32 {
+        self.reward_on_beat_windowed(at, label, self.on_beat_action())
+    }
+    /// Shared body for the two on-beat tool rewards above — the `on_beat` gate is decided by the
+    /// caller (tight `BEAT_WINDOW` for the dash, wider `ACTION_BEAT_WINDOW` for ranged casts).
+    fn reward_on_beat_windowed(&mut self, at: Vec2, label: &str, on_beat: bool) -> f32 {
+        if on_beat {
             self.groove = (self.groove + 0.14).min(1.0);
             self.on_beat_flash = (self.on_beat_flash + 0.35).min(0.7);
             self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);

@@ -45,6 +45,15 @@ pub const PERFECT_WINDOW: f32 = 0.032; // seconds around a beat that count as a 
 // (Carl's feedback: on-beat defense felt too unforgiving) without trivializing it — the window is
 // still short enough that a clean on-beat read pays and a lazy mash misses.
 pub const DEFEND_BEAT_WINDOW: f32 = 0.12;
+// On-beat window for the *proactive ranged tool casts* — whistle / stomp / beat-wave / lasso. These
+// are cooldown-gated verbs you fire far less often than you dash, so a missed on-beat cast stings
+// more and reads as "the timing is unforgiving" (Carl's #164 feedback). They earn a touch more
+// forgiveness than the tight BEAT_WINDOW the dash and catch keep — enough that a slightly-early/late
+// cast still reads on-beat — without trivializing it: still short of the reactive DEFEND window, and
+// the PERFECT catch sub-window stays tight so precision still pays. The forgiveness ladder is
+// PERFECT(0.032) < dash/catch BEAT_WINDOW(0.08) < ranged tools(0.11) < reactive parry DEFEND(0.12).
+// The dash deliberately keeps the tight BEAT_WINDOW (Carl: "the dash feels good — do NOT touch it").
+pub const ACTION_BEAT_WINDOW: f32 = 0.11;
 
 pub const DRUM_ROLL_MAX: u32 = 4;
 
