@@ -255,7 +255,9 @@ pub(crate) fn clash_taunt(
             RivalPersonality::Silly => SILLY,
         }
     };
-    pool.choose(rng).copied().unwrap_or("Mind the beat!")
+    pool.choose(rng)
+        .copied()
+        .expect("rival taunt pools must not be empty")
 }
 
 #[cfg(test)]
