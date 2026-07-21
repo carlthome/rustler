@@ -62,6 +62,7 @@ fn make_crab(
         // Hermit visibly restless without teleporting so fast it's impossible to line up a crack.
         host_swap_timer: rng.random_range(1.6..3.2),
         surge_timer: 0.0,
+        entranced: 0.0,
     }
 }
 
@@ -111,6 +112,7 @@ pub fn spawn_stolen_crab(
         slingshot_spent: 0.0,
         host_swap_timer: 0.0,
         surge_timer: 0.0,
+        entranced: 0.0,
     }
 }
 
@@ -160,6 +162,7 @@ pub fn spawn_scattered_crab(
         slingshot_spent: 0.0,
         host_swap_timer: 0.0,
         surge_timer: 0.0,
+        entranced: 0.0,
     }
 }
 
@@ -225,6 +228,52 @@ pub fn spawn_rhythm_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) 
     boss.scale = rng.random_range(CrabType::RhythmBoss.scale_range());
     boss.boss_health = max_health;
     boss.boss_max_health = max_health;
+    boss
+}
+
+/// Spawn a rare "Hermit King" boss — the Hermit archetype crowned. It drags a stack of
+/// `HERMIT_KING_SHELLS` shell houses (stored in `boss_health`) that the beam can't touch at all:
+/// only Stomps crack it, one layer per pound. After 2 cracks it turns Rattled (fast erratic darts,
+/// only ON-BEAT stomps land); after 4 it Panics and flees for the world edge — escape and it drags
+/// a fresh shell back in (shell resets). The final crack exposes it, catchable like any drained boss.
+pub fn spawn_hermit_king(area: (f32, f32), rng: &mut impl Rng, shells: f32) -> EnemyCrab {
+    let (width, height) = area;
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let radius = width.min(height) * 0.42;
+    let center = Vec2::new(width * 0.5, height * 0.5);
+    let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+    let vel = (center - pos).normalize_or_zero();
+    let mut boss = make_crab(pos, vel, 0.0, None, rng);
+    boss.crab_type = CrabType::HermitKing;
+    boss.speed = rng.random_range(CrabType::HermitKing.speed_range());
+    boss.scale = rng.random_range(CrabType::HermitKing.scale_range());
+    boss.boss_health = shells;
+    boss.boss_max_health = shells;
+    // host_swap_timer doubles as its Rattled-phase dart timer — start armed so the first
+    // dart fires promptly once the phase flips.
+    boss.host_swap_timer = 0.6;
+    boss
+}
+
+/// Spawn a rare "Dancer King" boss — the Dancer archetype crowned. Unlike the other bosses it is
+/// catchable immediately (no shell to drain), but it EVADES: every 2 beats it teleports to a
+/// mirrored position across the world (see the beat handler in beat.rs). Free crabs near it become
+/// ENTRANCED and shadow its drift; catching the King frees them — and catching it exactly ON the
+/// beat is a Perfect Catch that banks every entranced crab into the train at once.
+pub fn spawn_dancer_king(area: (f32, f32), rng: &mut impl Rng) -> EnemyCrab {
+    let (width, height) = area;
+    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+    let radius = width.min(height) * 0.42;
+    let center = Vec2::new(width * 0.5, height * 0.5);
+    let pos = center + Vec2::new(angle.cos(), angle.sin()) * radius;
+    let vel = (center - pos).normalize_or_zero();
+    let mut boss = make_crab(pos, vel, 0.0, None, rng);
+    boss.crab_type = CrabType::DancerKing;
+    boss.speed = rng.random_range(CrabType::DancerKing.speed_range());
+    boss.scale = rng.random_range(CrabType::DancerKing.scale_range());
+    // No shell: catchable from the first frame — the teleport IS its defence.
+    boss.boss_health = 0.0;
+    boss.boss_max_health = 0.0001;
     boss
 }
 

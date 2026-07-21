@@ -550,7 +550,7 @@ impl MainState {
         // train system comes later; for now the visual pull is enough).
         if !self.king_stolen_crabs.is_empty() {
             let boss_pos: Option<Vec2> = self.crabs.iter().find_map(|c| {
-                if c.is_boss() && !c.caught && !c.is_tide_boss() && !c.is_rhythm_boss() {
+                if c.is_king_crab() && !c.caught {
                     Some(c.pos)
                 } else {
                     None
@@ -1180,7 +1180,35 @@ impl MainState {
             // frame the stomp is active — same pattern as the whistle loop above.
             let mut thief_snatched = std::mem::take(&mut self.stomp_thief_snatch_buf);
             thief_snatched.clear();
+            // Hermit King crack/deflect events this frame (rare — at most one King on the field).
+            let mut king_cracks: Vec<(Vec2, f32)> = Vec::new();
+            let mut king_deflects: Vec<Vec2> = Vec::new();
             for (i, crab) in self.crabs.iter_mut().enumerate() {
+                // The Hermit King is the one boss the Stomp DOES touch — it's the whole fight.
+                // One shell layer per pound, gated by phase: Sturdy takes any Stomp, Rattled and
+                // Panicked only crack to an ON-BEAT Stomp (the same beat window every tool uses).
+                // stun_timer doubles as a per-pound i-frame so one expanding ring can't peel the
+                // whole stack in a few frames (it ticks down in the boss branch of update_crabs).
+                if crab.is_hermit_king() && !crab.caught {
+                    let dist = center.distance(crab.pos);
+                    if dist < self.stomp_radius && crab.boss_health > 0.0 && crab.stun_timer <= 0.0
+                    {
+                        let lands = matches!(
+                            hermit_king_phase(crab.boss_health),
+                            HermitKingPhase::Sturdy
+                        ) || on_beat_cast;
+                        if lands {
+                            crab.boss_health = (crab.boss_health - 1.0).max(0.0);
+                            crab.stun_timer = 0.9;
+                            crab.join_pulse = 1.2; // reel from the pound
+                            king_cracks.push((crab.pos, crab.boss_health));
+                        } else {
+                            crab.stun_timer = 0.5; // brief lull so the deflect cue fires once, not every frame
+                            king_deflects.push(crab.pos);
+                        }
+                    }
+                    continue;
+                }
                 if crab.caught || crab.is_boss() {
                     continue; // the King Crab shrugs off a Stomp — it needs the beam
                 }
@@ -1249,6 +1277,36 @@ impl MainState {
             }
             for pos in hermit_popped.drain(..) {
                 self.spawn_hermit_pop(pos);
+            }
+            for &(pos, shells_left) in king_cracks.iter() {
+                if shells_left <= 0.0 {
+                    self.floating_texts.spawn(
+                        "THE KING IS EXPOSED — CATCH IT!".to_string(),
+                        pos - Vec2::new(150.0, 70.0),
+                        34.0,
+                        [0.4, 1.0, 0.5, 1.0],
+                    );
+                    self.spawn_catch_shockwave(pos, [1.0, 0.95, 0.6]);
+                    self.spawn_catch_shockwave(pos, [0.95, 0.6, 0.25]);
+                    self.screen_shake = self.screen_shake.max(18.0);
+                } else {
+                    self.floating_texts.spawn(
+                        format!("SHELL HOUSE CRACKED! {} LEFT", shells_left as u32),
+                        pos - Vec2::new(120.0, 55.0),
+                        28.0,
+                        [0.95, 0.7, 0.35, 1.0],
+                    );
+                    self.spawn_catch_shockwave(pos, [0.9, 0.6, 0.25]);
+                    self.screen_shake = self.screen_shake.max(10.0);
+                }
+            }
+            for &pos in king_deflects.iter() {
+                self.floating_texts.spawn(
+                    "DEFLECTED — STOMP ON THE BEAT!".to_string(),
+                    pos - Vec2::new(130.0, 50.0),
+                    26.0,
+                    [0.7, 0.8, 1.0, 1.0],
+                );
             }
             self.stomp_cracked_buf = cracked; // hand the buffer back for reuse next frame
             self.hermit_popped_buf = hermit_popped; // hand the buffer back for reuse next frame
@@ -1354,7 +1412,7 @@ impl MainState {
                                 }
                             }
                             if self.crabs[i].is_boss() {
-                                self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
+                                self.on_boss_caught(pos, self.crabs[i].crab_type);
                             }
                             if self.crabs[i].is_golden() {
                                 self.on_golden_caught(pos, 0);
@@ -1444,10 +1502,13 @@ impl MainState {
         // worn down under the flashlight before it can be caught. Only one at a time.
         if self.score >= self.next_boss_score && !boss_active {
             self.next_boss_score = self.score + BOSS_SCORE_INTERVAL;
-            // Rotate the three boss archetypes so every run cycles through all three climax beats:
+            // Rotate the boss archetypes so every run cycles through all five climax beats:
             // the King Crab (charge — route the train out of the lane), the Tide Boss (pulse — pull
-            // the train back out of range), and the Reef DJ (rhythm — its shell only drops when you
-            // hold the light on it *on the beat*). Cycling guarantees variety instead of RNG streaks.
+            // the train back out of range), the Reef DJ (rhythm — its shell only drops when you
+            // hold the light on it *on the beat*), the Hermit King (stomp — crack its shell-house
+            // stack one pound at a time before it escapes), and the Dancer King (chase — pin down
+            // the beat-teleporting evader and bank its entranced court with an on-beat catch).
+            // Cycling guarantees variety instead of RNG streaks.
             let (boss, title, hint, title_color) = match self.next_boss_kind {
                 1 => (
                     spawn_tide_boss(
@@ -1469,6 +1530,25 @@ impl MainState {
                     "Echo the lit pips with light — or catch its dancers on a hot beat!",
                     [0.75, 0.4, 1.0, 1.0],
                 ),
+                3 => (
+                    spawn_hermit_king(
+                        (self.world_width, self.world_height),
+                        &mut crate::rng::rng(),
+                        HERMIT_KING_SHELLS,
+                    ),
+                    "THE HERMIT KING LUMBERS IN!",
+                    "Your light can't touch it — STOMP its shell houses, one crack at a time!",
+                    [0.95, 0.6, 0.25, 1.0],
+                ),
+                4 => (
+                    spawn_dancer_king(
+                        (self.world_width, self.world_height),
+                        &mut crate::rng::rng(),
+                    ),
+                    "THE DANCER KING TWIRLS IN!",
+                    "Catch it before it teleports — ON the beat to bank its entranced court!",
+                    [1.0, 0.65, 0.5, 1.0],
+                ),
                 _ => (
                     spawn_boss(
                         (self.world_width, self.world_height),
@@ -1480,7 +1560,7 @@ impl MainState {
                     [1.0, 0.8, 0.2, 1.0],
                 ),
             };
-            self.next_boss_kind = (self.next_boss_kind + 1) % 3;
+            self.next_boss_kind = (self.next_boss_kind + 1) % 5;
             let bpos = boss.pos;
             self.crabs.push(boss);
             boss_active = true;

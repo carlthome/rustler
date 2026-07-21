@@ -231,7 +231,7 @@ impl MainState {
         }
 
         let boss_pos: Option<Vec2> = self.crabs.iter().find_map(|c| {
-            if c.is_boss() && !c.caught && !c.is_tide_boss() && !c.is_rhythm_boss() {
+            if c.is_king_crab() && !c.caught {
                 if matches!(c.charge_state, crate::enemies::BossCharge::Charging(_)) {
                     Some(c.pos)
                 } else {

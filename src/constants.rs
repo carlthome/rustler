@@ -88,6 +88,10 @@ pub const BOSS_CHARGE_ARM_RANGE: f32 = 430.0;
 pub const BOSS_ENRAGE_THRESHOLD: f32 = 0.4;
 pub const BOSS_ENRAGE_COOLDOWN_SCALE: f32 = 0.5;
 pub const BOSS_ENRAGE_CHARGE_SPEED_SCALE: f32 = 1.25;
+// Hermit King: the shell-house stack it drags in with (one Stomp crack per layer), and the radius
+// of the Dancer King's entrancement spell (free crabs inside it on a beat become spellbound).
+pub const HERMIT_KING_SHELLS: f32 = 5.0;
+pub const DANCER_KING_ENTRANCE_RADIUS: f32 = 260.0;
 pub const BOSS_STUN_DURATION: f32 = 1.6;
 pub const TIDE_PULSE_COOLDOWN: f32 = 5.0;
 pub const TIDE_PULSE_WINDUP: f32 = 1.0;

@@ -85,6 +85,8 @@ impl ParticleSystem {
             CrabType::Boss => (70, 90.0..320.0, 4.0..13.0, true),   // Huge celebratory burst
             CrabType::TideBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge tidal splash burst
             CrabType::RhythmBoss => (70, 90.0..320.0, 4.0..13.0, true), // Huge violet disco burst
+            CrabType::HermitKing => (70, 90.0..320.0, 4.0..13.0, true), // Huge coppery shell-shard burst — the fortress finally falls
+            CrabType::DancerKing => (70, 90.0..320.0, 4.0..13.0, true), // Huge rose-gold flourish burst — the royal takes a bow
         };
 
         // Create main particles

@@ -1065,6 +1065,7 @@ impl MainState {
                     stun_timer: 0.0,
                     host_swap_timer: 0.0,
                     surge_timer: 0.0,
+                    entranced: 0.0,
                 };
                 let beat = (t * 4.0 + i as f32 * 0.5).sin().abs();
                 draw_crab(
@@ -1120,6 +1121,7 @@ impl MainState {
                 stun_timer: 0.0,
                 host_swap_timer: 0.0,
                 surge_timer: 0.0,
+                entranced: 0.0,
             };
             let king_beat = (t * 4.0).sin().abs();
             draw_crab(
