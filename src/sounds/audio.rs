@@ -397,6 +397,18 @@ pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
     Source::from_data(ctx, data)
 }
 
+/// A brighter, higher "perfect" sparkle layered ON TOP of the normal catch chime the instant a
+/// catch lands in the tight PERFECT window (see `play_catch_sound`/`play_perfect_sparkle`). Same
+/// happy major-triad arpeggio as the coin chime but a full octave up (1320Hz vs 660Hz) and a hair
+/// quieter, so precision reads audibly as a crisp twinkle over the base "coin get" — the ear can
+/// tell a nailed tight-window hit from a merely on-beat one. Pitch-shifted up further per flawless
+/// step at the call site, so a sustained in-the-pocket run *sounds* like it's climbing.
+pub fn synth_perfect_sparkle(ctx: &mut Context) -> GameResult<Source> {
+    let wav = synth_coin_arpeggio_wav(1320.0, 0.6); // an octave above the coin chime — bright ping.
+    let data = SoundData::from_bytes(&wav)?;
+    Source::from_data(ctx, data)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Ambient synth pads: long-swell drones with a sweeping resonant filter, a feedback delay, and
 // slow stereo auto-panning, for a calm/atmospheric moment (e.g. opening the campaign world map)

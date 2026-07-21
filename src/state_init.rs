@@ -128,6 +128,7 @@ impl MainState {
             hihat: sounds::synth_hihat(ctx)?,
             flashlight_toggle: sounds::synth_flashlight_toggle(ctx)?,
             coin_chime: sounds::synth_coin_chime(ctx)?,
+            perfect_chime: sounds::synth_perfect_sparkle(ctx)?,
             world_map_pad: sounds::synth_ambient_pad(ctx, sounds::PadPreset::WarmPad, 220.0, 2.0)?,
             whistle_sfx: sounds::synth_whistle(ctx)?,
             stomp_sfx: sounds::synth_stomp(ctx)?,
