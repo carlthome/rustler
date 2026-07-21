@@ -1462,6 +1462,9 @@ impl MainState {
 
         if self.show_world_map {
             if let Some(map) = &self.world_map {
+                // The world camera above belongs to the last played map. Campaign and title screens
+                // are screen-space UI, so they must not inherit its world-space viewport after Escape.
+                canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
                 for music in &self.sounds.action_music {
                     music.pause();
                 }
@@ -1478,6 +1481,9 @@ impl MainState {
         }
 
         if self.show_instructions {
+            // A run can return here while its scrolling camera is offset from the world origin.
+            // Restore the UI viewport before drawing the main menu so it remains screen-centered.
+            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
             if self.sounds.outro_music.playing() {
                 self.sounds.outro_music.pause();
             }
