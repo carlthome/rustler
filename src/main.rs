@@ -16,6 +16,7 @@ mod hud_cache;
 mod king_crab_audio;
 mod levels;
 mod menu;
+mod npc_scenarios;
 mod npc_trains;
 mod overlays;
 mod player_tools;
