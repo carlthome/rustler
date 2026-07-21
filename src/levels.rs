@@ -114,16 +114,30 @@ pub enum TerrainKind {
     Desktop,
 }
 
+/// The broad visual composition of a campaign map. This is deliberately separate from
+/// `TerrainKind`: a Sunken Treasury can look fully underwater while retaining the same water-pool
+/// movement rules, and a river can cut through an otherwise open field.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapLayout {
+    Meadow,
+    Beach,
+    Underwater,
+    Coast,
+    River,
+}
+
 /// A visual "zone" a level takes place in. Gives each level a distinct read so runs feel like
 /// they travel somewhere instead of one continuous space. `tint` is a multiply grade laid over
 /// the whole ground; `pulse` recolors the on-beat flash to match the zone's mood; `terrain` is the
-/// mechanical wrinkle its patches carry.
+/// mechanical wrinkle its patches carry; `layout` gives the ground a distinct broad composition.
 #[derive(Clone, Copy)]
 pub struct Biome {
     pub name: &'static str,
     pub tint: (u8, u8, u8),
     pub pulse: (u8, u8, u8),
     pub terrain: TerrainKind,
+    pub layout: MapLayout,
     pub music: BiomeMusic,
 }
 
@@ -214,6 +228,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (255, 248, 214),
                 pulse: (120, 255, 120),
                 terrain: TerrainKind::Open,
+                layout: MapLayout::Meadow,
                 music: BiomeMusic::SunnyGroove,
             },
             emphasis: None,
@@ -245,6 +260,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (150, 215, 255),
                 pulse: (90, 200, 255),
                 terrain: TerrainKind::Water,
+                layout: MapLayout::Coast,
                 music: BiomeMusic::TidalDorian,
             },
             // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
@@ -297,6 +313,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (178, 192, 208),
                 pulse: (205, 222, 235),
                 terrain: TerrainKind::Rock,
+                layout: MapLayout::Coast,
                 music: BiomeMusic::RockShanty,
             },
             // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
@@ -349,6 +366,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (120, 185, 150),
                 pulse: (255, 90, 220),
                 terrain: TerrainKind::Kelp,
+                layout: MapLayout::River,
                 music: BiomeMusic::KelpDisco,
             },
             // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
@@ -395,6 +413,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (126, 118, 190),
                 pulse: (255, 170, 245),
                 terrain: TerrainKind::Open,
+                layout: MapLayout::Beach,
                 music: BiomeMusic::MoonlitWaltz,
             },
             emphasis: Some(CrabType::Dancer),
@@ -415,6 +434,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (184, 146, 112),
                 pulse: (255, 205, 125),
                 terrain: TerrainKind::Rock,
+                layout: MapLayout::Beach,
                 music: BiomeMusic::WarrenMarch,
             },
             emphasis: Some(CrabType::Hermit),
@@ -435,6 +455,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (214, 180, 106),
                 pulse: (255, 245, 130),
                 terrain: TerrainKind::Water,
+                layout: MapLayout::Underwater,
                 music: BiomeMusic::TreasuryRave,
             },
             emphasis: Some(CrabType::Golden),
@@ -455,6 +476,7 @@ pub fn get_levels() -> Vec<Level> {
                 tint: (190, 132, 156),
                 pulse: (255, 125, 180),
                 terrain: TerrainKind::Kelp,
+                layout: MapLayout::River,
                 music: BiomeMusic::SplitterShanty,
             },
             emphasis: Some(CrabType::Splitter),
@@ -485,6 +507,7 @@ pub fn get_levels() -> Vec<Level> {
                 // Cool window-highlight blue for the on-beat pulse / accents.
                 pulse: (150, 190, 235),
                 terrain: TerrainKind::Desktop,
+                layout: MapLayout::Meadow,
                 music: BiomeMusic::DesktopChip,
             },
             // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
@@ -548,6 +571,17 @@ mod tests {
         assert!(levels[1..]
             .iter()
             .all(|level| level.map_size == MapSize::Large));
+    }
+
+    #[test]
+    fn campaign_biomes_use_distinct_map_layouts() {
+        let levels = get_levels();
+        assert_eq!(levels[0].biome.layout, MapLayout::Meadow);
+        assert_eq!(levels[4].biome.layout, MapLayout::Beach);
+        assert_eq!(levels[6].biome.layout, MapLayout::Underwater);
+        assert_eq!(levels[3].biome.layout, MapLayout::River);
+        assert_eq!(levels[7].biome.layout, MapLayout::River);
+        assert!(levels.iter().any(|level| level.biome.layout == MapLayout::Coast));
     }
 
     #[test]

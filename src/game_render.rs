@@ -317,7 +317,14 @@ impl MainState {
         let _ground_b = ((tb as f32 * db) + 255.0 * flash * 0.25).min(255.0) as u8;
 
         // Draw world zones: grass (left), beach (middle), water (right)
-        draw_world_zones(ctx, canvas, world_w, world_h, self.time_elapsed)?;
+        draw_world_zones(
+            ctx,
+            canvas,
+            world_w,
+            world_h,
+            self.time_elapsed,
+            biome.layout,
+        )?;
 
         // World-space sky overlay: a soft full-world tint carrying the day/night mood plus the
         // cloudy/rain grey dimming. Sits over the ground but under the action. Rain streaks, the
