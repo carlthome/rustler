@@ -800,11 +800,11 @@ impl event::EventHandler for AppState {
             }
             Self::Warming(_) => {
                 // Transition to Ready on the tick after MainState was created.
-                let prev = std::mem::replace(self, Self::Loading { has_drawn: false });
-                let Self::Warming(state) = prev else {
-                    unreachable!("checked above");
-                };
-                *self = Self::Ready(state);
+                if let Self::Warming(state) =
+                    std::mem::replace(self, Self::Loading { has_drawn: false })
+                {
+                    *self = Self::Ready(state);
+                }
                 Ok(())
             }
             Self::Ready(state) => state.update(ctx),
