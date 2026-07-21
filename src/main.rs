@@ -4,6 +4,7 @@ mod bot;
 mod catch_deliver;
 mod catch_effects;
 mod chain_mechanics;
+mod chain_steal;
 mod constants;
 mod controls;
 mod crab_update;
