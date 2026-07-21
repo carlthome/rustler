@@ -11,6 +11,23 @@ use ggez::graphics::MeshBuilder;
 const MINIMAP_PX_PER_VIEWPORT: f32 = 90.0;
 const MINIMAP_MIN_WIDTH: f32 = 140.0;
 const MINIMAP_MAX_WIDTH: f32 = 280.0;
+const KING_LOADOUT_MARGIN: f32 = 24.0;
+const KING_LOADOUT_MAX_WIDTH: f32 = 652.0;
+const KING_LOADOUT_CARD_GAP: f32 = 5.0;
+const KING_LOADOUT_BOTTOM_OFFSET: f32 = 108.0;
+const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
+const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
+const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
+const KING_LOADOUT_SINE_MIDPOINT: f32 = 0.5;
+// Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
+const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
+const KING_LOADOUT_CARDS: [(&str, &str, [f32; 3]); 5] = [
+    ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08]),
+    ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0]),
+    ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0]),
+    ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16]),
+    ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62]),
+];
 
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
@@ -32,6 +49,8 @@ thread_local! {
     // mismatch — a rare event for 14 of 15 slots, and just a two-way flip for the 15th.
     static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 21]> =
         RefCell::new([const { None }; 21]);
+    static KING_LOADOUT_TEXT_CACHE: RefCell<Option<([u32; 5], [u32; 4], Vec<Text>)>> =
+        RefCell::new(None);
 
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
@@ -630,6 +649,92 @@ pub fn draw_day_weather_hud(
         });
     }
     Ok(())
+}
+
+/// Color-coded King Crab build strip. Dim cards preview the next build choice; captured colors
+/// pulse with their count and the rank they contributed to.
+pub fn draw_king_loadout(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    powers: [u32; 5],
+    tool_ranks: [u32; 4],
+    conga_tint: [f32; 3],
+    time: f32,
+) -> ggez::GameResult {
+    let captured = powers.iter().sum::<u32>();
+    if captured == 0 {
+        return Ok(());
+    }
+    let strip_width = (width - KING_LOADOUT_MARGIN).min(KING_LOADOUT_MAX_WIDTH);
+    let gap = KING_LOADOUT_CARD_GAP;
+    let card_w = (strip_width - gap * 4.0) / 5.0;
+    let x0 = (width - strip_width) * 0.5;
+    let y = height - KING_LOADOUT_BOTTOM_OFFSET;
+    let square_mesh = unit_square(ctx)?;
+
+    KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
+        let mut cache = cache.borrow_mut();
+        if cache.as_ref().map_or(true, |(saved_powers, saved_ranks, _)| {
+            *saved_powers != powers || *saved_ranks != tool_ranks
+        }) {
+            let mut labels = Vec::with_capacity(6);
+            let noun = if captured == 1 { "POWER" } else { "POWERS" };
+            let mut title = Text::new(format!("KING CONGA  ·  {} COLOR {}", captured, noun));
+            title.set_scale(12.0);
+            labels.push(title);
+            for (i, (name, effect, _)) in KING_LOADOUT_CARDS.iter().enumerate() {
+                let count = powers[i];
+                let rank = tool_ranks[KING_POWER_TOOL_RANKS[i]];
+                let mut label = Text::new(if count == 0 {
+                    format!("{}\n{}", name, effect)
+                } else {
+                    format!("{} ×{}\n{} · LV {}", name, count, effect, rank)
+                });
+                label.set_scale(10.0);
+                labels.push(label);
+            }
+            *cache = Some((powers, tool_ranks, labels));
+        }
+
+        let (_, _, labels) = cache.as_ref().unwrap();
+        canvas.draw(
+            &labels[0],
+            DrawParam::default()
+                .dest(Vec2::new(x0, y - 15.0))
+                .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
+        );
+        for (i, (_, _, color)) in KING_LOADOUT_CARDS.iter().enumerate() {
+            let x = x0 + i as f32 * (card_w + gap);
+            let active = powers[i] > 0;
+            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin()
+                * KING_LOADOUT_SINE_MIDPOINT
+                + KING_LOADOUT_SINE_MIDPOINT)
+                * KING_LOADOUT_PULSE_AMPLITUDE;
+            canvas.draw(
+                square_mesh,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, 38.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 0.25 + pulse } else { 0.07 })),
+            );
+            canvas.draw(
+                square_mesh,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.35 })),
+            );
+            canvas.draw(
+                &labels[i + 1],
+                DrawParam::default()
+                    .dest(Vec2::new(x + 5.0, y + 5.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.45 })),
+            );
+        }
+        Ok(())
+    })
 }
 
 /// Compact tool roster at the bottom centre — shows each tool's key, name, matchup hint, and

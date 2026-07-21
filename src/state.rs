@@ -365,6 +365,8 @@ pub struct MainState {
     pub(crate) offered_upgrades: [usize; 3],
     /// King Crab colors captured this run, used to tint the train and branch its tool loadout.
     pub(crate) king_crab_count: usize,
+    /// Per-color King Crab captures, ordered Fire, Tide, Rhythm, Hermit, Dancer.
+    pub(crate) king_crab_powers: [u32; 5],
     pub(crate) conga_tint: [f32; 3],
     // Persistent player top-speed multiplier, folded into base_speed in controls.rs. Tradeoff
     // upgrades push it up (nimbler) or down (sluggish); 1.0 is neutral. A stat knob, not a new

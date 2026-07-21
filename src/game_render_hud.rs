@@ -21,7 +21,7 @@ use crate::graphics::{
     draw_weather, unit_square,
 };
 use crate::graphics::{
-    draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions,
+    draw_day_weather_hud, draw_king_loadout, draw_minimap, draw_tool_roster, minimap_dimensions,
 };
 
 
@@ -162,6 +162,16 @@ impl MainState {
                     stomp_useful = true;
                 }
             }
+            draw_king_loadout(
+                ctx,
+                canvas,
+                width,
+                height,
+                self.king_crab_powers,
+                [self.beam_rank, self.lasso_rank, self.whistle_rank, self.stomp_rank],
+                self.conga_tint,
+                self.time_elapsed,
+            )?;
             draw_tool_roster(
                 ctx,
                 canvas,

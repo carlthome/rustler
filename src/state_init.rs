@@ -421,6 +421,7 @@ impl MainState {
             pending_upgrade: false,
             offered_upgrades: [0, 1, 2],
             king_crab_count: 0,
+            king_crab_powers: [0; 5],
             conga_tint: [0.0, 0.0, 0.0],
             speed_mult: 1.0,
             next_upgrade_score: UPGRADE_FIRST_AT,
