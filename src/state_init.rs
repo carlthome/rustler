@@ -29,6 +29,21 @@ use crate::{get_levels, pick_pen_pos, pick_tide_pools};
 
 impl MainState {
     pub fn new(ctx: &mut Context) -> GameResult<MainState> {
+        Self::new_with_progress(ctx, |_, _, _| Ok(()))
+    }
+
+    /// Builds the game state while reporting completed startup work to the caller.
+    ///
+    /// The callback keeps initialization synchronous (which ggez resource creation requires), while
+    /// allowing an interactive caller to present meaningful progress between expensive stages.
+    pub fn new_with_progress<F>(
+        ctx: &mut Context,
+        mut report_progress: F,
+    ) -> GameResult<MainState>
+    where
+        F: FnMut(&mut Context, f32, &str) -> GameResult,
+    {
+        report_progress(ctx, 0.05, "TUNING THE TIDE...")?;
         let width = 1280.0;
         let height = 960.0;
         // The opening campaign level uses the medium map; individual levels and tutorials replace
@@ -85,6 +100,7 @@ impl MainState {
         // first frame; the live tempo ramp is then followed by re-pitching the music each stage
         // (see `music_pitch` in EventHandler::update), so the loop stays locked to the clock.
         let action_bpm = 60.0 / BEAT_INTERVAL;
+        report_progress(ctx, 0.15, "MIXING THE RAVE...")?;
         // detected_beat_interval still seeds the pre-game beat clock (reset_game overrides it to
         // BEAT_INTERVAL on entry) and the log line above; it no longer drives the music tempo.
         let levels = get_levels();
@@ -155,6 +171,7 @@ impl MainState {
             king_crab_soft,
             king_crab_motif,
         };
+        report_progress(ctx, 0.55, "LOADING THE SHORE...")?;
 
         // Synthesise the on-beat kick drum at startup so a bad WAV header fails loudly here rather
         // than as silence on the first beat.
@@ -166,6 +183,7 @@ impl MainState {
             sand: Image::from_path(ctx, "/sand.png")?,
             player: Image::from_path(ctx, "/rustler.png")?,
         };
+        report_progress(ctx, 0.68, "SETTLING THE CRABS...")?;
 
         // Delivery pen + tide-pool hazards for the opening level, placed before `levels` is moved
         // into the struct so we can read the first zone's difficulty for the pool count.
@@ -278,6 +296,7 @@ impl MainState {
                 music_layers.push(src);
             }
         }
+        report_progress(ctx, 0.78, "LIGHTING THE DANCE FLOOR...")?;
 
         let shader = ShaderBuilder::new()
             .vertex_path("/grass.wgsl")
@@ -345,6 +364,7 @@ impl MainState {
             height as u32,
             1,
         );
+        report_progress(ctx, 0.93, "POLISHING THE SHELLS...")?;
 
         let flashlight = Flashlight {
             on: false,
@@ -393,6 +413,8 @@ impl MainState {
             flashlight,
             show_instructions: true,
             show_how_to_play_text: false,
+            show_play_recommendation: false,
+            continue_button_focused: true,
             player_skin,
             player_name,
             skin_slot: 0,
@@ -422,6 +444,7 @@ impl MainState {
             pending_upgrade: false,
             offered_upgrades: [0, 1, 2],
             king_crab_count: 0,
+            king_crab_powers: [0; 5],
             conga_tint: [0.0, 0.0, 0.0],
             speed_mult: 1.0,
             next_upgrade_score: UPGRADE_FIRST_AT,

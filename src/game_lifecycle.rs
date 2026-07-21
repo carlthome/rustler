@@ -81,9 +81,13 @@ impl MainState {
         self.level_title_timer = 3.1;
         self.world_width = self.width * map_size.viewport_multiplier();
         self.world_height = self.height * map_size.viewport_multiplier();
-        self.npc_trains = (0..3)
-            .map(|index| NpcCongaTrain::new_at(self.world_width, self.world_height, index))
-            .collect();
+        self.npc_trains = if map_size.spawns_npc_trains() {
+            (0..3)
+                .map(|index| NpcCongaTrain::new_at(self.world_width, self.world_height, index))
+                .collect()
+        } else {
+            Vec::new()
+        };
         // Reset places the player at the WORLD centre (the playfield is larger than the viewport;
         // the camera follows). pen/pool placement below is world-space too.
         let width = self.world_width;
@@ -104,6 +108,7 @@ impl MainState {
         }
         self.chain_count = 0;
         self.king_crab_count = 0;
+        self.king_crab_powers = [0; 5];
         self.conga_tint = [0.0, 0.0, 0.0];
         self.total_caught = 0;
         self.chord_tools_fired = 0;
@@ -361,6 +366,7 @@ impl MainState {
         self.show_world_map = false;
         self.show_instructions = true;
         self.show_how_to_play_text = false;
+        self.show_play_recommendation = false;
         self.game_over = false;
         self.in_campaign = false;
         self.tutorial = None;

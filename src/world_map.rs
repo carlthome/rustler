@@ -70,24 +70,28 @@ impl WorldMap {
     pub fn new() -> Self {
         // Tutorial nodes — teach one mechanic each, in escalating complexity.
         let tutorial_nodes: &[(TutorialKind, &'static str, (f32, f32))] = &[
-            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.08, 0.60)),
-            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.22, 0.42)),
-            (TutorialKind::ChainDeliver,"The Cove — Build a Train",        (0.36, 0.65)),
-            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",     (0.50, 0.40)),
+            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.10, 0.72)),
+            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.19, 0.57)),
+            (TutorialKind::ChainDeliver,"The Cove — Build a Train",       (0.29, 0.67)),
+            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",    (0.40, 0.53)),
         ];
 
-        // Campaign nodes — the regular levels follow after the tutorials.
+        // Campaign nodes follow a clockwise island circuit: the quiet landing opens into the
+        // northern coast, rounds the stormy eastern headland, then returns through the jungle.
+        // The Desktop remains a deliberately strange, remote finale beyond the chart's shore.
         let campaign_positions: &[(f32, f32)] = &[
-            (0.65, 0.62),
-            (0.78, 0.38),
-            (0.90, 0.55),
-            (0.84, 0.78),
-            (0.70, 0.22),
-            (0.58, 0.12),
-            (0.45, 0.22),
-            (0.32, 0.14),
+            (0.51, 0.43),
+            (0.63, 0.29),
+            (0.77, 0.23),
+            (0.88, 0.41),
+            (0.82, 0.61),
+            // The circuit rounds the southern caves and treasury before climbing the eastern
+            // causeway, putting the remote Desktop finale directly beyond the last island stop.
+            (0.59, 0.72),
+            (0.72, 0.77),
+            (0.88, 0.63),
             // The Desktop sits off on its own, past the "end" of the map — you shouldn't be here.
-            (0.96, 0.30),
+            (0.94, 0.10),
         ];
         let levels = get_levels();
         let total = tutorial_nodes.len() + levels.len();

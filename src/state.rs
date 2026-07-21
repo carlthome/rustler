@@ -306,6 +306,8 @@ pub struct MainState {
     pub(crate) flashlight: Flashlight, // Flashlight settings and upgrades
     pub(crate) show_instructions: bool, // Show instructions screen
     pub(crate) show_how_to_play_text: bool, // Show plain-text How to Play card instead of Home menu
+    pub(crate) show_play_recommendation: bool, // Recommend Campaign before starting arcade mode
+    pub(crate) continue_button_focused: bool,
     // Active cosmetic loadout for the player character (hat, facial hair, accessory).
     // Loaded from career.txt on startup; changed from the title screen customisation menu.
     // Purely visual — never affects gameplay.
@@ -363,6 +365,8 @@ pub struct MainState {
     pub(crate) offered_upgrades: [usize; 3],
     /// King Crab colors captured this run, used to tint the train and branch its tool loadout.
     pub(crate) king_crab_count: usize,
+    /// Per-color King Crab captures, ordered Fire, Tide, Rhythm, Hermit, Dancer.
+    pub(crate) king_crab_powers: [u32; 5],
     pub(crate) conga_tint: [f32; 3],
     // Persistent player top-speed multiplier, folded into base_speed in controls.rs. Tradeoff
     // upgrades push it up (nimbler) or down (sluggish); 1.0 is neutral. A stat knob, not a new

@@ -13,6 +13,9 @@ const LOGO_FADE_OUT_END: f32 = 4.4;
 pub(crate) struct MenuIntroPresentation {
     pub(crate) logo_alpha: f32,
     pub(crate) menu_progress: f32,
+    pub(crate) moon_rise: f32,
+    pub(crate) moon_bloom: f32,
+    pub(crate) menu_flash: f32,
 }
 
 pub(crate) fn presentation(time: f32) -> MenuIntroPresentation {
@@ -32,9 +35,17 @@ pub(crate) fn presentation(time: f32) -> MenuIntroPresentation {
         0.0
     };
     let menu_progress = smoothstep((time - MENU_REVEAL_AT) / (INTRO_END - MENU_REVEAL_AT));
+    let moon_rise = menu_progress;
+    let moon_bloom = smoothstep(
+        (time - (MENU_REVEAL_AT + 0.18)) / (INTRO_END - (MENU_REVEAL_AT + 0.18)),
+    );
+    let menu_flash = (1.0 - (time - MENU_REVEAL_AT) / 0.16).clamp(0.0, 1.0);
     MenuIntroPresentation {
         logo_alpha,
         menu_progress,
+        moon_rise,
+        moon_bloom,
+        menu_flash,
     }
 }
 
@@ -54,6 +65,26 @@ mod tests {
         assert_eq!(presentation(1.4).logo_alpha, 1.0);
         assert_eq!(presentation(4.4).logo_alpha, 0.0);
         assert_eq!(presentation(INTRO_END).menu_progress, 1.0);
+        assert_eq!(presentation(INTRO_END).moon_rise, 1.0);
+        assert_eq!(presentation(INTRO_END).moon_bloom, 1.0);
+    }
+
+    #[test]
+    fn moon_rises_and_blooms_after_the_menu_flash() {
+        let reveal = presentation(MENU_REVEAL_AT);
+        assert_eq!(reveal.moon_rise, 0.0);
+        assert_eq!(reveal.moon_bloom, 0.0);
+        assert_eq!(reveal.menu_flash, 1.0);
+
+        let rising = presentation(MENU_REVEAL_AT + 0.1);
+        assert!(rising.moon_rise > 0.0);
+        assert_eq!(rising.moon_bloom, 0.0);
+        assert!(rising.menu_flash > 0.0);
+
+        let settling = presentation(MENU_REVEAL_AT + 0.2);
+        assert!(settling.moon_rise > 0.0);
+        assert!(settling.moon_bloom > 0.0);
+        assert_eq!(settling.menu_flash, 0.0);
     }
 
     #[test]

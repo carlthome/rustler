@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.43.1 — 2026-07-22
+
+### Fixes
+- Guard the rival interception AI with a playtest to prevent regressions
+
+## v0.43.0 — 2026-07-21
+
+### Features
+- Diversify campaign terrain layouts: each biome now selects a themed terrain composition (meadow, beach, underwater, coast, or river)
+
+### Fixes
+- Fix endless arcade stage label cache leaking memory forever
+
+### Refactoring
+- Split crab-catching logic out of catch_deliver into its own module
+- Extract player action verbs from player_tools into tool_actions
+
 ## v0.42.1 — 2026-07-21
 
 ### Fixes

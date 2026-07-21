@@ -31,6 +31,7 @@ mod npc_trains_render;
 mod overlays;
 mod player_tools;
 mod rng;
+mod rival_taunts;
 mod skins;
 mod sounds;
 mod spawnings;
@@ -807,6 +808,9 @@ impl event::EventHandler for AppState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         match self {
             Self::Loading { has_drawn } if *has_drawn => {
+                // `update` runs outside ggez's render frame, so startup construction must not
+                // invoke the progress renderer here. The loading screen was already presented
+                // by `draw` on the preceding frame.
                 *self = Self::Warming(MainState::new(ctx)?);
                 Ok(())
             }
@@ -829,9 +833,8 @@ impl event::EventHandler for AppState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         match self {
-            Self::Loading { .. } | Self::Warming(_) => {
-                draw_loading_screen(ctx, 0.0, "LOADING THE RAVE...")
-            }
+            Self::Loading { .. } => draw_loading_screen(ctx, 0.0, "LOADING THE RAVE..."),
+            Self::Warming(_) => draw_loading_screen(ctx, 1.0, "RAVE READY!"),
             Self::Ready(state) => state.draw(ctx),
         }
     }

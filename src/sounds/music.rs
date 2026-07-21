@@ -155,8 +155,8 @@ pub fn biome_rival_motif_tuning(theme: BiomeMusic) -> (i32, [i32; 11]) {
     }
 }
 
-/// Keep the original intro recording, but soften and weather it so it sounds farther down the
-/// beach: a low-passed wet layer, a quiet cross-channel reflection, and faint shoreline noise.
+/// Keep the original intro recording, but push its music down the beach beneath a close, moody
+/// shoreline: a dominant low-passed layer, broad cross-channel reflections, and present wind noise.
 fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) {
     let n = left.len().min(right.len());
     if n == 0 {
@@ -165,7 +165,7 @@ fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) 
 
     let dry_left = left[..n].to_vec();
     let dry_right = right[..n].to_vec();
-    let cutoff_hz = 1_800.0_f32;
+    let cutoff_hz = 850.0_f32;
     let low_pass_alpha =
         1.0 - (-std::f32::consts::TAU * cutoff_hz / sample_rate as f32).exp();
     let mut soft_left = 0.0_f32;
@@ -183,19 +183,19 @@ fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) 
         noise_state ^= noise_state >> 17;
         noise_state ^= noise_state << 5;
         let raw = noise_state as f32 / u32::MAX as f32 * 2.0 - 1.0;
-        wind_l += (raw - wind_l) * 0.0018;
-        wind_r += (raw * 0.73 - wind_r) * 0.0015;
+        wind_l += (raw - wind_l) * 0.0030;
+        wind_r += (raw * 0.73 - wind_r) * 0.0024;
         let gust = 0.72 + 0.28 * (std::f32::consts::TAU * 0.11 * t).sin();
-        let hiss = raw * 0.0025 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
-        left[i] = dry_left[i] * 0.72 + soft_left * 0.28 + (wind_l * 0.035 + hiss) * gust;
+        let hiss = raw * 0.006 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
+        left[i] = dry_left[i] * 0.42 + soft_left * 0.58 + (wind_l * 0.085 + hiss) * gust;
         right[i] =
-            dry_right[i] * 0.72 + soft_right * 0.28 + (wind_r * 0.035 + hiss * 0.8) * gust;
+            dry_right[i] * 0.42 + soft_right * 0.58 + (wind_r * 0.085 + hiss * 0.8) * gust;
     }
 
-    let delay = (0.19 * sample_rate as f32) as usize;
+    let delay = (0.24 * sample_rate as f32) as usize;
     for i in delay..n {
-        left[i] += dry_right[i - delay] * 0.08;
-        right[i] += dry_left[i - delay] * 0.08;
+        left[i] += dry_right[i - delay] * 0.14;
+        right[i] += dry_left[i - delay] * 0.14;
     }
 }
 
@@ -255,9 +255,9 @@ mod intro_tests {
 
         assert!(left[0] > 0.9);
         assert!(right[0] < -0.9);
-        // The opposite-channel reflection arrives at exactly 190 ms.
-        assert!(left[19] < 0.0);
-        assert!(right[19] > 0.0);
+        // The opposite-channel reflection arrives at exactly 240 ms.
+        assert!(left[24] < 0.0);
+        assert!(right[24] > 0.0);
         assert_eq!(left, repeat_left);
         assert_eq!(right, repeat_right);
     }

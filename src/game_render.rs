@@ -264,6 +264,14 @@ impl MainState {
                         .scale(Vec2::new(width, height))
                         .color(Color::new(0.0, 0.0, 0.0, 1.0 - intro.menu_progress)),
                 );
+                if intro.menu_flash > 0.0 {
+                    canvas.draw(
+                        unit_square(ctx)?,
+                        DrawParam::default()
+                            .scale(Vec2::new(width, height))
+                            .color(Color::new(0.9, 0.95, 1.0, intro.menu_flash * 0.45)),
+                    );
+                }
             } else {
                 canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
                 self.draw_startup_logo(ctx, canvas, width, height, intro.logo_alpha)?;
@@ -1462,6 +1470,9 @@ impl MainState {
 
         if self.show_world_map {
             if let Some(map) = &self.world_map {
+                // The world camera above belongs to the last played map. Campaign and title screens
+                // are screen-space UI, so they must not inherit its world-space viewport after Escape.
+                canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
                 for music in &self.sounds.action_music {
                     music.pause();
                 }
@@ -1478,6 +1489,9 @@ impl MainState {
         }
 
         if self.show_instructions {
+            // A run can return here while its scrolling camera is offset from the world origin.
+            // Restore the UI viewport before drawing the main menu so it remains screen-centered.
+            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
             if self.sounds.outro_music.playing() {
                 self.sounds.outro_music.pause();
             }

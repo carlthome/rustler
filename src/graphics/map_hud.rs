@@ -11,6 +11,29 @@ use ggez::graphics::MeshBuilder;
 const MINIMAP_PX_PER_VIEWPORT: f32 = 90.0;
 const MINIMAP_MIN_WIDTH: f32 = 140.0;
 const MINIMAP_MAX_WIDTH: f32 = 280.0;
+const KING_LOADOUT_MARGIN: f32 = 24.0;
+const KING_LOADOUT_MAX_WIDTH: f32 = 652.0;
+const KING_LOADOUT_CARD_GAP: f32 = 5.0;
+const KING_LOADOUT_BOTTOM_OFFSET: f32 = 108.0;
+const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
+const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
+const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
+const KING_LOADOUT_SINE_MIDPOINT: f32 = 0.5;
+// Expands the near-shore silhouette just beyond the sand.
+const WORLD_MAP_SHALLOWS_SCALE: f32 = 1.035;
+// Places each direction chevron just beyond the middle of its route segment.
+const WORLD_MAP_CHEVRON_T: f32 = 0.55;
+// Samples equally ahead/behind the chevron to derive the curve tangent.
+const WORLD_MAP_CHEVRON_TANGENT_DELTA: f32 = 0.03;
+// Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
+const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
+const KING_LOADOUT_CARDS: [(&str, &str, [f32; 3]); 5] = [
+    ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08]),
+    ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0]),
+    ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0]),
+    ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16]),
+    ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62]),
+];
 
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
@@ -32,6 +55,8 @@ thread_local! {
     // mismatch — a rare event for 14 of 15 slots, and just a two-way flip for the 15th.
     static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 21]> =
         RefCell::new([const { None }; 21]);
+    static KING_LOADOUT_TEXT_CACHE: RefCell<Option<([u32; 5], [u32; 4], Vec<Text>)>> =
+        RefCell::new(None);
 
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
@@ -41,11 +66,12 @@ thread_local! {
     // never the label text, so it's not part of the key. Title and hint are static literals →
     // cached unconditionally. A path-line segment cache is skipped: there are only N-1 ≤ 3 path
     // segments and they're connection-only (two endpoint positions, no text/glyphs), so the per-
-    // frame cost of `Mesh::new_line` for three lines is negligible compared to glyph-shaping.
+    // frame cost of their static geometry is negligible compared to glyph-shaping.
     static WORLD_MAP_NODE_LABELS: RefCell<Vec<Option<((bool, bool), Text, f32)>>> = RefCell::new(Vec::new());
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_SKIP_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    static WORLD_MAP_SELECTED_CACHE: RefCell<Option<(usize, bool, bool, Text, f32)>> = RefCell::new(None);
     // The illustrated map only changes on resize; cache its water and island geometry rather than
     // re-tessellating decorative meshes every frame while the menu is open.
     static WORLD_MAP_SCENERY_CACHE: RefCell<Option<((i32, i32), Mesh)>> = RefCell::new(None);
@@ -82,7 +108,7 @@ pub fn draw_world_map(
     let (sx, sy) = (width, height);
 
     let node_to_screen = |(nx, ny): (f32, f32)| -> Vec2 {
-        Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
+        Vec2::new(nx * sx, 0.18 * sy + ny * sy * 0.64)
     };
 
     // A broad sandbar forms the playable island, with a smaller jungle core. The irregular
@@ -135,8 +161,166 @@ pub fn draw_world_map(
                 }
                 builder.line(&points, 1.0, Color::new(0.20, 0.60, 0.70, 0.16))?;
             }
+            // Shallow water and a pale surf line separate the coast from the near-black ocean.
+            let shallows = island
+                .iter()
+                .map(|p|                 (*p - Vec2::new(sx * 0.5, sy * 0.55)) * WORLD_MAP_SHALLOWS_SCALE
+                    + Vec2::new(sx * 0.5, sy * 0.55))
+                .collect::<Vec<_>>();
+            builder.polygon(DrawMode::fill(), &shallows, Color::new(0.08, 0.39, 0.48, 0.82))?;
             builder.polygon(DrawMode::fill(), &island, Color::new(0.78, 0.63, 0.32, 1.0))?;
+            builder.polyline(
+                DrawMode::stroke(3.0),
+                &island,
+                Color::new(0.96, 0.87, 0.56, 0.9),
+            )?;
             builder.polygon(DrawMode::fill(), &jungle, Color::new(0.09, 0.29, 0.19, 0.92))?;
+            // The island's regions give the route geography: a sheltered starter cove, a river
+            // through the jungle, a high northern ridge, and dangerous eastern reefs. The nodes
+            // now travel through those places instead of appearing as an abstract zig-zag.
+            let cove = [
+                Vec2::new(sx * 0.05, sy * 0.64),
+                Vec2::new(sx * 0.17, sy * 0.57),
+                Vec2::new(sx * 0.31, sy * 0.64),
+                Vec2::new(sx * 0.24, sy * 0.75),
+                Vec2::new(sx * 0.10, sy * 0.73),
+            ];
+            builder.polygon(DrawMode::fill(), &cove, Color::new(0.12, 0.47, 0.56, 0.86))?;
+            let ridge = [
+                Vec2::new(sx * 0.50, sy * 0.39),
+                Vec2::new(sx * 0.61, sy * 0.27),
+                Vec2::new(sx * 0.72, sy * 0.41),
+            ];
+            builder.polygon(DrawMode::fill(), &ridge, Color::new(0.24, 0.29, 0.25, 0.95))?;
+            for &(x, y, scale) in &[(0.59, 0.34, 0.8), (0.68, 0.31, 1.0), (0.77, 0.34, 0.7)] {
+                let peak = [
+                    Vec2::new(sx * (x - 0.035 * scale), sy * (y + 0.055 * scale)),
+                    Vec2::new(sx * x, sy * (y - 0.045 * scale)),
+                    Vec2::new(sx * (x + 0.035 * scale), sy * (y + 0.055 * scale)),
+                ];
+                builder.polygon(
+                    DrawMode::fill(),
+                    &peak,
+                    Color::new(0.32, 0.34, 0.31, 1.0),
+                )?;
+                builder.line(
+                    &[
+                        Vec2::new(sx * (x - 0.012 * scale), sy * (y - 0.010 * scale)),
+                        Vec2::new(sx * x, sy * (y - 0.045 * scale)),
+                        Vec2::new(sx * (x + 0.014 * scale), sy * (y - 0.005 * scale)),
+                    ],
+                    3.0,
+                    Color::new(0.82, 0.82, 0.70, 0.9),
+                )?;
+            }
+            let river = [
+                Vec2::new(sx * 0.39, sy * 0.40),
+                Vec2::new(sx * 0.46, sy * 0.48),
+                Vec2::new(sx * 0.42, sy * 0.56),
+                Vec2::new(sx * 0.50, sy * 0.65),
+                Vec2::new(sx * 0.57, sy * 0.73),
+            ];
+            builder.line(&river, 14.0, Color::new(0.10, 0.42, 0.50, 0.78))?;
+            builder.line(&river, 4.0, Color::new(0.39, 0.74, 0.72, 0.75))?;
+            // A moonlit clearing and kelp lagoon anchor the later campaign stops.
+            builder.circle(
+                DrawMode::fill(),
+                Vec2::new(sx * 0.80, sy * 0.60),
+                sy * 0.075,
+                1.0,
+                Color::new(0.31, 0.35, 0.47, 0.88),
+            )?;
+            builder.circle(
+                DrawMode::stroke(3.0),
+                Vec2::new(sx * 0.80, sy * 0.60),
+                sy * 0.055,
+                1.0,
+                Color::new(0.68, 0.75, 0.92, 0.72),
+            )?;
+            let kelp_lagoon = [
+                Vec2::new(sx * 0.81, sy * 0.38),
+                Vec2::new(sx * 0.95, sy * 0.42),
+                Vec2::new(sx * 0.91, sy * 0.57),
+                Vec2::new(sx * 0.82, sy * 0.53),
+            ];
+            builder.polygon(
+                DrawMode::fill(),
+                &kelp_lagoon,
+                Color::new(0.06, 0.37, 0.29, 0.86),
+            )?;
+            for &(x, y, lean) in &[
+                (0.84, 0.48, -0.010),
+                (0.87, 0.51, 0.012),
+                (0.90, 0.47, -0.008),
+                (0.92, 0.52, 0.010),
+            ] {
+                builder.line(
+                    &[
+                        Vec2::new(sx * x, sy * (y + 0.04)),
+                        Vec2::new(sx * (x + lean), sy * y),
+                        Vec2::new(sx * (x - lean), sy * (y - 0.035)),
+                    ],
+                    4.0,
+                    Color::new(0.18, 0.62, 0.35, 0.9),
+                )?;
+            }
+            // Tutorial docks, shell-grave stones, and treasury shoals make the route's mechanics
+            // visible as places rather than interchangeable dots.
+            builder.line(
+                &[
+                    Vec2::new(sx * 0.13, sy * 0.58),
+                    Vec2::new(sx * 0.21, sy * 0.54),
+                ],
+                8.0,
+                Color::new(0.33, 0.20, 0.09, 1.0),
+            )?;
+            for &(x, y) in &[(0.61, 0.66), (0.65, 0.69), (0.70, 0.67), (0.72, 0.72)] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    6.0,
+                    0.8,
+                    Color::new(0.48, 0.44, 0.37, 0.95),
+                )?;
+                builder.line(
+                    &[
+                        Vec2::new(sx * x - 4.0, sy * y),
+                        Vec2::new(sx * x + 4.0, sy * y),
+                    ],
+                    1.5,
+                    Color::new(0.20, 0.20, 0.18, 0.9),
+                )?;
+            }
+            for &(x, y, r) in &[(0.67, 0.74, 9.0), (0.72, 0.78, 12.0), (0.77, 0.74, 7.0)] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    r,
+                    0.8,
+                    Color::new(0.18, 0.55, 0.60, 0.9),
+                )?;
+                builder.circle(
+                    DrawMode::stroke(2.0),
+                    Vec2::new(sx * x, sy * y),
+                    r * 0.55,
+                    0.8,
+                    Color::new(0.93, 0.74, 0.27, 0.9),
+                )?;
+            }
+            for &(x, y, r) in &[
+                (0.84, 0.44, 20.0),
+                (0.90, 0.52, 14.0),
+                (0.86, 0.66, 18.0),
+                (0.76, 0.77, 12.0),
+            ] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    r,
+                    0.8,
+                    Color::new(0.38, 0.72, 0.60, 0.65),
+                )?;
+            }
             *cache = Some((key, Mesh::from_data(ctx, builder.build())));
         }
         canvas.draw(&cache.as_ref().unwrap().1, DrawParam::default());
@@ -202,8 +386,9 @@ pub fn draw_world_map(
         cache.clone().unwrap()
     });
 
-    // Connecting trails between consecutive nodes. The dotted, warm route reads as a pirate's
-    // treasure trail while biome tint on unlocked segments still previews each destination.
+    // Connecting trails between consecutive nodes. Curved trails follow the island's coast and
+    // river rather than cutting arbitrary straight lines across it. The dotted, warm route reads
+    // as a pirate's treasure trail while biome tint previews each destination.
     WORLD_MAP_ROUTE_CACHE.with(|c| -> ggez::GameResult {
         let mut cache = c.borrow_mut();
         let unlocked: Vec<bool> = map.nodes.iter().map(|node| node.unlocked).collect();
@@ -213,6 +398,24 @@ pub fn draw_world_map(
             for i in 0..map.nodes.len().saturating_sub(1) {
                 let a = node_to_screen(map.nodes[i].position);
                 let b = node_to_screen(map.nodes[i + 1].position);
+                let bend = if i % 2 == 0 { 1.0 } else { -1.0 };
+                let control = if i + 2 == map.nodes.len() {
+                    // The Desktop finale is reached through an impossible chart-edge jump, not a
+                    // road cutting diagonally across every biome.
+                    Vec2::new(sx * 0.97, sy * 0.39)
+                } else {
+                    (a + b) * 0.5 + Vec2::new(0.0, bend * sy * 0.045)
+                };
+                let curve = |t: f32| {
+                    let u = 1.0 - t;
+                    a * (u * u) + control * (2.0 * u * t) + b * (t * t)
+                };
+                // The dark silhouette uses a few extra samples to keep its wider curve smooth;
+                // the thinner colored dashes below need fewer samples for the same visual result.
+                let outline = (0..=18)
+                    .map(|step| curve(step as f32 / 18.0))
+                    .collect::<Vec<_>>();
+                builder.line(&outline, 7.0, Color::new(0.025, 0.08, 0.09, 0.88))?;
                 if map.nodes[i + 1].unlocked {
                     let (ca, cb) = (node_tints[i], node_tints[i + 1]);
                     const SEGS: usize = 14;
@@ -226,12 +429,49 @@ pub fn draw_world_map(
                             (ca.b + (cb.b - ca.b) * tm) * 0.35 + 0.08,
                             0.9,
                         );
-                        builder.line(&[a.lerp(b, t0), a.lerp(b, t1)], 4.0, col)?;
+                        builder.line(&[curve(t0), curve(t1)], 4.0, col)?;
                     }
                 } else {
-                    // Locked trails remain faint, as if unfinished ink on a treasure chart.
-                    builder.line(&[a, b], 2.0, Color::new(0.13, 0.18, 0.18, 0.65))?;
+                    // The complete itinerary stays readable while locked; dotted parchment ink
+                    // yields to saturated biome colour as destinations unlock.
+                    for step in (0..12).step_by(2) {
+                        let t0 = step as f32 / 12.0;
+                        let t1 = (step + 1) as f32 / 12.0;
+                        builder.line(
+                            &[curve(t0), curve(t1)],
+                            4.0,
+                            Color::new(0.90, 0.80, 0.48, 0.96),
+                        )?;
+                    }
                 }
+                // Small forward chevrons remove any ambiguity about the numbered itinerary.
+                let mid = curve(WORLD_MAP_CHEVRON_T);
+                let tangent = (curve(WORLD_MAP_CHEVRON_T + WORLD_MAP_CHEVRON_TANGENT_DELTA)
+                    - curve(WORLD_MAP_CHEVRON_T - WORLD_MAP_CHEVRON_TANGENT_DELTA))
+                .normalize_or_zero();
+                let normal = Vec2::new(-tangent.y, tangent.x);
+                builder.polygon(
+                    DrawMode::fill(),
+                    &[
+                        mid + tangent * 11.0,
+                        mid - tangent * 8.0 + normal * 7.0,
+                        mid - tangent * 8.0 - normal * 7.0,
+                    ],
+                    Color::new(0.025, 0.08, 0.09, 0.95),
+                )?;
+                builder.polygon(
+                    DrawMode::fill(),
+                    &[
+                        mid + tangent * 8.0,
+                        mid - tangent * 5.0 + normal * 4.5,
+                        mid - tangent * 5.0 - normal * 4.5,
+                    ],
+                    if map.nodes[i + 1].unlocked {
+                        Color::new(1.0, 0.82, 0.26, 0.95)
+                    } else {
+                        Color::new(0.77, 0.68, 0.43, 0.88)
+                    },
+                )?;
             }
             *cache = Some((key, Mesh::from_data(ctx, builder.build())));
         }
@@ -298,7 +538,7 @@ pub fn draw_world_map(
             circle,
             DrawParam::default()
                 .dest(pos)
-                .scale(Vec2::splat(20.0))
+                .scale(Vec2::splat(22.0))
                 .color(fill_color),
         );
         // A small treasure-map pin gives every stop an RPG destination marker rather than a plain
@@ -317,15 +557,9 @@ pub fn draw_world_map(
                 }),
         );
 
-        // Node label — cached per-node by (completed, unlocked). Selection changes fill color
-        // only, never the label text (suffix " ✓" derives from completed, lock " [locked]" from
-        // unlocked), so it's not part of the cache key. Same rebuild-on-change pattern as
-        // WHISTLE_LABEL_CACHE, STOMP_LABEL_CACHE, and all the other HUD caches in main.rs.
-        let label_color = if node.unlocked {
-            Color::WHITE
-        } else {
-            Color::new(0.4, 0.4, 0.4, 1.0)
-        };
+        // Compact itinerary numbers keep the dense island circuit readable; the selected stop's
+        // full name lives in the fixed caption above the map. Cache entries rebuild only when a
+        // stop changes state, matching the other menu/HUD text caches.
         let label_key = (node.completed, node.unlocked);
         WORLD_MAP_NODE_LABELS.with(|c| -> ggez::GameResult {
             let mut labels = c.borrow_mut();
@@ -336,10 +570,9 @@ pub fn draw_world_map(
             let entry = &mut labels[i];
             // Rebuild only when the node's (completed, unlocked) state actually changes.
             if entry.as_ref().map(|(k, _, _)| *k) != Some(label_key) {
-                let suffix = if node.completed { " ✓" } else { "" };
-                let lock = if !node.unlocked { " [locked]" } else { "" };
-                let mut label = Text::new(format!("{}{}{}", node.name, suffix, lock));
-                label.set_scale(16.0);
+                let stop_number = format!("{}", i + 1);
+                let mut label = Text::new(stop_number);
+                label.set_scale(18.0);
                 let w = label.measure(ctx)?.x;
                 *entry = Some((label_key, label, w));
             }
@@ -347,8 +580,54 @@ pub fn draw_world_map(
                 canvas.draw(
                     label,
                     DrawParam::default()
-                        .dest(Vec2::new(pos.x - w * 0.5, pos.y + 24.0))
-                        .color(label_color),
+                        .dest(Vec2::new(pos.x - w * 0.5, pos.y - 11.0))
+                        .color(if node.unlocked {
+                            Color::new(0.04, 0.10, 0.12, 1.0)
+                        } else {
+                            Color::new(0.92, 0.87, 0.68, 1.0)
+                        }),
+                );
+            }
+            Ok(())
+        })?;
+
+        // A fixed destination caption keeps full names readable without carpeting the route in text.
+        let selected = &map.nodes[map.selected];
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(sx * 0.12, sy * 0.125))
+                .scale(Vec2::new(sx * 0.76, sy * 0.065))
+                .color(Color::new(0.015, 0.07, 0.11, 0.86)),
+        );
+        WORLD_MAP_SELECTED_CACHE.with(|c| -> ggez::GameResult {
+            let mut cache = c.borrow_mut();
+            let key = (map.selected, selected.completed, selected.unlocked);
+            // Only selection and progression state affect the caption; cached text and width are the
+            // derived payload and therefore intentionally excluded from the validity key.
+            if cache
+                .as_ref()
+                .map(|(i, completed, unlocked, _, _)| (*i, *completed, *unlocked))
+                != Some(key)
+            {
+                let status = if selected.completed {
+                    "COMPLETE"
+                } else if selected.unlocked {
+                    "NEXT STOP"
+                } else {
+                    "UNCHARTED"
+                };
+                let mut text = Text::new(format!("{status}  •  {}", selected.name));
+                text.set_scale(20.0);
+                let w = text.measure(ctx)?.x;
+                *cache = Some((key.0, key.1, key.2, text, w));
+            }
+            if let Some((_, _, _, text, w)) = cache.as_ref() {
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(Vec2::new((sx - w) * 0.5, sy * 0.14))
+                        .color(Color::new(1.0, 0.86, 0.38, 1.0)),
                 );
             }
             Ok(())
@@ -576,6 +855,92 @@ pub fn draw_day_weather_hud(
         });
     }
     Ok(())
+}
+
+/// Color-coded King Crab build strip. Dim cards preview the next build choice; captured colors
+/// pulse with their count and the rank they contributed to.
+pub fn draw_king_loadout(
+    ctx: &mut Context,
+    canvas: &mut Canvas,
+    width: f32,
+    height: f32,
+    powers: [u32; 5],
+    tool_ranks: [u32; 4],
+    conga_tint: [f32; 3],
+    time: f32,
+) -> ggez::GameResult {
+    let captured = powers.iter().sum::<u32>();
+    if captured == 0 {
+        return Ok(());
+    }
+    let strip_width = (width - KING_LOADOUT_MARGIN).min(KING_LOADOUT_MAX_WIDTH);
+    let gap = KING_LOADOUT_CARD_GAP;
+    let card_w = (strip_width - gap * 4.0) / 5.0;
+    let x0 = (width - strip_width) * 0.5;
+    let y = height - KING_LOADOUT_BOTTOM_OFFSET;
+    let square_mesh = unit_square(ctx)?;
+
+    KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
+        let mut cache = cache.borrow_mut();
+        if cache.as_ref().map_or(true, |(saved_powers, saved_ranks, _)| {
+            *saved_powers != powers || *saved_ranks != tool_ranks
+        }) {
+            let mut labels = Vec::with_capacity(6);
+            let noun = if captured == 1 { "POWER" } else { "POWERS" };
+            let mut title = Text::new(format!("KING CONGA  ·  {} COLOR {}", captured, noun));
+            title.set_scale(12.0);
+            labels.push(title);
+            for (i, (name, effect, _)) in KING_LOADOUT_CARDS.iter().enumerate() {
+                let count = powers[i];
+                let rank = tool_ranks[KING_POWER_TOOL_RANKS[i]];
+                let mut label = Text::new(if count == 0 {
+                    format!("{}\n{}", name, effect)
+                } else {
+                    format!("{} ×{}\n{} · LV {}", name, count, effect, rank)
+                });
+                label.set_scale(10.0);
+                labels.push(label);
+            }
+            *cache = Some((powers, tool_ranks, labels));
+        }
+
+        let (_, _, labels) = cache.as_ref().unwrap();
+        canvas.draw(
+            &labels[0],
+            DrawParam::default()
+                .dest(Vec2::new(x0, y - 15.0))
+                .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
+        );
+        for (i, (_, _, color)) in KING_LOADOUT_CARDS.iter().enumerate() {
+            let x = x0 + i as f32 * (card_w + gap);
+            let active = powers[i] > 0;
+            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin()
+                * KING_LOADOUT_SINE_MIDPOINT
+                + KING_LOADOUT_SINE_MIDPOINT)
+                * KING_LOADOUT_PULSE_AMPLITUDE;
+            canvas.draw(
+                square_mesh,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, 38.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 0.25 + pulse } else { 0.07 })),
+            );
+            canvas.draw(
+                square_mesh,
+                DrawParam::default()
+                    .dest(Vec2::new(x, y))
+                    .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.35 })),
+            );
+            canvas.draw(
+                &labels[i + 1],
+                DrawParam::default()
+                    .dest(Vec2::new(x + 5.0, y + 5.0))
+                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.45 })),
+            );
+        }
+        Ok(())
+    })
 }
 
 /// Compact tool roster at the bottom centre — shows each tool's key, name, matchup hint, and
