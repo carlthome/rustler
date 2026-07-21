@@ -18,8 +18,16 @@ const KING_LOADOUT_BOTTOM_OFFSET: f32 = 108.0;
 const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
 const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
 const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
+const KING_LOADOUT_SINE_MIDPOINT: f32 = 0.5;
 // Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
 const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
+const KING_LOADOUT_CARDS: [(&str, &str, [f32; 3]); 5] = [
+    ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08]),
+    ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0]),
+    ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0]),
+    ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16]),
+    ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62]),
+];
 
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
@@ -605,19 +613,12 @@ pub fn draw_king_loadout(
     if captured == 0 {
         return Ok(());
     }
-    let cards = [
-        ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08], powers[0], tool_ranks[KING_POWER_TOOL_RANKS[0]]),
-        ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0], powers[1], tool_ranks[KING_POWER_TOOL_RANKS[1]]),
-        ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0], powers[2], tool_ranks[KING_POWER_TOOL_RANKS[2]]),
-        ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16], powers[3], tool_ranks[KING_POWER_TOOL_RANKS[3]]),
-        ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62], powers[4], tool_ranks[KING_POWER_TOOL_RANKS[4]]),
-    ];
     let strip_width = (width - KING_LOADOUT_MARGIN).min(KING_LOADOUT_MAX_WIDTH);
     let gap = KING_LOADOUT_CARD_GAP;
     let card_w = (strip_width - gap * 4.0) / 5.0;
     let x0 = (width - strip_width) * 0.5;
     let y = height - KING_LOADOUT_BOTTOM_OFFSET;
-    let sq = unit_square(ctx)?;
+    let square_mesh = unit_square(ctx)?;
 
     KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
         let mut cache = cache.borrow_mut();
@@ -629,7 +630,9 @@ pub fn draw_king_loadout(
             let mut title = Text::new(format!("KING CONGA  ·  {} COLOR {}", captured, noun));
             title.set_scale(12.0);
             labels.push(title);
-            for (name, effect, _, count, rank) in cards {
+            for (i, (name, effect, _)) in KING_LOADOUT_CARDS.iter().enumerate() {
+                let count = powers[i];
+                let rank = tool_ranks[KING_POWER_TOOL_RANKS[i]];
                 let mut label = Text::new(if count == 0 {
                     format!("{}\n{}", name, effect)
                 } else {
@@ -648,19 +651,22 @@ pub fn draw_king_loadout(
                 .dest(Vec2::new(x0, y - 15.0))
                 .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
         );
-        for (i, (_, _, color, count, _)) in cards.iter().enumerate() {
+        for (i, (_, _, color)) in KING_LOADOUT_CARDS.iter().enumerate() {
             let x = x0 + i as f32 * (card_w + gap);
-            let active = *count > 0;
-            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin() * 0.5 + 0.5) * KING_LOADOUT_PULSE_AMPLITUDE;
+            let active = powers[i] > 0;
+            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin()
+                * KING_LOADOUT_SINE_MIDPOINT
+                + KING_LOADOUT_SINE_MIDPOINT)
+                * KING_LOADOUT_PULSE_AMPLITUDE;
             canvas.draw(
-                sq,
+                square_mesh,
                 DrawParam::default()
                     .dest(Vec2::new(x, y))
                     .scale(Vec2::new(card_w, 38.0))
                     .color(Color::new(color[0], color[1], color[2], if active { 0.25 + pulse } else { 0.07 })),
             );
             canvas.draw(
-                sq,
+                square_mesh,
                 DrawParam::default()
                     .dest(Vec2::new(x, y))
                     .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
