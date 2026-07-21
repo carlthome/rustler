@@ -1,6 +1,7 @@
 use ggez::glam::Vec2;
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Text};
 use ggez::{Context, GameResult};
+use std::cell::RefCell;
 
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::graphics::{
@@ -10,6 +11,7 @@ use crate::hud_cache::{
     CAREER_LABEL_CACHE, LOADOUT_PAGE_CACHE, MENU_BUTTONS_CACHE, MENU_SUBTITLE_CACHE,
     MENU_TITLE_CACHE, MENU_TITLE_CHARS_CACHE,
 };
+use crate::skins::PlayerSkin;
 use crate::state::MainState;
 
 pub fn draw_menu(
@@ -310,34 +312,69 @@ pub fn draw_menu(
         let preview_w = 458.0;
         let preview_h = 88.0;
         let preview_x = (width - preview_w) / 2.0;
-        let preview_rect = Rect::new(preview_x, preview_top, preview_w, preview_h);
-        let preview_bg = Mesh::new_rounded_rectangle(
-            ctx,
-            DrawMode::fill(),
-            preview_rect,
-            16.0,
-            Color::from_rgba(10, 14, 30, 120),
-        )?;
-        canvas.draw(&preview_bg, DrawParam::default());
 
-        let mut preview_label = Text::new("CURRENT CRAB");
-        preview_label.set_scale(15.0);
-        canvas.draw(
-            &preview_label,
-            DrawParam::default()
-                .dest(Vec2::new(preview_x + 20.0, preview_top + 10.0))
-                .color(Color::from_rgb(140, 220, 210)),
-        );
+        // The preview panel's size never changes (fixed constants above), only its screen
+        // position does — so the rounded-rect mesh is built once at the origin and every frame
+        // just offsets it via DrawParam, instead of re-uploading a fresh GPU buffer for a panel
+        // that sits on screen for as long as the player looks at the Home page.
+        thread_local! {
+            static PREVIEW_PANEL_MESH: RefCell<Option<Mesh>> = const { RefCell::new(None) };
+        }
+        PREVIEW_PANEL_MESH.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                *cache = Some(Mesh::new_rounded_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    Rect::new(0.0, 0.0, preview_w, preview_h),
+                    16.0,
+                    Color::from_rgba(10, 14, 30, 120),
+                )?);
+            }
+            canvas.draw(
+                cache.as_ref().unwrap(),
+                DrawParam::default().dest(Vec2::new(preview_x, preview_top)),
+            );
+            Ok(())
+        })?;
 
-        let mut preview_tagline = Text::new(skin.tagline());
-        preview_tagline.set_scale(19.0);
+        thread_local! {
+            static PREVIEW_LABEL_CACHE: RefCell<Option<Text>> = const { RefCell::new(None) };
+        }
+        PREVIEW_LABEL_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut t = Text::new("CURRENT CRAB");
+                t.set_scale(15.0);
+                *cache = Some(t);
+            }
+            canvas.draw(
+                cache.as_ref().unwrap(),
+                DrawParam::default()
+                    .dest(Vec2::new(preview_x + 20.0, preview_top + 10.0))
+                    .color(Color::from_rgb(140, 220, 210)),
+            );
+        });
+
+        thread_local! {
+            static PREVIEW_TAGLINE_CACHE: RefCell<Option<(PlayerSkin, Text)>> = const { RefCell::new(None) };
+        }
         let tagline_y = preview_top + 34.0;
-        canvas.draw(
-            &preview_tagline,
-            DrawParam::default()
-                .dest(Vec2::new(preview_x + 108.0, tagline_y))
-                .color(Color::from_rgb(255, 235, 190)),
-        );
+        PREVIEW_TAGLINE_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((s, _)) if *s == skin);
+            if needs_rebuild {
+                let mut t = Text::new(skin.tagline());
+                t.set_scale(19.0);
+                *cache = Some((skin, t));
+            }
+            canvas.draw(
+                &cache.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(preview_x + 108.0, tagline_y))
+                    .color(Color::from_rgb(255, 235, 190)),
+            );
+        });
 
         draw_rustler(
             ctx,
@@ -351,14 +388,24 @@ pub fn draw_menu(
             skin,
         )?;
 
-        let mut preview_name = Text::new(state.player_name.as_str());
-        preview_name.set_scale(18.0);
-        canvas.draw(
-            &preview_name,
-            DrawParam::default()
-                .dest(Vec2::new(preview_x + 108.0, preview_top + 56.0))
-                .color(Color::from_rgb(240, 224, 180)),
-        );
+        thread_local! {
+            static PREVIEW_NAME_CACHE: RefCell<Option<(String, Text)>> = const { RefCell::new(None) };
+        }
+        PREVIEW_NAME_CACHE.with(|c| {
+            let mut cache = c.borrow_mut();
+            let needs_rebuild = !matches!(&*cache, Some((n, _)) if n == &state.player_name);
+            if needs_rebuild {
+                let mut t = Text::new(state.player_name.as_str());
+                t.set_scale(18.0);
+                *cache = Some((state.player_name.clone(), t));
+            }
+            canvas.draw(
+                &cache.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(preview_x + 108.0, preview_top + 56.0))
+                    .color(Color::from_rgb(240, 224, 180)),
+            );
+        });
     }
 
     // --- Home page: traditional centered menu buttons ----------------------------------
@@ -388,66 +435,107 @@ pub fn draw_menu(
             Ok(())
         })?;
 
-        MENU_BUTTONS_CACHE.with(|c| -> GameResult {
-            let cache = c.borrow();
-            let buttons = cache.as_ref().unwrap();
-            for (i, (txt, tw)) in buttons.iter().enumerate() {
-                let by = btn_start_y + i as f32 * (btn_h + btn_gap);
-                let selected = state.menu_selection == i;
-                let bg_color = if selected {
-                    Color::from_rgba(60, 180, 160, 200)
-                } else {
-                    Color::from_rgba(10, 20, 40, 160)
-                };
-                let border_color = if selected {
-                    Color::from_rgba(120, 255, 230, 220)
-                } else {
-                    Color::from_rgba(80, 100, 130, 120)
-                };
-                let bg = Mesh::new_rounded_rectangle(
+        // Button size/radius/colors are all fixed constants — only the "which index is
+        // selected" state varies — so the 4 possible rounded-rect meshes (bg/border ×
+        // selected/unselected) are built once at the local origin and reused every frame via
+        // a DrawParam offset, instead of re-uploading up to 10 fresh GPU buffers a frame while
+        // the Home page just sits on screen.
+        thread_local! {
+            static BUTTON_MESH_CACHE: RefCell<Option<(Mesh, Mesh, Mesh, Mesh)>> = const { RefCell::new(None) };
+        }
+        BUTTON_MESH_CACHE.with(|c| -> GameResult {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let rect = Rect::new(0.0, 0.0, btn_w, btn_h);
+                let bg_selected = Mesh::new_rounded_rectangle(
                     ctx,
                     DrawMode::fill(),
-                    Rect::new(btn_x, by, btn_w, btn_h),
+                    rect,
                     10.0,
-                    bg_color,
+                    Color::from_rgba(60, 180, 160, 200),
                 )?;
-                canvas.draw(&bg, DrawParam::default());
-                let border = Mesh::new_rounded_rectangle(
+                let bg_unselected = Mesh::new_rounded_rectangle(
+                    ctx,
+                    DrawMode::fill(),
+                    rect,
+                    10.0,
+                    Color::from_rgba(10, 20, 40, 160),
+                )?;
+                let border_selected = Mesh::new_rounded_rectangle(
                     ctx,
                     DrawMode::stroke(2.0),
-                    Rect::new(btn_x, by, btn_w, btn_h),
+                    rect,
                     10.0,
-                    border_color,
+                    Color::from_rgba(120, 255, 230, 220),
                 )?;
-                canvas.draw(&border, DrawParam::default());
-                let label_x = btn_x + (btn_w - tw) / 2.0;
-                let label_y = by + (btn_h - 30.0) / 2.0;
-                let text_color = if selected {
-                    Color::new(1.0, 1.0, 0.9, pulse.max(0.85))
-                } else {
-                    Color::from_rgba(200, 210, 230, 200)
-                };
-                canvas.draw(
-                    txt,
-                    DrawParam::default()
-                        .dest(Vec2::new(label_x, label_y))
-                        .color(text_color),
-                );
+                let border_unselected = Mesh::new_rounded_rectangle(
+                    ctx,
+                    DrawMode::stroke(2.0),
+                    rect,
+                    10.0,
+                    Color::from_rgba(80, 100, 130, 120),
+                )?;
+                *cache = Some((bg_selected, bg_unselected, border_selected, border_unselected));
             }
+            let (bg_selected, bg_unselected, border_selected, border_unselected) =
+                cache.as_ref().unwrap();
+            MENU_BUTTONS_CACHE.with(|bc| {
+                let bcache = bc.borrow();
+                let buttons = bcache.as_ref().unwrap();
+                for (i, (txt, tw)) in buttons.iter().enumerate() {
+                    let by = btn_start_y + i as f32 * (btn_h + btn_gap);
+                    let selected = state.menu_selection == i;
+                    let dest = Vec2::new(btn_x, by);
+                    canvas.draw(
+                        if selected { bg_selected } else { bg_unselected },
+                        DrawParam::default().dest(dest),
+                    );
+                    canvas.draw(
+                        if selected { border_selected } else { border_unselected },
+                        DrawParam::default().dest(dest),
+                    );
+                    let label_x = btn_x + (btn_w - tw) / 2.0;
+                    let label_y = by + (btn_h - 30.0) / 2.0;
+                    let text_color = if selected {
+                        Color::new(1.0, 1.0, 0.9, pulse.max(0.85))
+                    } else {
+                        Color::from_rgba(200, 210, 230, 200)
+                    };
+                    canvas.draw(
+                        txt,
+                        DrawParam::default()
+                            .dest(Vec2::new(label_x, label_y))
+                            .color(text_color),
+                    );
+                }
+            });
             Ok(())
         })?;
 
-        // Navigation hint below the buttons.
+        // Navigation hint below the buttons — constant string, shaped once.
         let hint_y = btn_start_y + total_h + 28.0;
-        let mut hint_txt = Text::new("\u{25B2}/\u{25BC} navigate    Space/Enter select");
-        hint_txt.set_scale(16.0);
-        let hw = hint_txt.measure(ctx)?.x;
-        canvas.draw(
-            &hint_txt,
-            DrawParam::default()
-                .dest(Vec2::new((width - hw) / 2.0, hint_y))
-                .color(Color::from_rgba(160, 170, 200, 130)),
-        );
+        thread_local! {
+            static HINT_TEXT_CACHE: RefCell<Option<(Text, f32)>> = const { RefCell::new(None) };
+        }
+        let hw = HINT_TEXT_CACHE.with(|c| -> GameResult<f32> {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut t = Text::new("\u{25B2}/\u{25BC} navigate    Space/Enter select");
+                t.set_scale(16.0);
+                let w = t.measure(ctx)?.x;
+                *cache = Some((t, w));
+            }
+            Ok(cache.as_ref().unwrap().1)
+        })?;
+        HINT_TEXT_CACHE.with(|c| {
+            let cache = c.borrow();
+            canvas.draw(
+                &cache.as_ref().unwrap().0,
+                DrawParam::default()
+                    .dest(Vec2::new((width - hw) / 2.0, hint_y))
+                    .color(Color::from_rgba(160, 170, 200, 130)),
+            );
+        });
 
         // Career stats — only shown once there is a career to show.
         if state.career_runs > 0 {
