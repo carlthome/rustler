@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.37.0 — 2026-07-21
+
+### Features
+- Groove chord: tap Space on the beat, hold a tool to flavor it
+
 ## v0.36.0 — 2026-07-21
 
 ### Features
