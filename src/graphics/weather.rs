@@ -148,7 +148,11 @@ pub fn draw_world_zones(
                 dots.push(DrawParam::default().dest([x, y]).scale(Vec2::splat(1.1)).color(col));
             }
             // Shells: a tiny ellipse (short wide dot) + a line for the hinge/ridge
-            let shells = ((beach_w * world_h) / 42000.0).max(if beach_w > 0.0 { 3.0 } else { 0.0 }) as u32;
+            let shells = if beach_w > 0.0 {
+                ((beach_w * world_h) / 42000.0).max(3.0) as u32
+            } else {
+                0
+            };
             for i in 0..shells {
                 let seed = i + 13000;
                 let x = beach_x + 8.0 + zone_rand(seed * 3 + 1) * (beach_w - 16.0);
