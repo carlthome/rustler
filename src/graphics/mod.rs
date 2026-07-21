@@ -545,6 +545,10 @@ thread_local! {
     static WORLD_MAP_NODE_LABELS: RefCell<Vec<Option<((bool, bool), Text, f32)>>> = RefCell::new(Vec::new());
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    // Per-node biome tint for the world map, built once (the node list is stable for the session).
+    // Campaign nodes take their level's `biome.tint`; tutorial nodes get a warm amber on-ramp colour.
+    // Cached so we never rebuild the (String-allocating) `get_levels()` list per frame.
+    static WORLD_MAP_NODE_TINTS: RefCell<Option<Vec<Color>>> = RefCell::new(None);
 
     // Player cosmetics mesh cache: pre-built meshes for hat/facial-hair/accessory combos,
     // keyed by (Hat, FacialHair, Accessory). Each entry is a Vec of (Mesh, DrawParam) where
@@ -7669,21 +7673,64 @@ pub fn draw_world_map(
         Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
     };
 
-    // Connecting path lines between consecutive nodes. Only N-1 ≤ 3 lines total and each is a
-    // plain two-point Mesh::new_line; the per-frame glyph-shaping cost is absent here so these
-    // don't need caching — they're cheap geometry, not text.
+    // Biome tint per node — built once (see the cache note above). Cloned out cheaply (≤ a handful
+    // of Copy `Color`s) so the draw loops below can read tints without holding the RefCell borrow.
+    let node_tints: Vec<Color> = WORLD_MAP_NODE_TINTS.with(|c| {
+        let mut cache = c.borrow_mut();
+        if cache.is_none() {
+            use crate::world_map::NodeKind;
+            let levels = crate::levels::get_levels();
+            let tints = map
+                .nodes
+                .iter()
+                .map(|n| match &n.kind {
+                    // Tutorials are the welcoming on-ramp — a warm amber, distinct from any biome.
+                    NodeKind::Tutorial(_) => Color::new(0.90, 0.70, 0.35, 1.0),
+                    NodeKind::Level(i) => {
+                        let (r, g, b) = levels
+                            .get(*i)
+                            .map(|l| l.biome.tint)
+                            .unwrap_or((200, 200, 200));
+                        Color::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0)
+                    }
+                })
+                .collect::<Vec<_>>();
+            *cache = Some(tints);
+        }
+        cache.clone().unwrap()
+    });
+
+    // Connecting path lines between consecutive nodes. Gradient each unlocked leg between the two
+    // nodes' biome tints so the path itself telegraphs the tonal shift (warm beach → cold water).
+    // A few short segments per leg is plenty on this static menu screen (no gameplay frame budget).
     for i in 0..map.nodes.len().saturating_sub(1) {
         let a = node_to_screen(map.nodes[i].position);
         let b = node_to_screen(map.nodes[i + 1].position);
-        let color = if map.nodes[i + 1].unlocked {
-            Color::new(0.5, 0.7, 0.5, 0.6)
+        if map.nodes[i + 1].unlocked {
+            let (ca, cb) = (node_tints[i], node_tints[i + 1]);
+            const SEGS: usize = 6;
+            for s in 0..SEGS {
+                let t0 = s as f32 / SEGS as f32;
+                let t1 = (s + 1) as f32 / SEGS as f32;
+                let tm = (t0 + t1) * 0.5;
+                let col = Color::new(
+                    ca.r + (cb.r - ca.r) * tm,
+                    ca.g + (cb.g - ca.g) * tm,
+                    ca.b + (cb.b - ca.b) * tm,
+                    0.6,
+                );
+                canvas.draw(
+                    &Mesh::new_line(ctx, &[a.lerp(b, t0), a.lerp(b, t1)], 3.0, col)?,
+                    DrawParam::default(),
+                );
+            }
         } else {
-            Color::new(0.3, 0.3, 0.3, 0.4)
-        };
-        canvas.draw(
-            &Mesh::new_line(ctx, &[a, b], 3.0, color)?,
-            DrawParam::default(),
-        );
+            // Locked leg stays a dim, colourless thread — the colour "unlocks" with the node.
+            canvas.draw(
+                &Mesh::new_line(ctx, &[a, b], 3.0, Color::new(0.3, 0.3, 0.3, 0.4))?,
+                DrawParam::default(),
+            );
+        }
     }
 
     // Reuse UNIT_CIRCLE (built once, scaled via DrawParam) instead of a fresh Mesh::new_circle
@@ -7707,16 +7754,43 @@ pub fn draw_world_map(
             );
         }
 
-        // Node fill — color varies by state but is computed as a DrawParam, not baked into a mesh,
-        // so a single cached unit circle covers all fill states.
+        // Biome glow — a soft radial halo behind each unlocked node in its zone's colour, so the map
+        // reads as an illustrated world at a glance. Locked nodes get none (their colour is hidden
+        // until earned). Drawn before the fill so the solid dot sits on top of its halo.
+        let tint = node_tints[i];
+        if node.unlocked {
+            canvas.draw(
+                circle,
+                DrawParam::default()
+                    .dest(pos)
+                    .scale(Vec2::splat(27.0))
+                    .color(Color::new(tint.r, tint.g, tint.b, 0.18)),
+            );
+        }
+
+        // Node fill — biome-tinted so each zone reads by colour. Computed as a DrawParam (not baked
+        // into a mesh) so a single cached unit circle covers all states. Locked → desaturated to a
+        // dim grey (colour "unlocks" as a reward); completed → full tint, slightly brightened;
+        // selected → tint brightened (the gold selection ring above still marks the cursor).
         let fill_color = if !node.unlocked {
-            Color::new(0.25, 0.25, 0.25, 1.0)
+            let g = (tint.r + tint.g + tint.b) / 3.0 * 0.4 + 0.12;
+            Color::new(g, g, g, 1.0)
         } else if node.completed {
-            Color::new(0.25, 0.75, 0.65, 1.0)
+            Color::new(
+                (tint.r * 1.1).min(1.0),
+                (tint.g * 1.1).min(1.0),
+                (tint.b * 1.1).min(1.0),
+                1.0,
+            )
         } else if is_selected {
-            Color::new(1.0, 0.9, 0.3, 1.0)
+            Color::new(
+                (tint.r * 1.25 + 0.1).min(1.0),
+                (tint.g * 1.25 + 0.1).min(1.0),
+                (tint.b * 1.25 + 0.1).min(1.0),
+                1.0,
+            )
         } else {
-            Color::new(0.85, 0.85, 0.85, 1.0)
+            tint
         };
         canvas.draw(
             circle,
