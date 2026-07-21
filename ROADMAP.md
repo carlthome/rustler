@@ -2,8 +2,8 @@
 
 High-level capabilities we believe would make Crab Rustler more fun, kept short and scannable.
 Maintained by the Game Designer agent (see CLAUDE.md, Cron 6) — it reads Slack feedback on
-releases and updates this list accordingly. Feature Developer and Overnight Developer read
-this for direction before picking their next task; they don't edit it themselves.
+releases and updates this list accordingly. The Gameplay Engineer reads this for direction
+before picking the next task; it doesn't edit the roadmap itself.
 
 **The thesis (Carl, 2026-07-16).** The real game is *competing conga lines*: crab leaders (NPC King
 Crabs, and eventually human Rustlers) steal each other's crabs to grow their own train, and whoever's
@@ -220,7 +220,7 @@ item in "Now" below.
 - **Level system rethink — direction for when the full rework lands in "Now".** Carl's playtest feedback pulls
   in one direction: levels should feel like *travelling somewhere that matters*, less often but with more
   impact, and the whole levels/campaign/tutorial split should be woven together more holistically. Context for
-  a future Feature Developer, not a spec:
+  the Gameplay Engineer, not a spec:
   - **Fewer, more impactful biome shifts.** Lean into the Control-style floor-banner aesthetic (Carl likes the
     font/transition), but make each boundary a genuine gear-change — new biome + new terrain hazard + new
     enemy-archetype emphasis together, not a tint swap. Rarer transitions each carrying real weight beats

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.42.0 — 2026-07-21
+
+### Features
+- Add bloom shader to the main-menu moon
+- Coach off-beat ranged casts with a dim EARLY/LATE near-miss tick
+
+## v0.41.0 — 2026-07-21
+
+### Features
+- Show retro loading screen during startup
+
+### Refactoring
+- Extract active player-tool resolution from tick into tool_resolve.rs
+
 ## v0.40.3 — 2026-07-21
 
 ### Audio

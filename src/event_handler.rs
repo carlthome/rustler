@@ -109,6 +109,13 @@ impl EventHandler for MainState {
                 screen_width: self.width,
                 screen_height: self.height,
                 title_card_t: title_t,
+                menu_bloom: if self.show_instructions && self.menu_page == 0 {
+                    1.0
+                } else {
+                    0.0
+                },
+                menu_moon_x: 0.82,
+                menu_moon_y: 0.2,
             };
             // Reuse cached shader params, just update uniforms (avoids per-frame GPU buffer alloc)
             self.postprocess_params.set_uniforms(ctx, &uniform);

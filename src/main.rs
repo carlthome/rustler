@@ -36,6 +36,7 @@ mod spawnings;
 mod startle;
 mod state;
 mod state_init;
+mod tool_resolve;
 mod tutorial;
 mod upgrade;
 mod world_map;
@@ -112,7 +113,9 @@ use ggez::conf::{FullscreenType, WindowMode, WindowSetup};
 use ggez::event;
 use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
-use ggez::input::keyboard::KeyCode;
+use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Text};
+use ggez::input::keyboard::{KeyCode, KeyInput};
+use ggez::input::mouse::MouseButton;
 use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
 
@@ -526,6 +529,26 @@ impl MainState {
         }
         let level = &self.levels[self.current_level];
         let p = &level.patterns[self.current_pattern];
+        // Arcade is an endless tour through the biome set. Each completed tour raises the herd
+        // density and shortens the clear window, while deterministic centroid transforms keep later
+        // visits from replaying the exact same spatial sequence.
+        let arcade_tour = if self.in_campaign {
+            0
+        } else {
+            (self.arcade_stage.saturating_sub(1) / self.levels.len().max(1)) as u32
+        };
+        let arcade_count_mul = (1.0 + arcade_tour as f32 * 0.12).min(3.0);
+        let arcade_duration_mul = (1.0 - arcade_tour as f32 * 0.035).max(0.58);
+        let centroid = if self.in_campaign {
+            p.centroid
+        } else {
+            match self.arcade_stage % 4 {
+                0 => (1.0 - p.centroid.0, p.centroid.1), // horizontal mirror
+                1 => p.centroid,                         // authored placement
+                2 => (p.centroid.1, 1.0 - p.centroid.0), // quarter turn
+                _ => (1.0 - p.centroid.1, p.centroid.0), // opposite quarter turn
+            }
+        };
         // Frenzy waves drop a denser herd than the pattern normally calls for — the staged spike.
         // ~1.7x the count (min +4) so it reads as a real surge, and give a touch less time to
         // clear it so the pressure is felt. `frenzy_wave` was set during arming and is consumed
@@ -538,14 +561,14 @@ impl MainState {
         let stage_dur = STAGE_DURATION_SCALE
             .powi(stage as i32)
             .max(STAGE_DURATION_FLOOR);
-        let base_count = (p.count as f32 * stage_mul).round() as usize;
+        let base_count = (p.count as f32 * stage_mul * arcade_count_mul).round() as usize;
         let frenzy = self.frenzy_wave;
         let count = if frenzy {
             ((base_count as f32 * 1.7).ceil() as usize).max(base_count + 4)
         } else {
             base_count
         };
-        let base_duration = p.duration * stage_dur;
+        let base_duration = p.duration * stage_dur * arcade_duration_mul;
         let duration = if frenzy {
             base_duration * 0.85
         } else {
@@ -555,7 +578,7 @@ impl MainState {
             p.pattern.clone(),
             count,
             area,
-            p.centroid,
+            centroid,
             level.emphasis,
             &mut rng,
         );
@@ -570,50 +593,44 @@ impl MainState {
         self.current_pattern += 1;
         let level = &self.levels[self.current_level];
         if self.current_pattern >= level.patterns.len() {
-            self.current_level += 1;
+            let previous_title = level.title.clone();
             self.current_pattern = 0;
-            // Name the level we just *entered* (biome + emphasis threat on the card also read from
-            // current_level), not the one we left — otherwise the title says one zone while the
-            // biome subtitle and threat banner name the next, an internally-mismatched card.
-            self.level_title = self
-                .levels
-                .get(self.current_level)
-                .map(|l| l.title.clone())
-                .unwrap_or_else(|| level.title.clone());
-            self.level_title_timer = 3.1; // 0.3s fade-in + 2.2s hold + 0.6s fade-out
-            if let Some(next_level) = self.levels.get(self.current_level) {
-                self.resize_world(next_level.map_size);
+            // Campaign nodes are self-contained maps: keep generating waves in this biome until
+            // the explicit win condition returns the player to the world map. Arcade instead moves
+            // forever through an escalating, procedurally varied biome sequence.
+            if !self.in_campaign {
+                self.arcade_stage = self.arcade_stage.saturating_add(1);
+                self.current_level = (self.current_level + 1) % self.levels.len();
+                self.level_title = self
+                    .levels
+                    .get(self.current_level)
+                    .map(|level| format!("Stage {} — {}", self.arcade_stage, level.title))
+                    .unwrap_or(previous_title);
+                self.level_title_timer = 3.1;
+                if let Some(next_level) = self.levels.get(self.current_level) {
+                    self.resize_world(next_level.map_size);
+                }
+                // Fresh biome, fresh pen and terrain locations.
+                let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                self.pen_pos = pick_pen_pos(
+                    self.world_width,
+                    self.world_height,
+                    player_center,
+                    &mut crate::rng::rng(),
+                );
+                let difficulty = self.levels[self.current_level].difficulty;
+                self.tide_pools = pick_tide_pools(
+                    self.world_width,
+                    self.world_height,
+                    self.pen_pos,
+                    player_center,
+                    difficulty,
+                    &mut crate::rng::rng(),
+                );
+                self.boss_flood_pools = 0;
+                self.boss_fissures.clear();
+                self.boss_fissure_erupt = 0.0;
             }
-            // Fresh biome, fresh pen location — keep routing the train there a live decision.
-            let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-            self.pen_pos = pick_pen_pos(
-                self.world_width,
-                self.world_height,
-                player_center,
-                &mut crate::rng::rng(),
-            );
-            // New zone, new water: relocate the tide-pool hazards too, scaling with difficulty.
-            let difficulty = self
-                .levels
-                .get(self.current_level.min(self.levels.len() - 1))
-                .map(|l| l.difficulty)
-                .unwrap_or(0);
-            self.tide_pools = pick_tide_pools(
-                self.world_width,
-                self.world_height,
-                self.pen_pos,
-                player_center,
-                difficulty,
-                &mut crate::rng::rng(),
-            );
-            // New zone wipes any boss-flooded water/fissures — the fresh pools are the level's own.
-            self.boss_flood_pools = 0;
-            self.boss_fissures.clear();
-            self.boss_fissure_erupt = 0.0;
-        }
-        if self.current_level >= self.levels.len() {
-            // Game completed, show game over screen.
-            self.game_over = true;
         }
         let area = (self.world_width, self.world_height);
         self.start_current_pattern(area);
@@ -768,6 +785,148 @@ impl MainState {
     // apply_upgrade now lives in src/upgrade.rs (impl MainState there).
 }
 
+enum AppState {
+    Loading { has_drawn: bool },
+    Ready(MainState),
+}
+
+impl event::EventHandler for AppState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
+        match self {
+            Self::Loading { has_drawn } if *has_drawn => {
+                *self = Self::Ready(MainState::new(ctx)?);
+                Ok(())
+            }
+            Self::Loading { has_drawn } => {
+                *has_drawn = true;
+                Ok(())
+            }
+            Self::Ready(state) => state.update(ctx),
+        }
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult {
+        match self {
+            Self::Loading { .. } => draw_loading_screen(ctx, 0.0, "LOADING THE RAVE..."),
+            Self::Ready(state) => state.draw(ctx),
+        }
+    }
+
+    fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, repeat: bool) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.key_down_event(ctx, input, repeat)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_motion_event(
+        &mut self,
+        ctx: &mut Context,
+        x: f32,
+        y: f32,
+        xrel: f32,
+        yrel: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_motion_event(ctx, x, y, xrel, yrel)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_button_down_event(
+        &mut self,
+        ctx: &mut Context,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_button_down_event(ctx, button, x, y)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mouse_button_up_event(
+        &mut self,
+        ctx: &mut Context,
+        button: MouseButton,
+        x: f32,
+        y: f32,
+    ) -> GameResult {
+        if let Self::Ready(state) = self {
+            state.mouse_button_up_event(ctx, button, x, y)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn draw_loading_screen(ctx: &mut Context, progress: f32, label: &str) -> GameResult {
+    const BAR_WIDTH: f32 = 400.0;
+    const BLOCK_WIDTH: f32 = 16.0;
+    const BLOCK_GAP: f32 = 4.0;
+    const BLOCK_COUNT: usize = 20;
+    const BAR_HEIGHT: f32 = 20.0;
+    const BORDER_PADDING: f32 = 10.0;
+    let (width, height) = ctx.gfx.drawable_size();
+    let bar_x = (width - BAR_WIDTH) * 0.5;
+    let bar_y = height * 0.5;
+    let filled_blocks = (progress.clamp(0.0, 1.0) * BLOCK_COUNT as f32) as usize;
+    let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(10, 14, 31));
+
+    let border = Mesh::new_rectangle(
+        ctx,
+        DrawMode::stroke(3.0),
+        Rect::new(
+            bar_x - BORDER_PADDING,
+            bar_y - BORDER_PADDING,
+            BAR_WIDTH + BORDER_PADDING * 2.0,
+            BAR_HEIGHT + BORDER_PADDING * 2.0,
+        ),
+        Color::from_rgb(250, 214, 104),
+    )?;
+    canvas.draw(&border, DrawParam::default());
+
+    for block in 0..BLOCK_COUNT {
+        let color = if block < filled_blocks {
+            Color::from_rgb(90, 228, 142)
+        } else {
+            Color::from_rgb(38, 54, 83)
+        };
+        let x = bar_x + block as f32 * (BLOCK_WIDTH + BLOCK_GAP);
+        let segment = Mesh::new_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(x, bar_y, BLOCK_WIDTH, BAR_HEIGHT),
+            color,
+        )?;
+        canvas.draw(&segment, DrawParam::default());
+    }
+
+    let mut title = Text::new("CRAB RUSTLER");
+    title.set_scale(32.0);
+    let title_width = title.measure(ctx)?.x;
+    canvas.draw(
+        &title,
+        DrawParam::default()
+            .dest(Vec2::new((width - title_width) * 0.5, bar_y - 82.0))
+            .color(Color::from_rgb(250, 214, 104)),
+    );
+    let mut status = Text::new(label);
+    status.set_scale(16.0);
+    let status_width = status.measure(ctx)?.x;
+    canvas.draw(
+        &status,
+        DrawParam::default()
+            .dest(Vec2::new((width - status_width) * 0.5, bar_y + 50.0))
+            .color(Color::from_rgb(177, 207, 231)),
+    );
+    canvas.finish(ctx)
+}
+
 fn main() -> GameResult {
     let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         let mut path = path::PathBuf::from(manifest_dir);
@@ -820,9 +979,16 @@ fn main() -> GameResult {
         let logical_h = (size.height as f64 / scale) as f32;
         let _ = ctx.gfx.window().request_inner_size(LogicalSize::new(logical_w, logical_h));
     }
-    let mut state = MainState::new(&mut ctx)?;
+    let mut app = if bot_script.is_some() {
+        AppState::Ready(MainState::new(&mut ctx)?)
+    } else {
+        AppState::Loading { has_drawn: false }
+    };
 
     if let Some(ref name) = bot_script {
+        let AppState::Ready(state) = &mut app else {
+            unreachable!("bot startup always initializes the game state");
+        };
         use bot::{
             BotState, script_campaign_escape, script_campaign_full, script_campaign_loss,
             script_campaign_tutorial, script_groove_dash, script_menu_to_game, script_npc_steal,
@@ -910,7 +1076,7 @@ fn main() -> GameResult {
         state.skip_menu_intro();
     }
 
-    event::run(ctx, event_loop, state)
+    event::run(ctx, event_loop, app)
 }
 
 #[cfg(test)]

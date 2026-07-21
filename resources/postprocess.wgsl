@@ -10,10 +10,9 @@ struct PostProcessUniform {
     screen_width: f32,
     screen_height: f32,
     title_card_t: f32,
-    // crevice AsStd140 pads a 5-float struct to vec4 boundary (3 padding floats)
-    _pad0: f32,
-    _pad1: f32,
-    _pad2: f32,
+    menu_bloom: f32,
+    menu_moon_x: f32,
+    menu_moon_y: f32,
 }
 
 @group(1) @binding(0)
@@ -64,6 +63,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let blurred = (c0 + c1 + c2) / 3.0;
         let blend = (pp.groove - 0.5) * 0.25;
         color = mix(color, blurred, blend);
+    }
+
+    // The menu moon is the scene's focal light. Add a soft, animated bloom around its
+    // normalized position without washing out the title or the darker beach.
+    if (pp.menu_bloom > 0.0) {
+        let moon_uv = vec2<f32>(pp.menu_moon_x, pp.menu_moon_y);
+        let moon_delta = uv - moon_uv;
+        let aspect_delta = vec2<f32>(moon_delta.x, moon_delta.y * pp.screen_height / pp.screen_width);
+        let distance_from_moon = length(aspect_delta);
+        let halo = (1.0 - smoothstep(0.015, 0.19, distance_from_moon)) * pp.menu_bloom;
+        let glow_pulse = 0.92 + 0.08 * sin(pp.time * 1.7);
+        let bloom_color = vec3<f32>(1.0, 0.95, 0.78) * halo * glow_pulse * 0.42;
+
+        let px_x = 1.0 / pp.screen_width;
+        let px_y = 1.0 / pp.screen_height;
+        let nearby = (
+            textureSample(t, s, uv + vec2<f32>(px_x * 10.0, 0.0)).rgb
+                + textureSample(t, s, uv - vec2<f32>(px_x * 10.0, 0.0)).rgb
+                + textureSample(t, s, uv + vec2<f32>(0.0, px_y * 10.0)).rgb
+                + textureSample(t, s, uv - vec2<f32>(0.0, px_y * 10.0)).rgb
+        ) * 0.25;
+        // Ignore the dark beach; only nearby luminance above this threshold feeds the bloom.
+        let bright_nearby = max(nearby - vec3<f32>(0.18), vec3<f32>(0.0));
+        color += (bloom_color + bright_nearby * halo * 0.22) * pp.menu_bloom;
     }
 
     // Color punch — keep the beach vivid at rest, then intensify it with the groove.

@@ -1,6 +1,6 @@
 # Inspiration
 
-Games and ideas that shaped Crab Rustler's direction. This file is read by the Game Designer and Feature Developer agents — treat it as the design compass, not a feature list.
+Games and ideas that shaped Crab Rustler's direction. This file is read by the Game Designer and Gameplay Engineer agents — treat it as the design compass, not a feature list.
 
 ---
 

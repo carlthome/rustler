@@ -1462,7 +1462,9 @@ impl MainState {
 
         if self.show_world_map {
             if let Some(map) = &self.world_map {
-                self.sounds.action_music.pause();
+                for music in &self.sounds.action_music {
+                    music.pause();
+                }
                 if self.sounds.outro_music.playing() {
                     self.sounds.outro_music.pause();
                 }
@@ -1479,8 +1481,10 @@ impl MainState {
             if self.sounds.outro_music.playing() {
                 self.sounds.outro_music.pause();
             }
-            if self.sounds.action_music.playing() {
-                self.sounds.action_music.pause();
+            for music in &self.sounds.action_music {
+                if music.playing() {
+                    music.pause();
+                }
             }
             let menu_music_ready = self.menu_intro_complete
                 || self.menu_intro_time >= crate::menu_intro::MENU_REVEAL_AT;
@@ -1493,7 +1497,9 @@ impl MainState {
             canvas.finish(ctx)?;
             return Ok(());
         } else if self.game_over {
-            self.sounds.action_music.pause();
+            for music in &self.sounds.action_music {
+                music.pause();
+            }
             if !self.sounds.outro_music.playing() {
                 self.sounds.outro_music.play();
             }
@@ -1503,10 +1509,12 @@ impl MainState {
                 self.sounds.intro_music.pause();
             }
             if self.hitstop_timer <= 0.0 {
-                if self.sounds.action_music.stopped() {
-                    self.sounds.action_music.play();
-                } else if self.sounds.action_music.paused() {
-                    self.sounds.action_music.resume();
+                let active_music = self.action_music_index();
+                let music = &mut self.sounds.action_music[active_music];
+                if music.stopped() {
+                    music.play();
+                } else if music.paused() {
+                    music.resume();
                 }
             }
             self.draw_game(ctx, &mut canvas, width, height)?;

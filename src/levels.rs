@@ -138,6 +138,22 @@ pub struct Biome {
     pub pulse: (u8, u8, u8),
     pub terrain: TerrainKind,
     pub layout: MapLayout,
+    pub music: BiomeMusic,
+}
+
+/// Authored musical identity for a biome. The gameplay beat remains one shared 4/4 clock, while
+/// this selects the loop's timbre, harmony, and arrangement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BiomeMusic {
+    SunnyGroove,
+    TidalDorian,
+    RockShanty,
+    KelpDisco,
+    MoonlitWaltz,
+    WarrenMarch,
+    TreasuryRave,
+    SplitterShanty,
+    DesktopChip,
 }
 
 pub struct Level {
@@ -203,8 +219,8 @@ pub fn boss_label(boss: CrabType) -> &'static str {
 pub fn get_levels() -> Vec<Level> {
     vec![
         Level {
-            title: "Rustler's First Ride".to_string(),
-            description: "A beginner's level to get you started with the Rustler game.".to_string(),
+            title: "First Landing".to_string(),
+            description: "Learn the full catch, train, and bank loop on open sand.".to_string(),
             difficulty: 0,
             map_size: MapSize::Medium,
             biome: Biome {
@@ -213,6 +229,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (120, 255, 120),
                 terrain: TerrainKind::Open,
                 layout: MapLayout::Meadow,
+                music: BiomeMusic::SunnyGroove,
             },
             emphasis: None,
             boss_sequence: vec![CrabType::Boss],
@@ -234,8 +251,8 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Rustler's Challenge".to_string(),
-            description: "A challenging level with multiple spawn patterns.".to_string(),
+            title: "Undertow Shuffle".to_string(),
+            description: "Route a growing train through dragging tidal pools.".to_string(),
             difficulty: 2,
             map_size: MapSize::Large,
             biome: Biome {
@@ -244,6 +261,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (90, 200, 255),
                 terrain: TerrainKind::Water,
                 layout: MapLayout::Coast,
+                music: BiomeMusic::TidalDorian,
             },
             // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
             // zone becomes a routing puzzle where you catch a Magnet to net the blob it gathered.
@@ -286,8 +304,8 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Rustler's Gauntlet".to_string(),
-            description: "A gauntlet of spawn patterns to test your skills.".to_string(),
+            title: "Breaker's Passage".to_string(),
+            description: "Crack shells while threading the rocky chokepoints.".to_string(),
             difficulty: 3,
             map_size: MapSize::Large,
             biome: Biome {
@@ -296,6 +314,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (205, 222, 235),
                 terrain: TerrainKind::Rock,
                 layout: MapLayout::Coast,
+                music: BiomeMusic::RockShanty,
             },
             // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
             // reach for the Stomp constantly — a zone of shells to crack while dodging the rocks.
@@ -338,8 +357,8 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Crab Rave".to_string(),
-            description: "The dance floor is packed. Catch them all!".to_string(),
+            title: "Kelp After Dark".to_string(),
+            description: "Defend a packed conga line on a snagging neon dance floor.".to_string(),
             difficulty: 4,
             map_size: MapSize::Large,
             biome: Biome {
@@ -348,6 +367,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 90, 220),
                 terrain: TerrainKind::Kelp,
                 layout: MapLayout::River,
+                music: BiomeMusic::KelpDisco,
             },
             // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
             // zone is one long fight to defend the train you've built. Tail pressure squared.
@@ -384,7 +404,7 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Moonlit Ballroom".to_string(),
+            title: "Lunar Waltz".to_string(),
             description: "Follow the beat through a moonlit dance floor.".to_string(),
             difficulty: 5,
             map_size: MapSize::Large,
@@ -394,6 +414,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 170, 245),
                 terrain: TerrainKind::Open,
                 layout: MapLayout::Beach,
+                music: BiomeMusic::MoonlitWaltz,
             },
             emphasis: Some(CrabType::Dancer),
             boss_sequence: vec![CrabType::RhythmBoss],
@@ -404,7 +425,7 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Shellgrave Warren".to_string(),
+            title: "Hermit's March".to_string(),
             description: "Crack the borrowed shells before the Warren closes in.".to_string(),
             difficulty: 6,
             map_size: MapSize::Large,
@@ -414,6 +435,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 205, 125),
                 terrain: TerrainKind::Rock,
                 layout: MapLayout::Beach,
+                music: BiomeMusic::WarrenMarch,
             },
             emphasis: Some(CrabType::Hermit),
             boss_sequence: vec![CrabType::HermitKing],
@@ -424,7 +446,7 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "Sunken Treasury".to_string(),
+            title: "Gilded Current".to_string(),
             description: "Chase the shine before the tide hides the prize.".to_string(),
             difficulty: 7,
             map_size: MapSize::Large,
@@ -434,6 +456,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 245, 130),
                 terrain: TerrainKind::Water,
                 layout: MapLayout::Underwater,
+                music: BiomeMusic::TreasuryRave,
             },
             emphasis: Some(CrabType::Golden),
             boss_sequence: vec![CrabType::Boss],
@@ -444,7 +467,7 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
         Level {
-            title: "The Splitter's Causeway".to_string(),
+            title: "Cutlass Causeway".to_string(),
             description: "Shape the train carefully: every catch can cut it in two.".to_string(),
             difficulty: 8,
             map_size: MapSize::Large,
@@ -454,6 +477,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (255, 125, 180),
                 terrain: TerrainKind::Kelp,
                 layout: MapLayout::River,
+                music: BiomeMusic::SplitterShanty,
             },
             emphasis: Some(CrabType::Splitter),
             boss_sequence: vec![CrabType::Boss],
@@ -470,10 +494,10 @@ pub fn get_levels() -> Vec<Level> {
         // title card does the wink. For this first slice the windows are solid walls (reusing the
         // Rock push-out collision); the real transparent-window hookup is deferred to ggez 0.10.
         Level {
-            title: "The Desktop".to_string(),
+            title: "Unauthorized Encore".to_string(),
             description: "Wait — this isn't part of the game. Route the train around the windows."
                 .to_string(),
-            difficulty: 5,
+            difficulty: 9,
             map_size: MapSize::Large,
             biome: Biome {
                 name: "You Shouldn't Be Here",
@@ -484,6 +508,7 @@ pub fn get_levels() -> Vec<Level> {
                 pulse: (150, 190, 235),
                 terrain: TerrainKind::Desktop,
                 layout: MapLayout::Meadow,
+                music: BiomeMusic::DesktopChip,
             },
             // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
             // (the windows) is what reads as different, not the crabs.
@@ -605,6 +630,18 @@ mod tests {
         let desktop = levels.last().unwrap();
         assert_eq!(desktop.boss_for_encounter(4), CrabType::DancerKing);
         assert_eq!(desktop.boss_for_encounter(5), CrabType::Boss);
+    }
+
+    #[test]
+    fn campaign_progression_has_unique_music_and_rising_difficulty() {
+        use std::collections::HashSet;
+
+        let levels = get_levels();
+        let themes: HashSet<_> = levels.iter().map(|level| level.biome.music).collect();
+        assert_eq!(themes.len(), levels.len());
+        assert!(levels
+            .windows(2)
+            .all(|pair| pair[0].difficulty <= pair[1].difficulty));
     }
 
     #[test]
