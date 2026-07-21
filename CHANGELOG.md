@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.30.1 — 2026-07-21
+
+### Fixes
+- Fix flaky steal playtests (deterministic chain, followers, and steal-back geometry)
+- Widen the on-beat window for the defensive steal parry
+
 ## v0.30.0 — 2026-07-21
 
 ### Features
