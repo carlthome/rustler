@@ -240,25 +240,36 @@ impl MainState {
                 .and_then(|i| self.levels.get(i))
                 .map(|l| l.win_condition)
             {
-                let goal = if self.level_complete {
-                    "LEVEL COMPLETE!".to_string()
-                } else {
-                    cond.progress_text(
-                        self.banked_crabs_run,
-                        self.chain_count,
-                        self.shells_cracked_run,
-                        self.hold_train_timer,
-                    )
-                };
+                // Bucketed to whole seconds (matches the `{:.0}s` display) so the key only moves
+                // as often as the rendered text actually would.
+                let hold_key = self.hold_train_timer.round() as i32;
+                let key = (
+                    self.level_complete,
+                    cond,
+                    self.banked_crabs_run,
+                    self.chain_count,
+                    self.shells_cracked_run,
+                    hold_key,
+                );
                 CAMPAIGN_GOAL_CACHE.with(|c| {
                     let mut cache = c.borrow_mut();
                     let needs_rebuild = match &*cache {
-                        Some((s, _)) => *s != goal,
+                        Some((k, _)) => *k != key,
                         None => true,
                     };
                     if needs_rebuild {
-                        let txt = Text::new(goal.clone());
-                        *cache = Some((goal, txt));
+                        let goal = if self.level_complete {
+                            "LEVEL COMPLETE!".to_string()
+                        } else {
+                            cond.progress_text(
+                                self.banked_crabs_run,
+                                self.chain_count,
+                                self.shells_cracked_run,
+                                self.hold_train_timer,
+                            )
+                        };
+                        let txt = Text::new(goal);
+                        *cache = Some((key, txt));
                     }
                     let col = if self.level_complete {
                         Color::from_rgb(255, 230, 80) // celebratory gold once the goal lands
