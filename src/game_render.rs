@@ -24,7 +24,7 @@ use crate::{how_to_play_body_text, menu, panic_snap_links};
 use crate::graphics::{
     LassoDrawPhase, cached_stroke_rect, draw_ambient_motes, draw_beat_hit_punch, draw_beat_indicator, draw_beat_wave_ring,
     draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_shockwaves, draw_catch_trails,
-    draw_chain_rings, draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_crab_radar, draw_deliver_beam, draw_delivery_pen,
+    draw_beat_keeper_ring, draw_chain_rings, draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_crab_radar, draw_deliver_beam, draw_delivery_pen,
     draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_flashlight,
     draw_floating_texts, draw_groove_call_ring,
     draw_groove_vignette, draw_haul_worth, draw_kelp_snag_warning, draw_lasso,
@@ -716,6 +716,27 @@ impl MainState {
 
         // Draw all crabs.
         self.draw_crabs_with_shake(ctx, canvas)?;
+
+        // Player-anchored beat-keeper: an anticipatory metronome ring that contracts onto the
+        // rustler and snaps on each beat, so the beat stays legible while your eyes are on the herd
+        // rather than the top-right indicator (#164/#165 — obvious to play while steering). Fades as
+        // the train grows: bold while you're learning to tap the beat, a faint tick once you're
+        // grooving with a big train, so it never clutters or fights the catch-bloom.
+        {
+            let pc = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let beat_progress = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
+            let downbeat = self.beat_count % 4 == 0;
+            let guide = (1.0 - self.chain_count as f32 / 14.0).clamp(0.3, 1.0);
+            draw_beat_keeper_ring(
+                ctx,
+                canvas,
+                pc,
+                beat_progress,
+                self.on_beat_flash,
+                downbeat,
+                guide,
+            )?;
+        }
 
         // Draw player character after crabs so the rustler always renders on top of the conga
         // train rather than being occluded by crabs that overlap its position.
