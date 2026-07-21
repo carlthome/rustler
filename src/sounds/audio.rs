@@ -173,11 +173,12 @@ pub fn synth_startup_pling(ctx: &mut Context) -> GameResult<Source> {
         release: 0.75,
     };
     let mut mix = Vec::new();
+    // E6 → G♯6 → C7: a bright augmented triad that reads as a tiny shower of light.
     for (index, frequency) in [1318.51, 1661.22, 2093.0].into_iter().enumerate() {
         let note = synth_fm_note(frequency, 3.5, 2.4, 8.0, 0.16, &adsr, 0.22);
         mix_into(&mut mix, &note, index * (SAMPLE_RATE as usize / 13));
     }
-    let pcm = samples_to_pcm(&mut mix, 14, 1);
+    let pcm = samples_to_pcm(&mut mix, 14, 1); // Near-clean 14-bit, no sample-and-hold crunch.
     let wav = encode_wav_mono16(&pcm);
     Source::from_data(ctx, SoundData::from_bytes(&wav)?)
 }

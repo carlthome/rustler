@@ -1,6 +1,13 @@
+/// Seconds from launch when the logo's sparkle chime sounds.
 pub(crate) const PLING_AT: f32 = 0.62;
+/// Seconds from launch when the main menu begins scrolling onto the screen.
 pub(crate) const MENU_REVEAL_AT: f32 = 2.85;
+/// Seconds from launch when the startup cinematic hands over to the normal menu.
 pub(crate) const INTRO_END: f32 = 4.25;
+const LOGO_FADE_IN_START: f32 = 0.45;
+const LOGO_FADE_IN_END: f32 = 0.9;
+const LOGO_FADE_OUT_START: f32 = 2.15;
+const LOGO_FADE_OUT_END: f32 = 2.65;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct MenuIntroPresentation {
@@ -9,14 +16,18 @@ pub(crate) struct MenuIntroPresentation {
 }
 
 pub(crate) fn presentation(time: f32) -> MenuIntroPresentation {
-    let logo_alpha = if time < 0.45 {
+    let logo_alpha = if time < LOGO_FADE_IN_START {
         0.0
-    } else if time < 0.9 {
-        smoothstep((time - 0.45) / 0.45)
-    } else if time < 2.15 {
+    } else if time < LOGO_FADE_IN_END {
+        smoothstep(
+            (time - LOGO_FADE_IN_START) / (LOGO_FADE_IN_END - LOGO_FADE_IN_START),
+        )
+    } else if time < LOGO_FADE_OUT_START {
         1.0
-    } else if time < 2.65 {
-        1.0 - smoothstep((time - 2.15) / 0.5)
+    } else if time < LOGO_FADE_OUT_END {
+        1.0 - smoothstep(
+            (time - LOGO_FADE_OUT_START) / (LOGO_FADE_OUT_END - LOGO_FADE_OUT_START),
+        )
     } else {
         0.0
     };

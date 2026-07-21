@@ -48,6 +48,12 @@ impl MainState {
         height: f32,
         alpha: f32,
     ) -> GameResult {
+        const LOGO_SCALE: f32 = 62.0;
+        const PRESENTS_SCALE: f32 = 16.0;
+        const LOGO_Y: f32 = 0.43;
+        const SKIP_Y: f32 = 0.9;
+        const SPARKLE_ROTATION_SPEED: f32 = 0.32;
+
         let square = unit_square(ctx)?;
         canvas.draw(
             square,
@@ -58,33 +64,33 @@ impl MainState {
 
         if alpha > 0.0 {
             let mut logo = Text::new("CARLTHOME");
-            logo.set_scale(62.0);
+            logo.set_scale(LOGO_SCALE);
             let logo_width = logo.measure(ctx)?.x;
             canvas.draw(
                 &logo,
                 DrawParam::default()
-                    .dest(Vec2::new((width - logo_width) * 0.5, height * 0.43))
+                    .dest(Vec2::new((width - logo_width) * 0.5, height * LOGO_Y))
                     .color(Color::new(0.88, 0.94, 1.0, alpha)),
             );
 
             let mut presents = Text::new("P R E S E N T S");
-            presents.set_scale(16.0);
+            presents.set_scale(PRESENTS_SCALE);
             let presents_width = presents.measure(ctx)?.x;
             canvas.draw(
                 &presents,
                 DrawParam::default()
                     .dest(Vec2::new(
                         (width - presents_width) * 0.5,
-                        height * 0.43 + 82.0,
+                        height * LOGO_Y + 82.0,
                     ))
                     .color(Color::new(0.55, 0.68, 0.82, alpha * 0.8)),
             );
 
             let sparkle = unit_circle(ctx)?;
-            let center = Vec2::new(width * 0.5 + logo_width * 0.55, height * 0.43 + 8.0);
+            let center = Vec2::new(width * 0.5 + logo_width * 0.55, height * LOGO_Y + 8.0);
             for ray in 0..8 {
                 let angle = ray as f32 * std::f32::consts::FRAC_PI_4
-                    + self.menu_intro_time * 0.32;
+                    + self.menu_intro_time * SPARKLE_ROTATION_SPEED;
                 let radius = if ray % 2 == 0 { 23.0 } else { 14.0 };
                 canvas.draw(
                     sparkle,
@@ -102,7 +108,7 @@ impl MainState {
         canvas.draw(
             &skip,
             DrawParam::default()
-                .dest(Vec2::new((width - skip_width) * 0.5, height * 0.9))
+                .dest(Vec2::new((width - skip_width) * 0.5, height * SKIP_Y))
                 .color(Color::new(0.5, 0.56, 0.66, 0.7)),
         );
         Ok(())
