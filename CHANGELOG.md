@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.31.0 — 2026-07-21
+
+### Features
+- World map: tint each node by its biome so the map reads as an illustrated world
+
+### Fixes
+- Fix npc_vs_npc playtest flake (deterministic forced rival-vs-rival cross)
+
+### Refactoring
+- Extract the per-beat handler from main.rs into src/beat.rs
+
 ## v0.30.4 — 2026-07-21
 
 ### Gameplay
