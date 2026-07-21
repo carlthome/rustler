@@ -266,6 +266,35 @@ impl MainState {
             self.boss_fissure_erupt,
         )?;
 
+        // Rare pirate treasure: a simple high-contrast chest and lid shine, pulsing on the beat so
+        // its timing payoff is readable before the player reaches it.
+        if let Some(pos) = self.treasure_chest {
+            let beat_pulse = 1.0 + self.beat_intensity * 0.12;
+            let size = 34.0 * beat_pulse;
+            let top_left = pos - Vec2::splat(size * 0.5);
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(top_left)
+                    .scale(Vec2::splat(size))
+                    .color(Color::from_rgb(112, 57, 20)),
+            );
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(top_left + Vec2::new(0.0, size * 0.18))
+                    .scale(Vec2::new(size, size * 0.16))
+                    .color(Color::from_rgb(255, 196, 48)),
+            );
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(pos - Vec2::new(size * 0.1, size * 0.5))
+                    .scale(Vec2::new(size * 0.2, size))
+                    .color(Color::from_rgb(255, 218, 85)),
+            );
+        }
+
         // Delivery pen — drawn on the ground layer under the crabs/rope so the train visibly rolls
         // into it. Lights up green once there's a train to bank (chain_count > 0). The "haul"
         // anticipation (0..1) scales the pen's excitement to the size of the incoming jackpot and

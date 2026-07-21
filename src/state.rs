@@ -469,6 +469,10 @@ pub struct MainState {
     pub(crate) crabs: Vec<EnemyCrab>,         // List of crabs in the game
     pub(crate) score: usize,                  // Current score
     pub(crate) spawn_timer: f32,              // Timer for spawning new crabs
+    /// A rare pirate chest waiting to be collected. Its groove reward is graded at pickup time.
+    pub(crate) treasure_chest: Option<Vec2>,
+    /// Counts down to the next rare-chest spawn roll while no chest is on the field.
+    pub(crate) treasure_chest_timer: f32,
     pub(crate) time_elapsed: f32,             // Time since game start
     pub(crate) menu_time: f32, // Free-running clock for the title/menu screen animation
     pub(crate) game_over: bool, // Game over flag
@@ -1657,6 +1661,8 @@ impl MainState {
             crabs,
             score: 0,
             spawn_timer: 0.0,
+            treasure_chest: None,
+            treasure_chest_timer: TREASURE_CHEST_ROLL_INTERVAL,
             time_elapsed: 0.0,
             menu_time: 0.0,
             game_over: false,
