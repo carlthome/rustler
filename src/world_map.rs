@@ -70,26 +70,26 @@ impl WorldMap {
     pub fn new() -> Self {
         // Tutorial nodes — teach one mechanic each, in escalating complexity.
         let tutorial_nodes: &[(TutorialKind, &'static str, (f32, f32))] = &[
-            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.11, 0.70)),
-            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.21, 0.59)),
-            (TutorialKind::ChainDeliver,"The Cove — Build a Train",       (0.34, 0.67)),
-            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",    (0.46, 0.53)),
+            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.10, 0.72)),
+            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.19, 0.57)),
+            (TutorialKind::ChainDeliver,"The Cove — Build a Train",       (0.29, 0.67)),
+            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",    (0.40, 0.53)),
         ];
 
         // Campaign nodes follow a clockwise island circuit: the quiet landing opens into the
         // northern coast, rounds the stormy eastern headland, then returns through the jungle.
         // The Desktop remains a deliberately strange, remote finale beyond the chart's shore.
         let campaign_positions: &[(f32, f32)] = &[
-            (0.58, 0.42),
-            (0.70, 0.32),
-            (0.82, 0.42),
-            (0.82, 0.60),
-            (0.72, 0.73),
-            (0.56, 0.74),
-            (0.40, 0.62),
-            (0.28, 0.45),
+            (0.51, 0.43),
+            (0.63, 0.29),
+            (0.77, 0.23),
+            (0.88, 0.41),
+            (0.82, 0.61),
+            (0.59, 0.72),
+            (0.72, 0.77),
+            (0.88, 0.63),
             // The Desktop sits off on its own, past the "end" of the map — you shouldn't be here.
-            (0.94, 0.20),
+            (0.94, 0.10),
         ];
         let levels = get_levels();
         let total = tutorial_nodes.len() + levels.len();

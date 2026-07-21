@@ -65,6 +65,7 @@ thread_local! {
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_SKIP_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    static WORLD_MAP_SELECTED_CACHE: RefCell<Option<(usize, bool, bool, Text, f32)>> = RefCell::new(None);
     // The illustrated map only changes on resize; cache its water and island geometry rather than
     // re-tessellating decorative meshes every frame while the menu is open.
     static WORLD_MAP_SCENERY_CACHE: RefCell<Option<((i32, i32), Mesh)>> = RefCell::new(None);
@@ -101,7 +102,7 @@ pub fn draw_world_map(
     let (sx, sy) = (width, height);
 
     let node_to_screen = |(nx, ny): (f32, f32)| -> Vec2 {
-        Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
+        Vec2::new(nx * sx, 0.18 * sy + ny * sy * 0.64)
     };
 
     // A broad sandbar forms the playable island, with a smaller jungle core. The irregular
@@ -154,7 +155,19 @@ pub fn draw_world_map(
                 }
                 builder.line(&points, 1.0, Color::new(0.20, 0.60, 0.70, 0.16))?;
             }
+            // Shallow water and a pale surf line separate the coast from the near-black ocean.
+            let shallows = island
+                .iter()
+                .map(|p| (*p - Vec2::new(sx * 0.5, sy * 0.55)) * 1.035
+                    + Vec2::new(sx * 0.5, sy * 0.55))
+                .collect::<Vec<_>>();
+            builder.polygon(DrawMode::fill(), &shallows, Color::new(0.08, 0.39, 0.48, 0.82))?;
             builder.polygon(DrawMode::fill(), &island, Color::new(0.78, 0.63, 0.32, 1.0))?;
+            builder.polyline(
+                DrawMode::stroke(3.0),
+                &island,
+                Color::new(0.96, 0.87, 0.56, 0.9),
+            )?;
             builder.polygon(DrawMode::fill(), &jungle, Color::new(0.09, 0.29, 0.19, 0.92))?;
             // The island's regions give the route geography: a sheltered starter cove, a river
             // through the jungle, a high northern ridge, and dangerous eastern reefs. The nodes
@@ -173,6 +186,27 @@ pub fn draw_world_map(
                 Vec2::new(sx * 0.72, sy * 0.41),
             ];
             builder.polygon(DrawMode::fill(), &ridge, Color::new(0.24, 0.29, 0.25, 0.95))?;
+            for &(x, y, scale) in &[(0.59, 0.34, 0.8), (0.68, 0.31, 1.0), (0.77, 0.34, 0.7)] {
+                let peak = [
+                    Vec2::new(sx * (x - 0.035 * scale), sy * (y + 0.055 * scale)),
+                    Vec2::new(sx * x, sy * (y - 0.045 * scale)),
+                    Vec2::new(sx * (x + 0.035 * scale), sy * (y + 0.055 * scale)),
+                ];
+                builder.polygon(
+                    DrawMode::fill(),
+                    &peak,
+                    Color::new(0.32, 0.34, 0.31, 1.0),
+                )?;
+                builder.line(
+                    &[
+                        Vec2::new(sx * (x - 0.012 * scale), sy * (y - 0.010 * scale)),
+                        Vec2::new(sx * x, sy * (y - 0.045 * scale)),
+                        Vec2::new(sx * (x + 0.014 * scale), sy * (y - 0.005 * scale)),
+                    ],
+                    3.0,
+                    Color::new(0.82, 0.82, 0.70, 0.9),
+                )?;
+            }
             let river = [
                 Vec2::new(sx * 0.39, sy * 0.40),
                 Vec2::new(sx * 0.46, sy * 0.48),
@@ -182,6 +216,91 @@ pub fn draw_world_map(
             ];
             builder.line(&river, 14.0, Color::new(0.10, 0.42, 0.50, 0.78))?;
             builder.line(&river, 4.0, Color::new(0.39, 0.74, 0.72, 0.75))?;
+            // A moonlit clearing and kelp lagoon anchor the later campaign stops.
+            builder.circle(
+                DrawMode::fill(),
+                Vec2::new(sx * 0.80, sy * 0.60),
+                sy * 0.075,
+                1.0,
+                Color::new(0.31, 0.35, 0.47, 0.88),
+            )?;
+            builder.circle(
+                DrawMode::stroke(3.0),
+                Vec2::new(sx * 0.80, sy * 0.60),
+                sy * 0.055,
+                1.0,
+                Color::new(0.68, 0.75, 0.92, 0.72),
+            )?;
+            let kelp_lagoon = [
+                Vec2::new(sx * 0.81, sy * 0.38),
+                Vec2::new(sx * 0.95, sy * 0.42),
+                Vec2::new(sx * 0.91, sy * 0.57),
+                Vec2::new(sx * 0.82, sy * 0.53),
+            ];
+            builder.polygon(
+                DrawMode::fill(),
+                &kelp_lagoon,
+                Color::new(0.06, 0.37, 0.29, 0.86),
+            )?;
+            for &(x, y, lean) in &[
+                (0.84, 0.48, -0.010),
+                (0.87, 0.51, 0.012),
+                (0.90, 0.47, -0.008),
+                (0.92, 0.52, 0.010),
+            ] {
+                builder.line(
+                    &[
+                        Vec2::new(sx * x, sy * (y + 0.04)),
+                        Vec2::new(sx * (x + lean), sy * y),
+                        Vec2::new(sx * (x - lean), sy * (y - 0.035)),
+                    ],
+                    4.0,
+                    Color::new(0.18, 0.62, 0.35, 0.9),
+                )?;
+            }
+            // Tutorial docks, shell-grave stones, and treasury shoals make the route's mechanics
+            // visible as places rather than interchangeable dots.
+            builder.line(
+                &[
+                    Vec2::new(sx * 0.13, sy * 0.58),
+                    Vec2::new(sx * 0.21, sy * 0.54),
+                ],
+                8.0,
+                Color::new(0.33, 0.20, 0.09, 1.0),
+            )?;
+            for &(x, y) in &[(0.61, 0.66), (0.65, 0.69), (0.70, 0.67), (0.72, 0.72)] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    6.0,
+                    0.8,
+                    Color::new(0.48, 0.44, 0.37, 0.95),
+                )?;
+                builder.line(
+                    &[
+                        Vec2::new(sx * x - 4.0, sy * y),
+                        Vec2::new(sx * x + 4.0, sy * y),
+                    ],
+                    1.5,
+                    Color::new(0.20, 0.20, 0.18, 0.9),
+                )?;
+            }
+            for &(x, y, r) in &[(0.67, 0.74, 9.0), (0.72, 0.78, 12.0), (0.77, 0.74, 7.0)] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    r,
+                    0.8,
+                    Color::new(0.18, 0.55, 0.60, 0.9),
+                )?;
+                builder.circle(
+                    DrawMode::stroke(2.0),
+                    Vec2::new(sx * x, sy * y),
+                    r * 0.55,
+                    0.8,
+                    Color::new(0.93, 0.74, 0.27, 0.9),
+                )?;
+            }
             for &(x, y, r) in &[
                 (0.84, 0.44, 20.0),
                 (0.90, 0.52, 14.0),
@@ -274,11 +393,21 @@ pub fn draw_world_map(
                 let a = node_to_screen(map.nodes[i].position);
                 let b = node_to_screen(map.nodes[i + 1].position);
                 let bend = if i % 2 == 0 { 1.0 } else { -1.0 };
-                let control = (a + b) * 0.5 + Vec2::new(0.0, bend * sy * 0.055);
+                let control = if i + 2 == map.nodes.len() {
+                    // The Desktop finale is reached through an impossible chart-edge jump, not a
+                    // road cutting diagonally across every biome.
+                    Vec2::new(sx * 0.97, sy * 0.39)
+                } else {
+                    (a + b) * 0.5 + Vec2::new(0.0, bend * sy * 0.045)
+                };
                 let curve = |t: f32| {
                     let u = 1.0 - t;
                     a * (u * u) + control * (2.0 * u * t) + b * (t * t)
                 };
+                let outline = (0..=18)
+                    .map(|step| curve(step as f32 / 18.0))
+                    .collect::<Vec<_>>();
+                builder.line(&outline, 7.0, Color::new(0.025, 0.08, 0.09, 0.88))?;
                 if map.nodes[i + 1].unlocked {
                     let (ca, cb) = (node_tints[i], node_tints[i + 1]);
                     const SEGS: usize = 14;
@@ -295,10 +424,44 @@ pub fn draw_world_map(
                         builder.line(&[curve(t0), curve(t1)], 4.0, col)?;
                     }
                 } else {
-                    // Locked trails remain faint, as if unfinished ink on a treasure chart.
-                    let points = (0..=12).map(|step| curve(step as f32 / 12.0)).collect::<Vec<_>>();
-                    builder.line(&points, 2.0, Color::new(0.13, 0.18, 0.18, 0.65))?;
+                    // The complete itinerary stays readable while locked; dotted parchment ink
+                    // yields to saturated biome colour as destinations unlock.
+                    for step in (0..12).step_by(2) {
+                        let t0 = step as f32 / 12.0;
+                        let t1 = (step + 1) as f32 / 12.0;
+                        builder.line(
+                            &[curve(t0), curve(t1)],
+                            4.0,
+                            Color::new(0.90, 0.80, 0.48, 0.96),
+                        )?;
+                    }
                 }
+                // Small forward chevrons remove any ambiguity about the numbered itinerary.
+                let mid = curve(0.55);
+                let tangent = (curve(0.58) - curve(0.52)).normalize_or_zero();
+                let normal = Vec2::new(-tangent.y, tangent.x);
+                builder.polygon(
+                    DrawMode::fill(),
+                    &[
+                        mid + tangent * 11.0,
+                        mid - tangent * 8.0 + normal * 7.0,
+                        mid - tangent * 8.0 - normal * 7.0,
+                    ],
+                    Color::new(0.025, 0.08, 0.09, 0.95),
+                )?;
+                builder.polygon(
+                    DrawMode::fill(),
+                    &[
+                        mid + tangent * 8.0,
+                        mid - tangent * 5.0 + normal * 4.5,
+                        mid - tangent * 5.0 - normal * 4.5,
+                    ],
+                    if map.nodes[i + 1].unlocked {
+                        Color::new(1.0, 0.82, 0.26, 0.95)
+                    } else {
+                        Color::new(0.77, 0.68, 0.43, 0.88)
+                    },
+                )?;
             }
             *cache = Some((key, Mesh::from_data(ctx, builder.build())));
         }
@@ -365,7 +528,7 @@ pub fn draw_world_map(
             circle,
             DrawParam::default()
                 .dest(pos)
-                .scale(Vec2::splat(20.0))
+                .scale(Vec2::splat(22.0))
                 .color(fill_color),
         );
         // A small treasure-map pin gives every stop an RPG destination marker rather than a plain
@@ -384,17 +547,9 @@ pub fn draw_world_map(
                 }),
         );
 
-        // Node label — alternating above and below the route prevents the dense island circuit
-        // from becoming a row of overlapping captions. Text is cached per-node by (completed,
-        // unlocked). Selection changes fill color
-        // only, never the label text (suffix " ✓" derives from completed, lock " [locked]" from
-        // unlocked), so it's not part of the cache key. Same rebuild-on-change pattern as
-        // WHISTLE_LABEL_CACHE, STOMP_LABEL_CACHE, and all the other HUD caches in main.rs.
-        let label_color = if node.unlocked {
-            Color::WHITE
-        } else {
-            Color::new(0.4, 0.4, 0.4, 1.0)
-        };
+        // Compact itinerary numbers keep the dense island circuit readable; the selected stop's
+        // full name lives in the fixed caption above the map. Cache entries rebuild only when a
+        // stop changes state, matching the other menu/HUD text caches.
         let label_key = (node.completed, node.unlocked);
         WORLD_MAP_NODE_LABELS.with(|c| -> ggez::GameResult {
             let mut labels = c.borrow_mut();
@@ -405,23 +560,62 @@ pub fn draw_world_map(
             let entry = &mut labels[i];
             // Rebuild only when the node's (completed, unlocked) state actually changes.
             if entry.as_ref().map(|(k, _, _)| *k) != Some(label_key) {
-                let suffix = if node.completed { " ✓" } else { "" };
-                let lock = if !node.unlocked { " [locked]" } else { "" };
-                let mut label = Text::new(format!("{}{}{}", node.name, suffix, lock));
-                label.set_scale(16.0);
+                let marker = format!("{}", i + 1);
+                let mut label = Text::new(marker);
+                label.set_scale(18.0);
                 let w = label.measure(ctx)?.x;
                 *entry = Some((label_key, label, w));
             }
             if let Some((_, label, w)) = entry.as_ref() {
-                let label_y = match i {
-                    0 | 2 | 4 | 6 | 9 | 11 => pos.y - 40.0,
-                    _ => pos.y + 25.0,
-                };
                 canvas.draw(
                     label,
                     DrawParam::default()
-                        .dest(Vec2::new(pos.x - w * 0.5, label_y))
-                        .color(label_color),
+                        .dest(Vec2::new(pos.x - w * 0.5, pos.y - 11.0))
+                        .color(if node.unlocked {
+                            Color::new(0.04, 0.10, 0.12, 1.0)
+                        } else {
+                            Color::new(0.92, 0.87, 0.68, 1.0)
+                        }),
+                );
+            }
+            Ok(())
+        })?;
+
+        // A fixed destination caption keeps full names readable without carpeting the route in text.
+        let selected = &map.nodes[map.selected];
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(Vec2::new(sx * 0.12, sy * 0.125))
+                .scale(Vec2::new(sx * 0.76, sy * 0.065))
+                .color(Color::new(0.015, 0.07, 0.11, 0.86)),
+        );
+        WORLD_MAP_SELECTED_CACHE.with(|c| -> ggez::GameResult {
+            let mut cache = c.borrow_mut();
+            let key = (map.selected, selected.completed, selected.unlocked);
+            if cache
+                .as_ref()
+                .map(|(i, completed, unlocked, _, _)| (*i, *completed, *unlocked))
+                != Some(key)
+            {
+                let status = if selected.completed {
+                    "COMPLETE"
+                } else if selected.unlocked {
+                    "NEXT STOP"
+                } else {
+                    "UNCHARTED"
+                };
+                let mut text = Text::new(format!("{status}  •  {}", selected.name));
+                text.set_scale(20.0);
+                let w = text.measure(ctx)?.x;
+                *cache = Some((key.0, key.1, key.2, text, w));
+            }
+            if let Some((_, _, _, text, w)) = cache.as_ref() {
+                canvas.draw(
+                    text,
+                    DrawParam::default()
+                        .dest(Vec2::new((sx - w) * 0.5, sy * 0.14))
+                        .color(Color::new(1.0, 0.86, 0.38, 1.0)),
                 );
             }
             Ok(())
