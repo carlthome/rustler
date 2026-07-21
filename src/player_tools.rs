@@ -906,6 +906,9 @@ impl MainState {
                 BotAction::ForceRivalHunt => {
                     self.force_rival_hunt();
                 }
+                BotAction::ForceHuntCommit => {
+                    self.force_hunt_commit();
+                }
                 BotAction::ForceGameOver => {
                     self.game_over = true;
                 }
@@ -928,6 +931,7 @@ impl MainState {
                         BotAssert::RivalStealAtLeast(n) => self.rival_vs_rival_steals >= *n,
                         BotAssert::RivalSpillAtLeast(n) => self.rival_spill_crabs >= *n,
                         BotAssert::RivalHuntTelegraphAtLeast(n) => self.rival_hunt_telegraphs >= *n,
+                        BotAssert::HuntInterceptAtLeast(n) => self.hunt_intercepts >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
                         BotAssert::SelectedNextUnlocked(want) => {
                             self.world_map.as_ref().map_or(false, |m| {

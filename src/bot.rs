@@ -73,6 +73,13 @@ pub enum BotAction {
     /// so the natural rival-hunt urge arms the gold "predator closing" telegraph this frame. Guards the
     /// anticipatory tell that lets the player read an impending rival-vs-rival clash (ROADMAP step 3).
     ForceRivalHunt,
+    /// Guards the rival's committed INTERCEPT of the player's routing — the heart of #160's "smarter,
+    /// scarier" hunt (the rival cuts off where your vulnerable back half is *heading*, not where it is).
+    /// Park the nearest rival inside pursuit range of the player and force it into the STRIKE phase
+    /// (committed), so the real intercept-steering branch in update_npc_trains runs this frame and
+    /// hunt_intercepts rises. Deterministic — the natural stalk→strike commit is patience/RNG-paced and
+    /// can't be counted on inside a headless budget, so we stage the commit and let the real steering run.
+    ForceHuntCommit,
     /// End the current run immediately (sets game_over). Used by the campaign_loss scenario to prove
     /// that LOSING a campaign level does not complete its world-map node (#182): the win condition,
     /// not merely finishing, is what unlocks the next level.
@@ -126,6 +133,11 @@ pub enum BotAssert {
     /// MainState::rival_hunt_telegraphs). Asserts the anticipatory gold King→King tell fired — a bigger
     /// train visibly committed to a smaller rival, so the player can read the impending clash and swoop.
     RivalHuntTelegraphAtLeast(usize),
+    /// Monotonic count of frames a COMMITTED rival applied intercept steering against the player (see
+    /// MainState::hunt_intercepts). Asserts #160's signature "it read my routing" behavior fired — a
+    /// committed hunter leads its aim by the player's velocity to cut off the vulnerable back half where
+    /// it's heading, not merely trail where it's been — so that AI path can't silently regress.
+    HuntInterceptAtLeast(usize),
     ScoreAtLeast(usize),
     /// Whether the world-map node AFTER the currently selected one is unlocked. Asserts campaign
     /// progression gating: after LOSING a campaign level the next node must still be locked
@@ -392,10 +404,19 @@ pub fn script_npc_steal() -> Vec<BotEvent> {
     let mut t = 14.0_f32;
     while t < 46.0 {
         script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
+        // Interleave a committed-hunt setup between the crossings (mirrors how npc_vs_npc interleaves
+        // ForceRivalHunt): park the nearest rival in pursuit range and force it into the STRIKE phase so
+        // the real intercept-steering branch runs and hunt_intercepts rises. Lagged 0.45s off the cross
+        // so the two stagings never fight over the same rival on the same frame.
+        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceHuntCommit });
         t += 0.9;
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenAtLeast(1)) });
+    // ...and that a committed rival actually intercepted the routing player (#160's "it read my routing"
+    // strike): the staged commits above drive the real lead-the-aim steering, so hunt_intercepts rising
+    // guards that AI path can't silently regress while every other steal assert stays green.
+    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::HuntInterceptAtLeast(1)) });
     // The steal must stay a recoverable bite: across every forced crossing above (the seek-catch
     // chain grows well past the cap), no single splice may take more than STEAL_MAX_LINKS. Guards the
     // "fun, not punishing" cap against a regression that lets a rival wipe the whole tail in one hit.

@@ -559,4 +559,48 @@ impl MainState {
         self.npc_trains[thief].leader_pos = victim_pos + Vec2::new(-200.0, 0.0);
         self.npc_trains[thief].idle_timer = 0.0;
     }
+
+    /// Bot-test helper (see BotAction::ForceHuntCommit): deterministically drive a rival into the
+    /// committed STRIKE phase against the player so the real intercept-steering branch in
+    /// `update_npc_trains` runs this frame and `hunt_intercepts` rises. This guards #160's signature
+    /// "it read my routing" behavior — a committed hunter leads its aim by the player's velocity to cut
+    /// off where the vulnerable back half is *heading* — which none of the other Force* helpers exercise
+    /// (they all shortcut straight to the splice, bypassing the stalk→strike pursuit). We stage only the
+    /// commit (patience is otherwise RNG/exposure-paced and can't be counted on inside a headless
+    /// budget); the interception geometry itself runs the real, unchanged game code.
+    ///
+    /// Fires the same frame it's called: bot_fire_events → update_crabs (caches the tail/steal target) →
+    /// update_npc_trains (reads them, applies intercept steering, bumps hunt_intercepts). A no-op with no
+    /// rivals or no wild crabs to build the required stealable chain from.
+    pub fn force_hunt_commit(&mut self) {
+        if self.npc_trains.is_empty() {
+            return;
+        }
+        // The pursuit `hunting` gate needs a stealable chain (>= 2) so cached_tail_pos resolves; prime
+        // it regardless of the autopilot's RNG catch timing, exactly like the other steal helpers.
+        self.bot_prime_chain(6);
+        if self.chain_count < 2 {
+            return;
+        }
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Park the leader ~200px off the player: well inside PURSUIT_RANGE (550) so `hunting` holds, yet
+        // far enough that the arrival check (dist < 80) can't flip the train into an idle survey and skip
+        // the pursuit block. Point its wander target at the player and hold the target timer so the
+        // top-of-loop re-target can't fire an idle either — then force the commit and let the real strike
+        // steering run.
+        self.npc_trains[ni].leader_pos = player_center + Vec2::new(200.0, 0.0);
+        self.npc_trains[ni].target = player_center;
+        self.npc_trains[ni].target_timer = 30.0;
+        self.npc_trains[ni].idle_timer = 0.0;
+        self.npc_trains[ni].stalk_patience = 1.0;
+        self.npc_trains[ni].hunt_committed = true;
+    }
 }
