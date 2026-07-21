@@ -134,6 +134,11 @@ impl MainState {
             }
         }
 
+        // The groove follows wall-clock time, not simulation time. Advance it before hitstop's
+        // early return and before cinematic slow-motion dilates `dt`, so the authored loop, live
+        // percussion, tool windows and NPC motifs keep one shared phase under rapid catches/dashes.
+        self.update_master_beat(ctx, dt);
+
         // Hitstop: freeze the whole simulation for a few frames right after a catch so the
         // impact snaps instead of sliding past. draw() still runs each frame, so the frozen
         // moment is fully rendered — the classic Vampire-Survivors-style "punch".
@@ -281,16 +286,9 @@ impl MainState {
                 self.intensity_stage += 1;
                 self.stage_banner_name = next_name;
                 self.stage_banner_timer = 2.0;
-                // Speed the music/beat up for this stage — the felt "beat-tempo shift". Everything
-                // synced to the beat (spawns, train step, wobble, pulses) quickens with it. Rescale
-                // the in-flight beat_timer by the same ratio so the current beat's phase is preserved
-                // (no jarring skip) but the next beat arrives sooner.
-                let tempo_mul = INTENSITY_STAGES[self.intensity_stage].3;
-                let new_interval = BEAT_INTERVAL / tempo_mul;
-                if self.beat_interval > 0.0 {
-                    self.beat_timer *= new_interval / self.beat_interval;
-                }
-                self.beat_interval = new_interval;
+                // The master clock applies this stage's tempo on the next bar downbeat, where every
+                // looping source can restart on the same "1". Changing the grid here, mid-bar, made
+                // the live kick immediately quicken while the melody stayed at its old tempo.
                 // Musical punch so the escalation lands as a moment: brighten the beat, flash, a
                 // short shake, and a rising-tension chime.
                 self.beat_intensity = 2.0;
@@ -308,46 +306,6 @@ impl MainState {
             self.position_history.pop_back();
         }
 
-        // Swung hi-hat kit — locks the LIVE percussion to the same 1/16 grid the backing groove
-        // shuffles on, instead of clicking straight quarter-note kicks against a shuffling loop.
-        // The kick already lands the downbeat (local step 0); here we fill the offbeats between
-        // kicks: the "and" (step 2, a straight 1/8) always ticks, and the swung 1/16 "e"/"a"
-        // (steps 1 & 3, pushed late by the shared GROOVE_SWING) come in only once the run is busy
-        // (a longer train / higher intensity stage), so the pocket thickens as the party grows —
-        // "more crabs in sync = more music" (INSPIRATION.md, Crab Rave). Edge-detected off the
-        // master beat clock via a global step id so each hat fires exactly once as the clock
-        // crosses its onset, never double-firing or skipping even at low fps.
-        if self.beat_interval > 1e-4 {
-            let frac = (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
-            // Busy = a fat train or an escalated stage; drives both hat density and loudness.
-            let train_fill = (self.chain_count as f32 / 24.0).clamp(0.0, 1.0);
-            let stage_span = (INTENSITY_STAGES.len().saturating_sub(1)).max(1) as f32;
-            let stage_fill = (self.intensity_stage as f32 / stage_span).clamp(0.0, 1.0);
-            let busy = self.chain_count >= 8 || self.intensity_stage >= 1;
-            // Base hat loudness rises with the party; the swung ghost 1/16s sit quieter than the
-            // "and" so the offbeat pulse stays legible instead of a wash of noise.
-            let base_vol = 0.26 + 0.16 * train_fill + 0.10 * stage_fill;
-            let swing_late = crate::sounds::GROOVE_SWING * 0.125; // odd 1/16 late, in beat fractions
-            for local in 1..=3u32 {
-                let onset = local as f32 * 0.25 + if local % 2 == 1 { swing_late } else { 0.0 };
-                let gstep = self.beat_count as i64 * 4 + local as i64;
-                if frac + 1e-6 >= onset && gstep > self.hat_last_step {
-                    self.hat_last_step = gstep;
-                    // Step 2 (the straight "and") always plays; the swung 1/16 ghosts only when busy.
-                    if local == 2 {
-                        self.beat_synth.play_hihat(ctx, base_vol);
-                    } else if busy {
-                        self.beat_synth.play_hihat(ctx, base_vol * 0.55);
-                    }
-                }
-            }
-        }
-
-        // Beat timer — interval speeds up with the intensity stage (see beat_interval).
-        self.beat_timer -= dt;
-        if self.beat_timer <= 0.0 {
-            self.on_beat(ctx);
-        }
         self.beat_intensity = (self.beat_intensity - dt * 5.0).max(0.0);
         // Bar downbeat accent decays over roughly one beat, so its influence on the train's stomp
         // (and any accent-driven visuals) rides just past the "1" and fades before the next bar.

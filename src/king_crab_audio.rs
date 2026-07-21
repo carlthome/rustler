@@ -472,8 +472,13 @@ pub fn synth_king_crab_spatial(ctx: &mut Context) -> GameResult<(Source, Source,
 /// Returned as a hard-left / hard-right stereo pair exactly like [`synth_king_crab_ambient_spatial`]
 /// so the caller equal-power pans it by the leader's bearing and scales both channels together by
 /// distance and train length each frame.
-pub fn synth_rival_motif(ctx: &mut Context, bpm: f32, tier: usize) -> GameResult<(Source, Source)> {
-    let mono = rival_motif_mono_samples(bpm, tier);
+pub fn synth_rival_motif(
+    ctx: &mut Context,
+    bpm: f32,
+    root_midi: i32,
+    tier: usize,
+) -> GameResult<(Source, Source)> {
+    let mono = rival_motif_mono_samples(bpm, root_midi, tier);
     let silence = vec![0.0_f32; mono.len()];
     let left_wav = encode_wav_stereo16(&mono, &silence);
     let right_wav = encode_wav_stereo16(&silence, &mono);
@@ -484,76 +489,163 @@ pub fn synth_rival_motif(ctx: &mut Context, bpm: f32, tier: usize) -> GameResult
     Ok((left, right))
 }
 
-/// Bake the raw mono arpeggio buffer for one rival train's motif. Two 4/4 bars at the live tempo,
-/// so the loop is an exact integer bar count — start it on a beat and every note lands on the
-/// master grid. A natural-minor (A Aeolian) note bank keeps it consonant with the rumble bed
-/// (A = 110 Hz) and the generative groove.
-fn rival_motif_mono_samples(bpm: f32, tier: usize) -> Vec<f32> {
+#[derive(Clone, Copy)]
+enum PirateVoice {
+    TinWhistle,
+    Concertina,
+    PluckedString,
+}
+
+fn midi_to_hz(midi: i32) -> f32 {
+    440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0)
+}
+
+fn rival_note_bank(root_midi: i32) -> [f32; 11] {
+    // Minor-pentatonic chord tones over two octaves. This is the same root and pitch collection
+    // as the player's hook, so every rival stays consonant even if the game key later changes.
+    const SEMITONES: [i32; 11] = [-12, -9, -5, -2, 0, 3, 7, 10, 12, 15, 19];
+    SEMITONES.map(|offset| midi_to_hz(root_midi + offset))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_pirate_note(
+    samples: &mut [f32],
+    start: usize,
+    duration: usize,
+    hz: f32,
+    voice: PirateVoice,
+    gain: f32,
+    sample_rate: f32,
+) {
+    for k in 0..duration {
+        let t = k as f32 / sample_rate;
+        let attack = (1.0 - (-180.0 * t).exp()).clamp(0.0, 1.0);
+        let (tone, decay) = match voice {
+            // Breath-like fundamental with gentle vibrato: a small pirate whistle, not a sine beep.
+            PirateVoice::TinWhistle => {
+                let phase = std::f32::consts::TAU * hz * t
+                    + 0.035 * (std::f32::consts::TAU * 5.2 * t).sin();
+                (
+                    phase.sin() + (phase * 2.0).sin() * 0.16 + (phase * 3.0).sin() * 0.05,
+                    3.0,
+                )
+            }
+            // Additive reed harmonics and a slower envelope evoke a compact concertina.
+            PirateVoice::Concertina => {
+                let phase = std::f32::consts::TAU * hz * t;
+                (
+                    phase.sin()
+                        + (phase * 2.0).sin() * 0.42
+                        + (phase * 3.0).sin() * 0.24
+                        + (phase * 4.0).sin() * 0.10,
+                    2.0,
+                )
+            }
+            // Quickly decaying harmonics give a woody mandolin/bouzouki-like pluck.
+            PirateVoice::PluckedString => {
+                let phase = std::f32::consts::TAU * hz * t;
+                (
+                    phase.sin()
+                        + (phase * 2.0).sin() * 0.38
+                        + (phase * 3.0).sin() * 0.20,
+                    5.5,
+                )
+            }
+        };
+        let env = attack * (-decay * t).exp();
+        samples[(start + k) % samples.len()] += tone * env * gain;
+    }
+}
+
+/// Bake one rival train's two-bar pirate motif at the master tempo and player key.
+fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
     let beat_s = 60.0 / bpm.clamp(40.0, 220.0);
     let step_s = beat_s / 4.0; // 16th-note grid
     const STEPS: usize = 32; // 2 bars x 16 sixteenths
     let loop_len = step_s * STEPS as f32;
     let n = (SAMPLE_RATE as f32 * loop_len).ceil() as usize;
-    let dt = 1.0 / SAMPLE_RATE as f32;
     let mut samples = vec![0.0_f32; n];
+    let notes = rival_note_bank(root_midi);
 
-    // A Aeolian note bank. Index legend:
+    // Player-key note bank. Index legend at the default A root:
     // 0:A2 1:C3 2:E3 3:G3 4:A3 5:C4 6:E4 7:G4 8:A4 9:C5 10:E5
-    const NOTES: [f32; 11] = [
-        110.00, 130.81, 164.81, 196.00, 220.00, 261.63, 329.63, 392.00, 440.00, 523.25, 659.25,
-    ];
-
-    // Add one plucked note: an oscillator through a fast-attack / exponential-decay envelope,
-    // summed into the loop with wraparound so the loop boundary stays seamless.
     let add_note = |samples: &mut Vec<f32>,
                     at_step: usize,
                     len_steps: f32,
                     note_hz: f32,
-                    wave: Waveform,
-                    amp: f32,
-                    decay: f32| {
+                    voice: PirateVoice,
+                    amp: f32| {
         let start = (at_step as f32 * step_s * SAMPLE_RATE as f32) as usize;
         let dur_n = (len_steps * step_s * SAMPLE_RATE as f32) as usize;
-        for k in 0..dur_n {
-            let t = k as f32 * dt;
-            let env = (1.0 - (-260.0 * t).exp()) * (-decay * t).exp();
-            let v = oscillator_sample(wave, note_hz * t) * env * amp;
-            let idx = (start + k) % samples.len();
-            samples[idx] += v;
-        }
+        add_pirate_note(
+            samples,
+            start,
+            dur_n,
+            note_hz,
+            voice,
+            amp,
+            SAMPLE_RATE as f32,
+        );
     };
 
     match tier {
         0 => {
-            // Scout — sparse high plucks, glassy sine, few notes. "A lone scout is a faint tick."
+            // Scout — a sparse high tin-whistle call.
             let pat = [(0usize, 8usize), (6, 10), (12, 9), (20, 8), (26, 10)];
             for &(s, ni) in &pat {
-                add_note(&mut samples, s, 2.0, NOTES[ni], Waveform::Sine, 0.15, 7.0);
+                add_note(
+                    &mut samples,
+                    s,
+                    2.0,
+                    notes[ni],
+                    PirateVoice::TinWhistle,
+                    0.12,
+                );
             }
         }
         1 => {
-            // Wanderer — mid chiptune arp, 8th notes, buzzy pulse voice.
+            // Wanderer — a jaunty mid-register concertina phrase.
             let pat = [
                 (0usize, 4usize), (2, 6), (4, 7), (6, 8), (8, 6), (10, 4), (12, 6), (14, 3),
                 (16, 4), (18, 6), (20, 7), (22, 8), (24, 7), (26, 6), (28, 4), (30, 2),
             ];
             for &(s, ni) in &pat {
-                add_note(&mut samples, s, 1.6, NOTES[ni], Waveform::Rect(0.35), 0.12, 9.0);
+                add_note(
+                    &mut samples,
+                    s,
+                    1.6,
+                    notes[ni],
+                    PirateVoice::Concertina,
+                    0.09,
+                );
             }
         }
         _ => {
-            // Elder — low and full: a sustained root/fifth bass on the downbeats plus a rich mid
-            // arp. "An elder with a long conga is loud and full — the dominant train dominates."
+            // Elder — a woody low bouzouki pulse under a full concertina answer.
             let bass = [(0usize, 0usize), (8, 2), (16, 0), (24, 3)]; // A2 E3 A2 G3
             for &(s, ni) in &bass {
-                add_note(&mut samples, s, 8.0, NOTES[ni], Waveform::Triangle, 0.30, 2.2);
+                add_note(
+                    &mut samples,
+                    s,
+                    8.0,
+                    notes[ni],
+                    PirateVoice::PluckedString,
+                    0.24,
+                );
             }
             let arp = [
                 (0usize, 4usize), (2, 6), (4, 8), (6, 6), (8, 2), (10, 6), (12, 8), (14, 6),
                 (16, 4), (18, 6), (20, 8), (22, 9), (24, 3), (26, 7), (28, 8), (30, 7),
             ];
             for &(s, ni) in &arp {
-                add_note(&mut samples, s, 1.8, NOTES[ni], Waveform::Rect(0.5), 0.12, 8.0);
+                add_note(
+                    &mut samples,
+                    s,
+                    1.8,
+                    notes[ni],
+                    PirateVoice::Concertina,
+                    0.08,
+                );
             }
         }
     }
@@ -563,4 +655,36 @@ fn rival_motif_mono_samples(bpm: f32, tier: usize) -> Vec<f32> {
         *v = (*v * 0.9).tanh();
     }
     samples
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rival_motifs_are_exactly_two_bars() {
+        let bpm = 120.0;
+        let samples = rival_motif_mono_samples(bpm, 57, 2);
+        let expected = (SAMPLE_RATE as f32 * 8.0 * 60.0 / bpm).ceil() as usize;
+        assert_eq!(samples.len(), expected);
+    }
+
+    #[test]
+    fn rival_note_bank_transposes_with_player_key() {
+        let a_minor = rival_note_bank(57);
+        let b_minor = rival_note_bank(59);
+        let ratio = 2.0_f32.powf(2.0 / 12.0);
+        for (a, b) in a_minor.into_iter().zip(b_minor) {
+            assert!((b / a - ratio).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn pirate_motifs_remain_bounded() {
+        for tier in 0..3 {
+            let samples = rival_motif_mono_samples(120.0, 57, tier);
+            assert!(samples.iter().all(|sample| sample.is_finite()));
+            assert!(samples.iter().all(|sample| sample.abs() <= 1.0));
+        }
+    }
 }

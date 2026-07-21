@@ -129,6 +129,8 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 /// hi-hat kit (`BeatSynth`), so the two can never drift: odd 1/16 steps land late by
 /// `GROOVE_SWING * 0.5` of a 1/16 note. 0.0 = straight, ~0.66 = a loose triplet shuffle.
 pub const GROOVE_SWING: f32 = 0.66;
+/// Canonical key center for every gameplay music source: A3 / A minor.
+pub const ACTION_KEY_ROOT_MIDI: i32 = 57;
 
 // ---------------------------------------------------------------------------
 // Crab-theme melody synthesiser
@@ -537,9 +539,9 @@ fn synth_ep_note(hz: f32, dur_s: f32, gain: f32) -> Vec<f32> {
     // giving the signature Rhodes "tink" without lingering as a steady overtone.
     let tine_adsr = Adsr {
         attack: 0.002,
-        decay: 0.05,
-        sustain: 0.0,
-        release: 0.03,
+        decay: 0.08,
+        sustain: 0.08,
+        release: 0.08,
     };
     let tine = synth_note(Waveform::Sine, hz * 2.0, hold, &tine_adsr, gain * 0.45);
 
@@ -691,22 +693,19 @@ fn synth_groove(
             });
         }
 
-        // Pad: a soft sustained triad (root + third + fifth) struck on the downbeat and held most
-        // of the bar, so the chord change is audible as HARMONY, not just a moving bassline.
-        // Layered in only once the loop has warmed up (bar >= 2) so the intro stays sparse and the
-        // full band "arrives" — the internal song arc of every 8-bar pass.
-        if bar >= 2 {
-            let third = chord_third_semi[chord];
-            for &semi in &[root, root + third, root + 7] {
-                notes.push(GrooveNote {
-                    step: bar_start,
-                    len: 14,      // sustain, re-struck each bar
-                    degree: semi, // absolute semitones from the root register
-                    chromatic: true,
-                    voice: GrooveVoice::Pad,
-                    gain: melody_gain * 0.22,
-                });
-            }
+        // Pad: a soft sustained triad (root + third + fifth) on every bar. Starting the harmony
+        // on bar one makes the hook read as a tune over a satisfying progression immediately,
+        // rather than as a thin lead that only finds its key two bars later.
+        let third = chord_third_semi[chord];
+        for &semi in &[root, root + third, root + 7] {
+            notes.push(GrooveNote {
+                step: bar_start,
+                len: 14,      // sustain, re-struck each bar
+                degree: semi, // absolute semitones from the root register
+                chromatic: true,
+                voice: GrooveVoice::Pad,
+                gain: melody_gain * 0.27,
+            });
         }
     }
 
@@ -806,11 +805,11 @@ pub fn synth_action_groove(ctx: &mut Context, bpm: f32) -> GameResult<Source> {
         ctx,
         0xC0FFEE ^ (bpm as u32),
         GrooveScale::PentatonicMinor,
-        57, // A3 root register
+        ACTION_KEY_ROOT_MIDI,
         bpm,
         GROOVE_SWING, // shuffle: odd 1/16s land noticeably late — shared with the live hi-hat kit
         8,
-        0.5,
+        0.56,
         // Bit depth was 6 (64 levels) — a Game Boy crush that turned the warm electric-piano
         // lead back into chiptune. Raised to 11 (2048 levels) so the EP's round body survives
         // to tape; the master limiter still glues the mix.
