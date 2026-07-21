@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.40.1 — 2026-07-21
+
+### Performance
+- Cache startup-cinematic Text objects instead of rebuilding every frame
+
 ## v0.40.0 — 2026-07-21
 
 ### Features
