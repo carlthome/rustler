@@ -44,8 +44,26 @@ impl MainState {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(i, _)| i);
-            let Some(i) = next else {
-                break; // no wild crabs to enlist — leave the chain as-is (the caller no-ops)
+            // If the world has been picked clean, mint a fresh catchable crab to enlist instead of
+            // bailing. The seek-catch autopilot banks crabs faster than they respawn, so on a slow /
+            // loaded headless run the field can dip to 1–2 crabs (see the failing steal_defense perf
+            // log: "2 crabs, 1 chained") — leaving the chain stuck below 2 and no-oping every 0.9 s
+            // force, the source of the intermittent Parried/Dodged/Revenge flakes (#170). Spawning
+            // guarantees the staged chain always reaches `target` regardless of spawn/catch timing.
+            // Bot-only: only ever reached from the Force* bot actions, and the crab is caught on the
+            // same line below (chained, not free), so it can't trip the overwhelmed game-over.
+            let i = match next {
+                Some(i) => i,
+                None => {
+                    let fresh = spawn_scattered_crab(
+                        player_center,
+                        Vec2::ZERO,
+                        CrabType::Normal,
+                        &mut rand::rng(),
+                    );
+                    self.crabs.push(fresh);
+                    self.crabs.len() - 1
+                }
             };
             let idx = self.chain_count;
             // Drop the fresh link straight onto the conga slot update_crabs lerps chain crab `idx`
