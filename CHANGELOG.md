@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.34.0 — 2026-07-21
+
+### Features
+- Beat-timed pirate treasure pickups: sync rewards to the rhythm
+- Player-anchored beat-keeper ring for on-beat steering feedback
+- Campaign map sizes now parameterized with scaled minimap
+- Pause menu music when on world map
+
+### Audio
+- Lock player and King Crab music to the live beat grid
+- Quiet distant rival motifs
+
+### Visual
+- Intensify postprocessing color
+
+### Refactoring
+- Extract bot steal-scenario staging out of npc_trains.rs
+
 ## v0.33.5 — 2026-07-21
 
 ### Performance
