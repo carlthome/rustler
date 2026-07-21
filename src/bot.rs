@@ -322,13 +322,28 @@ pub fn script_steal_dodge() -> Vec<BotEvent> {
     // Stage arm+dodge every 0.9s across a wide window. Each attempt is a no-op unless a stealable
     // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
     // lands while the seek-catch chain is alive. A clean reroute (like the tool parry) marks the juked
-    // rival for revenge and opens a counter-steal window — a following ForceRevengeCross ~0.45s later
-    // threads that marked rival to close the counter-steal, which guards the new "a dodge opens a
-    // counter window" reward so it can't silently regress.
-    let mut t = 14.0_f32;
+    // rival for revenge and opens a counter-steal window — a following ForceRevengeCross threads that
+    // marked rival to close the counter-steal, which guards the new "a dodge opens a counter window"
+    // reward so it can't silently regress.
+    //
+    // Two things make the counter cash *deterministically* rather than racing the beach:
+    //   1. The gap after the dodge must exceed one frame. At 3× a single frame advances up to ~0.3s of
+    //      game time (dt is capped at 0.1s real × time_scale), and force_player_revenge runs in
+    //      bot_fire_events BEFORE update_npc_trains sets the dodge's revenge marker that frame — so a
+    //      sub-frame gap would read a not-yet-marked world and never cash. Hence the first cross at
+    //      +0.45s (comfortably past one frame).
+    //   2. Cash across several frames, not one. force_steal_dodge stages the dodge on the biggest rival
+    //      (the thief in rival-vs-rival churn, so it keeps its tail), but a single unlucky cash frame
+    //      can still catch that rival mid-churn with its tail momentarily stripped. Firing the counter
+    //      at +0.45 / +0.75 / +1.05s — three separate frames, all inside even the shortest (3s) revenge
+    //      window — means one bad frame can't sink the whole attempt. The first cash zeroes the marker
+    //      and arms the 2.2s steal cooldown, so the later crosses no-op once one lands.
+    let mut t = 12.0_f32;
     while t < 46.0 {
         script.push(BotEvent { at: t, action: BotAction::ForceStealDodge });
         script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRevengeCross });
+        script.push(BotEvent { at: t + 0.75, action: BotAction::ForceRevengeCross });
+        script.push(BotEvent { at: t + 1.05, action: BotAction::ForceRevengeCross });
         t += 0.9;
     }
     script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });

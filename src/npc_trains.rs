@@ -191,14 +191,50 @@ impl MainState {
             return;
         };
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // Stage the dodge on the rival with the MOST followers (ties → nearest). The clean reroute
+        // marks this rival for revenge and opens a counter-steal window (see update_npc_trains), but a
+        // steal-back can only cash a marked rival that still has a tail to rustle (force_player_revenge
+        // filters on `!follower_types.is_empty()`). At 3× on a busy beach, rival-vs-rival churn strips a
+        // small marked rival's followers within the ~0.45s before the counter fires — so marking the
+        // nearest rival opened a window nothing could cash, and the dodge→revenge guard was flaky (root
+        // cause: every marked rival showed 0 followers at cash time). The biggest train is the *thief*
+        // in that churn, not the victim, so it keeps its followers — marking it keeps the counter
+        // reliably cashable. Fall back to nearest overall only if no rival has followers.
+        let nearest = |ids: Vec<usize>| {
+            ids.into_iter().min_by(|&a, &b| {
+                let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+                let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        };
+        let ni = (0..self.npc_trains.len())
+            .filter(|&i| !self.npc_trains[i].follower_types.is_empty())
+            .max_by_key(|&i| self.npc_trains[i].follower_types.len())
+            .or_else(|| nearest((0..self.npc_trains.len()).collect()));
         let Some(ni) = ni else {
             return;
         };
+        // Safety net: guarantee the dodged rival has a tail to steal back. On some seeds the beach
+        // goes empty of follower-bearing rivals (NPC trains catch nothing, or churn strips them all) —
+        // and a dodge that opens a counter window nothing can cash makes RevengeStealAtLeast flaky.
+        // If the pick has no followers, grant it a short durable tail here (staging, exactly like
+        // force_npc_cross transfers the player's tail onto a rival). Crucially this sets NO
+        // revenge_timer — only the dodge below marks it — so the counter the test cashes is still one a
+        // *dodge* opened, keeping the guard specific. Seed enough path_history that
+        // force_player_revenge's mid-follower slot (path_history[(len/2 + 1) * 14]) exists; once granted,
+        // update_npc_trains keeps that history topped up (max_len = followers*16 + 20), so the rival
+        // stays cashable for the rest of the run and later stages prefer it as the biggest-with-tail.
+        if self.npc_trains[ni].follower_types.is_empty() {
+            self.npc_trains[ni].follower_types = vec![CrabType::Normal; 3];
+            let base = self.npc_trains[ni].leader_pos;
+            self.npc_trains[ni].path_history.clear();
+            for k in 0..48 {
+                // A short trailing line behind the leader — distinct points so history stays populated.
+                self.npc_trains[ni]
+                    .path_history
+                    .push_back(base - Vec2::new(k as f32 * 6.0, 0.0));
+            }
+        }
         // Arm a splice on this rival at the mid link (as update_npc_trains would once threaded)...
         self.npc_trains[ni].steal_threat = STEAL_FUSE;
         self.npc_trains[ni].steal_target = target_idx;
