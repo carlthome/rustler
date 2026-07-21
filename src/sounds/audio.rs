@@ -166,6 +166,7 @@ pub fn synth_fm_note(
 /// A tiny glass-bell arpeggio for the startup studio card: bright at the attack, then almost
 /// weightless as its high harmonics overlap and decay.
 pub fn synth_startup_pling(ctx: &mut Context) -> GameResult<Source> {
+    const NOTE_GAP_SAMPLES: usize = SAMPLE_RATE as usize / 13; // About 77 ms between sparkles.
     let adsr = Adsr {
         attack: 0.004,
         decay: 0.12,
@@ -176,7 +177,7 @@ pub fn synth_startup_pling(ctx: &mut Context) -> GameResult<Source> {
     // E6 → G♯6 → C7: a bright augmented triad that reads as a tiny shower of light.
     for (index, frequency) in [1318.51, 1661.22, 2093.0].into_iter().enumerate() {
         let note = synth_fm_note(frequency, 3.5, 2.4, 8.0, 0.16, &adsr, 0.22);
-        mix_into(&mut mix, &note, index * (SAMPLE_RATE as usize / 13));
+        mix_into(&mut mix, &note, index * NOTE_GAP_SAMPLES);
     }
     let pcm = samples_to_pcm(&mut mix, 14, 1); // Near-clean 14-bit, no sample-and-hold crunch.
     let wav = encode_wav_mono16(&pcm);

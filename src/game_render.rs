@@ -230,7 +230,6 @@ impl MainState {
         }
         if !self.menu_intro_complete {
             let intro = crate::menu_intro::presentation(self.menu_intro_time);
-            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
             if intro.menu_progress > 0.0 {
                 let offset = height * (1.0 - intro.menu_progress);
                 canvas.set_screen_coordinates(Rect::new(0.0, -offset, width, height));
@@ -243,6 +242,7 @@ impl MainState {
                         .color(Color::new(0.0, 0.0, 0.0, 1.0 - intro.menu_progress)),
                 );
             } else {
+                canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
                 self.draw_startup_logo(ctx, canvas, width, height, intro.logo_alpha)?;
             }
             return Ok(());
