@@ -135,6 +135,26 @@ pub const GROOVE_SWING: f32 = 0.66;
 /// Canonical key center for every gameplay music source: A3 / A minor.
 pub const ACTION_KEY_ROOT_MIDI: i32 = 57;
 
+/// Return the root and scale tones used by a biome's action groove. Ambient rival motifs use this
+/// same pitch collection so their calls stay consonant with the active level.
+pub fn biome_rival_motif_tuning(theme: BiomeMusic) -> (i32, [i32; 11]) {
+    const MINOR_PENTATONIC: [i32; 11] = [-12, -9, -5, -2, 0, 3, 7, 10, 12, 15, 19];
+    const DORIAN: [i32; 11] = [-12, -10, -7, -5, -3, 0, 2, 3, 5, 7, 9];
+    const BLUES: [i32; 11] = [-12, -9, -7, -6, -5, 0, 3, 5, 6, 7, 10];
+    const MAJOR_PENTATONIC: [i32; 11] = [-12, -8, -5, -3, 0, 2, 4, 7, 9, 12, 16];
+
+    match theme {
+        BiomeMusic::SunnyGroove => (ACTION_KEY_ROOT_MIDI, MINOR_PENTATONIC),
+        BiomeMusic::TidalDorian | BiomeMusic::WarrenMarch => (50, DORIAN),
+        BiomeMusic::RockShanty => (52, BLUES),
+        BiomeMusic::KelpDisco => (57, DORIAN),
+        BiomeMusic::MoonlitWaltz => (62, MAJOR_PENTATONIC),
+        BiomeMusic::TreasuryRave => (55, MAJOR_PENTATONIC),
+        BiomeMusic::SplitterShanty => (58, BLUES),
+        BiomeMusic::DesktopChip => (60, MINOR_PENTATONIC),
+    }
+}
+
 /// Keep the original intro recording, but soften and weather it so it sounds farther down the
 /// beach: a low-passed wet layer, a quiet cross-channel reflection, and faint shoreline noise.
 fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) {

@@ -26,7 +26,7 @@ pub use audio::{
 };
 // Musical structure.
 pub use music::{
-    detect_bpm_from_ogg, synth_biome_action_groove, synth_intro_menu,
+    biome_rival_motif_tuning, detect_bpm_from_ogg, synth_biome_action_groove, synth_intro_menu,
     synth_theme_deus_ambient, synth_theme_deus_tense, synth_theme_duck_bounce, synth_theme_duck_funky,
     synth_theme_duck_golden, ACTION_KEY_ROOT_MIDI, GROOVE_SWING,
 };

@@ -302,7 +302,15 @@ impl MainState {
                 !self.show_instructions && !self.game_over && !self.show_world_map;
             let downbeat_started =
                 downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
-            let n = self.sounds.king_crab_motif.len().min(self.npc_trains.len());
+            const RIVAL_MOTIF_TIERS: usize = 3;
+            let motif_start = self.action_music_index() * RIVAL_MOTIF_TIERS;
+            let n = self
+                .sounds
+                .king_crab_motif
+                .len()
+                .saturating_sub(motif_start)
+                .min(RIVAL_MOTIF_TIERS)
+                .min(self.npc_trains.len());
 
             // Pass 1: raw target loudness (distance swell x size/tier presence) + bearing per train.
             let mut raw = [0.0_f32; 8];
@@ -356,9 +364,10 @@ impl MainState {
             // pair TOGETHER on a beat so they stay phase-locked with each other and with the grid.
             for i in 0..n {
                 let angle = (pan[i] + 1.0) * std::f32::consts::FRAC_PI_4;
-                let tgt_l = angle.cos() * ducked[i];
-                let tgt_r = angle.sin() * ducked[i];
-                let (src_l, src_r) = &mut self.sounds.king_crab_motif[i];
+                let motif_volume = if self.music_muted { 0.0 } else { ducked[i] };
+                let tgt_l = angle.cos() * motif_volume;
+                let tgt_r = angle.sin() * motif_volume;
+                let (src_l, src_r) = &mut self.sounds.king_crab_motif[motif_start + i];
                 let new_l = {
                     let cur = src_l.volume();
                     (cur + (tgt_l - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0)
@@ -371,7 +380,7 @@ impl MainState {
                 src_r.set_volume(new_r);
                 // Hysteresis on the raw target (not the smoothed volume) so a train hovering near
                 // the audible edge doesn't chatter start/stop every frame.
-                let want_play = ducked[i] > 0.03;
+                let want_play = motif_volume > 0.03;
                 let playing = src_l.playing() || src_r.playing();
                 if want_play && (src_l.paused() || src_r.paused()) {
                     src_l.resume();
@@ -379,9 +388,9 @@ impl MainState {
                 } else if want_play && !playing && downbeat_started {
                     let _ = src_l.play();
                     let _ = src_r.play();
-                } else if !want_play && ducked[i] < 0.008 && playing {
-                    src_l.stop();
-                    src_r.stop();
+                } else if !want_play && motif_volume < 0.008 && playing {
+                    src_l.pause();
+                    src_r.pause();
                 }
             }
         }
@@ -413,7 +422,7 @@ impl MainState {
             }
             let dt_audio = self.frame_dt(ctx);
             for (i, theme) in self.sounds.crab_themes.iter_mut().enumerate() {
-                let target = if counts[i] == 0 {
+                let target = if self.music_muted || counts[i] == 0 {
                     0.0
                 } else {
                     // Scales from 0.05 (1 crab) up to 0.13 (8+ crabs)
