@@ -306,6 +306,8 @@ pub struct MainState {
     pub(crate) flashlight: Flashlight, // Flashlight settings and upgrades
     pub(crate) show_instructions: bool, // Show instructions screen
     pub(crate) show_how_to_play_text: bool, // Show plain-text How to Play card instead of Home menu
+    pub(crate) show_play_recommendation: bool, // Recommend Campaign before starting arcade mode
+    pub(crate) continue_button_focused: bool,
     // Active cosmetic loadout for the player character (hat, facial hair, accessory).
     // Loaded from career.txt on startup; changed from the title screen customisation menu.
     // Purely visual — never affects gameplay.

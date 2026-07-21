@@ -147,6 +147,7 @@ pub enum BotAssert {
     SelectedNextUnlocked(bool),
     ShowWorldMap,
     MainMenu,
+    PlayRecommendation,
     /// Title screen is fully restored after leaving a run: gameplay audio is stopped and the title
     /// music is playing again.
     TitleMenuReady,
@@ -212,6 +213,8 @@ pub fn script_menu_to_game() -> Vec<BotEvent> {
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 0.8, action: BotAction::Assert(BotAssert::PlayRecommendation) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 8.0, action: BotAction::Assert(BotAssert::GameNotOver) },
@@ -391,6 +394,7 @@ pub fn script_npc_steal() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting NPC steal test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         // Let the autopilot build a chain first. Catching is genuinely slow/RNG (the whistle
@@ -441,6 +445,7 @@ pub fn script_player_steal() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting player steal-back test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         // Same generous window menu_to_game proves reliable before asserting a catch has landed.
@@ -471,6 +476,7 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting steal-defense (parry) test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
@@ -507,6 +513,7 @@ pub fn script_steal_dodge() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting steal-dodge (reroute) test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
@@ -543,6 +550,7 @@ pub fn script_revenge() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting revenge back-and-forth test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
@@ -582,6 +590,7 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     let mut script = vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting rival-vs-rival ecology steal test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
     ];
@@ -621,6 +630,7 @@ pub fn script_groove_dash() -> Vec<BotEvent> {
     // cooldown), so we assert the monotonic chord counter rose rather than any tool side effect.
     vec![
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 3.0, action: BotAction::HoldKey(KeyCode::ArrowRight) },
         BotEvent { at: 4.5, action: BotAction::TapKey(KeyCode::Space) },

@@ -580,6 +580,117 @@ pub fn draw_menu(
         }
     } // end menu_page == 0 (Home)
 
+    if state.show_play_recommendation {
+        let dim = unit_square(ctx)?;
+        canvas.draw(
+            dim,
+            DrawParam::default()
+                .scale(Vec2::new(width, height))
+                .color(Color::from_rgba(0, 0, 0, 170)),
+        );
+
+        let panel_w = 620.0;
+        let panel_h = 318.0;
+        let panel_x = (width - panel_w) * 0.5;
+        let panel_y = (height - panel_h) * 0.5;
+        let panel = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::fill(),
+            Rect::new(panel_x, panel_y, panel_w, panel_h),
+            18.0,
+            Color::from_rgb(20, 28, 52),
+        )?;
+        let border = Mesh::new_rounded_rectangle(
+            ctx,
+            DrawMode::stroke(3.0),
+            Rect::new(panel_x, panel_y, panel_w, panel_h),
+            18.0,
+            Color::from_rgb(116, 230, 209),
+        )?;
+        canvas.draw(&panel, DrawParam::default());
+        canvas.draw(&border, DrawParam::default());
+
+        let draw_centered = |canvas: &mut Canvas, text: &str, scale: f32, center_x: f32, y: f32, color: Color| -> GameResult {
+            let mut label = Text::new(text);
+            label.set_scale(scale);
+            let label_w = label.measure(ctx)?.x;
+            canvas.draw(
+                &label,
+                DrawParam::default()
+                    .dest(Vec2::new(center_x - label_w * 0.5, y))
+                    .color(color),
+            );
+            Ok(())
+        };
+        draw_centered(
+            canvas,
+            "NEW RUSTLER?",
+            36.0,
+            width * 0.5,
+            panel_y + 32.0,
+            Color::from_rgb(255, 232, 170),
+        )?;
+        draw_centered(
+            canvas,
+            "Campaign teaches the rhythm, tools, and conga tactics",
+            21.0,
+            width * 0.5,
+            panel_y + 96.0,
+            Color::from_rgb(225, 231, 245),
+        )?;
+        draw_centered(
+            canvas,
+            "that make regular play shine.",
+            21.0,
+            width * 0.5,
+            panel_y + 124.0,
+            Color::from_rgb(225, 231, 245),
+        )?;
+        draw_centered(
+            canvas,
+            "Regular play is best once you understand the mechanics.",
+            19.0,
+            width * 0.5,
+            panel_y + 166.0,
+            Color::from_rgb(150, 205, 220),
+        )?;
+
+        let button_y = panel_y + 222.0;
+        let button_w = 230.0;
+        let button_h = 54.0;
+        let button_margin = 54.0;
+        for (continue_anyway, label, x) in [
+            (true, "CONTINUE ANYWAY", panel_x + button_margin),
+            (false, "GO BACK", panel_x + panel_w - button_w - button_margin),
+        ] {
+            let selected = state.continue_button_focused == continue_anyway;
+            let button = Mesh::new_rounded_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(x, button_y, button_w, button_h),
+                10.0,
+                if selected {
+                    Color::from_rgb(57, 166, 151)
+                } else {
+                    Color::from_rgb(42, 54, 84)
+                },
+            )?;
+            canvas.draw(&button, DrawParam::default());
+            draw_centered(
+                canvas,
+                label,
+                18.0,
+                x + button_w * 0.5,
+                button_y + 16.0,
+                if selected {
+                    Color::from_rgb(255, 255, 225)
+                } else {
+                    Color::from_rgb(190, 203, 220)
+                },
+            )?;
+        }
+    }
+
     // --- Loadout page: skin picker + perk shop -----------------------------------------
     if state.menu_page == 1 {
         let skin = state.player_skin;

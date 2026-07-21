@@ -369,6 +369,25 @@ pub fn handle_key_down_event(
                 }
                 return true;
             }
+            if state.show_play_recommendation {
+                match key {
+                    KeyCode::ArrowLeft | KeyCode::ArrowRight => {
+                        state.continue_button_focused = !state.continue_button_focused;
+                    }
+                    KeyCode::Space | KeyCode::Enter => {
+                        if state.continue_button_focused {
+                            state.reset_game();
+                            state.show_instructions = false;
+                        }
+                        state.show_play_recommendation = false;
+                    }
+                    KeyCode::Escape => {
+                        state.show_play_recommendation = false;
+                    }
+                    _ => {}
+                }
+                return true;
+            }
             // Escape: from Loadout go back to Home; from Home do nothing (use Quit button).
             if key == KeyCode::Escape {
                 if state.menu_page == 1 {
@@ -403,9 +422,11 @@ pub fn handle_key_down_event(
                     KeyCode::Space | KeyCode::Enter => {
                         match state.menu_selection {
                             0 => {
-                                state.reset_game();
-                                state.show_instructions = false;
                                 state.show_how_to_play_text = false;
+                                state.show_play_recommendation = true;
+                                // Keep the direct Play action convenient while making the Campaign
+                                // recommendation visible before the run starts.
+                                state.continue_button_focused = true;
                             } // Play
                             1 => {
                                 state.enter_world_map(ctx);

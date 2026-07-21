@@ -361,6 +361,7 @@ impl MainState {
         self.show_world_map = false;
         self.show_instructions = true;
         self.show_how_to_play_text = false;
+        self.show_play_recommendation = false;
         self.game_over = false;
         self.in_campaign = false;
         self.tutorial = None;
