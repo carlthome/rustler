@@ -108,7 +108,7 @@ pub(crate) fn how_to_play_body_text() -> String {
 // trait must stay in scope here for those glob consumers.
 #[allow(unused_imports)]
 use ggez::audio::SoundSource;
-use ggez::conf::{FullscreenType, WindowMode};
+use ggez::conf::{FullscreenType, WindowMode, WindowSetup};
 use ggez::event;
 use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
@@ -800,6 +800,7 @@ fn main() -> GameResult {
 
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
+        .window_setup(WindowSetup::default().title("Crab Rustler"))
         .window_mode(WindowMode {
             fullscreen_type: FullscreenType::Desktop,
             logical_size: Some(LogicalSize::new(1280.0, 960.0)),
