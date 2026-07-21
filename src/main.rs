@@ -1,6 +1,7 @@
 mod audio_mix;
 mod beat;
 mod bot;
+mod boss_catch;
 mod catch_deliver;
 mod catch_effects;
 mod chain_mechanics;
