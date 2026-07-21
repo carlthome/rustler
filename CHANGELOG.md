@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.31.0 — 2026-07-21
+
+### Features
+- World map: allow skipping ahead to any node with a soft warning
+
+### Refactoring
+- Extract weather/environment backdrop rendering into weather.rs
+- Extract per-frame update tick from main.rs into game_update.rs
+- Extract per-frame audio mixing from main.rs into audio_mix.rs
+
 ## v0.30.6 — 2026-07-21
 
 ### Gameplay
