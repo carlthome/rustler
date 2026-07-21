@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.30.4 — 2026-07-21
+
+### Gameplay
+- Rebalance King Crab names toward pirate and crab-rave flavor
+
+### Refactoring
+- Extract catch-and-deliver loop from main.rs into src/catch_deliver.rs
+- Extract startle/panic-contagion effects from main.rs into src/startle.rs
+
 ## v0.30.3 — 2026-07-21
 
 ### Fixes
