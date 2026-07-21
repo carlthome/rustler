@@ -255,7 +255,7 @@ impl MainState {
         self.chain_count += 1;
         // A meaty bonus — pulling off a rhythm counter on the Thief is worth more than a plain catch.
         self.register_catch(pos, 2);
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.particle_system
             .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
         self.spawn_catch_shockwave(pos, crab_color);
@@ -569,7 +569,7 @@ impl MainState {
         // single big circle, so a flat radius test is fine and only happens on a rare button press.
         let r2 = SLAM_RADIUS * SLAM_RADIUS;
         let mult = self.combo_multiplier();
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let mut caught_positions: Vec<Vec2> = Vec::new();
         let mut boss_hits: Vec<(Vec2, bool)> = Vec::new();
         let mut golden_hits: Vec<Vec2> = Vec::new();

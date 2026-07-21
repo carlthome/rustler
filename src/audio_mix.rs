@@ -342,7 +342,7 @@ impl MainState {
                 };
                 counts[theme] += 1;
             }
-            let dt_audio = ctx.time.delta().as_secs_f32();
+            let dt_audio = self.frame_dt(ctx);
             for (i, theme) in self.sounds.crab_themes.iter_mut().enumerate() {
                 let target = if counts[i] == 0 {
                     0.0

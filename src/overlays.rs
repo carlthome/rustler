@@ -465,7 +465,7 @@ impl MainState {
     }
 
     pub(crate) fn draw_crabs_with_shake(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // Level-of-detail hint for draw_crab: the more crabs on the beach (wild herd + conga train
         // + NPC trains drawn in this same pass), the cheaper each crab renders, so a big train stays
         // smooth. Full articulation is reserved for calm fields and hero-sized crabs; tiny/distant

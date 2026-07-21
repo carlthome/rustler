@@ -314,7 +314,7 @@ impl MainState {
 
         // Single RNG for the whole per-crab loop below (attraction sparkles), instead of grabbing
         // a fresh thread-local handle inside the loop for every crab currently in the beam.
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
 
         // Snapshot whether we're inside the on-beat window right now, so the Reef DJ (rhythm boss)
         // can gate its shell-drain on the beat without re-borrowing self mid-loop. Same window the
@@ -1454,7 +1454,7 @@ impl MainState {
                     .filter(|c| !c.caught && !c.is_boss() && c.is_dancer())
                     .count();
                 if loose_dancers < 3 {
-                    let mut rng = rand::rng();
+                    let mut rng = crate::rng::rng();
                     let dancer = spawn_hype_dancer(
                         (self.world_width, self.world_height),
                         reef_boss_pos,
@@ -1471,10 +1471,10 @@ impl MainState {
         }
 
         // Push sparkle particles for attracted crabs (done outside loop to avoid borrow conflict).
-        // One rng per batch rather than one per particle — rand::rng() re-seeds on every call
+        // One rng per batch rather than one per particle — crate::rng::rng() re-seeds on every call
         // and the flashlight can accumulate many attracted crabs at once.
         if !attraction_particles.is_empty() {
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             for &(pos, vel, life, [cr, cg, cb]) in attraction_particles.iter() {
                 self.particle_system.push(crate::graphics::Particle {
                     pos,
@@ -1512,9 +1512,9 @@ impl MainState {
             self.spawn_catch_shockwave(pos, [1.0, 0.98, 0.85]);
             self.spawn_catch_shockwave(pos, [1.0, 0.6, 0.15]);
             self.particle_system
-                .spawn_milestone_fireworks(pos, 14, &mut rand::rng());
+                .spawn_milestone_fireworks(pos, 14, &mut crate::rng::rng());
             self.screen_shake = self.screen_shake.max(22.0);
-            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            let a = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 16.0 * 60.0;
             self.on_beat_flash = self.on_beat_flash.max(0.6);
             // Freeze-frame the crack — a strong hitstop so a boss shell breaking is the single most
@@ -1542,9 +1542,9 @@ impl MainState {
                 self.fear_rings.push((pos, 0.0));
             }
             self.particle_system
-                .spawn_milestone_fireworks(pos, 10, &mut rand::rng());
+                .spawn_milestone_fireworks(pos, 10, &mut crate::rng::rng());
             self.screen_shake = self.screen_shake.max(20.0);
-            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            let a = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 20.0 * 60.0;
             self.on_beat_flash = self.on_beat_flash.max(0.5);
 
@@ -1577,7 +1577,7 @@ impl MainState {
         for &pos in boss_launches.iter() {
             self.spawn_catch_shockwave(pos, [1.0, 0.5, 0.2]);
             self.screen_shake = self.screen_shake.max(10.0);
-            let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            let kick_angle = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 8.0 * 60.0;
         }
 
@@ -1609,7 +1609,7 @@ impl MainState {
                 [0.7, 0.82, 0.95, 1.0],
             );
             self.screen_shake = self.screen_shake.max(8.0);
-            let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+            let kick_angle = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 7.0 * 60.0;
         }
 
@@ -1648,7 +1648,7 @@ impl MainState {
 
         // Dust kicked up behind the charging boss — sprayed opposite the lunge heading.
         {
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             for &(pos, vel) in boss_charge_dust.iter() {
                 if rng.random_range(0.0_f32..1.0_f32) >= dt * 90.0 {
                     continue; // throttle so a long lunge doesn't flood the particle pool
@@ -1801,7 +1801,7 @@ impl MainState {
         // mutably and consulting self.position_history in the same pass (rather than
         // collecting an intermediate Vec<(usize, Vec2)> of chain targets first) avoids a
         // per-frame heap allocation that used to scale with conga chain length.
-        let mut dust_rng = rand::rng();
+        let mut dust_rng = crate::rng::rng();
         for crab in &mut self.crabs {
             let Some(ci) = crab.chain_index else { continue };
             let history_idx = (ci + 1) * CHAIN_LINK_FRAMES;
