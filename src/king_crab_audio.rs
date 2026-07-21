@@ -551,6 +551,7 @@ fn add_pirate_note(
             }
         };
         let env = attack * (-decay * t).exp();
+        // Fold release tails across the loop boundary instead of clipping their decay.
         samples[(start + k) % samples.len()] += tone * env * gain;
     }
 }

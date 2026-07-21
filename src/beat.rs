@@ -62,7 +62,6 @@ impl MainState {
                     self.beat_synth.play_hihat(ctx, base_vol * 0.55);
                 }
             }
-
         }
 
         self.beat_timer -= dt;
