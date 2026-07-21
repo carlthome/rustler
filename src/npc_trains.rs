@@ -736,6 +736,11 @@ impl MainState {
             self.npc_trains[0].target_vol = max_vol;
         }
 
+        // Snapshot the player's velocity BEFORE the separation pass below damps it, so the clash
+        // gate can read a genuine charge — the separation shaves the approaching component, which
+        // would otherwise mask a real ram as a slow graze.
+        let player_vel_pre = self.player_vel;
+
         // --- Continuous overlap separation: prevent player from phasing inside NPC leaders ----
         // Regardless of cooldown, push the player and NPC apart whenever they overlap so
         // you can't stand inside a King Crab — the clash is painful but crisp, not a merge.
@@ -774,11 +779,24 @@ impl MainState {
         if self.king_splice_cooldown <= 0.0 {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             let mut clash_npc: Option<usize> = None;
+            // A clash is a DELIBERATE ram, not an incidental graze. Merely brushing a roaming King
+            // while you navigate — or being nudged into one by the separation push above — must not
+            // silently cost you tail crabs off the beat: with no keypress in play, only your heading
+            // decides a clash, so that was the opaque "what was I even timing?" punishment #164 called
+            // out. Gate the whole clash on intent: you must be moving with real pace AND driving mostly
+            // INTO the King (velocity read from before the separation damping, so a true charge can't be
+            // masked). A glancing bump just bounces off via the separation above — no POWER/MISTIMED,
+            // no cost, no cooldown burned.
+            let ram_speed = player_vel_pre.length();
             for (ni, npc) in self.npc_trains.iter().enumerate() {
                 let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
                 if npc.leader_pos.distance(player_center) < col_r {
-                    clash_npc = Some(ni);
-                    break;
+                    let toward = (npc.leader_pos - player_center).normalize_or_zero();
+                    if ram_speed > CLASH_RAM_MIN_SPEED && player_vel_pre.dot(toward) > ram_speed * 0.5
+                    {
+                        clash_npc = Some(ni);
+                        break;
+                    }
                 }
             }
             if let Some(ni) = clash_npc {

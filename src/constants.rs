@@ -37,6 +37,14 @@ pub const CULL_MARGIN: f32 = 400.0;
 // so this only fires on genuinely broken compounding, never on normal fast movement.
 pub const MAX_CRAB_SPEED: f32 = 600.0;
 pub const SPEED: f32 = 200.0;
+// Minimum closing speed (px/s) at which touching a King Crab leader counts as a DELIBERATE ram
+// (a clash) rather than an incidental graze. A clash has no keypress — it's read purely from your
+// heading — so #164 flagged the off-beat "MISTIMED CLASH" tail-crab loss as opaque: merely brushing
+// a roaming King while you navigate would silently cost you crabs. Gating the clash on real intent
+// (moving with pace, mostly INTO the King) fixes that; a slow graze just bounces off. Set well below
+// base SPEED (200) and a weighted train's reduced top speed (~110) so a genuine charge always lands,
+// but above the idle drift/separation-push jitter a non-ramming brush produces.
+pub const CLASH_RAM_MIN_SPEED: f32 = 70.0;
 pub const SPRINT_STAMINA_MAX: f32 = 6.0;
 pub const SPRINT_STAMINA_DRAIN_PER_SEC: f32 = 0.85;
 pub const SPRINT_STAMINA_REGEN_PER_SEC: f32 = 0.55;
