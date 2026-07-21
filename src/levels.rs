@@ -1,6 +1,27 @@
 use crate::enemies::CrabType;
 use crate::spawnings::SpawnPattern;
 
+/// Playfield size relative to the fixed game viewport. Keeping this on `Level` makes the campaign's
+/// sense of travel explicit while all world-space systems continue to use the same bounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapSize {
+    Tutorial,
+    Medium,
+    Large,
+}
+
+impl MapSize {
+    /// Returns the factor by which each world dimension exceeds the viewport: 1.0 fits the
+    /// tutorial in one screen, while 2.0 and 4.0 create progressively larger campaign maps.
+    pub const fn viewport_multiplier(self) -> f32 {
+        match self {
+            Self::Tutorial => 1.0,
+            Self::Medium => 2.0,
+            Self::Large => 4.0,
+        }
+    }
+}
+
 pub struct LevelPattern {
     pub pattern: SpawnPattern,
     pub count: usize,
@@ -49,6 +70,7 @@ pub struct Level {
     pub title: String,
     pub description: String,
     pub difficulty: usize,
+    pub map_size: MapSize,
     pub biome: Biome,
     /// The herd archetype this zone leans on — its "second half" of the gear-change. Terrain
     /// (above) changes how the ground routes; `emphasis` changes *what you're catching* so
@@ -80,6 +102,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Rustler's First Ride".to_string(),
             description: "A beginner's level to get you started with the Rustler game.".to_string(),
             difficulty: 0,
+            map_size: MapSize::Medium,
             biome: Biome {
                 name: "Sunny Meadow",
                 tint: (255, 248, 214),
@@ -106,6 +129,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Rustler's Challenge".to_string(),
             description: "A challenging level with multiple spawn patterns.".to_string(),
             difficulty: 2,
+            map_size: MapSize::Large,
             biome: Biome {
                 name: "Tide Pools",
                 tint: (150, 215, 255),
@@ -152,6 +176,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Rustler's Gauntlet".to_string(),
             description: "A gauntlet of spawn patterns to test your skills.".to_string(),
             difficulty: 3,
+            map_size: MapSize::Large,
             biome: Biome {
                 name: "Rocky Shore",
                 tint: (178, 192, 208),
@@ -198,6 +223,7 @@ pub fn get_levels() -> Vec<Level> {
             title: "Crab Rave".to_string(),
             description: "The dance floor is packed. Catch them all!".to_string(),
             difficulty: 4,
+            map_size: MapSize::Large,
             biome: Biome {
                 name: "Neon Kelp Forest",
                 tint: (120, 185, 150),
@@ -245,6 +271,7 @@ pub fn get_levels() -> Vec<Level> {
             description: "Wait — this isn't part of the game. Route the train around the windows."
                 .to_string(),
             difficulty: 5,
+            map_size: MapSize::Large,
             biome: Biome {
                 name: "You Shouldn't Be Here",
                 // Flat neutral desktop wallpaper (classic teal). main.rs paints this opaque over the
@@ -273,4 +300,25 @@ pub fn get_levels() -> Vec<Level> {
             ],
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn campaign_maps_grow_after_the_first_level() {
+        let levels = get_levels();
+        assert_eq!(levels[0].map_size, MapSize::Medium);
+        assert!(levels[1..]
+            .iter()
+            .all(|level| level.map_size == MapSize::Large));
+    }
+
+    #[test]
+    fn map_size_multipliers_cover_tutorial_to_campaign() {
+        assert_eq!(MapSize::Tutorial.viewport_multiplier(), 1.0);
+        assert_eq!(MapSize::Medium.viewport_multiplier(), 2.0);
+        assert_eq!(MapSize::Large.viewport_multiplier(), 4.0);
+    }
 }

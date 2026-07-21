@@ -40,7 +40,7 @@ use crate::graphics::{
     draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull, draw_minimap,
     draw_stomp_armored_crack, draw_stomp_dancer_match, draw_tool_roster, draw_whistle_dancer_match,
     draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
-    draw_whistle_thief_match,
+    draw_whistle_thief_match, minimap_dimensions,
 };
 
 impl MainState {
@@ -1285,7 +1285,7 @@ impl MainState {
                 &follower_buf[..follower_n],
                 self.time_elapsed,
             )?;
-            let map_h = 180.0_f32 * (self.world_height / self.world_width);
+            let (_, map_h) = minimap_dimensions(width, self.world_width, self.world_height);
             draw_day_weather_hud(
                 ctx,
                 canvas,

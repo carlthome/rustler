@@ -8,6 +8,10 @@
 use super::*;
 use ggez::graphics::MeshBuilder;
 
+const MINIMAP_PX_PER_VIEWPORT: f32 = 90.0;
+const MINIMAP_MIN_WIDTH: f32 = 140.0;
+const MINIMAP_MAX_WIDTH: f32 = 280.0;
+
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
     // `crabs` holds every crab caught this run (never removed, only flagged `caught`), so the old
@@ -421,7 +425,17 @@ pub fn draw_world_map(
     Ok(())
 }
 
-/// Minimap in the top-right corner showing the full 2× world: player, pen, NPC trains, and crabs.
+/// Pick a minimap size that keeps the visible-area rectangle legible as maps grow. A viewport-sized
+/// tutorial stays compact, while the larger campaign maps expand up to a readable HUD limit. The
+/// `MINIMAP_PX_PER_VIEWPORT` preserves the 90px medium-map viewport marker; the width bounds keep
+/// the map useful without competing with the playfield.
+pub(crate) fn minimap_dimensions(viewport_w: f32, world_w: f32, world_h: f32) -> (f32, f32) {
+    let map_w = (MINIMAP_PX_PER_VIEWPORT * (world_w / viewport_w))
+        .clamp(MINIMAP_MIN_WIDTH, MINIMAP_MAX_WIDTH);
+    (map_w, map_w * (world_h / world_w))
+}
+
+/// Minimap in the top-right corner showing the complete world: player, pen, NPC trains, and crabs.
 pub fn draw_minimap(
     ctx: &mut Context,
     canvas: &mut Canvas,
@@ -437,8 +451,7 @@ pub fn draw_minimap(
     npc_followers: &[Vec2],
     time: f32,
 ) -> ggez::GameResult {
-    let map_w = 180.0_f32;
-    let map_h = map_w * (world_h / world_w);
+    let (map_w, map_h) = minimap_dimensions(viewport_w, world_w, world_h);
     let map_x = viewport_w - map_w - 10.0;
     let map_y = 10.0;
     let sp = |pos: Vec2| Vec2::new(map_x + (pos.x / world_w) * map_w, map_y + (pos.y / world_h) * map_h);
@@ -498,6 +511,18 @@ pub fn draw_minimap(
         canvas.draw(slot.as_ref().unwrap(), DrawParam::default().dest(Vec2::new(map_x, map_y - 13.0)).color(Color::from_rgba(200, 200, 200, 110)));
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::minimap_dimensions;
+
+    #[test]
+    fn minimap_expands_for_larger_worlds() {
+        assert_eq!(minimap_dimensions(1280.0, 1280.0, 960.0), (140.0, 105.0));
+        assert_eq!(minimap_dimensions(1280.0, 2560.0, 1920.0), (180.0, 135.0));
+        assert_eq!(minimap_dimensions(1280.0, 5120.0, 3840.0), (280.0, 210.0));
+    }
 }
 
 /// Day/night cycle progress bar and weather indicator — sits just below the minimap.
