@@ -7,7 +7,7 @@ edition = "2024"
 crevice = { version = "0.19", features = ["glam"] }
 ggez = "0.10.0"
 lewton = "0.10"
-rand = "0.9.1"
+rand = "0.10.2"
 
 [[bin]]
 name = "rustler"
