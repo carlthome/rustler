@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.35.2 — 2026-07-21
+
+### Fixes
+- Simplify X cycle verb: one clear keyboard action instead of mouse-dependent behavior
+
 ## v0.35.1 — 2026-07-21
 
 ### Fixes
