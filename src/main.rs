@@ -827,9 +827,8 @@ impl event::EventHandler for AppState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         match self {
-            Self::Loading { .. } | Self::Warming(_) => {
-                draw_loading_screen(ctx, 0.0, "LOADING THE RAVE...")
-            }
+            Self::Loading { .. } => draw_loading_screen(ctx, 0.0, "LOADING THE RAVE..."),
+            Self::Warming(_) => draw_loading_screen(ctx, 1.0, "RAVE READY!"),
             Self::Ready(state) => state.draw(ctx),
         }
     }
