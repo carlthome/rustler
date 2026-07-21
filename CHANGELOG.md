@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.30.0 — 2026-07-21
+
+### Features
+- Rework upgrade screen from a world-freeze into a live real-time overlay
+
+### Fixes
+- Guard empty InstanceArray draws to fix second-tutorial capacity>0 crash
+
 ## v0.29.0 — 2026-07-20
 
 ### Performance
