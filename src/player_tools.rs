@@ -366,6 +366,7 @@ impl MainState {
                         }
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::MainMenu => self.show_instructions && !self.show_world_map,
+                        BotAssert::PlayRecommendation => self.show_play_recommendation,
                         BotAssert::TitleMenuReady => {
                             self.show_instructions
                                 && !self.show_world_map

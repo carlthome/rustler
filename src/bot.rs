@@ -135,6 +135,7 @@ pub enum BotAssert {
     SelectedNextUnlocked(bool),
     ShowWorldMap,
     MainMenu,
+    PlayRecommendation,
     /// Title screen is fully restored after leaving a run: gameplay audio is stopped and the title
     /// music is playing again.
     TitleMenuReady,
@@ -200,6 +201,7 @@ pub fn script_menu_to_game() -> Vec<BotEvent> {
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 0.8, action: BotAction::Assert(BotAssert::PlayRecommendation) },
         BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
