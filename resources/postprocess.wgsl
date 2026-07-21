@@ -73,8 +73,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let aspect_delta = vec2<f32>(moon_delta.x, moon_delta.y * pp.screen_height / pp.screen_width);
         let distance_from_moon = length(aspect_delta);
         let halo = (1.0 - smoothstep(0.015, 0.19, distance_from_moon)) * pp.menu_bloom;
-        let pulse = 0.92 + 0.08 * sin(pp.time * 1.7);
-        let bloom_color = vec3<f32>(1.0, 0.95, 0.78) * halo * pulse * 0.42;
+        let glow_pulse = 0.92 + 0.08 * sin(pp.time * 1.7);
+        let bloom_color = vec3<f32>(1.0, 0.95, 0.78) * halo * glow_pulse * 0.42;
 
         let px_x = 1.0 / pp.screen_width;
         let px_y = 1.0 / pp.screen_height;
@@ -84,6 +84,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 + textureSample(t, s, uv + vec2<f32>(0.0, px_y * 10.0)).rgb
                 + textureSample(t, s, uv - vec2<f32>(0.0, px_y * 10.0)).rgb
         ) * 0.25;
+        // Ignore the dark beach; only nearby luminance above this threshold feeds the bloom.
         let bright_nearby = max(nearby - vec3<f32>(0.18), vec3<f32>(0.0));
         color += (bloom_color + bright_nearby * halo * 0.22) * pp.menu_bloom;
     }
