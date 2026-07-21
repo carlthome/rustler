@@ -745,14 +745,16 @@ impl MainState {
     }
 
     pub(crate) fn reset_game(&mut self) {
+        // `get_levels()` always supplies campaign content, but retain this guard so a malformed
+        // future level source cannot cause a reset-path panic.
         if let Some(level) = self.levels.first() {
             self.reset_game_at(0, level.map_size);
         }
     }
 
-    fn reset_game_at_level(&mut self, level_index: usize) {
+    fn reset_game_at_level(&mut self, requested_level: usize) {
         if !self.levels.is_empty() {
-            let level_index = level_index.min(self.levels.len() - 1);
+            let level_index = requested_level.min(self.levels.len() - 1);
             self.reset_game_at(level_index, self.levels[level_index].map_size);
         }
     }
