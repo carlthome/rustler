@@ -317,31 +317,6 @@ impl MainState {
             );
         }
     }
-    /// Find the INTERIOR train link the flashlight is aimed at, if any — the crab a bubble-swap
-    /// (X, on beat) would move one slot toward the midpoint. Only interior slots qualify (chain_index
-    /// in 1..n-1): the head and tail are the ends the classic rotate already arranges, so aiming at
-    /// them (or at nothing) keeps the fallback whole-train rotation. Returns the nearest such link
-    /// within a generous pick radius so casual aim lands on the crab you obviously mean.
-    pub(crate) fn aimed_interior_link(&self) -> Option<usize> {
-        let n = self.chain_count;
-        if n < 3 {
-            // Fewer than 3 links has no interior slot to repair — nothing to bubble.
-            return None;
-        }
-        const PICK_R2: f32 = 70.0 * 70.0;
-        let mut best: Option<(usize, f32)> = None;
-        for crab in self.crabs.iter() {
-            if let Some(ci) = crab.chain_index {
-                if ci >= 1 && ci <= n - 2 {
-                    let d2 = (crab.pos - self.mouse_pos).length_squared();
-                    if d2 <= PICK_R2 && best.map_or(true, |(_, bd)| d2 < bd) {
-                        best = Some((ci, d2));
-                    }
-                }
-            }
-        }
-        best.map(|(ci, _)| ci)
-    }
     /// Cycle the train (X) — the reposition verb. Rotates every caught crab one slot toward the
     /// head on the beat: the current head crab wraps around to the tail, and everyone else steps up
     /// one place. This is the player's tool to *arrange* the conga line before banking — it's the
@@ -366,67 +341,38 @@ impl MainState {
         self.cycle_cooldown = 0.7;
         if self.on_beat_now() {
             let n = self.chain_count;
-            // CONTEXT-SENSITIVE reposition (same verb, same key, same beat-gate — deepened so the
-            // player can *repair the interior*, not just rotate the ends). Aim the flashlight at an
-            // interior train link and X BUBBLES that crab one slot toward the midpoint, swapping it
-            // with its inward neighbour. That's the missing agency: catch-order can strand two
-            // matching crabs on opposite sides of a mismatch, and a whole-train rotation can't fix
-            // it — a local swap can, one on-beat press at a time, letting you actively BUILD a
-            // centerpiece/sandwich instead of hoping catch-order handed you one. With no interior
-            // crab under the aim it falls back to the classic whole-train rotate (arrange the ends).
-            let target = self.aimed_interior_link();
-            if let Some(ci) = target {
-                // Bubble toward the midpoint: below centre step up (toward head), above centre step
-                // down (toward tail). Swap the chain_index with the neighbour in that direction so
-                // both crabs slide one slot; the conga-follow lerp animates it smoothly for free.
-                let mid = (n as f32 - 1.0) / 2.0;
-                let other = if (ci as f32) < mid { ci - 1 } else { ci + 1 };
-                for crab in self.crabs.iter_mut() {
-                    match crab.chain_index {
-                        Some(x) if x == ci => crab.chain_index = Some(other),
-                        Some(x) if x == other => crab.chain_index = Some(ci),
-                        _ => {}
-                    }
+            // One clear, mouse-free action (the game is moving off the mouse entirely). Rotate the
+            // whole train one slot toward the head: index i moves to (i + n - 1) % n, so every crab
+            // steps up one place and the head (0) wraps around to the tail (n-1). This is the verb
+            // in full — the way you choose *which* crab rides the two slots that pay (the head
+            // figurehead and the tail-guard), tapped on the beat. A cyclic rotation preserves every
+            // same-type adjacency bond, so it never scrambles a match-run; it only slides the ends
+            // around. The conga-follow lerp animates the shift (head→tail wrap included) so it sweeps
+            // rather than snaps. The head-promote preview ring (see overlays.rs) shows, before you
+            // press, exactly which crab this will move up front — no aiming, just read and tap.
+            for crab in self.crabs.iter_mut() {
+                if let Some(ci) = crab.chain_index {
+                    crab.chain_index = Some((ci + n - 1) % n);
                 }
-                self.groove = (self.groove + 0.08).min(1.0);
-                self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
-                self.beat_intensity = (self.beat_intensity + 0.7).min(2.0);
-                self.zoom_punch = self.zoom_punch.max(0.03);
-                self.call_pulse = 1.0;
-                self.call_pulse_center = center;
-                self.floating_texts.spawn(
-                    "BUBBLE!".to_string(),
-                    center - Vec2::new(56.0, 84.0),
-                    28.0,
-                    [0.5, 1.0, 0.7, 1.0],
-                );
-            } else {
-                // Rotate one slot toward the head: index i moves to (i + n - 1) % n, i.e. every crab
-                // steps up one and the head (0) wraps to the tail (n-1). Preserves adjacency bonds.
-                for crab in self.crabs.iter_mut() {
-                    if let Some(ci) = crab.chain_index {
-                        crab.chain_index = Some((ci + n - 1) % n);
-                    }
-                }
-                self.groove = (self.groove + 0.1).min(1.0);
-                self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
-                self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
-                self.zoom_punch = self.zoom_punch.max(0.03);
-                self.call_pulse = 1.0;
-                self.call_pulse_center = center;
-                self.floating_texts.spawn(
-                    "CYCLE!".to_string(),
-                    center - Vec2::new(52.0, 84.0),
-                    28.0,
-                    [0.4, 0.9, 1.0, 1.0],
-                );
             }
+            self.groove = (self.groove + 0.1).min(1.0);
+            self.on_beat_flash = (self.on_beat_flash + 0.3).min(0.7);
+            self.beat_intensity = (self.beat_intensity + 0.8).min(2.0);
+            self.zoom_punch = self.zoom_punch.max(0.03);
+            self.call_pulse = 1.0;
+            self.call_pulse_center = center;
+            self.floating_texts.spawn(
+                "CYCLE ▸ shift head/tail".to_string(),
+                center - Vec2::new(84.0, 84.0),
+                28.0,
+                [0.4, 0.9, 1.0, 1.0],
+            );
         } else {
             // Off beat: fizzle. Red flash so the miss reads, no rotation applied.
             self.shop_denied = self.shop_denied.max(0.6);
             self.floating_texts.spawn(
-                "off beat…".to_string(),
-                center - Vec2::new(40.0, 70.0),
+                "cycle — tap on the beat".to_string(),
+                center - Vec2::new(84.0, 70.0),
                 24.0,
                 [0.9, 0.4, 0.4, 0.9],
             );
