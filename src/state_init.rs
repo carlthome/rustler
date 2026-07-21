@@ -110,17 +110,20 @@ impl MainState {
         let (king_crab_rumble_l, king_crab_rumble_r) =
             sounds::synth_king_crab_ambient_spatial(ctx)?;
         let (rival_steal_l, rival_steal_r) = sounds::synth_rival_steal(ctx)?;
-        // One beat-locked musical motif per ambient NPC King Crab train tier (0 scout / 1 wanderer
-        // / 2 elder), baked at the live tempo so its two-bar loop stays in the pocket. Driven
-        // per-frame in EventHandler::update (pan by bearing, swell by distance + train length).
-        let mut king_crab_motif = Vec::with_capacity(3);
-        for tier in 0..3 {
-            king_crab_motif.push(sounds::synth_rival_motif(
-                ctx,
-                action_bpm,
-                sounds::ACTION_KEY_ROOT_MIDI,
-                tier,
-            )?);
+        // Bake one three-tier motif bank per biome so each rival's call uses the active groove's
+        // root and scale rather than imposing the default A-minor motif on every level.
+        let mut king_crab_motif = Vec::with_capacity(levels.len() * 3);
+        for level in &levels {
+            let (root_midi, note_offsets) = sounds::biome_rival_motif_tuning(level.biome.music);
+            for tier in 0..3 {
+                king_crab_motif.push(sounds::synth_rival_motif(
+                    ctx,
+                    action_bpm,
+                    root_midi,
+                    note_offsets,
+                    tier,
+                )?);
+            }
         }
         let intro_music = {
             use std::io::Read as _;

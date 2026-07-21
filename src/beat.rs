@@ -118,7 +118,8 @@ impl MainState {
                     }
                 }
                 for (left, right) in self.sounds.king_crab_motif.iter_mut() {
-                    let was_playing = left.playing() || right.playing();
+                    let was_playing =
+                        !self.music_muted && (left.playing() || right.playing()) && left.volume() > 0.01;
                     left.set_pitch(desired_pitch);
                     right.set_pitch(desired_pitch);
                     if was_playing {

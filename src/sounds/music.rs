@@ -135,6 +135,26 @@ pub const GROOVE_SWING: f32 = 0.66;
 /// Canonical key center for every gameplay music source: A3 / A minor.
 pub const ACTION_KEY_ROOT_MIDI: i32 = 57;
 
+/// Return the root and scale tones used by a biome's action groove. Ambient rival motifs use this
+/// same pitch collection so their calls stay consonant with the active level.
+pub fn biome_rival_motif_tuning(theme: BiomeMusic) -> (i32, [i32; 11]) {
+    const MINOR_PENTATONIC: [i32; 11] = [-12, -9, -5, -2, 0, 3, 7, 10, 12, 15, 19];
+    const DORIAN: [i32; 11] = [-12, -10, -7, -5, -3, 0, 2, 3, 5, 7, 9];
+    const BLUES: [i32; 11] = [-12, -9, -7, -6, -5, 0, 3, 5, 6, 7, 10];
+    const MAJOR_PENTATONIC: [i32; 11] = [-12, -8, -5, -3, 0, 2, 4, 7, 9, 12, 16];
+
+    match theme {
+        BiomeMusic::SunnyGroove => (ACTION_KEY_ROOT_MIDI, MINOR_PENTATONIC),
+        BiomeMusic::TidalDorian | BiomeMusic::WarrenMarch => (50, DORIAN),
+        BiomeMusic::RockShanty => (52, BLUES),
+        BiomeMusic::KelpDisco => (57, DORIAN),
+        BiomeMusic::MoonlitWaltz => (62, MAJOR_PENTATONIC),
+        BiomeMusic::TreasuryRave => (55, MAJOR_PENTATONIC),
+        BiomeMusic::SplitterShanty => (58, BLUES),
+        BiomeMusic::DesktopChip => (60, MINOR_PENTATONIC),
+    }
+}
+
 /// Keep the original intro recording, but push its music down the beach beneath a close, moody
 /// shoreline: a dominant low-passed layer, broad cross-channel reflections, and present wind noise.
 fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) {
@@ -240,6 +260,32 @@ mod intro_tests {
         assert!(right[24] > 0.0);
         assert_eq!(left, repeat_left);
         assert_eq!(right, repeat_right);
+    }
+}
+
+#[cfg(test)]
+mod biome_tuning_tests {
+    use super::{biome_rival_motif_tuning, BiomeMusic};
+
+    #[test]
+    fn rival_motifs_use_each_biomes_root_note() {
+        let cases = [
+            (BiomeMusic::SunnyGroove, 57),
+            (BiomeMusic::TidalDorian, 50),
+            (BiomeMusic::RockShanty, 52),
+            (BiomeMusic::KelpDisco, 57),
+            (BiomeMusic::MoonlitWaltz, 62),
+            (BiomeMusic::WarrenMarch, 50),
+            (BiomeMusic::TreasuryRave, 55),
+            (BiomeMusic::SplitterShanty, 58),
+            (BiomeMusic::DesktopChip, 60),
+        ];
+
+        for (biome, expected_root) in cases {
+            let (root, offsets) = biome_rival_motif_tuning(biome);
+            assert_eq!(root, expected_root);
+            assert!(offsets.contains(&0));
+        }
     }
 }
 

@@ -476,9 +476,10 @@ pub fn synth_rival_motif(
     ctx: &mut Context,
     bpm: f32,
     root_midi: i32,
+    note_offsets: [i32; 11],
     tier: usize,
 ) -> GameResult<(Source, Source)> {
-    let mono = rival_motif_mono_samples(bpm, root_midi, tier);
+    let mono = rival_motif_mono_samples(bpm, root_midi, note_offsets, tier);
     let silence = vec![0.0_f32; mono.len()];
     let left_wav = encode_wav_stereo16(&mono, &silence);
     let right_wav = encode_wav_stereo16(&silence, &mono);
@@ -500,11 +501,8 @@ fn midi_to_hz(midi: i32) -> f32 {
     440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0)
 }
 
-fn rival_note_bank(root_midi: i32) -> [f32; 11] {
-    // Minor-pentatonic chord tones over two octaves. This is the same root and pitch collection
-    // as the player's hook, so every rival stays consonant even if the game key later changes.
-    const SEMITONES: [i32; 11] = [-12, -9, -5, -2, 0, 3, 7, 10, 12, 15, 19];
-    SEMITONES.map(|offset| midi_to_hz(root_midi + offset))
+fn rival_note_bank(root_midi: i32, note_offsets: [i32; 11]) -> [f32; 11] {
+    note_offsets.map(|offset| midi_to_hz(root_midi + offset))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -557,14 +555,19 @@ fn add_pirate_note(
 }
 
 /// Bake one rival train's two-bar pirate motif at the master tempo and player key.
-fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
+fn rival_motif_mono_samples(
+    bpm: f32,
+    root_midi: i32,
+    note_offsets: [i32; 11],
+    tier: usize,
+) -> Vec<f32> {
     let beat_s = 60.0 / bpm.clamp(40.0, 220.0);
     let step_s = beat_s / 4.0; // 16th-note grid
     const STEPS: usize = 32; // 2 bars x 16 sixteenths
     let loop_len = step_s * STEPS as f32;
     let n = (SAMPLE_RATE as f32 * loop_len).ceil() as usize;
     let mut samples = vec![0.0_f32; n];
-    let notes = rival_note_bank(root_midi);
+    let notes = rival_note_bank(root_midi, note_offsets);
 
     // Player-key note bank. Index legend at the default A root:
     // 0:A2 1:C3 2:E3 3:G3 4:A3 5:C4 6:E4 7:G4 8:A4 9:C5 10:E5
@@ -603,24 +606,17 @@ fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
             }
         }
         1 => {
-            // Wanderer — a jaunty mid-register concertina phrase.
+            // Wanderer — a jaunty mid-register concertina phrase on quarter-note pulses, leaving
+            // space for the player's hook instead of doubling its fast 16th-note movement.
             let pat = [
                 (0usize, 4usize),
-                (2, 6),
                 (4, 7),
-                (6, 8),
                 (8, 6),
-                (10, 4),
-                (12, 6),
-                (14, 3),
+                (12, 3),
                 (16, 4),
-                (18, 6),
                 (20, 7),
-                (22, 8),
                 (24, 7),
-                (26, 6),
-                (28, 4),
-                (30, 2),
+                (28, 2),
             ];
             for &(s, ni) in &pat {
                 add_note(
@@ -634,7 +630,8 @@ fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
             }
         }
         _ => {
-            // Elder — a woody low bouzouki pulse under a full concertina answer.
+            // Elder — a woody low bouzouki pulse under a full concertina answer. Its quarter-note
+            // arpeggio gives the largest rival presence without becoming a competing scale run.
             let bass = [(0usize, 0usize), (8, 2), (16, 0), (24, 3)]; // A2 E3 A2 G3
             for &(s, ni) in &bass {
                 add_note(
@@ -648,21 +645,13 @@ fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
             }
             let arp = [
                 (0usize, 4usize),
-                (2, 6),
                 (4, 8),
-                (6, 6),
                 (8, 2),
-                (10, 6),
                 (12, 8),
-                (14, 6),
                 (16, 4),
-                (18, 6),
                 (20, 8),
-                (22, 9),
                 (24, 3),
-                (26, 7),
                 (28, 8),
-                (30, 7),
             ];
             for &(s, ni) in &arp {
                 add_note(
@@ -691,15 +680,22 @@ mod tests {
     #[test]
     fn rival_motifs_are_exactly_two_bars() {
         let bpm = 120.0;
-        let samples = rival_motif_mono_samples(bpm, 57, 2);
+        let samples = rival_motif_mono_samples(
+            bpm,
+            57,
+            crate::sounds::biome_rival_motif_tuning(crate::levels::BiomeMusic::SunnyGroove).1,
+            2,
+        );
         let expected = (SAMPLE_RATE as f32 * 8.0 * 60.0 / bpm).ceil() as usize;
         assert_eq!(samples.len(), expected);
     }
 
     #[test]
     fn rival_note_bank_transposes_with_player_key() {
-        let a_minor = rival_note_bank(57);
-        let b_minor = rival_note_bank(59);
+        let offsets =
+            crate::sounds::biome_rival_motif_tuning(crate::levels::BiomeMusic::SunnyGroove).1;
+        let a_minor = rival_note_bank(57, offsets);
+        let b_minor = rival_note_bank(59, offsets);
         let ratio = 2.0_f32.powf(2.0 / 12.0);
         for (a, b) in a_minor.into_iter().zip(b_minor) {
             assert!((b / a - ratio).abs() < 1e-5);
@@ -708,8 +704,10 @@ mod tests {
 
     #[test]
     fn pirate_motifs_remain_bounded() {
+        let offsets =
+            crate::sounds::biome_rival_motif_tuning(crate::levels::BiomeMusic::SunnyGroove).1;
         for tier in 0..3 {
-            let samples = rival_motif_mono_samples(120.0, 57, tier);
+            let samples = rival_motif_mono_samples(120.0, 57, offsets, tier);
             assert!(samples.iter().all(|sample| sample.is_finite()));
             assert!(samples.iter().all(|sample| sample.abs() <= 1.0));
         }
