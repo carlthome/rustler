@@ -61,5 +61,7 @@ mod tests {
         assert!(LOGO_FADE_IN_END - LOGO_FADE_IN_START >= 1.0);
         assert!(LOGO_FADE_OUT_END - LOGO_FADE_OUT_START >= 1.0);
         assert!(INTRO_END - MENU_REVEAL_AT >= 2.0);
+        assert!(LOGO_FADE_IN_END <= LOGO_FADE_OUT_START);
+        assert!(LOGO_FADE_OUT_END <= MENU_REVEAL_AT);
     }
 }
