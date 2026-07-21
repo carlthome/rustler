@@ -47,7 +47,6 @@ jobs:
 
   playtest:
     needs: changes
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       # Each focused scenario gets its own runner so PR checks run concurrently
@@ -68,80 +67,15 @@ jobs:
             revenge,
             npc_vs_npc,
           ]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/cache
-            ~/.cargo/registry/index
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      # Cache the downloaded .deb files for scripts/ci-deps.sh's apt install so
-      # a warm cache skips the network fetch. This was the single biggest
-      # source of wall-clock variance across the matrix (17s-70s per job for
-      # the exact same install) since every scenario job provisions from a
-      # cold runner. apt still detects version mismatches and re-fetches when
-      # needed, so a stale cache just falls back to today's behavior.
-      #
-      # Only cache the *.deb files, not the whole archives dir: apt-get leaves
-      # behind archives/lock (root:root, mode 640) and archives/partial/
-      # (_apt:root, mode 700), both unreadable by the non-root runner user, so
-      # caching the directory made every save fail with "Permission denied"
-      # and the restore always miss — this cache never actually worked.
-      - name: Cache apt packages
-        uses: actions/cache@v6
-        with:
-          path: /var/cache/apt/archives/*.deb
-          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
-
-      # Install the system libraries from default.nix via apt and configure a
-      # headless null-audio device (no Nix in this job — see PR #16).
-      - name: Install system dependencies
-        if: needs.changes.outputs.code == 'true'
-        run: bash scripts/ci-deps.sh
-
-      # scripts/playtest.sh auto-detects the absence of Nix and falls back to
-      # plain cargo, wrapping the bot in xvfb with a software GL backend.
-      - name: Build and run playtest
-        if: needs.changes.outputs.code == 'true'
-        run: bash scripts/playtest.sh ${{ matrix.scenario }}
+    uses: ./.github/workflows/playtest-runner.yml
+    with:
+      scenario: ${{ matrix.scenario }}
+      run-playtest: ${{ needs.changes.outputs.code == 'true' }}
 
   campaign-full:
     needs: changes
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/cache
-            ~/.cargo/registry/index
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Cache apt packages
-        uses: actions/cache@v6
-        with:
-          path: /var/cache/apt/archives/*.deb
-          key: ${{ runner.os }}-apt-${{ hashFiles('scripts/ci-deps.sh') }}
-
-      - name: Install system dependencies
-        if: needs.changes.outputs.code == 'true'
-        run: bash scripts/ci-deps.sh
-
-      - name: Run full campaign playtest
-        if: needs.changes.outputs.code == 'true'
-        run: bash scripts/playtest.sh campaign_full
+    uses: ./.github/workflows/playtest-runner.yml
+    with:
+      scenario: campaign_full
+      run-playtest: ${{ needs.changes.outputs.code == 'true' }}
