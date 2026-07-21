@@ -87,6 +87,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Ignore the dark beach; only nearby luminance above this threshold feeds the bloom.
         let bright_nearby = max(nearby - vec3<f32>(0.18), vec3<f32>(0.0));
         color += (bloom_color + bright_nearby * halo * 0.22) * pp.menu_bloom;
+
+        // Let the menu moon cast a soft, widening pool of light below it. This makes its rise
+        // feel like it is illuminating the grass rather than merely appearing in the sky.
+        let moonlight_width = 1.0 - smoothstep(0.02, 0.38, abs(moon_delta.x));
+        let moonlight_depth = smoothstep(0.0, 0.16, moon_delta.y)
+            * (1.0 - smoothstep(0.32, 0.76, moon_delta.y));
+        let moonlight = moonlight_width * moonlight_depth * pp.menu_bloom;
+        color += vec3<f32>(0.16, 0.19, 0.24) * moonlight;
     }
 
     // Color punch — keep the beach vivid at rest, then intensify it with the groove.
