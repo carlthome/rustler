@@ -4,7 +4,7 @@ version = "0.43.1"
 edition = "2024"
 
 [dependencies]
-crevice = { version = "0.19", features = ["glam"] }
+crevice = { version = "0.20", features = ["glam"] }
 ggez = "0.10.0"
 lewton = "0.10"
 rand = "0.9.1"
