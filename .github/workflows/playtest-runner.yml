@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       run-playtest:
-        description: Whether game changes require the expensive setup and playtest
+        description: Whether to execute setup and playtest steps (false for docs-only changes)
         required: true
         type: boolean
 
