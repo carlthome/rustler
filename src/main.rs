@@ -540,10 +540,10 @@ impl MainState {
             p.centroid
         } else {
             match self.arcade_stage % 4 {
-                0 => (1.0 - p.centroid.0, p.centroid.1),
-                1 => p.centroid,
-                2 => (p.centroid.1, 1.0 - p.centroid.0),
-                _ => (1.0 - p.centroid.1, p.centroid.0),
+                0 => (1.0 - p.centroid.0, p.centroid.1), // horizontal mirror
+                1 => p.centroid,                         // authored placement
+                2 => (p.centroid.1, 1.0 - p.centroid.0), // quarter turn
+                _ => (1.0 - p.centroid.1, p.centroid.0), // opposite quarter turn
             }
         };
         // Frenzy waves drop a denser herd than the pattern normally calls for — the staged spike.

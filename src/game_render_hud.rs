@@ -650,7 +650,7 @@ impl MainState {
             let cache_key = if self.in_campaign {
                 self.current_level
             } else {
-                self.levels.len() + self.arcade_stage
+                self.levels.len().saturating_add(self.arcade_stage)
             };
             if !cache.contains_key(&cache_key) {
                 let mut label = Text::new(format!(

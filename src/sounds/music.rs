@@ -607,7 +607,7 @@ enum GrooveLead {
 }
 
 #[derive(Clone, Copy)]
-enum GrooveDrums {
+enum GrooveArrangement {
     Disco,
     HalfTime,
     Shanty,
@@ -718,7 +718,7 @@ fn synth_groove(
     melody_gain: f32,
     bit_depth: u32,
     lead: GrooveLead,
-    drums: GrooveDrums,
+    arrangement: GrooveArrangement,
 ) -> GameResult<Source> {
     let mut rng = GrooveRng(seed | 1);
 
@@ -733,11 +733,11 @@ fn synth_groove(
     // (bass roots + pad stabs) while the tune stays put: that is what makes the loop sound
     // *composed* rather than like a scale exercise, and what lets you HUM it after one pass.
     // Semitone offsets from the root (A): Am 0, F -4, C +3, G -2 — a smooth low bassline.
-    let (chord_root_semi, chord_third_semi): ([i32; 4], [i32; 4]) = match drums {
-        GrooveDrums::Disco => ([0, -4, 3, -2], [3, 4, 4, 4]),
-        GrooveDrums::HalfTime => ([0, -2, -4, -5], [3, 4, 4, 3]),
-        GrooveDrums::Shanty => ([0, 5, 3, 7], [3, 4, 4, 4]),
-        GrooveDrums::Chip => ([0, 3, 5, 1], [3, 4, 3, 4]),
+    let (chord_root_semi, chord_third_semi): ([i32; 4], [i32; 4]) = match arrangement {
+        GrooveArrangement::Disco => ([0, -4, 3, -2], [3, 4, 4, 4]),
+        GrooveArrangement::HalfTime => ([0, -2, -4, -5], [3, 4, 4, 3]),
+        GrooveArrangement::Shanty => ([0, 5, 3, 7], [3, 4, 4, 4]),
+        GrooveArrangement::Chip => ([0, 3, 5, 1], [3, 4, 3, 4]),
     };
 
     // --- The signature HOOK (the "question"): a fixed, singable one-bar riff. -----------------
@@ -892,20 +892,20 @@ fn synth_groove(
         let bar_start = bar * steps_per_bar;
         let step_offset =
             |st: u32| -> usize { (st as f32 * step_s * SAMPLE_RATE as f32) as usize };
-        match drums {
-            GrooveDrums::Disco => {
+        match arrangement {
+            GrooveArrangement::Disco => {
                 for step in [0, 4, 8, 12] {
                     render_kick(&mut mix, step_offset(bar_start + step), melody_gain * 0.78);
                 }
                 render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.8, &mut rng);
                 render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.8, &mut rng);
             }
-            GrooveDrums::HalfTime => {
+            GrooveArrangement::HalfTime => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain);
                 render_kick(&mut mix, step_offset(bar_start + 10), melody_gain * 0.62);
                 render_snare(&mut mix, step_offset(bar_start + 8), melody_gain * 0.72, &mut rng);
             }
-            GrooveDrums::Shanty => {
+            GrooveArrangement::Shanty => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain);
                 render_kick(&mut mix, step_offset(bar_start + 8), melody_gain * 0.82);
                 for step in [4, 7, 12, 15] {
@@ -917,7 +917,7 @@ fn synth_groove(
                     );
                 }
             }
-            GrooveDrums::Chip => {
+            GrooveArrangement::Chip => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain * 0.8);
                 render_kick(&mut mix, step_offset(bar_start + 8), melody_gain * 0.8);
                 render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.55, &mut rng);
@@ -976,7 +976,7 @@ pub fn synth_biome_action_groove(
     bpm: f32,
     theme: BiomeMusic,
 ) -> GameResult<Source> {
-    let (seed, scale, root, swing, gain, bit_depth, lead, drums) = match theme {
+    let (seed, scale, root, swing, gain, bit_depth, lead, arrangement) = match theme {
         BiomeMusic::SunnyGroove => (
             0xC0FFEE,
             GrooveScale::PentatonicMinor,
@@ -985,7 +985,7 @@ pub fn synth_biome_action_groove(
             0.56,
             11,
             GrooveLead::ElectricPiano,
-            GrooveDrums::Disco,
+            GrooveArrangement::Disco,
         ),
         BiomeMusic::TidalDorian => (
             0x71DA1,
@@ -995,7 +995,7 @@ pub fn synth_biome_action_groove(
             0.48,
             12,
             GrooveLead::Sine,
-            GrooveDrums::HalfTime,
+            GrooveArrangement::HalfTime,
         ),
         BiomeMusic::RockShanty => (
             0x50C4,
@@ -1005,7 +1005,7 @@ pub fn synth_biome_action_groove(
             0.52,
             9,
             GrooveLead::Pulse,
-            GrooveDrums::Shanty,
+            GrooveArrangement::Shanty,
         ),
         BiomeMusic::KelpDisco => (
             0xD15C0,
@@ -1015,7 +1015,7 @@ pub fn synth_biome_action_groove(
             0.62,
             12,
             GrooveLead::ElectricPiano,
-            GrooveDrums::Disco,
+            GrooveArrangement::Disco,
         ),
         BiomeMusic::MoonlitWaltz => (
             0xB411,
@@ -1025,7 +1025,7 @@ pub fn synth_biome_action_groove(
             0.45,
             13,
             GrooveLead::Sine,
-            GrooveDrums::HalfTime,
+            GrooveArrangement::HalfTime,
         ),
         BiomeMusic::WarrenMarch => (
             0xA117,
@@ -1035,7 +1035,7 @@ pub fn synth_biome_action_groove(
             0.53,
             10,
             GrooveLead::Triangle,
-            GrooveDrums::Shanty,
+            GrooveArrangement::Shanty,
         ),
         BiomeMusic::TreasuryRave => (
             0x601D,
@@ -1045,7 +1045,7 @@ pub fn synth_biome_action_groove(
             0.64,
             12,
             GrooveLead::ElectricPiano,
-            GrooveDrums::Disco,
+            GrooveArrangement::Disco,
         ),
         BiomeMusic::SplitterShanty => (
             0xC071A55,
@@ -1055,7 +1055,7 @@ pub fn synth_biome_action_groove(
             0.58,
             9,
             GrooveLead::Pulse,
-            GrooveDrums::Shanty,
+            GrooveArrangement::Shanty,
         ),
         BiomeMusic::DesktopChip => (
             0xD35C70,
@@ -1065,7 +1065,7 @@ pub fn synth_biome_action_groove(
             0.50,
             7,
             GrooveLead::Pulse,
-            GrooveDrums::Chip,
+            GrooveArrangement::Chip,
         ),
     };
     synth_groove(
@@ -1079,6 +1079,6 @@ pub fn synth_biome_action_groove(
         gain,
         bit_depth,
         lead,
-        drums,
+        arrangement,
     )
 }
