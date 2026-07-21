@@ -63,11 +63,14 @@ pub fn draw_beam_fast_pin(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let unit_sq = unit_square(ctx)?;
+    // Every draw in this loop uses ADD, so set it once for the whole pass instead of once per
+    // hit — ggez only switches the GPU pipeline on a transition between consecutive queued draws,
+    // so per-hit toggling was real pipeline-state churn when a beam sweep pins several crabs.
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         // On-beat is the hard clamp — brighter, tighter, with a ring flash.
         let a = if on_beat { 0.85 } else { 0.5 };
         let clamp_r = if on_beat { 15.0 } else { 20.0 };
-        canvas.set_blend_mode(BlendMode::ADD);
         // Soft cyan grip glow under the brackets.
         canvas.draw(dot, DrawParam::default()
             .dest(pos)
@@ -95,8 +98,8 @@ pub fn draw_beam_fast_pin(
                 .scale(Vec2::splat(clamp_r * 2.4))
                 .color(Color::new(0.6, 0.95, 1.0, 0.18)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -113,12 +116,12 @@ pub fn draw_beam_golden_spotlight(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let unit_sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         // On-beat is the firm reel — brighter, tighter rays, with a sparkle-ring pop.
         let a = if on_beat { 0.8 } else { 0.45 };
         let ray_len = if on_beat { 13.0 } else { 18.0 };
         let ray_from = ray_len + 12.0;
-        canvas.set_blend_mode(BlendMode::ADD);
         // Soft gold treasure bloom under the rays.
         canvas.draw(dot, DrawParam::default()
             .dest(pos)
@@ -146,8 +149,8 @@ pub fn draw_beam_golden_spotlight(
                 .scale(Vec2::splat(ray_from * 2.2))
                 .color(Color::new(1.0, 0.85, 0.4, 0.16)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -164,11 +167,11 @@ pub fn draw_beam_sneaky_pin(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let unit_sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         // On-beat is the firm "exposed!" flash — brighter, with a ring pop.
         let a = if on_beat { 0.8 } else { 0.45 };
         let flash_r = if on_beat { 16.0 } else { 12.0 };
-        canvas.set_blend_mode(BlendMode::ADD);
         // Soft teal exposure bloom — the sneak lit up.
         canvas.draw(dot, DrawParam::default()
             .dest(pos)
@@ -196,8 +199,8 @@ pub fn draw_beam_sneaky_pin(
                 .scale(Vec2::splat(flash_r * 2.6))
                 .color(Color::new(0.5, 0.95, 0.9, 0.16)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -208,9 +211,9 @@ pub fn draw_stomp_dancer_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let unit_sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
         // Hot pink disruption ring
-        canvas.set_blend_mode(BlendMode::ADD);
         canvas.draw(dot, DrawParam::default()
             .dest(pos)
             .scale(Vec2::splat(32.0))
@@ -230,8 +233,8 @@ pub fn draw_stomp_dancer_match(
                 .offset(Vec2::new(0.0, 0.5))
                 .color(Color::new(1.0, 0.2, 0.8, 0.7)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -241,9 +244,9 @@ pub fn draw_lasso_thief_match(
     hits: &[Vec2],
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
         // Bright sly-green central flash
-        canvas.set_blend_mode(BlendMode::ADD);
         canvas.draw(dot, DrawParam::default()
             .dest(pos)
             .scale(Vec2::splat(22.0))
@@ -258,8 +261,8 @@ pub fn draw_lasso_thief_match(
             .dest(pos)
             .scale(Vec2::splat(10.0))
             .color(Color::new(0.8, 1.0, 0.7, 0.95)));
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -271,8 +274,8 @@ pub fn draw_stomp_armored_crack(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
-        canvas.set_blend_mode(BlendMode::ADD);
         // Central impact flash
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(26.0))
             .color(Color::new(0.6, 0.78, 1.0, 0.9)));
@@ -291,8 +294,8 @@ pub fn draw_stomp_armored_crack(
         // Outer dim halo
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(60.0))
             .color(Color::new(0.55, 0.7, 0.95, 0.14)));
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -304,8 +307,8 @@ pub fn draw_whistle_golden_pull(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
-        canvas.set_blend_mode(BlendMode::ADD);
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(18.0))
             .color(Color::new(1.0, 0.88, 0.25, 0.75)));
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(35.0))
@@ -320,8 +323,8 @@ pub fn draw_whistle_golden_pull(
                 .rotation(angle).offset(Vec2::new(1.0, 0.5))
                 .color(Color::new(1.0, 0.92, 0.4, 0.72)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -335,8 +338,8 @@ pub fn draw_whistle_dancer_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
-        canvas.set_blend_mode(BlendMode::ADD);
         // Hot pink inner bloom
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(16.0))
             .color(Color::new(1.0, 0.25, 0.80, 0.85)));
@@ -358,8 +361,8 @@ pub fn draw_whistle_dancer_match(
                     .color(Color::new(1.0, 0.4, 0.9, 0.80)));
             }
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -376,9 +379,9 @@ pub fn draw_whistle_sneaky_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         let flare = if on_beat { 1.35 } else { 1.0 };
-        canvas.set_blend_mode(BlendMode::ADD);
         // Cyan inner bloom — the skittish crab caught in the sweep.
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(13.0 * flare))
             .color(Color::new(0.5, 0.95, 1.0, 0.80)));
@@ -398,8 +401,8 @@ pub fn draw_whistle_sneaky_match(
                 .rotation(angle).offset(Vec2::new(0.5, 0.5))
                 .color(Color::new(0.6, 0.96, 1.0, 0.78)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -418,10 +421,10 @@ pub fn draw_whistle_thief_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         let flare = if on_beat { 1.35 } else { 0.85 };
         let alpha = if on_beat { 1.0 } else { 0.6 };
-        canvas.set_blend_mode(BlendMode::ADD);
         // Lime inner bloom — the Thief reeled back to YOUR side (green = your train, matching the
         // "THIEF NABBED!" callout) so it reads as a gain, not the golden loss of a rival steal.
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(14.0 * flare))
@@ -443,8 +446,8 @@ pub fn draw_whistle_thief_match(
                 .rotation(angle).offset(Vec2::new(0.5, 0.5))
                 .color(Color::new(0.6, 1.0, 0.65, 0.78 * alpha)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -458,8 +461,8 @@ pub fn draw_lasso_magnet_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
-        canvas.set_blend_mode(BlendMode::ADD);
         // Inner cyan core bloom
         canvas.draw(dot, DrawParam::default()
             .dest(pos).scale(Vec2::splat(18.0))
@@ -483,8 +486,8 @@ pub fn draw_lasso_magnet_match(
                 .rotation(angle).offset(Vec2::new(0.5, 0.5))
                 .color(Color::new(0.4, 1.0, 1.0, 0.85)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -502,9 +505,9 @@ pub fn draw_lasso_big_match(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &(pos, on_beat) in hits {
         let flare = if on_beat { 1.35 } else { 1.0 };
-        canvas.set_blend_mode(BlendMode::ADD);
         // Warm amber inner bloom — the heavy crab caught in the tightening loop.
         canvas.draw(dot, DrawParam::default().dest(pos).scale(Vec2::splat(17.0 * flare))
             .color(Color::new(1.0, 0.72, 0.30, 0.85)));
@@ -527,8 +530,8 @@ pub fn draw_lasso_big_match(
                     .color(Color::new(1.0, 0.66, 0.26, alpha)));
             }
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
 
@@ -616,8 +619,8 @@ pub fn draw_magnet_cluster_pull(
 ) -> ggez::GameResult {
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
+    canvas.set_blend_mode(BlendMode::ADD);
     for &pos in hits {
-        canvas.set_blend_mode(BlendMode::ADD);
         // Inner core — brighter than the lasso/Magnet burst to read as "active pull"
         canvas.draw(dot, DrawParam::default()
             .dest(pos).scale(Vec2::splat(20.0))
@@ -643,7 +646,7 @@ pub fn draw_magnet_cluster_pull(
                 .offset(Vec2::new(0.0, 0.5))  // start from outer radius, extend inward
                 .color(Color::new(0.3, 0.95, 1.0, 0.90)));
         }
-        canvas.set_blend_mode(BlendMode::ALPHA);
     }
+    canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
