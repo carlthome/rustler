@@ -1490,9 +1490,9 @@ fn main() -> GameResult {
 
     if let Some(ref name) = bot_script {
         use bot::{
-            BotState, script_campaign_escape, script_campaign_tutorial, script_groove_dash, script_menu_to_game,
-            script_npc_steal, script_npc_vs_npc, script_player_steal, script_revenge,
-            script_steal_defense, script_steal_dodge,
+            BotState, script_campaign_escape, script_campaign_tutorial, script_groove_dash,
+            script_menu_to_game, script_npc_steal, script_npc_vs_npc, script_player_steal,
+            script_revenge, script_steal_defense, script_steal_dodge,
         };
         // ── Determinism, root-cause fix for playtest flakiness ────────────────────────────────
         // The bot asserts on emergent outcomes ("a revenge steal happened"), which are only a
@@ -1543,8 +1543,8 @@ fn main() -> GameResult {
                 // step small enough that catches register reliably, trading a little wall-clock (still
                 // a parallel matrix leg) for a green that isn't a coin-flip.
                 "steal_defense" | "steal_dodge" | "revenge" => 2.0,
-                "campaign_escape" | "menu_to_game" | "campaign_tutorial" | "npc_steal" | "player_steal"
-                | "npc_vs_npc" => 3.0,
+                "campaign_escape" | "menu_to_game" | "campaign_tutorial" | "npc_steal"
+                | "player_steal" | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };
