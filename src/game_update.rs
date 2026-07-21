@@ -1512,8 +1512,12 @@ impl MainState {
             // stack one pound at a time before it escapes), and the Dancer King (chase — pin down
             // the beat-teleporting evader and bank its entranced court with an on-beat catch).
             // Cycling guarantees variety instead of RNG streaks.
-            let (boss, title, hint, title_color) = match self.next_boss_kind {
-                1 => (
+            let boss_kind = self.levels
+                .get(self.current_level.min(self.levels.len().saturating_sub(1)))
+                .map(|level| level.boss_for_encounter(self.next_boss_kind))
+                .unwrap_or(CrabType::Boss);
+            let (boss, title, hint, title_color) = match boss_kind {
+                CrabType::TideBoss => (
                     spawn_tide_boss(
                         (self.world_width, self.world_height),
                         &mut crate::rng::rng(),
@@ -1523,7 +1527,7 @@ impl MainState {
                     "Hold your light — but keep your train clear of its pulse!",
                     [0.35, 0.8, 1.0, 1.0],
                 ),
-                2 => (
+                CrabType::RhythmBoss => (
                     spawn_rhythm_boss(
                         (self.world_width, self.world_height),
                         &mut crate::rng::rng(),
@@ -1533,7 +1537,7 @@ impl MainState {
                     "Echo the lit pips with light — or catch its dancers on a hot beat!",
                     [0.75, 0.4, 1.0, 1.0],
                 ),
-                3 => (
+                CrabType::HermitKing => (
                     spawn_hermit_king(
                         (self.world_width, self.world_height),
                         &mut crate::rng::rng(),
@@ -1543,7 +1547,7 @@ impl MainState {
                     "Your light can't touch it — STOMP its shell houses, one crack at a time!",
                     [0.95, 0.6, 0.25, 1.0],
                 ),
-                4 => (
+                CrabType::DancerKing => (
                     spawn_dancer_king(
                         (self.world_width, self.world_height),
                         &mut crate::rng::rng(),

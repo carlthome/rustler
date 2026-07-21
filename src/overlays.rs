@@ -55,7 +55,8 @@ impl MainState {
         // Slide in from left: during fade-in, title slides right into position.
         let slide_x = (1.0 - alpha) * -80.0;
 
-        let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
+        let level = &self.levels[self.current_level.min(self.levels.len() - 1)];
+        let biome = level.biome;
 
         LEVEL_TITLE_OVERLAY_CACHE.with(|c| -> Result<(), ggez::GameError> {
             let mut cache = c.borrow_mut();
@@ -76,13 +77,16 @@ impl MainState {
                 let sub_dims = subtitle.measure(ctx)?;
 
                 let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
-                let threat_opt = if let Some(label) = crate::levels::emphasis_label(emphasis) {
-                    let mut threat = Text::new(label.to_uppercase());
+                let boss = level.boss_for_encounter(self.next_boss_kind);
+                let threat_text = match crate::levels::emphasis_label(emphasis) {
+                    Some(label) => format!("{}  •  {}", label, crate::levels::boss_label(boss)),
+                    None => crate::levels::boss_label(boss).to_string(),
+                };
+                let threat_opt = {
+                    let mut threat = Text::new(threat_text);
                     threat.set_scale(18.0);
                     let tw = threat.measure(ctx)?.x;
                     Some((threat, tw))
-                } else {
-                    None
                 };
 
                 *cache = Some((
