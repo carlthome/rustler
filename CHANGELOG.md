@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.42.0 — 2026-07-21
+
+### Features
+- Coach off-beat ranged casts with a dim EARLY/LATE near-miss tick
+
 ## v0.41.0 — 2026-07-21
 
 ### Features
