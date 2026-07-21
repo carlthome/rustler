@@ -320,19 +320,7 @@ pub fn handle_key_down_event(
                     return true;
                 }
                 KeyCode::Escape => {
-                    // If a skip warning is armed, the first Esc just cancels it (back out of the
-                    // skip); otherwise Esc leaves the map back to the menu.
-                    if let Some(map) = &mut state.world_map {
-                        if map.skip_pending() {
-                            map.cancel_skip();
-                            return true;
-                        }
-                    }
-                    use ggez::audio::SoundSource;
-                    state.sounds.world_map_pad.pause();
-                    state.show_world_map = false;
-                    state.show_instructions = true;
-                    state.show_how_to_play_text = false;
+                    state.return_to_main_menu();
                     return true;
                 }
                 _ => {}
@@ -447,7 +435,9 @@ pub fn handle_key_down_event(
             }
         } else if state.game_over {
             if matches!(key, KeyCode::Space | KeyCode::Enter | KeyCode::Escape) {
-                if state.in_campaign {
+                if key == KeyCode::Escape {
+                    state.return_to_main_menu();
+                } else if state.in_campaign {
                     state.return_to_world_map();
                 } else {
                     state.reset_game();
@@ -588,17 +578,7 @@ pub fn handle_key_down_event(
                 let _ = state.sounds.hihat.play();
             }
             if key == KeyCode::Escape {
-                if state.in_campaign {
-                    state.return_to_world_map();
-                } else if state.tutorial.is_some() {
-                    // In a tutorial, Escape backs out to the title screen (opt-in exit) rather than
-                    // quitting the game — and never through game_over, so career stats stay clean.
-                    state.tutorial = None;
-                    state.show_instructions = true;
-                    state.show_how_to_play_text = false;
-                } else {
-                    ctx.request_quit();
-                }
+                state.return_to_main_menu();
             }
             if key == KeyCode::F2 {
                 state.debug_mode = !state.debug_mode;

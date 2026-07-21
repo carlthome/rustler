@@ -1057,6 +1057,19 @@ impl MainState {
         }
     }
 
+    /// Return to the title menu without terminating the application.
+    fn return_to_main_menu(&mut self) {
+        self.stop_level_audio();
+        self.sounds.world_map_pad.pause();
+        self.show_world_map = false;
+        self.show_instructions = true;
+        self.show_how_to_play_text = false;
+        self.game_over = false;
+        self.in_campaign = false;
+        self.tutorial = None;
+        self.menu_page = 0;
+    }
+
     /// Start a campaign run (or tutorial) from the currently selected world map node.
     /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level.
     fn enter_campaign_level(&mut self) {

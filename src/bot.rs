@@ -104,6 +104,7 @@ pub enum BotAssert {
     RivalHuntTelegraphAtLeast(usize),
     ScoreAtLeast(usize),
     ShowWorldMap,
+    MainMenu,
     TutorialActive,
     TutorialDone,           // tutorial field is None and show_world_map is true
     InGame,                 // not on menu, not game_over, not world_map
@@ -210,7 +211,7 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
 }
 
 pub fn script_campaign_escape() -> Vec<BotEvent> {
-    // Campaign Escape must return to the world map from an active regular level instead of quitting
+    // Campaign Escape must return to the main menu from an active regular level instead of quitting
     // the application. Select the first regular campaign node, confirm the soft skip warning, then
     // leave the started level with Escape.
     vec![
@@ -224,7 +225,7 @@ pub fn script_campaign_escape() -> Vec<BotEvent> {
         BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
         BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 3.0, action: BotAction::TapKey(KeyCode::Escape) },
-        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::MainMenu) },
     ]
 }
 

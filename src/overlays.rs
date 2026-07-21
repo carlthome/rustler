@@ -883,7 +883,7 @@ impl MainState {
                     Color::from_rgba(40, 0, 80, 180),
                 )?;
                 let text = Text::new(format!(
-                    "Game Over!\nThis run: {} crabs banked\nTime: {:.2}s   Best time: {:.2}s\n\nCareer best: {}\nCareer total: {} over {} runs\n\nPress Space or Enter to try again.  Esc to quit.",
+                    "Game Over!\nThis run: {} crabs banked\nTime: {:.2}s   Best time: {:.2}s\n\nCareer best: {}\nCareer total: {} over {} runs\n\nPress Space or Enter to try again.  Esc for menu.",
                     self.score, self.time_elapsed, self.best_time,
                     self.career_best_score, self.career_total_score, self.career_runs,
                 ));
