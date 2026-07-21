@@ -158,23 +158,31 @@ impl MainState {
     /// path — kept on the tight window so its feel is untouched (Carl, #164). Cooldown-gated ranged
     /// casts use `reward_on_beat_action` (wider window) instead.
     pub(crate) fn reward_on_beat_tool(&mut self, at: Vec2, label: &str) -> f32 {
-        self.reward_on_beat_windowed(at, label, self.on_beat_now())
+        // `audible` false: the dash gets NO added drum-pad accent so its feel is untouched (Carl, #164).
+        self.reward_on_beat_windowed(at, label, self.on_beat_now(), false)
     }
     /// Like `reward_on_beat_tool` but keyed off the wider `on_beat_action` window — for the
     /// cooldown-gated ranged tool casts (whistle/stomp/beat-wave/lasso) that #164 flagged as feeling
     /// too unforgiving. Same reward/juice; only the on-beat window differs. The dash deliberately does
     /// NOT use this (it stays on the tight `reward_on_beat_tool`).
     pub(crate) fn reward_on_beat_action(&mut self, at: Vec2, label: &str) -> f32 {
-        self.reward_on_beat_windowed(at, label, self.on_beat_action())
+        // `audible` true: a ranged cast on the beat plays the crisp woodblock drum-pad accent — the
+        // audible "each tool key is a drum pad" reward these cooldown-gated casts were missing (#164).
+        self.reward_on_beat_windowed(at, label, self.on_beat_action(), true)
     }
     /// Shared body for the two on-beat tool rewards above — the `on_beat` gate is decided by the
     /// caller (tight `BEAT_WINDOW` for the dash, wider `ACTION_BEAT_WINDOW` for ranged casts).
-    fn reward_on_beat_windowed(&mut self, at: Vec2, label: &str, on_beat: bool) -> f32 {
+    /// `audible` latches the on-beat drum-pad accent (ranged casts only; the dash passes false so
+    /// its feel stays unchanged); the sound itself fires from the audio pass, which owns `ctx`.
+    fn reward_on_beat_windowed(&mut self, at: Vec2, label: &str, on_beat: bool, audible: bool) -> f32 {
         if on_beat {
             self.groove = (self.groove + 0.14).min(1.0);
             self.on_beat_flash = (self.on_beat_flash + 0.35).min(0.7);
             self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
             self.zoom_punch = self.zoom_punch.max(0.03);
+            if audible {
+                self.on_beat_tool_sfx = true;
+            }
             self.floating_texts.spawn(
                 format!("{} PERFECT!", label),
                 at - Vec2::new(52.0, 84.0),

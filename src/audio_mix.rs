@@ -189,6 +189,13 @@ impl MainState {
         // flag when crabs change hands. Play the matching sting here — a descending thud when a
         // rival rustles from you, a rising sparkle when you rustle back — so the core steal moment
         // reads in the audio too (INSPIRATION.md "Audio IS the scoreboard" / "Steal to win").
+        // On-beat tool drum-pad accent: a ranged cast (whistle/stomp/wave/lasso) landed on the beat,
+        // so layer the crisp woodblock "tok" over its own SFX — the audible half of "each tool key is
+        // a drum pad" (INSPIRATION.md). Pitched up per on-beat streak so a hot run of casts climbs.
+        if self.on_beat_tool_sfx {
+            self.on_beat_tool_sfx = false;
+            crate::state::play_tool_accent(&mut self.sounds, self.beat_streak);
+        }
         if self.steal_loss_sfx {
             self.steal_loss_sfx = false;
             let _ = self.sounds.steal_loss_sfx.play();
