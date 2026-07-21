@@ -113,8 +113,55 @@ impl MainState {
             )?;
         }
 
-        // Tool roster — Zelda-style 5-slot bar at the bottom centre.
+        // Tool roster — Zelda-style bar at the bottom centre.
         if !self.show_instructions && !self.game_over && !self.show_world_map {
+            // Contextual usefulness: a pad lights up only when firing it now would actually do
+            // something (a target is in range). One cheap pass over crabs + one over rival trains,
+            // squared-distance so there's no per-frame sqrt.
+            let pc = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+            let whistle_r2 = {
+                let r = self.whistle_max_radius();
+                r * r
+            };
+            let mut whistle_useful = false;
+            let mut call_useful = false;
+            let mut stomp_useful = false;
+            let mut lasso_thief = false;
+            let mut lasso_cluster = 0u32;
+            for c in &self.crabs {
+                if c.caught {
+                    continue;
+                }
+                let d2 = c.pos.distance_squared(pc);
+                if c.is_catchable() {
+                    if d2 <= whistle_r2 {
+                        whistle_useful = true;
+                    }
+                    if d2 <= 320.0 * 320.0 {
+                        lasso_cluster += 1;
+                    }
+                }
+                if c.is_dancer() && d2 <= 420.0 * 420.0 {
+                    call_useful = true;
+                }
+                if !c.is_boss() && c.boss_health > 0.0 && d2 <= STOMP_MAX_RADIUS * STOMP_MAX_RADIUS {
+                    stomp_useful = true;
+                }
+                if c.is_thief() && d2 <= 400.0 * 400.0 {
+                    lasso_thief = true;
+                }
+            }
+            let lasso_useful = lasso_thief || lasso_cluster >= 2;
+            let mut wave_useful = false;
+            for t in &self.npc_trains {
+                let d = t.leader_pos.distance(pc);
+                if d <= WAVE_DEFEND_RADIUS {
+                    wave_useful = true;
+                }
+                if t.steal_threat > 0.0 && d <= STOMP_DEFEND_RADIUS {
+                    stomp_useful = true;
+                }
+            }
             draw_tool_roster(
                 ctx,
                 canvas,
@@ -124,8 +171,16 @@ impl MainState {
                 crate::WHISTLE_COOLDOWN,
                 self.stomp_cooldown,
                 crate::STOMP_COOLDOWN,
+                self.beat_wave_active,
+                self.call_cooldown,
+                crate::CALL_COOLDOWN,
                 self.boost_cooldown,
                 !matches!(self.lasso_phase, LassoPhase::Idle),
+                lasso_useful,
+                whistle_useful,
+                stomp_useful,
+                wave_useful,
+                call_useful,
                 self.groove,
                 self.time_elapsed,
                 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0),

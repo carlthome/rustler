@@ -269,6 +269,31 @@ impl MainState {
         self.try_defend_steal(center, 400.0, "STOMP");
     }
 
+    /// Bot-test helper (see BotAction::ForceWaveShove): deterministically stage the Wave's proactive
+    /// crowd-control. Place the nearest rival right beside the player (inside the Wave's reach), snap
+    /// the beat on, then cast the real `fire_wave` — the exact path the Q key / SPACE+Q chord drive —
+    /// so `wave_shove_rivals` shoves it and `rivals_wave_shoved` rises. A no-op with no NPC trains.
+    /// Only the rival's placement and beat phase are staged; the shove itself runs the real code.
+    pub fn force_wave_shove(&mut self) {
+        if self.npc_trains.is_empty() {
+            return;
+        }
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
+            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(ni) = ni else {
+            return;
+        };
+        // Beside the player, well inside WAVE_DEFEND_RADIUS so the shove is guaranteed to reach it.
+        self.npc_trains[ni].leader_pos = player_center + Vec2::new(120.0, 0.0);
+        self.beat_timer = 0.0; // on-beat: the big knockback branch
+        self.beat_wave_active = false; // don't let an in-flight ring block the cast
+        self.fire_wave();
+    }
+
     /// Bot-test staging helper: guarantee rival `ni` has a stealable train of at least `min` followers
     /// with a `path_history` deep enough that every follower slot `(fi+1)*STEPS` resolves — the exact
     /// layout `force_player_revenge` and the real player steal-back read. The ambient headless rivals

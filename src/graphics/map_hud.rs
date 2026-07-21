@@ -30,8 +30,8 @@ thread_local! {
     // hint toggles between "SLAM ready!" and "need groove" as the meter fills, so each cache entry
     // stores the source &'static str alongside its shaped Text and rebuilds only on a content
     // mismatch — a rare event for 14 of 15 slots, and just a two-way flip for the 15th.
-    static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 15]> =
-        RefCell::new([const { None }; 15]);
+    static TOOL_ROSTER_TEXT_CACHE: RefCell<[Option<(&'static str, Text)>; 21]> =
+        RefCell::new([const { None }; 21]);
 
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
@@ -590,8 +590,19 @@ pub fn draw_tool_roster(
     whistle_max: f32,
     stomp_cd: f32,
     stomp_max: f32,
+    wave_busy: bool,     // true while the Wave shockwave ring is flying
+    call_cd: f32,
+    call_max: f32,
     boost_cd: f32,       // dash cooldown
     lasso_busy: bool,    // true when lasso is in flight/dragging
+    // Contextual usefulness: true when firing this tool RIGHT NOW would actually do something
+    // (a target is in range). A ready+useful pad lights up bright so the player reads *which* tool
+    // the moment calls for, not just which are off cooldown.
+    lasso_useful: bool,
+    whistle_useful: bool,
+    stomp_useful: bool,
+    wave_useful: bool,
+    call_useful: bool,
     // Groove/G state
     groove: f32,         // 0..1 groove meter level (for V/G readiness hint)
     time: f32,
@@ -609,6 +620,7 @@ pub fn draw_tool_roster(
         hint: &'static str,
         color: [f32; 3],
         cooldown_ratio: f32,
+        useful: bool,
     }
 
     let whistle_max_safe = if whistle_max <= 0.0 { 1.0 } else { whistle_max };
@@ -616,18 +628,23 @@ pub fn draw_tool_roster(
     let groove_clamped   = groove.clamp(0.0, 1.0);
     let groove_hint: &str = if groove_clamped >= 0.75 { "SLAM ready!" } else { "need groove" };
 
+    let call_max_safe = if call_max <= 0.0 { 1.0 } else { call_max };
+
     let slots = [
-        ToolSlot { key: "click",  name: "LASSO",   hint: "snags Thieves", color: [0.3, 0.85, 0.45], cooldown_ratio: if lasso_busy { 0.6 } else { 0.0 } },
-        ToolSlot { key: "E",      name: "WHISTLE",  hint: "pulls Dancers",  color: [0.4, 0.85, 1.0],  cooldown_ratio: (whistle_cd / whistle_max_safe).clamp(0.0, 1.0) },
-        ToolSlot { key: "R",      name: "STOMP",    hint: "cracks shells",  color: [0.6, 0.7, 1.0],   cooldown_ratio: (stomp_cd   / stomp_max_safe).clamp(0.0, 1.0) },
-        ToolSlot { key: "Space",  name: "DASH",     hint: "on beat = +",    color: [1.0, 0.9, 0.5],   cooldown_ratio: (boost_cd   / 0.08_f32).clamp(0.0, 1.0) },
-        ToolSlot { key: "V · G", name: "GROOVE",   hint: groove_hint,      color: [0.45, 1.0, 0.85], cooldown_ratio: 1.0 - groove_clamped },
+        ToolSlot { key: "click",  name: "LASSO",   hint: "snags Thieves", color: [0.3, 0.85, 0.45], cooldown_ratio: if lasso_busy { 0.6 } else { 0.0 }, useful: lasso_useful },
+        ToolSlot { key: "E",      name: "WHISTLE",  hint: "pulls Dancers",  color: [0.4, 0.85, 1.0],  cooldown_ratio: (whistle_cd / whistle_max_safe).clamp(0.0, 1.0), useful: whistle_useful },
+        ToolSlot { key: "R",      name: "STOMP",    hint: "cracks shells",  color: [0.6, 0.7, 1.0],   cooldown_ratio: (stomp_cd   / stomp_max_safe).clamp(0.0, 1.0), useful: stomp_useful },
+        ToolSlot { key: "Q",      name: "WAVE",     hint: "shoves rivals",  color: [0.45, 0.9, 1.0],  cooldown_ratio: if wave_busy { 0.6 } else { 0.0 }, useful: wave_useful },
+        ToolSlot { key: "T",      name: "CALL",     hint: "calls Dancers",  color: [1.0, 0.55, 0.9],  cooldown_ratio: (call_cd / call_max_safe).clamp(0.0, 1.0), useful: call_useful },
+        ToolSlot { key: "Space",  name: "DASH",     hint: "on beat = +",    color: [1.0, 0.9, 0.5],   cooldown_ratio: (boost_cd   / 0.08_f32).clamp(0.0, 1.0), useful: true },
+        ToolSlot { key: "V · G", name: "GROOVE",   hint: groove_hint,      color: [0.45, 1.0, 0.85], cooldown_ratio: 1.0 - groove_clamped, useful: groove_clamped >= 0.75 },
     ];
 
     let slot_w: f32 = 88.0;
     let slot_h: f32 = 52.0;
     let slot_gap: f32 = 6.0;
-    let total_w = 5.0 * slot_w + 4.0 * slot_gap;
+    let n_slots = slots.len() as f32;
+    let total_w = n_slots * slot_w + (n_slots - 1.0) * slot_gap;
     let x0 = (width - total_w) / 2.0;
     let y0 = height - slot_h - 10.0;
 
@@ -653,12 +670,24 @@ pub fn draw_tool_roster(
         // ROUNDED_STROKE_RECT_CACHE. Position/size only change on window resize and border_color
         // only ever takes one of two values (ready vs. on-cooldown), so this settles into a tiny,
         // fixed-size cache after the first couple of frames.
-        let border_color = if ready {
+        // Three states so the row reads at a glance: on-cooldown = grey, ready-but-nothing-to-hit =
+        // dim accent, ready-AND-useful (a target is in range) = full-bright accent with a beat-
+        // pulsing outer glow. That highlight is the "light up when the tool is useful" cue — it tells
+        // the player which pad the moment actually calls for.
+        let lit = ready && slot.useful;
+        let border_color = if lit {
             Color::from_rgba(
-                (slot.color[0] * 180.0) as u8,
-                (slot.color[1] * 180.0) as u8,
-                (slot.color[2] * 180.0) as u8,
-                200,
+                (slot.color[0] * 255.0) as u8,
+                (slot.color[1] * 255.0) as u8,
+                (slot.color[2] * 255.0) as u8,
+                235,
+            )
+        } else if ready {
+            Color::from_rgba(
+                (slot.color[0] * 110.0) as u8,
+                (slot.color[1] * 110.0) as u8,
+                (slot.color[2] * 110.0) as u8,
+                150,
             )
         } else {
             Color::from_rgba(60, 65, 90, 160)
@@ -673,6 +702,30 @@ pub fn draw_tool_roster(
             Color::from_rgba(10, 14, 30, 180),
         )?;
         canvas.draw(&bg_mesh, DrawParam::default());
+        // Beat-pulsing outer glow on a useful pad — a white stroke baked once per slot and tinted to
+        // the accent with an alpha that swells on the beat (so it throbs like a lit drum pad).
+        if lit {
+            let glow = cached_rounded_stroke_rect(
+                ctx,
+                sx - 3.0,
+                sy - 3.0,
+                slot_w + 6.0,
+                slot_h + 6.0,
+                7.0,
+                2.5,
+                Color::WHITE,
+            )?;
+            let a = 0.35 + 0.5 * beat_glow;
+            canvas.draw(
+                &glow,
+                DrawParam::default().color(Color::new(
+                    slot.color[0],
+                    slot.color[1],
+                    slot.color[2],
+                    a,
+                )),
+            );
+        }
         let border_mesh = cached_rounded_stroke_rect(ctx, sx, sy, slot_w, slot_h, 5.0, 1.5, border_color)?;
         canvas.draw(&border_mesh, DrawParam::default());
 
@@ -695,12 +748,15 @@ pub fn draw_tool_roster(
             Ok(())
         })?;
 
-        // Tool name — centred, accent color, pulsing ON the beat when ready (drum-pad feel) so the
-        // player reads the moment to fire for the on-beat bonus, rather than a free-running blink.
-        let pulse = if ready {
-            0.55 + beat_glow * 0.45
+        // Tool name — centred, accent color. A ready+useful pad burns brightest and pulses ON the
+        // beat (drum-pad feel, reads as "hit this now"); a ready-but-not-useful pad sits dim; an
+        // on-cooldown pad is dimmed further so the lit ones clearly win the eye.
+        let pulse = if lit {
+            0.7 + beat_glow * 0.45
+        } else if ready {
+            0.5
         } else {
-            0.75
+            0.45
         };
         let [r, g, b] = slot.color;
         let name_color = Color::new(r * pulse, g * pulse, b * pulse, 1.0);

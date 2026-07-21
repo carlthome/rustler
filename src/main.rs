@@ -83,7 +83,7 @@ pub(crate) fn how_to_play_body_text() -> String {
         "- Space  Dash: burst to a crab, or shake off a King Crab",
         "- E  Whistle: yank skittish crabs toward you",
         "- R  Stomp: crack armored shells, and guard your tail",
-        "- Q  Wave: ranged parry — knock a rival off mid-steal",
+        "- Q  Wave: on-beat shockwave — shove nearby rivals back to clear space",
         "- F  Flashlight: toggle it on to auto-melt the nearest King Crab catchable",
         "- T  Call: charm nearby Dancer crabs to hop over to you on the beat",
         "- X  Cycle: rotate the train — tuck your best crabs up front",
