@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "rustler"
-version = "0.33.2"
+version = "0.34.0"
 dependencies = [
  "crevice",
  "ggez",
