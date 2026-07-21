@@ -734,13 +734,6 @@ impl MainState {
             CENTERPIECE_OUT_BUF.with(|buf| std::mem::take(&mut *buf.borrow_mut()));
         centerpiece_set.clear();
         self.centerpiece_link_indices(self.chain_count, &mut centerpiece_set);
-        // Interior link under the flashlight aim right now — the one a bubble-swap (X on beat) would
-        // move toward the centre. Computed once so the per-crab draw loop can ring it as a preview.
-        let aimed_bubble_link = if self.cycle_preview_active {
-            self.aimed_interior_link()
-        } else {
-            None
-        };
         // Draw chain crabs with a groovy wave bob that travels through the train
         for crab in self.crabs.iter() {
             if crab.caught {
@@ -768,8 +761,9 @@ impl MainState {
                 )?;
                 // CYCLE PREVIEW: ring the crab a Cycle (X) would promote to the head (the link at
                 // chain_index 1). Only when the verb is actually available (cache is None otherwise),
-                // so the marker appears exactly when pressing X would land this crab up front — letting
-                // the player choose a cycle for its arrangement outcome instead of mashing blind.
+                // so the marker appears exactly when pressing X would land this crab up front — a
+                // mouse-free read: it shows what the next on-beat X does, so the player arranges the
+                // head/tail on purpose instead of mashing blind.
                 if self.cycle_preview_active && crab.chain_index == Some(1) {
                     draw_cycle_preview_ring(
                         ctx,
@@ -780,25 +774,6 @@ impl MainState {
                         self.time_elapsed,
                         self.beat_intensity,
                         crab.is_golden() || crab.is_dancer(),
-                    )?;
-                }
-                // BUBBLE PREVIEW: when the flashlight is aimed at an interior link, ring THAT crab so
-                // the player sees which one X (on beat) will bubble one slot toward the centre — the
-                // legibility that turns the local swap from a blind guess into a placed decision. Green
-                // tint distinguishes it from the head-promote cyan cycle ring above.
-                if self.cycle_preview_active
-                    && aimed_bubble_link.is_some()
-                    && crab.chain_index == aimed_bubble_link
-                {
-                    draw_cycle_preview_ring(
-                        ctx,
-                        canvas,
-                        crab.pos + Vec2::new(sway, bob) + Vec2::splat(crab.scale * CRAB_SIZE * 0.5),
-                        crab.scale * CRAB_SIZE * 0.7,
-                        [0.5, 1.0, 0.7],
-                        self.time_elapsed,
-                        self.beat_intensity,
-                        true,
                     )?;
                 }
                 // CENTERPIECE: ring this link if it's part of a paying mid-train run. Reads as an
