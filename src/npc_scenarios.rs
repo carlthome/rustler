@@ -10,10 +10,21 @@ use ggez::glam::Vec2;
 
 use crate::constants::*;
 use crate::enemies::CrabType;
+use crate::npc_conga_train::NpcCongaTrain;
 use crate::spawnings::spawn_scattered_crab;
 use crate::state::MainState;
 
 impl MainState {
+    /// Creates the NPC train fixture needed by bot-only scenarios without reintroducing rivals to
+    /// tutorial gameplay.
+    fn ensure_bot_npc_trains(&mut self) {
+        if self.npc_trains.is_empty() {
+            self.npc_trains = (0..3)
+                .map(|index| NpcCongaTrain::new_at(self.world_width, self.world_height, index))
+                .collect();
+        }
+    }
+
     /// Bot-test helper: deterministically top the player's conga chain up to `target` links so the
     /// forced-steal helpers below always have a stealable chain to act on this frame. The staged
     /// steal scenarios grow their chain with the seek-catch autopilot, but each forced splice drives
@@ -91,9 +102,7 @@ impl MainState {
     /// exercises the real detection + detachment + follower-transfer path; only the rival's pathing
     /// (which is RNG-timed and can't be counted on inside a headless budget) is shortcut.
     pub fn force_npc_cross(&mut self) {
-        if self.npc_trains.is_empty() {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         // Guarantee a stealable chain regardless of the autopilot's RNG catch timing (see
         // bot_prime_chain); no-op if there were no wild crabs to enlist.
         self.bot_prime_chain(6);
@@ -139,6 +148,7 @@ impl MainState {
     /// split_off + stolen-crab transfer path; only the head's threading (RNG-timed against a wandering
     /// rival) is shortcut.
     pub fn force_player_cross(&mut self) {
+        self.ensure_bot_npc_trains();
         // Guarantee the player has a train regardless of the autopilot's RNG catch timing.
         self.bot_prime_chain(3);
         if self.chain_count < 1 {
@@ -185,6 +195,7 @@ impl MainState {
     /// rival is currently revenge-marked at all (the marker's followers are topped up here so an empty
     /// culprit can't silently no-op the steal-back).
     pub fn force_player_revenge(&mut self) {
+        self.ensure_bot_npc_trains();
         // Guarantee the player has a train to thread back with (the revenge marker + rival followers
         // come from the preceding ForceNpcCross/Dodge, not from here).
         self.bot_prime_chain(3);
@@ -230,9 +241,7 @@ impl MainState {
     /// (no NPC trains, or a chain shorter than 2). Exercises the real arm → on-beat cancel path; only
     /// the player's tool timing (RNG-fragile headless) is shortcut.
     pub fn force_steal_defense(&mut self) {
-        if self.npc_trains.is_empty() {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         self.bot_prime_chain(6);
         if self.chain_count < 2 {
             return;
@@ -275,9 +284,7 @@ impl MainState {
     /// so `wave_shove_rivals` shoves it and `rivals_wave_shoved` rises. A no-op with no NPC trains.
     /// Only the rival's placement and beat phase are staged; the shove itself runs the real code.
     pub fn force_wave_shove(&mut self) {
-        if self.npc_trains.is_empty() {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
             let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
@@ -351,9 +358,7 @@ impl MainState {
     /// counter-steal window (marks the juked rival for revenge), so a following ForceRevengeCross can
     /// assert the dodge flipped into offense.
     pub fn force_steal_dodge(&mut self) {
-        if self.npc_trains.is_empty() {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         self.bot_prime_chain(6);
         if self.chain_count < 2 {
             return;
@@ -435,9 +440,7 @@ impl MainState {
     /// pointed rival→rival: it exercises the real detection + split_off + transfer path; only the
     /// RNG-timed wander that would otherwise have to line the two leaders up is shortcut.
     pub fn force_rival_cross(&mut self) {
-        if self.npc_trains.len() < 2 {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
         let thief = (0..self.npc_trains.len())
             .max_by_key(|&i| self.npc_trains[i].follower_types.len());
@@ -520,9 +523,7 @@ impl MainState {
     /// only shortcuts the RNG wander that would otherwise line two leaders up far from the player by
     /// chance. No-op with fewer than two trains or no strictly-smaller rival.
     pub fn force_rival_hunt(&mut self) {
-        if self.npc_trains.len() < 2 {
-            return;
-        }
+        self.ensure_bot_npc_trains();
         let Some(thief) =
             (0..self.npc_trains.len()).max_by_key(|&i| self.npc_trains[i].follower_types.len())
         else {
