@@ -639,40 +639,63 @@ impl MainState {
             });
         }
 
-        // Debug info: current level in bottom-left corner, small and unobtrusive.
-        LEVEL_LABEL_CACHE.with(|c| -> GameResult {
-            let mut cache = c.borrow_mut();
-            let display_stage = if self.in_campaign {
-                self.current_level + 1
-            } else {
-                self.arcade_stage
-            };
-            let cache_key = if self.in_campaign {
-                self.current_level
-            } else {
-                self.levels.len().saturating_add(self.arcade_stage)
-            };
-            if !cache.contains_key(&cache_key) {
-                let mut label = Text::new(format!(
-                    "Stage {}: {} | {} | Difficulty: {}",
-                    display_stage,
-                    self.levels[self.current_level].title,
-                    self.levels[self.current_level].description,
-                    self.levels[self.current_level].difficulty
-                ));
-                label.set_scale(13.0);
-                let dims = label.measure(ctx)?;
-                cache.insert(cache_key, (label, dims.x, dims.y));
-            }
-            let (label, _label_width, label_height) = cache.get(&cache_key).unwrap();
-            canvas.draw(
-                label,
-                DrawParam::default()
-                    .dest(Vec2::new(8.0, height - label_height - 6.0))
-                    .color(Color::from_rgba(180, 180, 180, 80)),
-            );
-            Ok(())
-        })?;
+        // Debug info: current level in bottom-left corner, small and unobtrusive. Campaign uses
+        // the bounded per-level HashMap cache (levels.len() is small and fixed, so it reaches
+        // steady state quickly); endless arcade uses a single-slot cache instead — arcade_stage
+        // climbs forever and is never revisited, so keying into the same HashMap would leak one
+        // Text entry per stage for the life of the run.
+        if self.in_campaign {
+            LEVEL_LABEL_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                let cache_key = self.current_level;
+                if !cache.contains_key(&cache_key) {
+                    let mut label = Text::new(format!(
+                        "Stage {}: {} | {} | Difficulty: {}",
+                        self.current_level + 1,
+                        self.levels[self.current_level].title,
+                        self.levels[self.current_level].description,
+                        self.levels[self.current_level].difficulty
+                    ));
+                    label.set_scale(13.0);
+                    let dims = label.measure(ctx)?;
+                    cache.insert(cache_key, (label, dims.x, dims.y));
+                }
+                let (label, _label_width, label_height) = cache.get(&cache_key).unwrap();
+                canvas.draw(
+                    label,
+                    DrawParam::default()
+                        .dest(Vec2::new(8.0, height - label_height - 6.0))
+                        .color(Color::from_rgba(180, 180, 180, 80)),
+                );
+                Ok(())
+            })?;
+        } else {
+            ARCADE_STAGE_LABEL_CACHE.with(|c| -> GameResult {
+                let mut cache = c.borrow_mut();
+                let cache_key = self.arcade_stage;
+                let needs_rebuild = !matches!(&*cache, Some((k, ..)) if *k == cache_key);
+                if needs_rebuild {
+                    let mut label = Text::new(format!(
+                        "Stage {}: {} | {} | Difficulty: {}",
+                        self.arcade_stage,
+                        self.levels[self.current_level].title,
+                        self.levels[self.current_level].description,
+                        self.levels[self.current_level].difficulty
+                    ));
+                    label.set_scale(13.0);
+                    let dims = label.measure(ctx)?;
+                    *cache = Some((cache_key, label, dims.x, dims.y));
+                }
+                let (_, label, _label_width, label_height) = cache.as_ref().unwrap();
+                canvas.draw(
+                    label,
+                    DrawParam::default()
+                        .dest(Vec2::new(8.0, height - label_height - 6.0))
+                        .color(Color::from_rgba(180, 180, 180, 80)),
+                );
+                Ok(())
+            })?;
+        }
 
         // Draw level title if timer is active.
         if self.level_title_timer > 0.0 {
