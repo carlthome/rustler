@@ -603,7 +603,15 @@ impl MainState {
                 self.treasure_chest = None;
                 self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
                 self.particle_system
-                    .spawn_milestone_fireworks(pos, if on_beat { 20 } else { 10 }, &mut crate::rng::rng());
+                    .spawn_milestone_fireworks(
+                        pos,
+                        if on_beat {
+                            TREASURE_CHEST_ON_BEAT_PARTICLES
+                        } else {
+                            TREASURE_CHEST_OFF_BEAT_PARTICLES
+                        },
+                        &mut crate::rng::rng(),
+                    );
                 self.spawn_catch_shockwave(
                     pos,
                     if on_beat {
@@ -634,14 +642,19 @@ impl MainState {
                 let mut rng = crate::rng::rng();
                 if rng.random_bool(TREASURE_CHEST_SPAWN_CHANCE) {
                     let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-                    let margin = 80.0;
                     let mut pos = player_center;
-                    for _ in 0..12 {
+                    for _ in 0..TREASURE_CHEST_SPAWN_ATTEMPTS {
                         let candidate = Vec2::new(
-                            rng.random_range(margin..self.world_width - margin),
-                            rng.random_range(margin..self.world_height - margin),
+                            rng.random_range(
+                                TREASURE_CHEST_SPAWN_MARGIN
+                                    ..self.world_width - TREASURE_CHEST_SPAWN_MARGIN,
+                            ),
+                            rng.random_range(
+                                TREASURE_CHEST_SPAWN_MARGIN
+                                    ..self.world_height - TREASURE_CHEST_SPAWN_MARGIN,
+                            ),
                         );
-                        if candidate.distance(player_center) >= 320.0 {
+                        if candidate.distance(player_center) >= TREASURE_CHEST_MIN_SPAWN_DISTANCE {
                             pos = candidate;
                             break;
                         }
@@ -696,18 +709,6 @@ impl MainState {
                     .spawn_dash_burst(center, self.groove_dash_dir, rng);
                 self.particle_system
                     .spawn_beat_pulse(&[center], 2.0, self.chain_count, rng);
-            }
-        }
-
-        #[cfg(test)]
-        mod tests {
-            use super::treasure_groove_level;
-
-            #[test]
-            fn treasure_fills_groove_only_on_beat() {
-                assert_eq!(treasure_groove_level(0.0, true), 1.0);
-                assert_eq!(treasure_groove_level(0.0, false), 0.5);
-                assert_eq!(treasure_groove_level(0.8, false), 0.8);
             }
         }
 
@@ -1560,5 +1561,17 @@ impl MainState {
         // draw) agree on the screen<->world mapping this frame.
         self.camera_origin = self.compute_camera_origin();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::treasure_groove_level;
+
+    #[test]
+    fn treasure_fills_groove_only_on_beat() {
+        assert_eq!(treasure_groove_level(0.0, true), 1.0);
+        assert_eq!(treasure_groove_level(0.0, false), 0.5);
+        assert_eq!(treasure_groove_level(0.8, false), 0.8);
     }
 }
