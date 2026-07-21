@@ -1,5 +1,8 @@
 use ggez::glam::Vec2;
 
+const CRAB_BASE_COLOR_WEIGHT: f32 = 0.62;
+const CRAB_CONGA_TINT_WEIGHT: f32 = 0.38;
+
 /// King Crab charge state machine. Only the Boss archetype ever leaves `Idle`: it roams toward
 /// the conga train, `Winding` up a telegraphed charge, then `Charging` in a locked direction that
 /// scatters the tail of the train on contact. Every other crab stays `Idle` forever.
@@ -270,9 +273,9 @@ impl EnemyCrab {
         };
         if let Some(tint) = self.chain_color {
             [
-                base[0] * 0.62 + tint[0] * 0.38,
-                base[1] * 0.62 + tint[1] * 0.38,
-                base[2] * 0.62 + tint[2] * 0.38,
+                base[0] * CRAB_BASE_COLOR_WEIGHT + tint[0] * CRAB_CONGA_TINT_WEIGHT,
+                base[1] * CRAB_BASE_COLOR_WEIGHT + tint[1] * CRAB_CONGA_TINT_WEIGHT,
+                base[2] * CRAB_BASE_COLOR_WEIGHT + tint[2] * CRAB_CONGA_TINT_WEIGHT,
             ]
         } else {
             base

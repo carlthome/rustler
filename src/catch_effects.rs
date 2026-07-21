@@ -464,6 +464,8 @@ impl MainState {
             _ => {}
         }
 
+        // Equal blending keeps each captured King represented without making later colors erase
+        // the visual identity of earlier upgrades.
         self.conga_tint = if self.king_crab_count == 0 {
             tint
         } else {
