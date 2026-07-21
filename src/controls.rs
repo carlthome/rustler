@@ -446,7 +446,9 @@ pub fn handle_key_down_event(
                 if key == KeyCode::Escape {
                     state.return_to_main_menu();
                 } else if state.in_campaign {
-                    state.return_to_world_map();
+                    // Dismissing the game-over screen after LOSING a campaign run: return to the
+                    // map but don't complete the node — the win condition still gates the next level.
+                    state.return_to_world_map(false);
                 } else {
                     state.reset_game();
                 }
