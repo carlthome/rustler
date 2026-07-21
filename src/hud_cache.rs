@@ -1,4 +1,5 @@
 use crate::enemies::CrabType;
+use crate::levels::WinCondition;
 use ggez::glam::Vec2;
 use ggez::graphics::{Mesh, Text};
 use std::{cell::RefCell, collections::HashMap};
@@ -13,9 +14,13 @@ thread_local! {
 
     pub static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
 
-    /// Cache for the campaign goal progress line — keyed by the rendered string so it only
-    /// reshapes when a counter actually ticks.
-    pub static CAMPAIGN_GOAL_CACHE: RefCell<Option<(String, Text)>> = RefCell::new(None);
+    /// Cache for the campaign goal progress line — keyed by the raw counters that feed
+    /// `progress_text` (bucketed to the same whole-second resolution it's displayed at) instead
+    /// of the rendered string itself, so formatting the line only happens on an actual rebuild
+    /// rather than every frame just to build a comparison key (mirrors PERF_OVERLAY_CACHE below).
+    #[allow(clippy::type_complexity)]
+    pub static CAMPAIGN_GOAL_CACHE: RefCell<Option<((bool, WinCondition, usize, usize, usize, i32), Text)>> =
+        RefCell::new(None);
 
     #[cfg(debug_assertions)]
     pub static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, Text, f32)>> = RefCell::new(None);
