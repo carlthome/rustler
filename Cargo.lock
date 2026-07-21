@@ -443,7 +443,19 @@ checksum = "28780d72908948745af036ca7418d6d932f60afb48ed623291d2ccbfb8aefbff"
 dependencies = [
  "bytemuck",
  "crevice-derive",
- "glam",
+ "glam 0.32.1",
+ "mint",
+]
+
+[[package]]
+name = "crevice"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3f5b73a35775798e5a941a98d3eda7dd6ac6ba4715bd3cce8fef6bdf1a74c91"
+dependencies = [
+ "bytemuck",
+ "crevice-derive",
+ "glam 0.33.2",
  "mint",
 ]
 
@@ -783,10 +795,10 @@ dependencies = [
  "approx",
  "bitflags 2.13.1",
  "bytemuck",
- "crevice",
+ "crevice 0.19.0",
  "directories",
  "gilrs",
- "glam",
+ "glam 0.32.1",
  "glyph_brush",
  "image",
  "log",
@@ -856,6 +868,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
 dependencies = [
  "bytemuck",
+ "mint",
+]
+
+[[package]]
+name = "glam"
+version = "0.33.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f22fb22f065b308be0d8724e3706c7fa3fc2a6c7d6899df4cad7860e7a75436"
+dependencies = [
  "mint",
 ]
 
@@ -2287,7 +2308,7 @@ dependencies = [
 name = "rustler"
 version = "0.43.1"
 dependencies = [
- "crevice",
+ "crevice 0.20.1",
  "ggez",
  "lewton",
  "rand 0.9.5",
