@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.43.1 — 2026-07-22
+
+### Fixes
+- Guard the rival interception AI with a playtest to prevent regressions
+
 ## v0.43.0 — 2026-07-21
 
 ### Features
