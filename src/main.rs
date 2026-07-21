@@ -807,9 +807,10 @@ impl event::EventHandler for AppState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         match self {
             Self::Loading { has_drawn } if *has_drawn => {
-                *self = Self::Warming(MainState::new_with_progress(ctx, |ctx, progress, label| {
-                    draw_loading_screen(ctx, progress, label)
-                })?);
+                // `update` runs outside ggez's render frame, so startup construction must not
+                // invoke the progress renderer here. The loading screen was already presented
+                // by `draw` on the preceding frame.
+                *self = Self::Warming(MainState::new(ctx)?);
                 Ok(())
             }
             Self::Loading { has_drawn } => {
