@@ -545,9 +545,7 @@ fn add_pirate_note(
             PirateVoice::PluckedString => {
                 let phase = std::f32::consts::TAU * hz * t;
                 (
-                    phase.sin()
-                        + (phase * 2.0).sin() * 0.38
-                        + (phase * 3.0).sin() * 0.20,
+                    phase.sin() + (phase * 2.0).sin() * 0.38 + (phase * 3.0).sin() * 0.20,
                     5.5,
                 )
             }
@@ -606,8 +604,22 @@ fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
         1 => {
             // Wanderer — a jaunty mid-register concertina phrase.
             let pat = [
-                (0usize, 4usize), (2, 6), (4, 7), (6, 8), (8, 6), (10, 4), (12, 6), (14, 3),
-                (16, 4), (18, 6), (20, 7), (22, 8), (24, 7), (26, 6), (28, 4), (30, 2),
+                (0usize, 4usize),
+                (2, 6),
+                (4, 7),
+                (6, 8),
+                (8, 6),
+                (10, 4),
+                (12, 6),
+                (14, 3),
+                (16, 4),
+                (18, 6),
+                (20, 7),
+                (22, 8),
+                (24, 7),
+                (26, 6),
+                (28, 4),
+                (30, 2),
             ];
             for &(s, ni) in &pat {
                 add_note(
@@ -634,8 +646,22 @@ fn rival_motif_mono_samples(bpm: f32, root_midi: i32, tier: usize) -> Vec<f32> {
                 );
             }
             let arp = [
-                (0usize, 4usize), (2, 6), (4, 8), (6, 6), (8, 2), (10, 6), (12, 8), (14, 6),
-                (16, 4), (18, 6), (20, 8), (22, 9), (24, 3), (26, 7), (28, 8), (30, 7),
+                (0usize, 4usize),
+                (2, 6),
+                (4, 8),
+                (6, 6),
+                (8, 2),
+                (10, 6),
+                (12, 8),
+                (14, 6),
+                (16, 4),
+                (18, 6),
+                (20, 8),
+                (22, 9),
+                (24, 3),
+                (26, 7),
+                (28, 8),
+                (30, 7),
             ];
             for &(s, ni) in &arp {
                 add_note(

@@ -10,9 +10,38 @@
 use ggez::audio::SoundSource;
 use ggez::Context;
 
+use crate::beat::downbeat_started;
 use crate::*;
 
 impl MainState {
+    pub(crate) fn pause_gameplay_music(&self) {
+        let pause_if_playing = |source: &ggez::audio::Source| {
+            if source.playing() {
+                source.pause();
+            }
+        };
+        pause_if_playing(&self.sounds.action_music);
+        for layer in &self.music_layers {
+            pause_if_playing(layer);
+        }
+        for (left, right) in &self.sounds.king_crab_motif {
+            pause_if_playing(left);
+            pause_if_playing(right);
+        }
+        for theme in &self.sounds.crab_themes {
+            pause_if_playing(theme);
+        }
+        for source in [
+            &self.sounds.king_crab_l,
+            &self.sounds.king_crab_r,
+            &self.sounds.king_crab_soft,
+            &self.sounds.king_crab_rumble_l,
+            &self.sounds.king_crab_rumble_r,
+        ] {
+            pause_if_playing(source);
+        }
+    }
+
     /// Spatial King Crab boss rumble + intensity-scaled music layers. Runs once per
     /// frame from `update`, right after boss spawning and before the game-over tally.
     pub(crate) fn update_boss_and_music_audio(&mut self, ctx: &mut Context, dt: f32) {
@@ -88,13 +117,19 @@ impl MainState {
 
             // Start the rhythmic King Crab texture only on the master grid. Its
             // one-bar buffer then stays phase-locked with the player groove.
-            let is_on_beat = self.on_beat_now();
+            // `beat_timer` is reset to a full interval when the beat fires. Use only that
+            // post-crossing half of the timing window (and bar beat 1), never the pre-beat half,
+            // so a newly audible loop cannot start early or with its phrase shifted by 1–3 beats.
+            let downbeat_started =
+                downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
             for (src, vol) in [
                 (&mut self.sounds.king_crab_l, new_l),
                 (&mut self.sounds.king_crab_r, new_r),
                 (&mut self.sounds.king_crab_soft, new_s),
             ] {
-                if vol > 0.01 && !src.playing() && is_on_beat {
+                if vol > 0.01 && src.paused() {
+                    src.resume();
+                } else if vol > 0.01 && !src.playing() && downbeat_started {
                     let _ = src.play();
                 } else if vol <= 0.01 && src.playing() {
                     src.pause();
@@ -138,7 +173,9 @@ impl MainState {
                 0.0
             };
             layer.set_volume(vol);
-            if !layer.playing() && vol > 0.01 {
+            if layer.paused() && vol > 0.01 {
+                layer.resume();
+            } else if !layer.playing() && vol > 0.01 {
                 let _ = layer.play();
             }
         }
@@ -220,7 +257,9 @@ impl MainState {
                 let cur = src.volume();
                 let v = (cur + (tgt - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0);
                 src.set_volume(v);
-                if v > 0.02 && !src.playing() {
+                if v > 0.02 && src.paused() {
+                    src.resume();
+                } else if v > 0.02 && !src.playing() {
                     let _ = src.play();
                 } else if v <= 0.02 && src.playing() {
                     src.stop();
@@ -244,7 +283,8 @@ impl MainState {
             use ggez::audio::SoundSource as _;
             let game_active =
                 !self.show_instructions && !self.game_over && !self.show_world_map;
-            let on_beat = self.on_beat_now();
+            let downbeat_started =
+                downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
             let n = self.sounds.king_crab_motif.len().min(self.npc_trains.len());
 
             // Pass 1: raw target loudness (distance swell x size/tier presence) + bearing per train.
@@ -316,7 +356,10 @@ impl MainState {
                 // the audible edge doesn't chatter start/stop every frame.
                 let want_play = ducked[i] > 0.03;
                 let playing = src_l.playing() || src_r.playing();
-                if want_play && !playing && on_beat {
+                if want_play && (src_l.paused() || src_r.paused()) {
+                    src_l.resume();
+                    src_r.resume();
+                } else if want_play && !playing && downbeat_started {
                     let _ = src_l.play();
                     let _ = src_r.play();
                 } else if !want_play && ducked[i] < 0.008 && playing {
@@ -362,7 +405,11 @@ impl MainState {
                 let cur = theme.volume();
                 let smoothed = (cur + (target - cur) * (dt_audio * 2.5).min(1.0)).clamp(0.0, 0.2);
                 theme.set_volume(smoothed);
-                if smoothed > 0.01 && !theme.playing() {
+                let downbeat_started =
+                    downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
+                if smoothed > 0.01 && theme.paused() {
+                    theme.resume();
+                } else if smoothed > 0.01 && !theme.playing() && downbeat_started {
                     let _ = theme.play();
                 } else if smoothed <= 0.01 && theme.playing() {
                     theme.stop();

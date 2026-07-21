@@ -13,6 +13,26 @@ use rand::Rng;
 
 use crate::*;
 
+pub(crate) fn downbeat_started(beat_count: u32, beat_timer: f32, beat_interval: f32) -> bool {
+    beat_interval > 1e-4
+        && beat_count % 4 == 0
+        && beat_timer <= beat_interval
+        && beat_timer > beat_interval - BEAT_WINDOW
+}
+
+#[cfg(test)]
+mod tests {
+    use super::downbeat_started;
+
+    #[test]
+    fn loop_start_gate_only_opens_after_bar_downbeat() {
+        assert!(downbeat_started(4, 0.49, 0.5));
+        assert!(!downbeat_started(4, 0.01, 0.5));
+        assert!(!downbeat_started(3, 0.49, 0.5));
+        assert!(!downbeat_started(4, 0.51, 0.5));
+    }
+}
+
 impl MainState {
     /// Advances the master groove from undilated frame time.
     ///
@@ -32,8 +52,7 @@ impl MainState {
         let base_vol = 0.26 + 0.16 * train_fill + 0.10 * stage_fill;
         let swing_late = crate::sounds::GROOVE_SWING * 0.125;
         for local in 1..=3u32 {
-            let onset =
-                local as f32 * 0.25 + if local % 2 == 1 { swing_late } else { 0.0 };
+            let onset = local as f32 * 0.25 + if local % 2 == 1 { swing_late } else { 0.0 };
             let gstep = self.beat_count as i64 * 4 + local as i64;
             if frac + 1e-6 >= onset && gstep > self.hat_last_step {
                 self.hat_last_step = gstep;
@@ -43,6 +62,7 @@ impl MainState {
                     self.beat_synth.play_hihat(ctx, base_vol * 0.55);
                 }
             }
+
         }
 
         self.beat_timer -= dt;
@@ -74,10 +94,10 @@ impl MainState {
         // escalates), never per-beat. Null-audio-safe (no-ops on a headless device) and
         // deterministic (stage transitions are), so the bots see byte-identical behaviour.
         if downbeat && self.beat_interval > 1e-4 {
-            let desired_pitch =
-                INTENSITY_STAGES[self.intensity_stage.min(INTENSITY_STAGES.len() - 1)]
-                    .3
-                    .clamp(0.5, 3.0);
+            let desired_pitch = INTENSITY_STAGES
+                [self.intensity_stage.min(INTENSITY_STAGES.len() - 1)]
+            .3
+            .clamp(0.5, 3.0);
             if (desired_pitch - self.music_pitch).abs() > 1e-3 {
                 let old_interval = self.beat_interval;
                 self.beat_interval = BEAT_INTERVAL / desired_pitch;

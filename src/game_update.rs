@@ -134,25 +134,27 @@ impl MainState {
             }
         }
 
-        // The groove follows wall-clock time, not simulation time. Advance it before hitstop's
-        // early return and before cinematic slow-motion dilates `dt`, so the authored loop, live
-        // percussion, tool windows and NPC motifs keep one shared phase under rapid catches/dashes.
-        self.update_master_beat(ctx, dt);
-
         // Hitstop: freeze the whole simulation for a few frames right after a catch so the
         // impact snaps instead of sliding past. draw() still runs each frame, so the frozen
-        // moment is fully rendered — the classic Vampire-Survivors-style "punch".
+        // moment is fully rendered — the classic Vampire-Survivors-style "punch". Pause every
+        // looping music source with the beat clock; the normal mixers resume them from the same
+        // sample afterward, so repeated dash-catches cannot accumulate melody/grid drift.
         if self.hitstop_timer > 0.0 {
+            self.pause_gameplay_music();
             self.hitstop_timer = (self.hitstop_timer - dt).max(0.0);
             return Ok(());
         }
 
+        // Advance the master groove before cinematic slow-motion dilates `dt`. World motion can
+        // stretch for drama, but the backing loop, live percussion and tool windows stay locked.
+        self.update_master_beat(ctx, dt);
+
         // Cinematic slow-motion on the biggest climax moments (boss catch, Downbeat Slam). The
         // timer decays on REAL time so the effect is always the same wall-clock length, but the
         // whole rest of the sim runs on a dilated `dt` that eases from ~35% speed back up to full
-        // as the timer runs out — a smooth bullet-time ramp, not a hard freeze. `time_elapsed`
-        // and everything downstream of it (beat clock, animations, particles) slow together, so
-        // the moment reads as one coherent slowed frame rather than some systems stalling.
+        // as the timer runs out — a smooth bullet-time ramp, not a hard freeze. World animation
+        // and particles slow together, while the master groove above deliberately keeps playing
+        // at full speed so the player's timing contract never bends with a cinematic effect.
         if self.slowmo_timer > 0.0 {
             self.slowmo_timer = (self.slowmo_timer - dt).max(0.0);
             // Ease-out: strong slow at the start, ramping back to real speed as it clears.
@@ -1649,6 +1651,11 @@ impl MainState {
         // Recompute the camera every frame so both draw() and the mouse handlers (which run outside
         // draw) agree on the screen<->world mapping this frame.
         self.camera_origin = self.compute_camera_origin();
+        // A catch can arm hitstop anywhere in the update above. Pause immediately rather than
+        // waiting for the next frame, keeping the sample clock and frozen beat timer exact.
+        if self.hitstop_timer > 0.0 {
+            self.pause_gameplay_music();
+        }
         Ok(())
     }
 }
