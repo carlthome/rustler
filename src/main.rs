@@ -20,6 +20,7 @@ mod menu;
 mod npc_conga_train;
 mod npc_scenarios;
 mod npc_trains;
+mod npc_trains_render;
 mod overlays;
 mod player_tools;
 mod rng;
