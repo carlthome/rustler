@@ -819,6 +819,11 @@ impl MainState {
         }
         self.chain_count = 0;
         self.total_caught = 0;
+        self.banked_crabs_run = 0;
+        self.shells_cracked_run = 0;
+        self.hold_train_timer = 0.0;
+        self.level_complete = false;
+        self.level_complete_timer = 0.0;
         self.crabs_stolen_by_npc = 0;
         self.max_single_steal_by_npc = 0;
         self.crabs_stolen_by_player = 0;

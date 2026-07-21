@@ -1238,6 +1238,9 @@ impl MainState {
                         .saturating_add((cracked.len() + hermit_popped.len()) as u32);
                 }
             }
+            // Campaign win tracking: every full shell crack (Armored or Hermit) counts toward a
+            // CrackAndHold goal, whatever verb did the cracking — this is the Stomp site.
+            self.shells_cracked_run += cracked.len() + hermit_popped.len();
             for &pos in cracked.iter() {
                 self.floating_texts.spawn(
                     "SHELL CRACKED!".to_string(),
@@ -1513,6 +1516,54 @@ impl MainState {
         if free_crab_count >= 160 {
             self.game_over = true;
             return Ok(());
+        }
+
+        // Campaign win condition: evaluate the entered level's goal every frame during a campaign
+        // run. The goal comes from the world-map node the player launched (NOT current_level,
+        // which auto-advances when patterns run out). On win: latch once, celebrate briefly, then
+        // return to the world map — which marks the node complete and unlocks the next one.
+        if self.in_campaign && self.tutorial.is_none() && !self.game_over {
+            if self.level_complete {
+                self.level_complete_timer = (self.level_complete_timer - dt).max(0.0);
+                if self.level_complete_timer <= 0.0 {
+                    self.return_to_world_map();
+                }
+            } else if let Some(cond) = self
+                .world_map
+                .as_ref()
+                .and_then(|m| m.selected_level_index())
+                .and_then(|i| self.levels.get(i))
+                .map(|l| l.win_condition)
+            {
+                // HoldTrain streak clock: accumulate while the train holds the target, reset the
+                // instant it dips below — a single bad moment resets a long streak, by design.
+                if let crate::levels::WinCondition::HoldTrain { target, .. } = cond {
+                    if self.chain_count >= target {
+                        self.hold_train_timer += dt;
+                    } else {
+                        self.hold_train_timer = 0.0;
+                    }
+                }
+                if cond.met(
+                    self.banked_crabs_run,
+                    self.chain_count,
+                    self.shells_cracked_run,
+                    self.hold_train_timer,
+                ) {
+                    self.level_complete = true;
+                    self.level_complete_timer = 2.5;
+                    let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+                    self.floating_texts.spawn(
+                        "LEVEL COMPLETE!".to_string(),
+                        center - Vec2::new(120.0, 80.0),
+                        48.0,
+                        [1.0, 0.9, 0.3, 1.0],
+                    );
+                    self.on_beat_flash = self.on_beat_flash.max(0.9);
+                    self.screen_shake = self.screen_shake.max(10.0);
+                    self.slowmo_timer = SLOWMO_DURATION;
+                }
+            }
         }
 
         // Bar-quantized spawns: a lapsed pattern doesn't spawn the next wave right away — it arms

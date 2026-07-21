@@ -13,6 +13,10 @@ thread_local! {
 
     pub static RHYTHM_BONUS_CACHE: RefCell<Option<(usize, Text)>> = RefCell::new(None);
 
+    /// Cache for the campaign goal progress line — keyed by the rendered string so it only
+    /// reshapes when a counter actually ticks.
+    pub static CAMPAIGN_GOAL_CACHE: RefCell<Option<(String, Text)>> = RefCell::new(None);
+
     #[cfg(debug_assertions)]
     pub static PERF_OVERLAY_CACHE: RefCell<Option<(i32, i32, i32, Text, f32)>> = RefCell::new(None);
 
