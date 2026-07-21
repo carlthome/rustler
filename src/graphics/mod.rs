@@ -551,6 +551,24 @@ thread_local! {
     static ATTRACTED_GLOW_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
     static ATTRACTED_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
 
+    // Archetype-ring batching: draw_thief_aura, draw_splitter_aura's halo/flare, draw_golden_sparkle's
+    // halo/tether, and draw_armor_ring's track were still issuing one canvas.draw() per crab per
+    // frame for a single stroke-circle ring each — the same per-crab GPU-submission cost the Magnet/
+    // Hermit-coil/Golden-sparkle-dot/attracted-glow auras were already fixed for above. They all draw
+    // exactly one ring from cached_stroke_circle, so they share this one grouped buffer (keyed by
+    // stroke_circle_key, same technique as ATTRACTED_GLOW_GROUPS) via defer_archetype_ring(), flushed
+    // together by flush_archetype_rings() after the per-crab aura pass. With several Thief/Splitter/
+    // Golden/Armored crabs on screen at once (a late-game herd routinely has all four) this collapses
+    // their ring draws from one GPU submission per crab down to one per distinct mesh bucket.
+    static ARCHETYPE_RING_GROUPS: RefCell<HashMap<(i32, i32), Vec<DrawParam>>> = RefCell::new(HashMap::new());
+    static ARCHETYPE_RING_INSTANCES: RefCell<HashMap<(i32, i32), InstanceArray>> = RefCell::new(HashMap::new());
+
+    // Splitter cleave-dot batching: draw_splitter_aura's two "cleave" dots use the shared UNIT_CIRCLE
+    // fill mesh (same technique as GOLDEN_SPARKLE_PARAMS/HERMIT_COIL_PARAMS above), so they get their
+    // own small dot buffer rather than the ring groups (which are stroke meshes, not fills).
+    static CLEAVE_DOT_PARAMS: RefCell<Vec<DrawParam>> = RefCell::new(Vec::new());
+    static CLEAVE_DOT_INSTANCES: RefCell<Option<InstanceArray>> = RefCell::new(None);
+
     // Cache for the world-map screen's Text objects. draw_world_map rebuilt a fresh Text +
     // measure() for every node label, the title, and the controls hint on every frame the map
     // screen was visible — the same unbounded-idle-time pattern every other menu screen already
@@ -872,6 +890,76 @@ pub fn flush_magnet_auras(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameR
                 }
                 Ok(())
             })
+        })?;
+        params.clear();
+        Ok(())
+    })
+}
+
+/// Ensure the (radius, thickness) stroke-circle mesh exists in the cache and queue one instance of
+/// it (at `pos`, tinted `color`) into `ARCHETYPE_RING_GROUPS` for `flush_archetype_rings()` to draw
+/// later, instead of drawing it immediately. Used by draw_thief_aura / draw_splitter_aura /
+/// draw_golden_sparkle / draw_armor_ring — each call site previously built the mesh and issued its
+/// own `canvas.draw()`, so the shared radius bucket never collapsed multiple crabs' rings together.
+fn defer_archetype_ring(
+    ctx: &mut Context,
+    pos: Vec2,
+    radius: f32,
+    thickness: f32,
+    color: Color,
+) -> ggez::GameResult {
+    cached_stroke_circle(ctx, radius, thickness)?;
+    let key = stroke_circle_key(radius, thickness);
+    ARCHETYPE_RING_GROUPS.with(|groups_cell| {
+        groups_cell
+            .borrow_mut()
+            .entry(key)
+            .or_default()
+            .push(DrawParam::default().dest(pos).color(color));
+    });
+    Ok(())
+}
+
+/// Flush every archetype-ring DrawParam queued by `defer_archetype_ring()` this frame (Thief prowl/
+/// latch/snared/lured rings, Splitter halo + beat flare, Golden shine halo + snared tether, Armored
+/// crab's shell track), grouped by stroke-circle mesh key and drawn as instanced batches — same
+/// technique as flush_magnet_auras / flush_attracted_crab_glows above. Also flushes the Splitter
+/// cleave dots queued alongside them. Call once after all per-crab aura draws (alongside those),
+/// while still in ADD blend mode.
+pub fn flush_archetype_rings(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameResult {
+    ARCHETYPE_RING_GROUPS.with(|groups_cell| -> ggez::GameResult {
+        let mut groups = groups_cell.borrow_mut();
+        ARCHETYPE_RING_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut instances = inst_cell.borrow_mut();
+            for (key, params) in groups.iter() {
+                if params.is_empty() {
+                    continue;
+                }
+                let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
+                let Some(mesh) = mesh else { continue };
+                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                inst.set(params.iter().copied());
+                canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
+            }
+            Ok(())
+        })?;
+        for v in groups.values_mut() {
+            v.clear();
+        }
+        Ok(())
+    })?;
+    CLEAVE_DOT_PARAMS.with(|params_cell| -> ggez::GameResult {
+        let mut params = params_cell.borrow_mut();
+        if params.is_empty() {
+            return Ok(());
+        }
+        let unit_circle = cached_unit_circle(ctx)?;
+        CLEAVE_DOT_INSTANCES.with(|inst_cell| -> ggez::GameResult {
+            let mut inst_slot = inst_cell.borrow_mut();
+            let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
+            instances.set(params.iter().copied());
+            canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
+            Ok(())
         })?;
         params.clear();
         Ok(())
@@ -4482,14 +4570,13 @@ pub fn draw_armor_ring(
     let radius = size * 0.8;
     let pulse = (time * 5.0).sin() * 0.5 + 0.5;
 
-    // Faint full track so the drained portion still reads as progress.
-    let track = cached_stroke_circle(ctx, radius, 3.0)?;
-    canvas.draw(
-        &track,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(0.0, 0.0, 0.0, 0.35)),
-    );
+    // Faint full track so the drained portion still reads as progress. Deferred into
+    // ARCHETYPE_RING_GROUPS via defer_archetype_ring() instead of an immediate canvas.draw() —
+    // same batching as draw_thief_aura/draw_splitter_aura/draw_golden_sparkle above, so multiple
+    // Armored crabs' tracks (a fixed radius/thickness pair) collapse into one GPU submission. The
+    // health arc below stays immediate: its mesh varies per-crab with the live shell fraction, so
+    // it rarely shares a bucket with another crab's arc and batching it wouldn't collapse draws.
+    defer_archetype_ring(ctx, pos, radius, 3.0, Color::new(0.0, 0.0, 0.0, 0.35))?;
 
     let segs = 40usize;
     let filled = ((segs as f32) * shell_frac.clamp(0.0, 1.0)).ceil().max(1.0) as usize;
@@ -4745,57 +4832,62 @@ pub fn draw_thief_aura(
         (0.35, 0.95, 0.5)
     };
 
+    // Each branch used to build its own stroke-circle mesh and issue an immediate canvas.draw()
+    // per Thief per frame. Deferred into ARCHETYPE_RING_GROUPS via defer_archetype_ring() instead,
+    // so multiple Thieves in the same state on screen collapse into one GPU submission per shared
+    // radius bucket (flushed by flush_archetype_rings() after the per-crab aura pass) — identical
+    // rings, just batched.
     if latched {
         // Actively gnawing: a fast, bright, slightly jittering double ring so the theft screams
         // for attention. The jitter fakes the crab tearing at the link.
         let pulse = (time * 18.0).sin() * 0.5 + 0.5;
         let jitter = (time * 40.0).sin() * 2.5;
-        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + jitter, 3.0)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(r, g, b, 0.5 + pulse * 0.4)),
-        );
-        let ring2 = cached_stroke_circle(ctx, size * 1.25 + pulse * 6.0, 2.0)?;
-        canvas.draw(
-            &ring2,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(0.6, 1.0, 0.5, 0.25 + pulse * 0.25)),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.9 + 3.0 + jitter,
+            3.0,
+            Color::new(r, g, b, 0.5 + pulse * 0.4),
+        )?;
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 1.25 + pulse * 6.0,
+            2.0,
+            Color::new(0.6, 1.0, 0.5, 0.25 + pulse * 0.25),
+        )?;
     } else if snared {
         // Intercepted by a Magnet: a brighter, faster orange ring that reads as "the field's got
         // it" — livelier than the calm prowl so the save is legible, calmer than the theft frenzy.
         let pulse = (time * 9.0).sin() * 0.5 + 0.5;
-        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + pulse * 4.0, 2.5)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(r, g, b, 0.45 + pulse * 0.3)),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.9 + 3.0 + pulse * 4.0,
+            2.5,
+            Color::new(r, g, b, 0.45 + pulse * 0.3),
+        )?;
     } else if lured {
         // Lured off your tail by a Golden's shine: a brisk, brighter golden-green ring — livelier
         // than the calm prowl so the divert reads as the raider actively chasing the prize.
         let pulse = (time * 7.0).sin() * 0.5 + 0.5;
-        let ring = cached_stroke_circle(ctx, size * 0.9 + 3.0 + pulse * 4.0, 2.5)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(r, g, b, 0.4 + pulse * 0.3)),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.9 + 3.0 + pulse * 4.0,
+            2.5,
+            Color::new(r, g, b, 0.4 + pulse * 0.3),
+        )?;
     } else {
         // Prowling: a steady soft ring that just marks it out, calmer than the latched frenzy.
         let pulse = (time * 3.0).sin() * 0.5 + 0.5;
-        let ring = cached_stroke_circle(ctx, size * 0.85 + 3.0 + pulse * 3.0, 2.0)?;
-        canvas.draw(
-            &ring,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(r, g, b, 0.35 + pulse * 0.2)),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.85 + 3.0 + pulse * 3.0,
+            2.0,
+            Color::new(r, g, b, 0.35 + pulse * 0.2),
+        )?;
     }
 
     Ok(())
@@ -4818,27 +4910,30 @@ pub fn draw_golden_sparkle(
     // Soft breathing halo so the prize glows even when it's holding still. When a Magnet's field
     // has snared it, the halo warms toward the lodestone's orange so the "trapped by the Magnet"
     // state reads instantly against the ordinary gold shine.
+    // Both rings deferred into ARCHETYPE_RING_GROUPS via defer_archetype_ring() instead of an
+    // immediate canvas.draw() — same batching as draw_thief_aura above, so multiple Goldens'
+    // halos/tethers collapse into shared GPU submissions (flushed by flush_archetype_rings()).
     let pulse = (time * 4.0).sin() * 0.5 + 0.5;
     let (hg, hb) = if snared { (0.6, 0.15) } else { (0.85, 0.3) };
-    let halo = cached_stroke_circle(ctx, size * 0.8 + 3.0 + pulse * 4.0, 2.5)?;
-    canvas.draw(
-        &halo,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(1.0, hg, hb, 0.35 + pulse * 0.3)),
-    );
+    defer_archetype_ring(
+        ctx,
+        pos,
+        size * 0.8 + 3.0 + pulse * 4.0,
+        2.5,
+        Color::new(1.0, hg, hb, 0.35 + pulse * 0.3),
+    )?;
 
     // While snared, a fast-spinning tether ring cinches in tight around the crab — the visual of
     // the field clamping the prize in place, drawing the eye to "grab it NOW".
     if snared {
         let cinch = 0.5 + 0.5 * (time * 12.0).sin();
-        let tether = cached_stroke_circle(ctx, size * 0.55 + 2.0 + cinch * 3.0, 3.0)?;
-        canvas.draw(
-            &tether,
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(1.0, 0.6, 0.15, 0.55 + cinch * 0.35)),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.55 + 2.0 + cinch * 3.0,
+            3.0,
+            Color::new(1.0, 0.6, 0.15, 0.55 + cinch * 0.35),
+        )?;
     }
 
     // A ring of sparkle dots orbiting the crab, each twinkling on its own phase so the whole thing
@@ -4885,14 +4980,16 @@ pub fn draw_splitter_aura(
     beat_prox: f32,
 ) -> ggez::GameResult {
     // Breathing halo so the cleaver reads even while it's holding still — teal, the archetype tint.
+    // Deferred into ARCHETYPE_RING_GROUPS via defer_archetype_ring() instead of an immediate
+    // canvas.draw(), same batching as draw_thief_aura/draw_golden_sparkle above.
     let pulse = (time * 3.5).sin() * 0.5 + 0.5;
-    let halo = cached_stroke_circle(ctx, size * 0.75 + 3.0 + pulse * 4.0, 2.5)?;
-    canvas.draw(
-        &halo,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(0.2, 0.95, 0.85, 0.30 + pulse * 0.28)),
-    );
+    defer_archetype_ring(
+        ctx,
+        pos,
+        size * 0.75 + 3.0 + pulse * 4.0,
+        2.5,
+        Color::new(0.2, 0.95, 0.85, 0.30 + pulse * 0.28),
+    )?;
 
     // Beat telegraph — the Splitter's whole gimmick is a timing bet (catch it ON the beat for a
     // clean, full-jackpot cut; off-beat is a sloppy half-cut). `beat_prox` (0..1, peaking on the
@@ -4901,42 +4998,45 @@ pub fn draw_splitter_aura(
     // and fades between beats. This is the anticipation cue that lets a player set the cleave up on
     // purpose instead of grabbing blind and hoping.
     if beat_prox > 0.01 {
-        let flare = cached_stroke_circle(ctx, size * 0.75 + 6.0 + beat_prox * 10.0, 2.0 + beat_prox * 2.5)?;
-        canvas.draw(
-            &flare,
-            DrawParam::default()
-                .dest(pos)
-                // Teal→gold as the beat approaches, so the aura visibly "goes hot" in the window.
-                .color(Color::new(
-                    0.4 + 0.6 * beat_prox,
-                    0.95,
-                    0.85 - 0.55 * beat_prox,
-                    0.25 + 0.55 * beat_prox,
-                )),
-        );
+        defer_archetype_ring(
+            ctx,
+            pos,
+            size * 0.75 + 6.0 + beat_prox * 10.0,
+            2.0 + beat_prox * 2.5,
+            // Teal→gold as the beat approaches, so the aura visibly "goes hot" in the window.
+            Color::new(
+                0.4 + 0.6 * beat_prox,
+                0.95,
+                0.85 - 0.55 * beat_prox,
+                0.25 + 0.55 * beat_prox,
+            ),
+        )?;
     }
 
     // The "cleave" tell: two small dots split apart from center along the horizontal, snapping back
     // on each pulse cycle — the visual shorthand for "I halve your train". The spread pulses so the
     // two halves visibly separate and rejoin, drawing the eye. On the beat the split snaps WIDER
     // (beat_prox term) so the two halves fling apart exactly when a clean cut is available.
-    let dot = unit_circle(ctx)?;
+    // Deferred into CLEAVE_DOT_PARAMS (same UNIT_CIRCLE-batching technique as GOLDEN_SPARKLE_PARAMS)
+    // instead of two immediate canvas.draw() calls, flushed by flush_archetype_rings().
     let spread = (size * 0.35 + 4.0) * (0.4 + 0.6 * pulse) + beat_prox * size * 0.3;
-    for &dir in &[-1.0_f32, 1.0] {
-        let dpos = pos + Vec2::new(dir * spread, 0.0);
-        canvas.draw(
-            dot,
-            DrawParam::default()
-                .dest(dpos)
-                .scale(Vec2::splat(2.0 + pulse * 2.0 + beat_prox * 2.5))
-                .color(Color::new(
-                    0.5 + 0.5 * beat_prox,
-                    1.0,
-                    0.9 - 0.5 * beat_prox,
-                    0.45 + pulse * 0.5,
-                )),
-        );
-    }
+    CLEAVE_DOT_PARAMS.with(|params_cell| {
+        let mut params = params_cell.borrow_mut();
+        for &dir in &[-1.0_f32, 1.0] {
+            let dpos = pos + Vec2::new(dir * spread, 0.0);
+            params.push(
+                DrawParam::default()
+                    .dest(dpos)
+                    .scale(Vec2::splat(2.0 + pulse * 2.0 + beat_prox * 2.5))
+                    .color(Color::new(
+                        0.5 + 0.5 * beat_prox,
+                        1.0,
+                        0.9 - 0.5 * beat_prox,
+                        0.45 + pulse * 0.5,
+                    )),
+            );
+        }
+    });
 
     Ok(())
 }
