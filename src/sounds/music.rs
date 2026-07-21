@@ -185,6 +185,12 @@ pub fn synth_intro_menu(ctx: &mut Context, ogg_bytes: &[u8]) -> GameResult<Sourc
         .map_err(|error| ggez::GameError::AudioError(error.to_string()))?;
     let sample_rate = reader.ident_hdr.audio_sample_rate;
     let channels = reader.ident_hdr.audio_channels as usize;
+    if channels == 0 {
+        return Err(ggez::GameError::AudioError(
+            "intro track has no audio channels".to_owned(),
+        ));
+    }
+    let right_channel = usize::from(channels > 1);
     let mut left = Vec::new();
     let mut right = Vec::new();
     while let Some(packet) = reader
@@ -193,7 +199,7 @@ pub fn synth_intro_menu(ctx: &mut Context, ogg_bytes: &[u8]) -> GameResult<Sourc
     {
         for frame in packet.chunks_exact(channels) {
             left.push(frame[0] as f32 / i16::MAX as f32);
-            right.push(frame[channels.saturating_sub(1)] as f32 / i16::MAX as f32);
+            right.push(frame[right_channel] as f32 / i16::MAX as f32);
         }
     }
     treat_intro_recording(&mut left, &mut right, sample_rate);
