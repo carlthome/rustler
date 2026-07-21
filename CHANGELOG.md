@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.30.3 — 2026-07-21
+
+### Fixes
+- Fix steal_defense/steal_dodge playtest flake (chain starvation in bot_prime_chain)
+
 ## v0.30.2 — 2026-07-21
 
 ### Performance
