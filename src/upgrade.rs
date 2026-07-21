@@ -98,7 +98,8 @@ impl MainState {
             while self.score >= self.next_upgrade_score {
                 self.next_upgrade_score += UPGRADE_STEP;
             }
-            // upgrade.ogg removed — tiresome and crackly; new sound TBD
+            // Reuse the intro's bright sparkle for the treasure chest reward.
+            let _ = self.sounds.startup_pling.play();
             // Roll the three cards ONCE here, at queue time, not in draw — draw runs every frame
             // and would otherwise reshuffle the offer 60×/sec.
             self.roll_upgrade_offer();
