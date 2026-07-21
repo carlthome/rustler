@@ -21,6 +21,7 @@ mod hud_cache;
 mod king_crab_audio;
 mod levels;
 mod menu;
+mod menu_intro;
 mod npc_conga_train;
 mod npc_scenarios;
 mod npc_trains;
@@ -1197,6 +1198,7 @@ fn main() -> GameResult {
                 std::process::exit(1);
             }
         });
+        state.skip_menu_intro();
     }
 
     event::run(ctx, event_loop, state)

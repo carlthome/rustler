@@ -55,6 +55,8 @@ pub struct GameSounds {
     pub(crate) hihat: Source,
     /// Short bright chirp for the flashlight toggle (F key) — a snappy UI beep.
     pub(crate) flashlight_toggle: Source,
+    /// Feather-light studio-logo sparkle heard once during the startup cinematic.
+    pub(crate) startup_pling: Source,
     /// Synthesized FM-bell arpeggio, an alternative "coin get" chime layered in alongside the
     /// sampled `success`/`success2` catch sounds for extra retro sparkle.
     pub(crate) coin_chime: Source,
@@ -227,6 +229,9 @@ pub struct MainState {
     pub(crate) treasure_chest_timer: f32,
     pub(crate) time_elapsed: f32,             // Time since game start
     pub(crate) menu_time: f32, // Free-running clock for the title/menu screen animation
+    pub(crate) menu_intro_time: f32,
+    pub(crate) menu_intro_complete: bool,
+    pub(crate) menu_intro_pling_played: bool,
     pub(crate) game_over: bool, // Game over flag
     pub(crate) sounds: GameSounds, // All game sound effects
     pub(crate) beat_synth: sounds::BeatSynth, // Procedural kick drum played on every beat tick
@@ -1095,6 +1100,12 @@ pub struct MainState {
 }
 
 impl MainState {
+    pub(crate) fn skip_menu_intro(&mut self) {
+        self.menu_intro_time = crate::menu_intro::INTRO_END;
+        self.menu_intro_complete = true;
+        self.menu_intro_pling_played = true;
+    }
+
     /// The per-frame simulation delta, in seconds. In a deterministic bot run this is a fixed
     /// constant (so the sim advances identically regardless of machine speed or ggez version);
     /// in real gameplay it's the true wall-clock frame delta for smooth motion. Every in-game

@@ -163,6 +163,25 @@ pub fn synth_fm_note(
     )
 }
 
+/// A tiny glass-bell arpeggio for the startup studio card: bright at the attack, then almost
+/// weightless as its high harmonics overlap and decay.
+pub fn synth_startup_pling(ctx: &mut Context) -> GameResult<Source> {
+    let adsr = Adsr {
+        attack: 0.004,
+        decay: 0.12,
+        sustain: 0.18,
+        release: 0.75,
+    };
+    let mut mix = Vec::new();
+    for (index, frequency) in [1318.51, 1661.22, 2093.0].into_iter().enumerate() {
+        let note = synth_fm_note(frequency, 3.5, 2.4, 8.0, 0.16, &adsr, 0.22);
+        mix_into(&mut mix, &note, index * (SAMPLE_RATE as usize / 13));
+    }
+    let pcm = samples_to_pcm(&mut mix, 14, 1);
+    let wav = encode_wav_mono16(&pcm);
+    Source::from_data(ctx, SoundData::from_bytes(&wav)?)
+}
+
 /// FM note variant with the short upward pitch bend used by NES-style hit-confirm sounds.
 fn synth_fm_note_pitch_attack(
     carrier_hz: f32,

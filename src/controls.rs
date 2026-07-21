@@ -305,6 +305,12 @@ pub fn handle_key_down_event(
     keycode: Option<KeyCode>,
 ) -> bool {
     if let Some(key) = keycode {
+        if state.show_instructions && !state.menu_intro_complete {
+            if key == KeyCode::Space {
+                state.skip_menu_intro();
+            }
+            return true;
+        }
         if state.show_world_map {
             match key {
                 KeyCode::ArrowLeft | KeyCode::KeyA => {

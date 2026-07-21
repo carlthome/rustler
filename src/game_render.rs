@@ -40,6 +40,74 @@ use crate::graphics::{
 };
 
 impl MainState {
+    fn draw_startup_logo(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        width: f32,
+        height: f32,
+        alpha: f32,
+    ) -> GameResult {
+        let square = unit_square(ctx)?;
+        canvas.draw(
+            square,
+            DrawParam::default()
+                .scale(Vec2::new(width, height))
+                .color(Color::BLACK),
+        );
+
+        if alpha > 0.0 {
+            let mut logo = Text::new("CARLTHOME");
+            logo.set_scale(62.0);
+            let logo_width = logo.measure(ctx)?.x;
+            canvas.draw(
+                &logo,
+                DrawParam::default()
+                    .dest(Vec2::new((width - logo_width) * 0.5, height * 0.43))
+                    .color(Color::new(0.88, 0.94, 1.0, alpha)),
+            );
+
+            let mut presents = Text::new("P R E S E N T S");
+            presents.set_scale(16.0);
+            let presents_width = presents.measure(ctx)?.x;
+            canvas.draw(
+                &presents,
+                DrawParam::default()
+                    .dest(Vec2::new(
+                        (width - presents_width) * 0.5,
+                        height * 0.43 + 82.0,
+                    ))
+                    .color(Color::new(0.55, 0.68, 0.82, alpha * 0.8)),
+            );
+
+            let sparkle = unit_circle(ctx)?;
+            let center = Vec2::new(width * 0.5 + logo_width * 0.55, height * 0.43 + 8.0);
+            for ray in 0..8 {
+                let angle = ray as f32 * std::f32::consts::FRAC_PI_4
+                    + self.menu_intro_time * 0.32;
+                let radius = if ray % 2 == 0 { 23.0 } else { 14.0 };
+                canvas.draw(
+                    sparkle,
+                    DrawParam::default()
+                        .dest(center + Vec2::from_angle(angle) * radius)
+                        .scale(Vec2::splat(if ray % 2 == 0 { 2.2 } else { 1.2 }))
+                        .color(Color::new(0.82, 0.94, 1.0, alpha)),
+                );
+            }
+        }
+
+        let mut skip = Text::new("SPACE TO SKIP");
+        skip.set_scale(15.0);
+        let skip_width = skip.measure(ctx)?.x;
+        canvas.draw(
+            &skip,
+            DrawParam::default()
+                .dest(Vec2::new((width - skip_width) * 0.5, height * 0.9))
+                .color(Color::new(0.5, 0.56, 0.66, 0.7)),
+        );
+        Ok(())
+    }
+
     fn draw_instructions_screen(
         &mut self,
         ctx: &mut Context,
@@ -152,6 +220,25 @@ impl MainState {
                     .dest(Vec2::new(width * 0.13, height * 0.23))
                     .color(Color::from_rgb(226, 226, 226)),
             );
+            return Ok(());
+        }
+        if !self.menu_intro_complete {
+            let intro = crate::menu_intro::presentation(self.menu_intro_time);
+            canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
+            if intro.menu_progress > 0.0 {
+                let offset = height * (1.0 - intro.menu_progress);
+                canvas.set_screen_coordinates(Rect::new(0.0, -offset, width, height));
+                menu::draw_menu(self, ctx, canvas, width, height)?;
+                canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
+                canvas.draw(
+                    unit_square(ctx)?,
+                    DrawParam::default()
+                        .scale(Vec2::new(width, height))
+                        .color(Color::new(0.0, 0.0, 0.0, 1.0 - intro.menu_progress)),
+                );
+            } else {
+                self.draw_startup_logo(ctx, canvas, width, height, intro.logo_alpha)?;
+            }
             return Ok(());
         }
         menu::draw_menu(self, ctx, canvas, width, height)
@@ -1359,8 +1446,12 @@ impl MainState {
             if self.sounds.action_music.playing() {
                 self.sounds.action_music.pause();
             }
-            if !self.sounds.intro_music.playing() {
+            let menu_music_ready = self.menu_intro_complete
+                || self.menu_intro_time >= crate::menu_intro::MENU_REVEAL_AT;
+            if menu_music_ready && !self.sounds.intro_music.playing() {
                 self.sounds.intro_music.play();
+            } else if !menu_music_ready && self.sounds.intro_music.playing() {
+                self.sounds.intro_music.pause();
             }
             self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
             canvas.finish(ctx)?;
