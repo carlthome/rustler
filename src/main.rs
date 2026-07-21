@@ -10,6 +10,7 @@ mod crab_update;
 mod enemies;
 mod floating_text;
 mod game_render;
+mod game_render_hud;
 mod game_update;
 mod graphics;
 mod hud_cache;
@@ -1014,7 +1015,7 @@ impl MainState {
     /// never pollute the persistent career.
     /// Open the campaign world map. Creates it on first visit; subsequent visits reuse the same
     /// instance so node completion persists across runs.
-    fn enter_world_map(&mut self, ctx: &mut Context) {
+    fn enter_world_map(&mut self, _ctx: &mut Context) {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
         }
@@ -1400,7 +1401,7 @@ impl EventHandler for MainState {
 
     fn mouse_button_up_event(
         &mut self,
-        ctx: &mut Context,
+        _ctx: &mut Context,
         button: MouseButton,
         _x: f32,
         _y: f32,
