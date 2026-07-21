@@ -82,6 +82,22 @@ pub fn handle_player_movement(
             if dist > 1.0 {
                 dir = toward.normalize();
             }
+            if state.bot.as_ref().map_or(false, |b| b.seek_lasso) {
+                if let Some(target) = state.nearest_catchable_crab_pos() {
+                    let center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+                    let toward = target - center;
+                    if toward.length_squared() > 1.0 {
+                        dir = toward.normalize();
+                    }
+                }
+            }
+            if state.bot.as_ref().map_or(false, |b| b.seek_delivery) && state.chain_count > 0 {
+                let center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
+                let toward = state.pen_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0) - center;
+                if toward.length_squared() > 1.0 {
+                    dir = toward.normalize();
+                }
+            }
             // Beat-timed final approach — BeatTiming tutorial only. A skilled player holds just
             // outside catch range and closes the last step ON the beat so the catch counts.
             // Otherwise the autopilot fires the whistle the instant its 4.5 s cooldown clears, and

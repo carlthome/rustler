@@ -54,6 +54,7 @@ else
     run_script menu_to_game
     run_script campaign_escape
     run_script campaign_tutorial
+    run_script campaign_full
     run_script npc_steal
     run_script player_steal
     run_script steal_defense
