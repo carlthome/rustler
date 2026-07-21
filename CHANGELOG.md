@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.34.0 — 2026-07-21
+
+### Features
+- Player-anchored beat-keeper ring: keep the beat legible while steering
+- Intensify postprocessing color
+- Pause menu music on world map
+
+### Refactoring
+- Extract bot steal-scenario staging out of npc_trains.rs
+
 ## v0.33.5 — 2026-07-21
 
 ### Performance
