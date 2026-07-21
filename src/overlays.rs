@@ -11,7 +11,7 @@ use crate::hud_cache::{
     TUTORIAL_OVERLAY_CACHE, UPGRADE_SCREEN_CACHE,
 };
 use crate::upgrade::{UPGRADE_POOL, UpgradeId};
-use crate::{BEAT_WINDOW, CRAB_SIZE};
+use crate::{BEAT_WINDOW, CRAB_SIZE, CULL_MARGIN};
 use crate::graphics::{
     cached_stroke_rect, draw_armor_ring, draw_attracted_crab_glow, draw_boss_health_ring,
     draw_catch_next_hint, draw_centerpiece_ring, draw_crab, draw_cycle_preview_ring,
@@ -495,8 +495,21 @@ impl MainState {
         // itself defers into batched buffers and isn't blended here, so it's unaffected).
         let original_blend = canvas.blend_mode();
         canvas.set_blend_mode(BlendMode::ADD);
+        // Skip the whole per-crab draw (body + auras) for free crabs fully off-screen — the world
+        // can be up to 4x the viewport per axis, so a big fraction of the herd sits off camera on
+        // large maps every frame. CULL_MARGIN is wider than any aura anchored on the crab (Magnet's
+        // 240px ring is the widest), so nothing actually visible is ever skipped.
+        let view_min = self.camera_origin - Vec2::splat(CULL_MARGIN);
+        let view_max = self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
         for (i, crab) in self.crabs.iter().enumerate() {
             if !crab.caught {
+                if crab.pos.x < view_min.x
+                    || crab.pos.x > view_max.x
+                    || crab.pos.y < view_min.y
+                    || crab.pos.y > view_max.y
+                {
+                    continue;
+                }
                 let mut pos = crab.pos;
                 let mut shake_strength = 0.0;
                 if crab.spooked_timer > 0.0 {
