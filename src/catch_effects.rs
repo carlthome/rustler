@@ -464,15 +464,16 @@ impl MainState {
             _ => {}
         }
 
-        // Equal blending keeps each captured King represented without making later colors erase
-        // the visual identity of earlier upgrades.
+        // Normalize the accumulated tint so every captured King keeps an equal visual share.
         self.conga_tint = if self.king_crab_count == 0 {
             tint
         } else {
+            let previous_count = self.king_crab_count as f32;
+            let total_count = previous_count + 1.0;
             [
-                (self.conga_tint[0] + tint[0]) * 0.5,
-                (self.conga_tint[1] + tint[1]) * 0.5,
-                (self.conga_tint[2] + tint[2]) * 0.5,
+                (self.conga_tint[0] * previous_count + tint[0]) / total_count,
+                (self.conga_tint[1] * previous_count + tint[1]) / total_count,
+                (self.conga_tint[2] * previous_count + tint[2]) / total_count,
             ]
         };
         self.king_crab_count += 1;
