@@ -1008,7 +1008,7 @@ pub struct MainState {
     // startle origin, no boss catch, no dance catch), so this was pure per-frame allocation
     // churn on the hottest possible path (runs unconditionally in update() every tick).
     pub(crate) startle_origins_buf: Vec<Vec2>,
-    pub(crate) boss_catches_buf: Vec<(Vec2, bool)>,
+    pub(crate) boss_catches_buf: Vec<(Vec2, CrabType)>,
     pub(crate) dance_catches_buf: Vec<Vec2>,
     // Golden crabs snapped up this frame — (pos, its base catch points) so the big lump-sum bonus
     // is paid out after the catch loop (needs &mut self for particles/floating text/score).

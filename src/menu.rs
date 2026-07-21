@@ -163,6 +163,7 @@ pub fn draw_menu(
         stun_timer: 0.0,
         host_swap_timer: 0.0,
         surge_timer: 0.0,
+        entranced: 0.0,
     };
 
     // Only a handful of decorative crabs on the menu, so render them at full detail (reset the LOD

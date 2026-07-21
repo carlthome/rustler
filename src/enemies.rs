@@ -27,6 +27,30 @@ pub enum CrabType {
     Boss,    // rare oversized "King Crab" — never spawns randomly, only via the boss trigger
     TideBoss, // rare oversized "Tide Boss" — drifts and emits shockwave pulses that scatter the train
     RhythmBoss, // rare oversized "Reef DJ" — its shell only drops on the beat, so the beam only wears it down when you hold it *on-beat*
+    HermitKing, // rare oversized "Hermit King" — drags a stack of shell houses. The beam can't touch it: only Stomps crack it, one shell layer per pound (5 total). After 2 cracks it darts erratically and only ON-BEAT stomps land; after 4 it panics and flees for the world edge — escape and it drags a fresh shell back in (shell resets). The final crack exposes it; catching the big boy pays a triple score bonus (75-a-combo vs the usual 25 — see on_boss_caught).
+    DancerKing, // rare golden "Dancer King" — catchable immediately, but it EVADES: every 2 beats it teleports to a mirrored position across the world. Nearby free crabs become ENTRANCED and mirror its movement; catching the King frees them — and catching it exactly ON the beat is a Perfect Catch that banks every entranced crab into your train at once.
+}
+
+/// Hermit King fight phase, derived purely from its remaining shell layers so the AI, the Stomp
+/// gate, and the HUD all agree. 5 shells → Sturdy (slow lumber, any Stomp cracks), after 2 cracks →
+/// Rattled (fast erratic darts, only ON-BEAT Stomps land), after 4 → Panicked (flees for the world
+/// edge; escape resets its shell). At 0 shells it's exposed and catchable like any drained boss.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HermitKingPhase {
+    Sturdy,   // shells 4-5: slow lumbering tank — any Stomp cracks a layer
+    Rattled,  // shells 2-3: darts fast and erratically — only an on-beat Stomp lands
+    Panicked, // shell 1: bolts for the nearest world edge — crack it before it escapes
+}
+
+/// Which phase a Hermit King with `shells` layers remaining is in. Pure so it's unit-testable.
+pub fn hermit_king_phase(shells: f32) -> HermitKingPhase {
+    if shells <= 1.0 {
+        HermitKingPhase::Panicked
+    } else if shells <= 3.0 {
+        HermitKingPhase::Rattled
+    } else {
+        HermitKingPhase::Sturdy
+    }
 }
 
 impl CrabType {
@@ -115,6 +139,8 @@ impl CrabType {
             CrabType::Boss => 18.0..34.0,    // slow and lumbering
             CrabType::TideBoss => 24.0..44.0, // roams a touch quicker, but never charges
             CrabType::RhythmBoss => 20.0..38.0, // grooves around at a steady mid-pace, bobbing to the beat
+            CrabType::HermitKing => 16.0..26.0, // a dragging shell-house tank — its Rattled/Panicked phases multiply this (see the hermit-king branch in crab_update.rs)
+            CrabType::DancerKing => 22.0..36.0, // drifts between beats like a Dancer — its real evasion is the mirrored beat-teleport
         }
     }
     /// Shell health an archetype spawns with. While a crab's shell (stored in `boss_health`) is
@@ -151,6 +177,8 @@ impl CrabType {
             CrabType::Boss => 0.0,  // the King Crab is unshakeable
             CrabType::TideBoss => 0.0, // the Tide Boss is unshakeable
             CrabType::RhythmBoss => 0.0, // the Reef DJ is unshakeable
+            CrabType::HermitKing => 0.0, // the Hermit King is unshakeable
+            CrabType::DancerKing => 0.0, // the Dancer King is unshakeable
         }
     }
 
@@ -170,6 +198,8 @@ impl CrabType {
             CrabType::Boss => 1.7..=2.1,      // towering
             CrabType::TideBoss => 1.7..=2.1,  // just as towering as the King Crab
             CrabType::RhythmBoss => 1.7..=2.1, // just as towering as the other bosses
+            CrabType::HermitKing => 1.9..=2.3, // the biggest of the bunch — it IS a big boy (counts as 3 in the chain)
+            CrabType::DancerKing => 1.5..=1.8, // a touch lighter than the tanks — it's a dancer, after all
         }
     }
 }
@@ -208,6 +238,7 @@ pub struct EnemyCrab {
     pub slingshot_spent: f32,     // Golden only: >0 for a brief window after a Tide Boss surge FIRED this Golden through a loaded Magnet at the boss. While it counts down the Magnet field can't re-snare the Golden, so the shot genuinely spends the prize (the trade the slingshot promises) instead of it reloading in place next frame.
     pub host_swap_timer: f32,     // Hermit only: counts down while shelled; when it fires the Hermit darts to a new host spot (a scripted hop, like the Dancer's beat hop but on its own irregular timer), then resets. Gives the shelled Hermit its signature "hides and swaps hosts" movement so it isn't a stationary Armored reskin.
     pub surge_timer: f32,         // On-beat herd stampede: kicked to 1.0 on every downbeat for idle (non-spooked, non-caught) free crabs, decays over the beat. While it's live the crab DARTS along its own heading (an extra positional shove on top of base drift), then coasts between beats — so the whole loose herd visibly lurches on the "1" and glides between. Makes *where a free crab lands* a rhythm read: a groove-savvy player predicts the on-beat surge and positions to intercept the herd on the bar, rather than chasing it flatly. Distinct from every pull tool (Groove Call/Slam/Dash/whistle) — it shoves nothing toward the player, it just moves the herd on the beat.
+    pub entranced: f32,           // >0 while a free crab is spellbound by the Dancer King: it stops fleeing and shadows the King's drift instead. Refreshed each beat the crab is near the King; catching the King frees them all — and catching it exactly ON the beat banks every entranced crab into the train at once (the Perfect Catch payoff).
 }
 
 impl EnemyCrab {
@@ -232,6 +263,8 @@ impl EnemyCrab {
             CrabType::Boss => [0.96, 0.72, 0.16], // regal king-crab gold
             CrabType::TideBoss => [0.20, 0.68, 0.86], // deep tidal cyan-blue
             CrabType::RhythmBoss => [0.72, 0.30, 0.95], // pulsing disco violet
+            CrabType::HermitKing => [0.82, 0.48, 0.20], // burnished royal copper — the Hermit's earthy brown crowned into a gleaming shell-house king
+            CrabType::DancerKing => [1.0, 0.62, 0.45], // golden-rose disco royalty — the Dancer's hot pink gilded into a shimmering king
         }
     }
 
@@ -241,8 +274,26 @@ impl EnemyCrab {
     pub fn is_boss(&self) -> bool {
         matches!(
             self.crab_type,
-            CrabType::Boss | CrabType::TideBoss | CrabType::RhythmBoss
+            CrabType::Boss
+                | CrabType::TideBoss
+                | CrabType::RhythmBoss
+                | CrabType::HermitKing
+                | CrabType::DancerKing
         )
+    }
+
+    /// The "Hermit King" specifically — the shell-house tank whose stack of shells the beam can't
+    /// touch: only Stomps crack it, one layer per pound, with its Rattled phase demanding ON-BEAT
+    /// stomps and its Panicked phase racing you to the world edge (escape resets its shell).
+    pub fn is_hermit_king(&self) -> bool {
+        matches!(self.crab_type, CrabType::HermitKing)
+    }
+
+    /// The "Dancer King" specifically — catchable immediately, but every 2 beats it teleports to a
+    /// mirrored position across the world. Nearby free crabs become entranced and shadow its drift;
+    /// catching it frees them, and an exactly ON-BEAT catch banks every entranced crab at once.
+    pub fn is_dancer_king(&self) -> bool {
+        matches!(self.crab_type, CrabType::DancerKing)
     }
 
     /// The "Reef DJ" rhythm boss specifically — it never charges or pulses; instead its shell only

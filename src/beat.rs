@@ -344,6 +344,55 @@ impl MainState {
             }
         }
 
+        // Dancer King evasion + entrancement. Every 2 beats the King TELEPORTS to a mirrored
+        // position across the world — its whole defence, since (unlike the shelled bosses) it's
+        // catchable from the very first frame. And on every beat it renews its spell: free crabs
+        // near it become ENTRANCED and shadow its drift (see the entrancement pass in
+        // update_crabs) until the King is caught — catch it exactly ON the beat and the whole
+        // spellbound court banks into your train at once (the Perfect Catch payoff).
+        let king: Option<(usize, Vec2)> = self.crabs.iter().enumerate().find_map(|(i, c)| {
+            if c.is_dancer_king() && !c.caught {
+                Some((i, c.pos))
+            } else {
+                None
+            }
+        });
+        if let Some((ki, kpos)) = king {
+            const ENTRANCE_RADIUS_SQ: f32 =
+                DANCER_KING_ENTRANCE_RADIUS * DANCER_KING_ENTRANCE_RADIUS;
+            for crab in self.crabs.iter_mut() {
+                if !crab.caught
+                    && !crab.is_boss()
+                    && crab.pos.distance_squared(kpos) < ENTRANCE_RADIUS_SQ
+                {
+                    if crab.entranced <= 0.0 {
+                        crab.join_pulse = crab.join_pulse.max(0.8); // a "spellbound" squash-pop as the trance takes
+                    }
+                    // Holds through a couple of missed beats, so the court stays synchronized even
+                    // when the King's own teleport briefly carries it out of range.
+                    crab.entranced = self.beat_interval * DANCER_KING_ENTRANCE_BEATS;
+                }
+            }
+            if self.beat_count % 2 == 0 {
+                let crab = &mut self.crabs[ki];
+                let old = crab.pos;
+                // Mirror across the world center — the far side of wherever it just was, so
+                // chasing it flatly never works: read the 2-beat cadence and cut it off instead.
+                crab.pos = Vec2::new(
+                    (self.world_width - old.x).clamp(20.0, self.world_width - 20.0),
+                    (self.world_height - old.y).clamp(20.0, self.world_height - 20.0),
+                );
+                crab.join_pulse = 1.2; // landing pop so the arrival reads
+                // Vanish/arrive rings at both ends so the blink is legible, not a lost sprite.
+                if self.catch_shockwaves.len() < 48 {
+                    self.catch_shockwaves.push((old, 0.0, [1.0, 0.62, 0.45]));
+                }
+                if self.catch_shockwaves.len() < 48 {
+                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.62, 0.45]));
+                }
+            }
+        }
+
         // On-beat herd stampede: on the DOWNBEAT (the bar's "1") the whole loose herd lurches
         // forward along its own heading, then coasts through the three off-beats — so *where a
         // free crab will be* becomes a rhythm read. A groove-savvy player reads the surge and

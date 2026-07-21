@@ -106,11 +106,11 @@ use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
-use crate::enemies::{BossCharge, CrabType, EnemyCrab};
+use crate::enemies::{BossCharge, CrabType, EnemyCrab, HermitKingPhase, hermit_king_phase};
 use crate::levels::{MapSize, TerrainKind, get_levels};
 use crate::spawnings::{
-    spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss,
-    spawn_tide_boss, spawn_tutorial_crabs,
+    spawn_boss, spawn_dancer_king, spawn_enemies, spawn_hermit_king, spawn_hype_dancer,
+    spawn_rhythm_boss, spawn_tide_boss, spawn_tutorial_crabs,
 };
 use crate::tutorial::{Tutorial, TutorialKind};
 use crate::upgrade::UPGRADE_FIRST_AT;
@@ -486,7 +486,7 @@ impl MainState {
             let was_answering = self.crabs[i].answering_call > 0.0;
             self.crabs[i].caught = true;
             if self.crabs[i].is_boss() {
-                self.on_boss_caught(pos, self.crabs[i].is_tide_boss());
+                self.on_boss_caught(pos, self.crabs[i].crab_type);
             }
             if self.crabs[i].is_golden() {
                 self.on_golden_caught(pos, 0);

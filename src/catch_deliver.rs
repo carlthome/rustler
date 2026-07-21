@@ -297,6 +297,9 @@ impl MainState {
         startle_origins.clear();
         let mut boss_catches = std::mem::take(&mut self.boss_catches_buf);
         boss_catches.clear();
+        // Dancer King caught this frame: (position, whether the grab landed on the beat).
+        // Resolved after the loop — an on-beat royal catch banks its whole entranced court.
+        let mut dancer_king_catch: Option<(Vec2, bool)> = None;
         // Dancers snapped up while still answering a Call — paid out after the loop (needs &mut self).
         let mut dance_catches = std::mem::take(&mut self.dance_catches_buf);
         dance_catches.clear();
@@ -375,7 +378,12 @@ impl MainState {
                 && (self.player_pos.y - crab.pos.y).abs() < PLAYER_SIZE * 0.6 + crab.scale * CRAB_SIZE
             {
                 if crab.is_boss() {
-                    boss_catches.push((crab.pos, crab.is_tide_boss()));
+                    boss_catches.push((crab.pos, crab.crab_type));
+                    if crab.crab_type == CrabType::DancerKing {
+                        let on_beat_now = self.beat_timer < BEAT_WINDOW
+                            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+                        dancer_king_catch = Some((crab.pos, on_beat_now));
+                    }
                 }
                 // Get crab color before marking as caught
                 let crab_color = crab.crab_color();
@@ -722,8 +730,60 @@ impl MainState {
         for &pos in &dance_catches {
             self.reward_dance_catch(true, pos);
         }
-        for &(bpos, is_tide) in &boss_catches {
-            self.on_boss_caught(bpos, is_tide);
+        for &(bpos, ctype) in &boss_catches {
+            self.on_boss_caught(bpos, ctype);
+        }
+        // Dancer King payoff: the timing test IS the fight. Catch the royal ON the beat and its
+        // whole entranced court joins your train in one flourish; catch it off-beat and the spell
+        // breaks — the court scatters free, and you only keep the King itself.
+        if let Some((kpos, on_beat)) = dancer_king_catch {
+            if on_beat {
+                let mut banked: u32 = 0;
+                // Safe direct mutation: this loop only writes scalar fields on each crab and
+                // disjoint self fields (chain_count/total_caught/catch_shockwaves) — it never
+                // inserts into or removes from self.crabs, mirroring the main catch loop above.
+                for crab in &mut self.crabs {
+                    if !crab.caught && !crab.is_boss() && crab.entranced > 0.0 {
+                        crab.entranced = 0.0;
+                        crab.caught = true;
+                        crab.chain_index = Some(self.chain_count);
+                        self.chain_count += 1;
+                        self.total_caught += 1;
+                        crab.join_pulse = 1.0;
+                        if self.catch_shockwaves.len() < 48 {
+                            self.catch_shockwaves
+                                .push((crab.pos, 0.0, crab.crab_color()));
+                        }
+                        banked += 1;
+                    }
+                }
+                if banked > 0 {
+                    self.floating_texts.spawn(
+                        format!("PERFECT CATCH — THE COURT FOLLOWS! +{banked}"),
+                        kpos - Vec2::new(200.0, 90.0),
+                        36.0,
+                        [1.0, 0.62, 0.45, 1.0],
+                    );
+                    self.spawn_catch_shockwave(kpos, [1.0, 0.62, 0.45]);
+                    self.screen_shake = self.screen_shake.max(14.0);
+                }
+            } else {
+                let mut scattered = false;
+                for crab in &mut self.crabs {
+                    if crab.entranced > 0.0 {
+                        crab.entranced = 0.0;
+                        scattered = true;
+                    }
+                }
+                if scattered {
+                    self.floating_texts.spawn(
+                        "OFF-BEAT — THE COURT SCATTERS!".to_string(),
+                        kpos - Vec2::new(160.0, 70.0),
+                        28.0,
+                        [0.8, 0.75, 0.9, 1.0],
+                    );
+                }
+            }
         }
         // Apply Reef DJ shell chips from hype dancers caught on a hot beat. Find the live DJ and
         // knock a chunk off its shell per dancer, with a legible callout + juice so the assist

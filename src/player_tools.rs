@@ -10,6 +10,7 @@ use ggez::Context;
 use rand::Rng;
 
 use crate::constants::*;
+use crate::enemies::CrabType;
 use crate::controls;
 use crate::state::MainState;
 
@@ -517,7 +518,7 @@ impl MainState {
         let mult = self.combo_multiplier();
         let mut rng = crate::rng::rng();
         let mut caught_positions: Vec<Vec2> = Vec::new();
-        let mut boss_hits: Vec<(Vec2, bool)> = Vec::new();
+        let mut boss_hits: Vec<(Vec2, CrabType)> = Vec::new();
         let mut golden_hits: Vec<Vec2> = Vec::new();
         for i in 0..self.crabs.len() {
             if !self.crabs[i].is_catchable() {
@@ -532,7 +533,7 @@ impl MainState {
             self.particle_system
                 .spawn_catch_effect(pos, crab_color, crab_type, &mut rng);
             if self.crabs[i].is_boss() {
-                boss_hits.push((pos, self.crabs[i].is_tide_boss()));
+                boss_hits.push((pos, self.crabs[i].crab_type));
             }
             if self.crabs[i].is_golden() {
                 golden_hits.push(pos);
@@ -548,8 +549,8 @@ impl MainState {
         for pos in caught_positions.iter().take(40) {
             self.spawn_catch_shockwave(*pos, [1.0, 0.85, 0.3]);
         }
-        for (pos, is_tide) in boss_hits {
-            self.on_boss_caught(pos, is_tide);
+        for (pos, ctype) in boss_hits {
+            self.on_boss_caught(pos, ctype);
         }
         for pos in golden_hits {
             self.on_golden_caught(pos, 0);

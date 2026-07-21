@@ -11,7 +11,7 @@ use crate::hud_cache::{
     TUTORIAL_OVERLAY_CACHE, UPGRADE_SCREEN_CACHE,
 };
 use crate::upgrade::{UPGRADE_POOL, UpgradeId};
-use crate::{BEAT_WINDOW, BOSS_MAX_HEALTH, CRAB_SIZE};
+use crate::{BEAT_WINDOW, CRAB_SIZE};
 use crate::graphics::{
     cached_stroke_rect, draw_armor_ring, draw_attracted_crab_glow, draw_boss_health_ring,
     draw_catch_next_hint, draw_centerpiece_ring, draw_crab, draw_cycle_preview_ring,
@@ -595,9 +595,20 @@ impl MainState {
                 // Boss aura + wear-down health ring — aura tinted per archetype.
                 if crab.is_boss() {
                     let size = crab.scale * CRAB_SIZE;
-                    let frac = crab.boss_health / BOSS_MAX_HEALTH;
+                    let frac = crab.boss_health / crab.boss_max_health.max(0.001);
                     let base_aura = if crab.is_tide_boss() {
                         [0.25, 0.7, 1.0]
+                    } else if crab.is_hermit_king() {
+                        // The Hermit King's shell-fortress: warm old-copper aura, matching the
+                        // Hermit line's coiled-shell palette so the family resemblance reads.
+                        [0.85, 0.5, 0.18]
+                    } else if crab.is_dancer_king() {
+                        // The Dancer King: rose-gold spotlight that swells on the beat — the aura
+                        // itself keeps time, cueing the on-beat catch that banks its court.
+                        let on_beat = self.beat_timer < BEAT_WINDOW
+                            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+                        let flare: f32 = if on_beat { 0.35 } else { 0.0 };
+                        [1.0, (0.55 + flare).min(1.0), (0.4 + flare).min(1.0)]
                     } else if crab.is_rhythm_boss() {
                         // The Reef DJ pulses violet, and flares bright only on a *hot* beat of the
                         // phrase it called this bar — that's the window its shell is open, so the aura

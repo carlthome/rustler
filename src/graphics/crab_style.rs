@@ -364,5 +364,47 @@ pub fn style_for(t: CrabType) -> CrabStyle {
             pattern: ShellPattern::Crown,
             gait: 0.95,
         },
+        // The Hermit archetype's king: a towering shell-fortress — Hermit's plated bulk
+        // scaled royal, with the crown pattern shared by every monarch. Copper accents
+        // read "old armor". Slowest gait in the game: it lumbers.
+        HermitKing => CrabStyle {
+            body_w: 1.32,
+            body_h: 1.18,
+            leg_pairs: 4,
+            leg_len: 0.8,
+            leg_thick: 1.9,
+            leg_splay: 0.92,
+            claw_scale: 1.7,
+            claw_sym: 0.55,
+            claw_lift: 0.05,
+            claw_reach: 1.0,
+            eye_size: 0.7,
+            eye_spread: 0.78,
+            stalk_len: 0.6,
+            accent: [0.82, 0.48, 0.2],
+            pattern: ShellPattern::Crown,
+            gait: 0.6,
+        },
+        // The Dancer archetype's king: the Dancer silhouette (upright, long legs, claws
+        // thrown up) at royal scale with the monarch crown. Rose-gold accents and the
+        // fastest boss gait — everything about it says "performer".
+        DancerKing => CrabStyle {
+            body_w: 1.0,
+            body_h: 1.14,
+            leg_pairs: 3,
+            leg_len: 1.5,
+            leg_thick: 0.95,
+            leg_splay: 1.2,
+            claw_scale: 1.3,
+            claw_sym: 0.5,
+            claw_lift: 0.65,
+            claw_reach: 1.15,
+            eye_size: 1.15,
+            eye_spread: 1.1,
+            stalk_len: 1.35,
+            accent: [1.0, 0.62, 0.45],
+            pattern: ShellPattern::Crown,
+            gait: 1.5,
+        },
     }
 }

@@ -8,6 +8,7 @@ use ggez::glam::Vec2;
 use rand::Rng;
 
 use crate::constants::*;
+use crate::enemies::CrabType;
 use crate::state::MainState;
 
 impl MainState {
@@ -351,19 +352,37 @@ impl MainState {
 
     /// Big celebratory payoff when a worn-down boss is finally snagged. `is_tide` swaps the callout
     /// and shockwave color so the Tide Boss reads as its own catch, not a reskinned King Crab.
-    pub(crate) fn on_boss_caught(&mut self, pos: Vec2, is_tide: bool) {
+    pub(crate) fn on_boss_caught(&mut self, pos: Vec2, crab_type: CrabType) {
         let mut rng = crate::rng::rng();
-        let bonus = 25 * self.combo_multiplier();
+        // The Hermit King "counts as 3 chain links" — the big boy pays a triple-size lump sum
+        // (its slot in the chain stays one crab so chain bookkeeping stays simple; the payoff is
+        // the fat bank, not the geometry).
+        let base: usize = if matches!(crab_type, CrabType::HermitKing) {
+            75
+        } else {
+            25
+        };
+        let bonus = base * self.combo_multiplier();
         self.score += bonus;
         self.particle_system
             .spawn_milestone_fireworks(pos, 30, &mut rng);
         // World-layer text: anchor to the player so the boss-caught banner reads on-screen under
         // the scrolling camera rather than at a fixed world coordinate.
         let screen_center = self.player_pos + Vec2::new(-200.0, -170.0);
-        let (label, label_color, shock_color): (&str, [f32; 4], [f32; 3]) = if is_tide {
-            ("TIDE BOSS CAUGHT!", [0.4, 0.85, 1.0, 1.0], [0.3, 0.75, 1.0])
-        } else {
-            ("KING CRAB CAUGHT!", [1.0, 0.85, 0.2, 1.0], [1.0, 0.8, 0.2])
+        let (label, label_color, shock_color): (&str, [f32; 4], [f32; 3]) = match crab_type {
+            CrabType::TideBoss => ("TIDE BOSS CAUGHT!", [0.4, 0.85, 1.0, 1.0], [0.3, 0.75, 1.0]),
+            CrabType::RhythmBoss => ("REEF DJ CAUGHT!", [0.8, 0.5, 1.0, 1.0], [0.72, 0.3, 0.95]),
+            CrabType::HermitKing => (
+                "HERMIT KING CAUGHT!",
+                [1.0, 0.65, 0.3, 1.0],
+                [0.85, 0.5, 0.2],
+            ),
+            CrabType::DancerKing => (
+                "DANCER KING CAUGHT!",
+                [1.0, 0.68, 0.55, 1.0],
+                [1.0, 0.62, 0.45],
+            ),
+            _ => ("KING CRAB CAUGHT!", [1.0, 0.85, 0.2, 1.0], [1.0, 0.8, 0.2]),
         };
         self.floating_texts.spawn(
             label.to_string(),

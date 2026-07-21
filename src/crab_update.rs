@@ -316,6 +316,21 @@ impl MainState {
         // a fresh thread-local handle inside the loop for every crab currently in the beam.
         let mut rng = crate::rng::rng();
 
+        // Hermit King escape events this frame: it reached the world edge in its Panicked phase
+        // and dragged a fresh shell-house stack back in. Processed after the loop (banner + ring).
+        // Vec::new() never allocates until a push, so this is free on every ordinary frame.
+        let mut hermit_king_reshells: Vec<Vec2> = Vec::new();
+
+        // Dancer King drift snapshot for the entrancement pass below: spellbound free crabs shadow
+        // the King's own movement, so they need its position/velocity before the mutable loop.
+        let dancer_king_drift: Option<(Vec2, Vec2)> = self.crabs.iter().find_map(|c| {
+            if c.is_dancer_king() && !c.caught {
+                Some((c.pos, c.vel))
+            } else {
+                None
+            }
+        });
+
         // Snapshot whether we're inside the on-beat window right now, so the Reef DJ (rhythm boss)
         // can gate its shell-drain on the beat without re-borrowing self mid-loop. Same window the
         // player already feels for PERFECT tool hits and the on-beat Call.
@@ -395,7 +410,9 @@ impl MainState {
                 // beat of the phrase it called this bar. Off the phrase (off-beat, or an un-called
                 // on-beat) the light does nothing — the whole fight is echoing its pattern back with
                 // the light. Enraged, it drains faster on a hit so the finale rewards clean timing.
-                let drain_active = crab_in_light && (!crab.is_rhythm_boss() || reef_hot_now);
+                let drain_active = crab_in_light
+                    && !crab.is_hermit_king() // the Hermit King's shell-house stack is beam-proof: only Stomps crack it (see the stomp pass in game_update)
+                    && (!crab.is_rhythm_boss() || reef_hot_now);
                 if crab.is_rhythm_boss() && crab_in_light && reef_hot_now && crab.boss_health > 0.0
                 {
                     reef_hit_landed = true;
@@ -513,6 +530,131 @@ impl MainState {
                     let (width, height) = area;
                     let dir = (charge_target - crab.pos).normalize_or_zero();
                     crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
+                    crab.pos += crab.vel * dt;
+                    if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
+                        crab.vel.x = -crab.vel.x;
+                        crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
+                    }
+                    if crab.pos.y < 0.0 || crab.pos.y > height - crab.scale {
+                        crab.vel.y = -crab.vel.y;
+                        crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
+                    }
+                    let speed = crab.vel.length();
+                    if speed > 5.0 {
+                        let target_angle = crab.vel.y.atan2(crab.vel.x);
+                        let mut delta = target_angle - crab.facing_angle;
+                        while delta > std::f32::consts::PI {
+                            delta -= std::f32::consts::TAU;
+                        }
+                        while delta < -std::f32::consts::PI {
+                            delta += std::f32::consts::TAU;
+                        }
+                        crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                    }
+                    continue;
+                }
+
+                // The Hermit King — the shell-house tank. The beam never touches it (drain is
+                // gated out above); the whole fight is the Stomp: crack one shell layer per pound
+                // (see the stomp pass in game_update). Its movement escalates with its phase:
+                // Sturdy = slow lumber at the train, Rattled = fast erratic darts (and only
+                // ON-BEAT stomps land), Panicked = a flat-out sprint for the nearest world edge —
+                // escape and it drags a fresh shell back in (shell resets, see the edge check).
+                if crab.is_hermit_king() {
+                    let (width, height) = area;
+                    match hermit_king_phase(crab.boss_health) {
+                        HermitKingPhase::Sturdy => {
+                            // Slow lumber toward the train's heart, same looming-presence read as
+                            // the Reef DJ — a big calm target while any Stomp still cracks it.
+                            let dir = (charge_target - crab.pos).normalize_or_zero();
+                            crab.vel = crab.vel.lerp(dir * crab.speed, 0.02);
+                            crab.pos += crab.vel * dt;
+                        }
+                        HermitKingPhase::Rattled => {
+                            // Rattled: fast erratic darts on an irregular timer (host_swap_timer,
+                            // the Hermit's own restless clock, reused for its King). Now only an
+                            // ON-BEAT stomp lands, so the player must groove AND chase.
+                            crab.host_swap_timer -= dt;
+                            if crab.host_swap_timer <= 0.0 {
+                                let ang = rng.random_range(0.0_f32..std::f32::consts::TAU);
+                                crab.vel = Vec2::new(ang.cos(), ang.sin()) * crab.speed * HERMIT_KING_RATTLED_SPEED_MULT;
+                                crab.join_pulse = crab.join_pulse.max(0.7); // squash-pop as it darts
+                                crab.host_swap_timer = rng.random_range(0.5..0.9);
+                            }
+                            crab.pos += crab.vel * dt;
+                            // Bleed between darts so it lurches rather than glides.
+                            crab.vel *= 1.0 - (1.6 * dt).min(0.8);
+                        }
+                        HermitKingPhase::Panicked => {
+                            // One shell left: it bolts for the nearest world edge. Crack it before
+                            // it escapes — reach the edge and it drags a fresh shell back in.
+                            let to_left = crab.pos.x;
+                            let to_right = width - crab.pos.x;
+                            let to_top = crab.pos.y;
+                            let to_bottom = height - crab.pos.y;
+                            let min_d = to_left.min(to_right).min(to_top).min(to_bottom);
+                            let dir = if min_d == to_left {
+                                Vec2::new(-1.0, 0.0)
+                            } else if min_d == to_right {
+                                Vec2::new(1.0, 0.0)
+                            } else if min_d == to_top {
+                                Vec2::new(0.0, -1.0)
+                            } else {
+                                Vec2::new(0.0, 1.0)
+                            };
+                            crab.vel = crab.vel.lerp(dir * crab.speed * HERMIT_KING_PANICKED_SPEED_MULT, (4.0 * dt).min(1.0));
+                            crab.pos += crab.vel * dt;
+                            // Escaped! It scuttles off the sand line and drags a whole fresh
+                            // shell-house stack back in — the panic race lost, start over.
+                            if min_d < 12.0 {
+                                crab.boss_health = crab.boss_max_health;
+                                crab.enraged = false;
+                                crab.host_swap_timer = 0.6;
+                                // Turn it back toward the arena so it re-enters lumbering.
+                                let center = Vec2::new(width * 0.5, height * 0.5);
+                                crab.vel = (center - crab.pos).normalize_or_zero() * crab.speed;
+                                hermit_king_reshells.push(crab.pos);
+                            }
+                        }
+                    }
+                    // Clamp inside the world (the Panicked sprint aims at the border on purpose).
+                    crab.pos.x = crab.pos.x.clamp(0.0, width - crab.scale);
+                    crab.pos.y = crab.pos.y.clamp(0.0, height - crab.scale);
+                    let speed = crab.vel.length();
+                    if speed > 5.0 {
+                        let target_angle = crab.vel.y.atan2(crab.vel.x);
+                        let mut delta = target_angle - crab.facing_angle;
+                        while delta > std::f32::consts::PI {
+                            delta -= std::f32::consts::TAU;
+                        }
+                        while delta < -std::f32::consts::PI {
+                            delta += std::f32::consts::TAU;
+                        }
+                        crab.facing_angle += delta * (dt * 8.0).min(1.0);
+                    }
+                    continue;
+                }
+
+                // The Dancer King — the evader. No shell at all (catchable from the first frame);
+                // its defence is the beat: every 2 beats it teleports to a mirrored position
+                // across the world (see the beat handler), and between blinks it just drifts,
+                // keeping a wary distance from the player. Free crabs near it fall entranced and
+                // shadow its drift — catch the King ON the beat to bank the whole spellbound court.
+                if crab.is_dancer_king() {
+                    let (width, height) = area;
+                    // Drift: sway away from a close player, otherwise a slow regal wander toward
+                    // wherever the herd is thin (world center keeps it on stage).
+                    let dir = if distance < 300.0 {
+                        to_crab // away from the player — it won't be walked down flatly
+                    } else {
+                        let center = Vec2::new(width * 0.5, height * 0.5);
+                        (center - crab.pos).normalize_or_zero() * 0.4
+                            + Vec2::new(
+                                (self.time_elapsed * 0.7 + crab.beat_phase_offset).cos(),
+                                (self.time_elapsed * 0.7 + crab.beat_phase_offset).sin(),
+                            ) * 0.6
+                    };
+                    crab.vel = crab.vel.lerp(dir.normalize_or_zero() * crab.speed, 0.03);
                     crab.pos += crab.vel * dt;
                     if crab.pos.x < 0.0 || crab.pos.x > width - crab.scale {
                         crab.vel.x = -crab.vel.x;
@@ -754,6 +896,7 @@ impl MainState {
                     && !crab.is_boss()
                     && !crab.is_dancer()
                     && !crab.is_shelled_hermit()
+                    && crab.entranced <= 0.0
                     && !(crab.is_thief() && self.chain_count >= 4)
                     && crab.charm_timer <= 0.0;
 
@@ -857,6 +1000,26 @@ impl MainState {
                         // becoming an autocatcher, not the magnitude — so it can be assertive.
                         let nudge = crab.crab_type.speed_range().end * 1.1 * downbeat_pull;
                         crab.vel = crab.vel.lerp(toward * nudge, 0.35 * downbeat_pull);
+                    }
+                }
+
+                // Dancer King entrancement: a spellbound free crab stops thinking for itself and
+                // shadows the King's own drift — a synchronized court trailing the royal across
+                // the sand. Renewed each beat while the crab stays near the King (see the beat
+                // handler); snaps out the moment the King is gone. `speed = 1.0` keeps the
+                // multiplier neutral so `vel` alone encodes the sway, matching the flee path
+                // (never compound vel × speed — see the failure-mode note in AGENTS.md).
+                if crab.entranced > 0.0 {
+                    crab.entranced = (crab.entranced - dt).max(0.0);
+                    if let Some((kpos, kvel)) = dancer_king_drift {
+                        // Ease toward the King's drift plus a gentle tether pull, so the court
+                        // trails the royal in formation instead of scattering.
+                        let tether = (kpos - crab.pos).normalize_or_zero() * 16.0;
+                        crab.vel = crab.vel.lerp(kvel + tether, (3.0 * dt).min(1.0));
+                        crab.speed = 1.0;
+                        crab.fleeing = false;
+                    } else {
+                        crab.entranced = 0.0; // the King is caught or gone — the spell breaks
                     }
                 }
 
@@ -1492,6 +1655,27 @@ impl MainState {
         }
 
         // Celebrate any King Crab worn down to catchable this frame
+        // Hermit King escape: it won the race to the world edge and dragged a fresh shell-house
+        // stack back in — announce the reset so the player knows the crack progress is gone.
+        for &pos in hermit_king_reshells.iter() {
+            // Banner text anchors to the player so the message is readable on screen (the escape
+            // happens at the world edge, often off-camera); the shockwave fires at the actual spot.
+            self.floating_texts.spawn(
+                "THE HERMIT KING RE-SHELLS!".to_string(),
+                self.player_pos + Vec2::new(-230.0, -190.0),
+                40.0,
+                [0.95, 0.6, 0.25, 1.0],
+            );
+            self.floating_texts.spawn(
+                "It escaped — crack it faster next time!".to_string(),
+                self.player_pos + Vec2::new(-190.0, -145.0),
+                24.0,
+                [1.0, 0.9, 0.7, 0.9],
+            );
+            self.spawn_catch_shockwave(pos, [0.85, 0.5, 0.2]);
+            self.screen_shake = self.screen_shake.max(12.0);
+        }
+
         for &pos in boss_broke.iter() {
             self.floating_texts.spawn(
                 "SHELL CRACKED!".to_string(),
