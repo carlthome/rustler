@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.33.0 — 2026-07-21
+
+### Gameplay
+- Beat indicator shows bar position with a punchy downbeat
+
+### Refactoring
+- Extract beat-feedback ring/pulse effects from graphics.rs into rings.rs
+- Split cron prompts out of AGENTS.md into agents/ files
+
 ## v0.32.0 — 2026-07-21
 
 ### Features
