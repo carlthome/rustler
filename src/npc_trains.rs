@@ -364,22 +364,68 @@ impl MainState {
         };
         let thief_len = self.npc_trains[thief].follower_types.len();
         // Aim the thief's leader at a smaller rival's mid-follower so the splice takes a meaningful
-        // tail section, not one crab. Skip victims whose mid slot hasn't been sampled into path
-        // history yet — a later ForceRivalCross lands once they've wandered enough.
-        for victim in 0..self.npc_trains.len() {
-            if victim == thief {
-                continue;
-            }
-            let vlen = self.npc_trains[victim].follower_types.len();
-            if vlen == 0 || vlen >= thief_len {
-                continue;
-            }
-            let mid_fi = vlen / 2;
-            if let Some(&fpos) = self.npc_trains[victim].path_history.get((mid_fi + 1) * STEPS) {
-                self.npc_trains[thief].leader_pos = fpos;
-                self.npc_trains[thief].rival_steal_cooldown = 0.0;
-                return;
-            }
+        // tail section, not one crab. Pick the strictly-smaller rival with the MOST followers so the
+        // forced cut is deep enough to both transfer (RivalStealAtLeast) *and* spill a loose crumb
+        // (RivalSpillAtLeast) — a 1-follower victim is a clean pickpocket with no spill, which used to
+        // leave the spill assert flaky when the wander happened to shrink every rival down.
+        let victim = (0..self.npc_trains.len())
+            .filter(|&v| v != thief)
+            .filter(|&v| {
+                let l = self.npc_trains[v].follower_types.len();
+                l >= 1 && l < thief_len
+            })
+            .max_by_key(|&v| self.npc_trains[v].follower_types.len());
+        let Some(victim) = victim else {
+            return;
+        };
+        let vlen = self.npc_trains[victim].follower_types.len();
+        // Guarantee the victim's follower path slot exists regardless of how far it has wandered.
+        // Under headless load fewer path samples accrue per sim-second (a bigger dt means fewer of
+        // the >6px pushes the live wander uses), so the deep mid slot can be missing and every
+        // ForceRivalCross no-ops — the root of the npc_vs_npc flake. Backfilling a straight trail
+        // behind the leader makes the slot deterministic; the real splice path (arm → snap →
+        // split_off → spill in update_npc_trains) then runs unchanged, so this only shortcuts the
+        // RNG wander, exactly as the helper already documents.
+        self.ensure_train_path_history(victim, vlen);
+        // Splice just ahead of centre — `(vlen-1)/2` — so the cut takes at least two followers for
+        // any victim with ≥2 of them (the tail-ward cut_from clamp keeps it ≤STEAL_MAX_LINKS). That
+        // guarantees `stolen_count ≥ 2`, which is what makes the collision spill a loose crumb
+        // (RivalSpillAtLeast); aiming dead-centre could leave a 1-crab pickpocket that never spills.
+        let mid_fi = (vlen - 1) / 2;
+        if let Some(&fpos) = self.npc_trains[victim].path_history.get((mid_fi + 1) * STEPS) {
+            self.npc_trains[thief].leader_pos = fpos;
+            self.npc_trains[thief].rival_steal_cooldown = 0.0;
+        }
+    }
+
+    /// Bot-test helper: backfill a train's `path_history` with a straight trail behind its leader so
+    /// every follower slot `(fi + 1) * STEPS` up to `follower_count` is populated. Used by
+    /// `force_rival_cross` so a forced crossing lands deterministically even when the ambient wander
+    /// hasn't sampled a deep enough history yet under headless load. Purely a headless staging aid —
+    /// the followers simply snap onto the synthesized trail exactly as they would a wandered one, and
+    /// the live wander overwrites the front of the history the next frame anyway.
+    fn ensure_train_path_history(&mut self, ni: usize, follower_count: usize) {
+        const STEPS: usize = 14;
+        // A couple of slots past the deepest follower so the (fi+1)*STEPS lookup can't fall off the end.
+        let needed = (follower_count + 1) * STEPS + 2;
+        if self.npc_trains[ni].path_history.len() >= needed {
+            return;
+        }
+        // Trail backward from the current head, opposite the leader's heading (fall back to +x when
+        // it's parked). ~7px steps mirror the >6px threshold the live wander samples at.
+        let head = self.npc_trains[ni]
+            .path_history
+            .front()
+            .copied()
+            .unwrap_or(self.npc_trains[ni].leader_pos);
+        let mut dir = -self.npc_trains[ni].leader_vel.normalize_or_zero();
+        if dir == Vec2::ZERO {
+            dir = Vec2::new(1.0, 0.0);
+        }
+        let mut p = self.npc_trains[ni].path_history.back().copied().unwrap_or(head);
+        while self.npc_trains[ni].path_history.len() < needed {
+            p += dir * 7.0;
+            self.npc_trains[ni].path_history.push_back(p);
         }
     }
 
