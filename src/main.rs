@@ -104,7 +104,7 @@ use rand::Rng;
 
 use crate::controls::{handle_key_down_event, handle_player_movement};
 use crate::enemies::{BossCharge, CrabType, EnemyCrab};
-use crate::levels::{TerrainKind, get_levels};
+use crate::levels::{MapSize, TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_enemies, spawn_hype_dancer, spawn_rhythm_boss,
     spawn_tide_boss, spawn_tutorial_crabs,
@@ -569,6 +569,9 @@ impl MainState {
                 .map(|l| l.title.clone())
                 .unwrap_or_else(|| level.title.clone());
             self.level_title_timer = 3.1; // 0.3s fade-in + 2.2s hold + 0.6s fade-out
+            if let Some(next_level) = self.levels.get(self.current_level) {
+                self.resize_world(next_level.map_size);
+            }
             // Fresh biome, fresh pen location — keep routing the train there a live decision.
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
             self.pen_pos = pick_pen_pos(
@@ -742,6 +745,53 @@ impl MainState {
     }
 
     pub(crate) fn reset_game(&mut self) {
+        self.reset_game_at(0, self.levels[0].map_size);
+    }
+
+    fn reset_game_at_level(&mut self, level_index: usize) {
+        let level_index = level_index.min(self.levels.len().saturating_sub(1));
+        self.reset_game_at(level_index, self.levels[level_index].map_size);
+    }
+
+    fn resize_world(&mut self, map_size: MapSize) {
+        let new_width = self.width * map_size.viewport_multiplier();
+        let new_height = self.height * map_size.viewport_multiplier();
+        let shift = Vec2::new(
+            (new_width - self.world_width) * 0.5,
+            (new_height - self.world_height) * 0.5,
+        );
+        if shift == Vec2::ZERO {
+            return;
+        }
+
+        // Keep an ongoing train and the nearby NPC ecology centered when a new campaign zone opens;
+        // the newly exposed space is then populated by the next waves across the larger bounds.
+        self.player_pos += shift;
+        for pos in &mut self.position_history {
+            *pos += shift;
+        }
+        for crab in &mut self.crabs {
+            crab.pos += shift;
+        }
+        for train in &mut self.npc_trains {
+            train.leader_pos += shift;
+            train.target += shift;
+            train.territory_center += shift;
+            for pos in &mut train.path_history {
+                *pos += shift;
+            }
+        }
+        self.world_width = new_width;
+        self.world_height = new_height;
+    }
+
+    fn reset_game_at(&mut self, level_index: usize, map_size: MapSize) {
+        self.current_level = level_index;
+        self.world_width = self.width * map_size.viewport_multiplier();
+        self.world_height = self.height * map_size.viewport_multiplier();
+        self.npc_trains = (0..3)
+            .map(|index| NpcCongaTrain::new_at(self.world_width, self.world_height, index))
+            .collect();
         // Reset places the player at the WORLD centre (the playfield is larger than the viewport;
         // the camera follows). pen/pool placement below is world-space too.
         let width = self.world_width;
@@ -928,7 +978,6 @@ impl MainState {
         self.boost_timer = 0.0;
         self.boost_cooldown = 0.0;
         self.sprint_stamina = SPRINT_STAMINA_MAX;
-        self.current_level = 0;
         self.current_pattern = 0;
         self.start_current_pattern((width, height));
     }
@@ -978,11 +1027,7 @@ impl MainState {
             .as_ref()
             .and_then(|m| m.selected_level_index())
             .unwrap_or(0);
-        self.reset_game();
-        self.current_level = level_index.min(self.levels.len().saturating_sub(1));
-        self.current_pattern = 0;
-        let (w, h) = (self.width, self.height);
-        self.start_current_pattern((w, h));
+        self.reset_game_at_level(level_index);
         self.show_world_map = false;
         self.in_campaign = true;
     }
@@ -999,15 +1044,12 @@ impl MainState {
     }
 
     fn enter_tutorial(&mut self, kind: TutorialKind) {
-        self.reset_game();
+        self.reset_game_at(0, MapSize::Tutorial);
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
         self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
-        // Tutorial crabs spawn in a ring around the VIEWPORT centre (self.width/2, self.height/2),
-        // but reset_game() parks the player at WORLD centre (the world is larger than the viewport).
-        // Relocate the tutorial player onto the viewport-centre ring so its crabs are on-screen and
-        // in reach — keeps the tutorial (which doubles as a regression test) self-contained rather
-        // than off-screen from a world-centred player.
+        // Tutorial worlds are exactly one viewport, so the player and scripted crab ring start
+        // together in the centre without any camera travel.
         let tut_center = Vec2::new(
             self.width / 2.0 - PLAYER_SIZE / 2.0,
             self.height / 2.0 - PLAYER_SIZE / 2.0,

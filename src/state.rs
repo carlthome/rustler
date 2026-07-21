@@ -33,7 +33,7 @@ use crate::bot::BotState;
 use crate::constants::*;
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
-use crate::levels::Level;
+use crate::levels::{Level, MapSize};
 use crate::skins::PlayerSkin;
 use crate::sounds;
 use crate::tutorial::Tutorial;
@@ -1325,11 +1325,10 @@ impl MainState {
     pub fn new(ctx: &mut Context) -> GameResult<MainState> {
         let width = 1280.0;
         let height = 960.0;
-        // The playfield is larger than the viewport so rival conga trains (roadmap thesis) have
-        // room to approach from off-screen and the player has somewhere to route to. The camera
-        // follows the player across it. 2x each dimension for now — density is a separate tuning pass.
-        let world_width = width * 2.0;
-        let world_height = height * 2.0;
+        // The opening campaign level uses the medium map; individual levels and tutorials replace
+        // these bounds when they begin.
+        let world_width = width * MapSize::Medium.viewport_multiplier();
+        let world_height = height * MapSize::Medium.viewport_multiplier();
 
         // Player starts in the center of the WORLD always.
         let player_pos = Vec2::new(
