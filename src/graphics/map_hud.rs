@@ -6,6 +6,7 @@
 //! instance caches that only they use.
 
 use super::*;
+use ggez::graphics::MeshBuilder;
 
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
@@ -41,13 +42,19 @@ thread_local! {
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_SKIP_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    // The illustrated map only changes on resize; cache its water and island geometry rather than
+    // re-tessellating decorative meshes every frame while the menu is open.
+    static WORLD_MAP_SCENERY_CACHE: RefCell<Option<((i32, i32), Mesh)>> = RefCell::new(None);
+    // Route geometry changes only when a node unlocks. Cache its dotted treasure trail separately
+    // so cursor movement and animation don't create dozens of line meshes per frame.
+    static WORLD_MAP_ROUTE_CACHE: RefCell<Option<((i32, i32, Vec<bool>), Mesh)>> = RefCell::new(None);
     // Per-node biome tint for the world map, built once (the node list is stable for the session).
     // Campaign nodes take their level's `biome.tint`; tutorial nodes get a warm amber on-ramp colour.
     // Cached so we never rebuild the (String-allocating) `get_levels()` list per frame.
     static WORLD_MAP_NODE_TINTS: RefCell<Option<Vec<Color>>> = RefCell::new(None);
 }
 
-/// Campaign world map screen. Draws a simple node-and-path layout over a dark backdrop.
+/// Campaign world map screen. Draws an illustrated tropical-island treasure chart.
 /// Nodes are colored by state: locked=dim gray, unlocked=white, completed=teal, selected=gold ring.
 /// Call this instead of the game/title draw when `show_world_map` is true.
 pub fn draw_world_map(
@@ -58,14 +65,14 @@ pub fn draw_world_map(
     height: f32,
     menu_time: f32,
 ) -> ggez::GameResult {
-    // Dark sea background — unit square scaled to screen size, same pattern as the beat pulse in
-    // draw_game. Avoids a fresh Mesh::new_rectangle GPU buffer upload on every frame.
+    // Deep-water chart backdrop. The world map is an island adventure rather than a flat menu:
+    // layered water, sand, jungle, and landmarks give the campaign route a sense of place.
     let sq = unit_square(ctx)?;
     canvas.draw(
         sq,
         DrawParam::default()
             .scale(Vec2::new(width, height))
-            .color(Color::new(0.04, 0.07, 0.12, 1.0)),
+            .color(Color::new(0.025, 0.12, 0.20, 1.0)),
     );
 
     let (sx, sy) = (width, height);
@@ -73,6 +80,96 @@ pub fn draw_world_map(
     let node_to_screen = |(nx, ny): (f32, f32)| -> Vec2 {
         Vec2::new(nx * sx, 0.25 * sy + ny * sy * 0.5)
     };
+
+    // A broad sandbar forms the playable island, with a smaller jungle core. The irregular
+    // silhouettes reference DKC-style overworlds while the parchment colours sell the chart idea.
+    let island = [
+        Vec2::new(sx * 0.02, sy * 0.56),
+        Vec2::new(sx * 0.10, sy * 0.39),
+        Vec2::new(sx * 0.26, sy * 0.33),
+        Vec2::new(sx * 0.40, sy * 0.47),
+        Vec2::new(sx * 0.54, sy * 0.36),
+        Vec2::new(sx * 0.69, sy * 0.46),
+        Vec2::new(sx * 0.82, sy * 0.33),
+        Vec2::new(sx * 0.98, sy * 0.47),
+        Vec2::new(sx * 0.94, sy * 0.70),
+        Vec2::new(sx * 0.76, sy * 0.78),
+        Vec2::new(sx * 0.60, sy * 0.67),
+        Vec2::new(sx * 0.44, sy * 0.78),
+        Vec2::new(sx * 0.27, sy * 0.69),
+        Vec2::new(sx * 0.12, sy * 0.76),
+    ];
+    let jungle = [
+        Vec2::new(sx * 0.12, sy * 0.57),
+        Vec2::new(sx * 0.24, sy * 0.43),
+        Vec2::new(sx * 0.39, sy * 0.54),
+        Vec2::new(sx * 0.54, sy * 0.43),
+        Vec2::new(sx * 0.69, sy * 0.54),
+        Vec2::new(sx * 0.82, sy * 0.43),
+        Vec2::new(sx * 0.91, sy * 0.54),
+        Vec2::new(sx * 0.78, sy * 0.68),
+        Vec2::new(sx * 0.59, sy * 0.60),
+        Vec2::new(sx * 0.43, sy * 0.70),
+        Vec2::new(sx * 0.27, sy * 0.60),
+    ];
+    WORLD_MAP_SCENERY_CACHE.with(|c| -> ggez::GameResult {
+        let mut cache = c.borrow_mut();
+        let key = (sx.round() as i32, sy.round() as i32);
+        if cache.as_ref().map_or(true, |(cached_key, _)| *cached_key != key) {
+            let mut builder = MeshBuilder::new();
+            // The current pattern is static by design: this lets the decorative ocean remain
+            // inexpensive while the selection ring supplies the map's motion.
+            for row in 0..9 {
+                let y = sy * (0.16 + row as f32 * 0.09);
+                let mut points = Vec::with_capacity(9);
+                for col in 0..9 {
+                    let x = sx * (col as f32 / 8.0);
+                    points.push(Vec2::new(
+                        x,
+                        y + (col as f32 * 0.8 + row as f32).sin() * 4.0,
+                    ));
+                }
+                builder.line(&points, 1.0, Color::new(0.20, 0.60, 0.70, 0.16))?;
+            }
+            builder.polygon(DrawMode::fill(), &island, Color::new(0.78, 0.63, 0.32, 1.0))?;
+            builder.polygon(DrawMode::fill(), &jungle, Color::new(0.09, 0.29, 0.19, 0.92))?;
+            *cache = Some((key, Mesh::from_data(ctx, builder.build())));
+        }
+        canvas.draw(&cache.as_ref().unwrap().1, DrawParam::default());
+        Ok(())
+    })?;
+
+    // Palm clusters act as familiar RPG-map landmarks. They deliberately stay behind the route
+    // and nodes, preserving the map's progression legibility.
+    let circle = unit_circle(ctx)?;
+    for &(x, y, scale) in &[
+        (0.15, 0.47, 1.0),
+        (0.31, 0.68, 0.8),
+        (0.58, 0.48, 1.0),
+        (0.73, 0.68, 0.9),
+        (0.89, 0.46, 0.8),
+    ] {
+        let base = Vec2::new(sx * x, sy * y);
+        canvas.draw(
+            sq,
+            DrawParam::default()
+                .dest(base)
+                .rotation(-0.22)
+                .scale(Vec2::new(4.0 * scale, 28.0 * scale))
+                .color(Color::new(0.28, 0.16, 0.07, 1.0)),
+        );
+        for leaf in 0..5 {
+            let angle = leaf as f32 * std::f32::consts::TAU / 5.0 + menu_time * 0.05;
+            canvas.draw(
+                circle,
+                DrawParam::default()
+                    .dest(base + Vec2::new(angle.cos(), angle.sin()) * 9.0 * scale)
+                    .scale(Vec2::new(10.0 * scale, 5.0 * scale))
+                    .rotation(angle)
+                    .color(Color::new(0.14, 0.42, 0.22, 0.95)),
+            );
+        }
+    }
 
     // Biome tint per node — built once (see the cache note above). Cloned out cheaply (≤ a handful
     // of Copy `Color`s) so the draw loops below can read tints without holding the RefCell borrow.
@@ -101,42 +198,42 @@ pub fn draw_world_map(
         cache.clone().unwrap()
     });
 
-    // Connecting path lines between consecutive nodes. Gradient each unlocked leg between the two
-    // nodes' biome tints so the path itself telegraphs the tonal shift (warm beach → cold water).
-    // A few short segments per leg is plenty on this static menu screen (no gameplay frame budget).
-    for i in 0..map.nodes.len().saturating_sub(1) {
-        let a = node_to_screen(map.nodes[i].position);
-        let b = node_to_screen(map.nodes[i + 1].position);
-        if map.nodes[i + 1].unlocked {
-            let (ca, cb) = (node_tints[i], node_tints[i + 1]);
-            const SEGS: usize = 6;
-            for s in 0..SEGS {
-                let t0 = s as f32 / SEGS as f32;
-                let t1 = (s + 1) as f32 / SEGS as f32;
-                let tm = (t0 + t1) * 0.5;
-                let col = Color::new(
-                    ca.r + (cb.r - ca.r) * tm,
-                    ca.g + (cb.g - ca.g) * tm,
-                    ca.b + (cb.b - ca.b) * tm,
-                    0.6,
-                );
-                canvas.draw(
-                    &Mesh::new_line(ctx, &[a.lerp(b, t0), a.lerp(b, t1)], 3.0, col)?,
-                    DrawParam::default(),
-                );
+    // Connecting trails between consecutive nodes. The dotted, warm route reads as a pirate's
+    // treasure trail while biome tint on unlocked segments still previews each destination.
+    WORLD_MAP_ROUTE_CACHE.with(|c| -> ggez::GameResult {
+        let mut cache = c.borrow_mut();
+        let unlocked: Vec<bool> = map.nodes.iter().map(|node| node.unlocked).collect();
+        let key = (sx.round() as i32, sy.round() as i32, unlocked);
+        if cache.as_ref().map_or(true, |(cached_key, _)| *cached_key != key) {
+            let mut builder = MeshBuilder::new();
+            for i in 0..map.nodes.len().saturating_sub(1) {
+                let a = node_to_screen(map.nodes[i].position);
+                let b = node_to_screen(map.nodes[i + 1].position);
+                if map.nodes[i + 1].unlocked {
+                    let (ca, cb) = (node_tints[i], node_tints[i + 1]);
+                    const SEGS: usize = 14;
+                    for s in (0..SEGS).step_by(2) {
+                        let t0 = s as f32 / SEGS as f32;
+                        let t1 = (s + 1) as f32 / SEGS as f32;
+                        let tm = (t0 + t1) * 0.5;
+                        let col = Color::new(
+                            (ca.r + (cb.r - ca.r) * tm) * 0.75 + 0.25,
+                            (ca.g + (cb.g - ca.g) * tm) * 0.60 + 0.22,
+                            (ca.b + (cb.b - ca.b) * tm) * 0.35 + 0.08,
+                            0.9,
+                        );
+                        builder.line(&[a.lerp(b, t0), a.lerp(b, t1)], 4.0, col)?;
+                    }
+                } else {
+                    // Locked trails remain faint, as if unfinished ink on a treasure chart.
+                    builder.line(&[a, b], 2.0, Color::new(0.13, 0.18, 0.18, 0.65))?;
+                }
             }
-        } else {
-            // Locked leg stays a dim, colourless thread — the colour "unlocks" with the node.
-            canvas.draw(
-                &Mesh::new_line(ctx, &[a, b], 3.0, Color::new(0.3, 0.3, 0.3, 0.4))?,
-                DrawParam::default(),
-            );
+            *cache = Some((key, Mesh::from_data(ctx, builder.build())));
         }
-    }
-
-    // Reuse UNIT_CIRCLE (built once, scaled via DrawParam) instead of a fresh Mesh::new_circle
-    // every frame. Same technique used for all other fill-circle draws in this file.
-    let circle = unit_circle(ctx)?;
+        canvas.draw(&cache.as_ref().unwrap().1, DrawParam::default());
+        Ok(())
+    })?;
 
     for (i, node) in map.nodes.iter().enumerate() {
         let pos = node_to_screen(node.position);
@@ -197,8 +294,23 @@ pub fn draw_world_map(
             circle,
             DrawParam::default()
                 .dest(pos)
-                .scale(Vec2::splat(18.0))
+                .scale(Vec2::splat(20.0))
                 .color(fill_color),
+        );
+        // A small treasure-map pin gives every stop an RPG destination marker rather than a plain
+        // graph dot. Completed stops get a bright pearl; locked stops stay visibly sealed.
+        canvas.draw(
+            circle,
+            DrawParam::default()
+                .dest(pos)
+                .scale(Vec2::splat(if node.completed { 7.0 } else { 5.0 }))
+                .color(if node.completed {
+                    Color::new(1.0, 0.93, 0.55, 1.0)
+                } else if node.unlocked {
+                    Color::new(0.08, 0.16, 0.20, 0.95)
+                } else {
+                    Color::new(0.10, 0.11, 0.12, 1.0)
+                }),
         );
 
         // Node label — cached per-node by (completed, unlocked). Selection changes fill color
@@ -243,7 +355,7 @@ pub fn draw_world_map(
     WORLD_MAP_TITLE_CACHE.with(|c| -> ggez::GameResult {
         let mut cache = c.borrow_mut();
         if cache.is_none() {
-            let mut title = Text::new("— World Map —");
+            let mut title = Text::new("CRAB RUSTLER  •  ISLAND CHART");
             title.set_scale(28.0);
             let w = title.measure(ctx)?.x;
             *cache = Some((title, w));
