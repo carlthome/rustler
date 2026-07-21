@@ -28,7 +28,7 @@ impl MainState {
     /// borrowed shell scatters as a coppery shard-burst, a warm copper shockwave, a "HERMIT POPPED!"
     /// callout, and a startle ring telegraphing the brief catch window as the defenceless crab bolts.
     pub(crate) fn spawn_hermit_pop(&mut self, pos: Vec2) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // The coppery shell-shard burst (same profile the catch uses) — the borrowed shell flying apart.
         self.particle_system.spawn_catch_effect(
             pos,
@@ -310,7 +310,7 @@ impl MainState {
         // whistle throws, so "the shell settled them" reads with the game's existing calm vocabulary
         // rather than needing a new effect. Capped so a big herd around an anchor doesn't spew.
         if !sheltered_pops.is_empty() {
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             for pos in sheltered_pops.into_iter().take(6) {
                 self.particle_system.spawn_soothe_puff(pos, &mut rng);
             }

@@ -59,7 +59,7 @@ impl MainState {
                         player_center,
                         Vec2::ZERO,
                         CrabType::Normal,
-                        &mut rand::rng(),
+                        &mut crate::rng::rng(),
                     );
                     self.crabs.push(fresh);
                     self.crabs.len() - 1
@@ -583,7 +583,7 @@ impl MainState {
             self.npc_trains[i].target_timer -= dt;
             if dist < 80.0 || self.npc_trains[i].target_timer <= 0.0 {
                 // Arrived — enter a brief idle before picking the next target.
-                let rng = &mut rand::rng();
+                let rng = &mut crate::rng::rng();
                 let idle_secs = rng.random_range(1.2_f32..3.5);
                 self.npc_trains[i].idle_timer = idle_secs;
 
@@ -1052,7 +1052,7 @@ impl MainState {
                     // split_off(fi) leaves 0..fi on the rival and returns the back section fi..tail.
                     let stolen = self.npc_trains[i].follower_types.split_off(fi);
                     let stolen_count = stolen.len();
-                    let mut rng = rand::rng();
+                    let mut rng = crate::rng::rng();
                     for (k, ct) in stolen.into_iter().enumerate() {
                         // Spawn each rustled crab at its old follower slot, flying toward the player.
                         let old_pos = self.npc_trains[i]
@@ -1251,7 +1251,7 @@ impl MainState {
                         [0.45, 1.0, 0.7, 0.95],
                     );
                     self.particle_system
-                        .spawn_milestone_fireworks(player_center, 10, &mut rand::rng());
+                        .spawn_milestone_fireworks(player_center, 10, &mut crate::rng::rng());
                 } else {
                     // MISTIMED CLASH — the old painful mutual bounce. Ram off the beat and you take a
                     // hit too: both sides recoil and you shed 1–2 tail crabs.
@@ -1313,7 +1313,7 @@ impl MainState {
                         [1.0, 0.5, 0.15, 1.0],
                     );
                     self.particle_system
-                        .spawn_milestone_fireworks(player_center, 8, &mut rand::rng());
+                        .spawn_milestone_fireworks(player_center, 8, &mut crate::rng::rng());
                 }
             }
         }
@@ -1379,7 +1379,7 @@ impl MainState {
                         // can swoop into a rival-vs-rival collision and rustle the spilled crumbs. The
                         // thief still nets the majority, so the pecking order (big trains eat small ones)
                         // holds and the beach doesn't collapse to one mega-train.
-                        let mut rng = rand::rng();
+                        let mut rng = crate::rng::rng();
                         let spill = if stolen_count >= 2 {
                             (stolen_count / 3).max(1)
                         } else {

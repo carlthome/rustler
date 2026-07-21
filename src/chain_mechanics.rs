@@ -68,7 +68,7 @@ impl MainState {
         }
 
         // Probabilistic per-frame roll scaled by dt so the risk is framerate-independent.
-        if rand::random::<f32>() > SNAG_CHANCE_PER_SEC * dt {
+        if crate::rng::rng().random::<f32>() > SNAG_CHANCE_PER_SEC * dt {
             return;
         }
 
@@ -211,7 +211,7 @@ impl MainState {
         );
         self.spawn_catch_shockwave(tail_pos, [1.0, 0.4, 0.3]);
         self.screen_shake = self.screen_shake.max(9.0);
-        let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        let kick_angle = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 9.0 * 60.0;
     }
 
@@ -292,7 +292,7 @@ impl MainState {
         let cut_pos = stolen.first().map(|(p, _)| *p).unwrap_or(boss_pos);
         self.spawn_catch_shockwave(cut_pos, [1.0, 0.2, 0.8]);
         self.screen_shake = self.screen_shake.max(10.0);
-        let kick_angle = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        let kick_angle = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(kick_angle.cos(), kick_angle.sin()) * 10.0 * 60.0;
         self.floating_texts.spawn(
             format!("STOLEN! -{}", stolen_count),
@@ -752,7 +752,7 @@ impl MainState {
 
         self.deflect_bounce_buf.clear();
         self.deflect_ricochet_buf.clear();
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         for (idx, crab) in self.crabs.iter_mut().enumerate() {
             if crab.caught || crab.is_boss() {
                 continue;

@@ -117,7 +117,7 @@ impl MainState {
             let bar = self.beat_count / 4;
             if bar != self.reef_phrase_bar {
                 self.reef_phrase_bar = bar;
-                let mut rng = rand::rng();
+                let mut rng = crate::rng::rng();
                 let mut phrase = [false; 4];
                 phrase[0] = true; // the "1" always calls, anchoring the bar
                 for slot in phrase.iter_mut().skip(1) {
@@ -209,7 +209,7 @@ impl MainState {
             for &(c, r, age) in self.boss_fissures.iter() {
                 if age > 0.6 {
                     self.particle_system
-                        .spawn_fissure_geyser(c, r, &mut rand::rng());
+                        .spawn_fissure_geyser(c, r, &mut crate::rng::rng());
                 }
             }
         }
@@ -233,7 +233,7 @@ impl MainState {
                 self.on_beat_flash = self.on_beat_flash.max(0.75);
                 self.frenzy_banner_timer = 1.6;
                 self.screen_shake = self.screen_shake.max(11.0);
-                let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                let kick = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
                 self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 11.0 * 60.0;
                 // upgrade.ogg removed — tiresome and crackly; new sound TBD
             } else {
@@ -257,7 +257,7 @@ impl MainState {
             &self.chain_positions_buf,
             pulse_strength,
             chain_len,
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
         // Spawn ghost rings at each chain crab position. Unlike catch_shockwaves (capped at
         // 48) and fear_rings (capped at 32), this loop had no ceiling — a long conga train
@@ -706,7 +706,7 @@ impl MainState {
         );
         if !dancer_links.is_empty() {
             let mult = self.combo_multiplier();
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             let mut aura_caught = std::mem::take(&mut self.dancer_aura_caught_buf);
             aura_caught.clear();
             for i in 0..self.crabs.len() {

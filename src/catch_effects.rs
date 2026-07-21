@@ -16,7 +16,7 @@ impl MainState {
     /// the moment lands like finding treasure. The bonus scales with the combo multiplier so a
     /// golden grab mid-hot-streak is a genuine jackpot — the reward for committing to the chase.
     pub(crate) fn on_golden_caught(&mut self, pos: Vec2, base_pts: usize) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // Flat treasure bonus scaled by the current combo multiplier, floored so it always feels big.
         let bonus = (30 * self.combo_multiplier()).max(30);
         self.score += bonus;
@@ -211,7 +211,7 @@ impl MainState {
         self.cleave_flash = 1.0;
         self.cleave_gold = jackpot;
 
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let (shock_col, extra_bursts) = if jackpot {
             ([1.0, 0.85, 0.25], banked.max(1) + 6)
         } else {
@@ -335,7 +335,7 @@ impl MainState {
         // shockwave at the tail, a length-aware callout, fireworks, and a beat/camera kick.
         self.spawn_catch_shockwave(golden_pos, SHINE);
         self.particle_system
-            .spawn_milestone_fireworks(golden_pos, 12, &mut rand::rng());
+            .spawn_milestone_fireworks(golden_pos, 12, &mut crate::rng::rng());
         self.floating_texts.spawn(
             format!("SHINE CASCADE! +{}  ({} links)", bonus, links),
             golden_pos - Vec2::new(90.0, 58.0),
@@ -352,7 +352,7 @@ impl MainState {
     /// Big celebratory payoff when a worn-down boss is finally snagged. `is_tide` swaps the callout
     /// and shockwave color so the Tide Boss reads as its own catch, not a reskinned King Crab.
     pub(crate) fn on_boss_caught(&mut self, pos: Vec2, is_tide: bool) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let bonus = 25 * self.combo_multiplier();
         self.score += bonus;
         self.particle_system
@@ -418,7 +418,7 @@ impl MainState {
     /// banking never becomes a coin flip), off the boss's own spot, and spaced apart so they read as
     /// distinct lanes to thread rather than one big kill zone. Cleared when the boss is caught.
     pub(crate) fn crack_arena_fissures(&mut self, boss_pos: Vec2) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let count = 5;
         let mut placed = 0;
         let mut attempts = 0;
@@ -466,7 +466,7 @@ impl MainState {
     /// added (`boss_flood_pools`) so catching the boss can recede exactly the flood water without
     /// disturbing the biome's native pools. Flood pools avoid the pen and the boss's own position.
     pub(crate) fn flood_arena(&mut self, boss_pos: Vec2) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let count = 4;
         let mut placed = 0;
         let mut attempts = 0;
@@ -546,7 +546,7 @@ impl MainState {
         // Between beats the pit is nearly dormant (a small baseline bite), on the beat it snaps
         // hard — so the eruption is what the player actually dodges.
         let snap_chance = SNAP_CHANCE_PER_SEC * (0.15 + 0.85 * erupt);
-        if rand::random::<f32>() > snap_chance * dt {
+        if crate::rng::rng().random::<f32>() > snap_chance * dt {
             return;
         }
 
@@ -727,7 +727,7 @@ impl MainState {
                         [1.0, 0.85, 0.3, 1.0],
                     );
                     self.particle_system
-                        .spawn_milestone_fireworks(mpos, 10, &mut rand::rng());
+                        .spawn_milestone_fireworks(mpos, 10, &mut crate::rng::rng());
                 }
                 self.screen_shake = self.screen_shake.max(10.0);
                 self.on_beat_flash = self.on_beat_flash.max(0.35);
@@ -878,7 +878,7 @@ impl MainState {
         self.pulse_scattered_buf = scattered;
         self.spawn_catch_shockwave(center, [0.3, 0.75, 1.0]);
         self.screen_shake = self.screen_shake.max(16.0);
-        let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+        let a = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
         self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 12.0 * 60.0;
         self.on_beat_flash = self.on_beat_flash.max(0.35);
     }

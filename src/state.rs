@@ -431,7 +431,7 @@ impl NpcCongaTrain {
         };
         let mut history = VecDeque::new();
         history.push_back(start);
-        let name = gen_king_crab_name(&mut rand::rng());
+        let name = gen_king_crab_name(&mut crate::rng::rng());
         Self {
             leader_pos: start,
             leader_vel: Vec2::ZERO,
@@ -1302,6 +1302,23 @@ pub struct MainState {
     // Bot playtest harness: scripted inputs + time acceleration.
     pub(crate) bot: Option<BotState>,
     pub(crate) time_scale: f32,
+    // Fixed simulation timestep for deterministic bot runs (see MainState::frame_dt). `Some(dt)`
+    // in headless bot mode pins every frame to the same `dt` so the sim is frame-count-driven and
+    // reproducible; `None` in real gameplay keeps the variable wall-clock delta for smooth
+    // rendering. Set once at startup in `main`.
+    pub(crate) bot_fixed_dt: Option<f32>,
+}
+
+impl MainState {
+    /// The per-frame simulation delta, in seconds. In a deterministic bot run this is a fixed
+    /// constant (so the sim advances identically regardless of machine speed or ggez version);
+    /// in real gameplay it's the true wall-clock frame delta for smooth motion. Every in-game
+    /// `ctx.time.delta()` used to drive the sim funnels through here.
+    #[inline]
+    pub(crate) fn frame_dt(&self, ctx: &Context) -> f32 {
+        self.bot_fixed_dt
+            .unwrap_or_else(|| ctx.time.delta().as_secs_f32())
+    }
 }
 
 impl MainState {
@@ -1436,7 +1453,7 @@ impl MainState {
             world_width,
             world_height,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
         let init_tide_pools = pick_tide_pools(
             world_width,
@@ -1444,11 +1461,11 @@ impl MainState {
             init_pen,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             levels.first().map(|l| l.difficulty).unwrap_or(0),
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
 
         // Randomly select a texture for each level
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         let level_textures: Vec<LevelTexture> = (0..levels.len())
             .map(|_| {
                 if rng.random_range(0..2) == 0 {
@@ -1629,7 +1646,7 @@ impl MainState {
             "Crabs that groove together, grow together.",
         ];
         let subtitle = candidate_subtitles
-            .choose(&mut rand::rng())
+            .choose(&mut crate::rng::rng())
             .unwrap()
             .to_string();
 
@@ -1985,6 +2002,7 @@ impl MainState {
             perf_last_fps: 0.0,
             bot: None,
             time_scale: 1.0,
+            bot_fixed_dt: None,
         })
     }
 }

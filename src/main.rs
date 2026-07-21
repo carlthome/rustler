@@ -19,6 +19,7 @@ mod menu;
 mod npc_trains;
 mod overlays;
 mod player_tools;
+mod rng;
 mod skins;
 mod sounds;
 mod spawnings;
@@ -322,7 +323,7 @@ impl MainState {
     /// Advance the weather random-walk and the day/night clock. Called only from the live sim
     /// update (after the pause early-return), so a paused menu doesn't age the world.
     fn update_weather(&mut self, dt: f32) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         // Day/night: one full run ≈ 8 minutes covers dawn→night. Clamped at 1 so a long run just
         // sits in night rather than wrapping back to dawn mid-run.
         const RUN_SECONDS: f32 = 480.0;
@@ -467,7 +468,7 @@ impl MainState {
                 }
             }
         }
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         for i in 0..self.caught_now_buf.len() {
             if !self.caught_now_buf[i] {
                 continue;
@@ -491,7 +492,7 @@ impl MainState {
             self.chain_join_ripple = true;
             self.crabs[i].chain_index = Some(self.chain_count);
             self.chain_count += 1;
-            self.check_milestone(&mut rand::rng());
+            self.check_milestone(&mut crate::rng::rng());
             let pos = self.crabs[i].pos;
             self.register_catch(pos, 0);
             self.shake_timer = 0.15;
@@ -504,7 +505,7 @@ impl MainState {
     }
 
     fn start_current_pattern(&mut self, area: (f32, f32)) {
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         if self.current_level >= self.levels.len() {
             // No levels left, finish game.
             self.game_over = true;
@@ -573,7 +574,7 @@ impl MainState {
                 self.world_width,
                 self.world_height,
                 player_center,
-                &mut rand::rng(),
+                &mut crate::rng::rng(),
             );
             // New zone, new water: relocate the tide-pool hazards too, scaling with difficulty.
             let difficulty = self
@@ -587,7 +588,7 @@ impl MainState {
                 self.pen_pos,
                 player_center,
                 difficulty,
-                &mut rand::rng(),
+                &mut crate::rng::rng(),
             );
             // New zone wipes any boss-flooded water/fissures — the fresh pools are the level's own.
             self.boss_flood_pools = 0;
@@ -864,7 +865,7 @@ impl MainState {
         self.downbeat_pull_haul = 0.0;
         // Weather starts at a random light state — cloudy or sunny — and escalates from there.
         // Runs start calm (no heavy rain) but vary each time so weather isn't always invisible.
-        self.weather_target = if rand::rng().random_bool(0.45) {
+        self.weather_target = if crate::rng::rng().random_bool(0.45) {
             WeatherState::Cloudy
         } else {
             WeatherState::Sunny
@@ -895,7 +896,7 @@ impl MainState {
             self.world_width,
             self.world_height,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
         self.tide_pools = pick_tide_pools(
             self.world_width,
@@ -903,7 +904,7 @@ impl MainState {
             self.pen_pos,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
             self.levels.first().map(|l| l.difficulty).unwrap_or(0),
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
         self.in_tide_pool = false;
         self.boss_fissures.clear();
@@ -1000,7 +1001,7 @@ impl MainState {
         self.reset_game();
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
-        self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut rand::rng());
+        self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
         // Tutorial crabs spawn in a ring around the VIEWPORT centre (self.width/2, self.height/2),
         // but reset_game() parks the player at WORLD centre (the world is larger than the viewport).
         // Relocate the tutorial player onto the viewport-centre ring so its crabs are on-screen and
@@ -1020,7 +1021,7 @@ impl MainState {
             self.width,
             self.height,
             tut_center + Vec2::splat(PLAYER_SIZE / 2.0),
-            &mut rand::rng(),
+            &mut crate::rng::rng(),
         );
         // Stomp is gated only by its cooldown (not by rank), so a rank-0 career can still Stomp in
         // the ShellCrack lesson — clear the cooldown so the very first press lands immediately.
@@ -1351,6 +1352,21 @@ fn main() -> GameResult {
         .find(|w| w[0] == "--bot")
         .map(|w| w[1].clone());
 
+    // Seed the deterministic bot RNG BEFORE anything (incl. MainState::new's initial king-crab
+    // name generation) draws from it, so the ENTIRE bot run — construction included — is
+    // reproducible. Bot-only and skipped for RUSTLER_RECORD; see the fuller note at the bot setup
+    // below. Real interactive play never reaches this branch, so its RNG stays entropy-seeded.
+    if let Some(ref name) = bot_script {
+        if std::env::var_os("RUSTLER_RECORD").is_none() {
+            // Per-scenario constant seed: distinct streams keep scenarios independent while each
+            // stays reproducible. A hash of the name gives a stable, unique-per-scenario u64.
+            let seed = name.bytes().fold(0xC5AB_1234_5678_9ABC_u64, |h, b| {
+                h.rotate_left(7) ^ (b as u64).wrapping_mul(0x100000001B3)
+            });
+            rng::seed(seed);
+        }
+    }
+
     let (mut ctx, event_loop) = ContextBuilder::new("rustler", "carlthome")
         .add_resource_path(resource_dir)
         .window_mode(WindowMode::default())
@@ -1364,6 +1380,34 @@ fn main() -> GameResult {
             script_npc_steal, script_npc_vs_npc, script_player_steal, script_revenge,
             script_steal_defense, script_steal_dodge,
         };
+        // ── Determinism, root-cause fix for playtest flakiness ────────────────────────────────
+        // The bot asserts on emergent outcomes ("a revenge steal happened"), which are only a
+        // stable pass/fail if every run is reproducible. Two things make a run vary:
+        //
+        //   1. A wall-clock timestep. The sim advances by `ctx.time.delta() * time_scale`, so the
+        //      SAME scenario takes different numbers of steps — and reaches different emergent
+        //      states — at 30 fps vs 95 fps (exactly why steal_dodge passed on ggez 0.9.3 @~30fps
+        //      but flaked on 0.10 @~95fps). We pin a FIXED per-frame dt below so the sim is
+        //      frame-count-driven and identical regardless of machine speed or ggez version.
+        //   2. An entropy-seeded RNG. Spawns, rival/NPC AI, and name generation all draw from
+        //      `crate::rng::rng()`. It's seeded from a per-scenario constant above (before
+        //      MainState::new) so the draw sequence is the same every run.
+        //
+        // Both are strictly bot-only: interactive play never seeds the RNG and never sets a fixed
+        // dt, so its variable-dt smooth rendering and entropy randomness are completely unchanged.
+        // RUSTLER_RECORD (the shareable-GIF path) is deliberately excluded so the captured clip
+        // still plays at natural wall-clock speed.
+        if std::env::var_os("RUSTLER_RECORD").is_none() {
+            // Fixed simulation timestep (default 1/60 s). RUSTLER_BOT_DT overrides it so a run can
+            // be replayed at a different effective frame rate to prove the outcome is truly
+            // frame-rate independent (e.g. RUSTLER_BOT_DT=0.0333 ~ 30 fps, =0.00833 ~ 120 fps).
+            let fixed_dt = std::env::var("RUSTLER_BOT_DT")
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .filter(|d| *d > 0.0)
+                .unwrap_or(1.0 / 60.0);
+            state.bot_fixed_dt = Some(fixed_dt);
+        }
         // menu_to_game and campaign_tutorial run at 3× so the proximity catch check fires frequently
         // enough for the seek-catch autopilot to register catches (at 8× the player teleports past
         // crabs between frames, catching nothing). campaign_tutorial's BeatTiming lesson clears on

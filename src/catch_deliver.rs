@@ -109,7 +109,7 @@ impl MainState {
         self.next_milestone = 5;
 
         // Big celebratory feedback so banking feels like a real payoff, not just a number ticking.
-        let mut rng = rand::rng();
+        let mut rng = crate::rng::rng();
         self.particle_system
             .spawn_milestone_fireworks(self.pen_pos, n, &mut rng);
         // A perfect on-beat bank gets a gold rhythm ring; a plain bank stays green.
@@ -378,7 +378,7 @@ impl MainState {
                 let crab_color = crab.crab_color();
 
                 // Spawn particle effect
-                let mut rng = rand::rng();
+                let mut rng = crate::rng::rng();
                 self.particle_system.spawn_catch_effect(
                     crab.pos,
                     crab_color,
@@ -747,7 +747,7 @@ impl MainState {
                     [0.85, 0.5, 1.0, 1.0],
                 );
                 self.particle_system
-                    .spawn_milestone_fireworks(dpos, 8, &mut rand::rng());
+                    .spawn_milestone_fireworks(dpos, 8, &mut crate::rng::rng());
             }
             self.reef_hit_flash = 1.0;
             self.screen_shake = self.screen_shake.max(6.0);
@@ -811,7 +811,7 @@ impl MainState {
         self.match_run_catches_buf = match_run_catches;
         self.hype_dancer_hits_buf = hype_dancer_hits;
         if any_caught {
-            self.check_milestone(&mut rand::rng());
+            self.check_milestone(&mut crate::rng::rng());
         }
     }
 

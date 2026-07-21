@@ -112,7 +112,7 @@ impl MainState {
     pub fn roll_upgrade_offer(&mut self) {
         use rand::seq::SliceRandom;
         let mut idx: Vec<usize> = (0..UPGRADE_POOL.len()).collect();
-        idx.shuffle(&mut rand::rng());
+        idx.shuffle(&mut crate::rng::rng());
         self.offered_upgrades = [idx[0], idx[1], idx[2]];
     }
 

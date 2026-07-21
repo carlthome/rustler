@@ -38,7 +38,7 @@ impl MainState {
             // Keep a lightweight clock ticking so the title/menu screen can animate its
             // background, marching crabs, and pulsing prompt even though the main simulation
             // is paused here.
-            let mdt = ctx.time.delta().as_secs_f32();
+            let mdt = self.frame_dt(ctx);
             self.menu_time += mdt;
             // In bot mode, time_elapsed must advance and bot events must fire even while a paused
             // screen is showing — e.g. TapKey(Space) at t=0.5 dismisses the title screen, and a
@@ -66,7 +66,7 @@ impl MainState {
         // audio decode, BPM detection) from collapsing the bot script's timed hold/release
         // sequence — and to guard against the general "spiral of death" when the game falls behind.
         // update_weather uses its own raw delta below and is deliberately left unclamped.
-        let mut dt = ctx.time.delta().as_secs_f32().min(0.1) * self.time_scale;
+        let mut dt = self.frame_dt(ctx).min(0.1) * self.time_scale;
 
         // Clear strong-match hit buffers so draw_game sees only THIS frame's events.
         self.beam_hermit_hits_buf.clear();
@@ -195,7 +195,7 @@ impl MainState {
 
         // Weather + day/night ambience. Runs on REAL delta (not the slowmo-dilated dt) so the
         // world clock and weather evolve at a steady wall-clock pace regardless of bullet-time.
-        self.update_weather(ctx.time.delta().as_secs_f32());
+        self.update_weather(self.frame_dt(ctx));
 
         // Tutorial session bookkeeping: keep the sandbox stocked, detect the pass condition, and
         // run a short celebratory hold before handing control back to the title screen. Kept here
@@ -203,7 +203,7 @@ impl MainState {
         if self.tutorial.is_some() {
             // Real (undilated) time for the exit hold so the celebration is a fixed wall-clock
             // length regardless of any slow-mo the catch triggered.
-            let real_dt = ctx.time.delta().as_secs_f32();
+            let real_dt = self.frame_dt(ctx);
             // If the learner clears the whole sandbox before passing, quietly restock so they can
             // keep practising instead of standing in an empty field. The "cleared" test differs by
             // scenario: BeatTiming crabs stay on the field once caught (nothing removes them), so
@@ -227,7 +227,7 @@ impl MainState {
             };
             if !completed && needs_restock {
                 self.crabs =
-                    spawn_tutorial_crabs(tut_kind, 6, (self.width, self.height), &mut rand::rng());
+                    spawn_tutorial_crabs(tut_kind, 6, (self.width, self.height), &mut crate::rng::rng());
             }
             let t = self.tutorial.as_mut().unwrap();
             if t.completed {
@@ -288,7 +288,7 @@ impl MainState {
                 self.beat_intensity = 2.0;
                 self.on_beat_flash = self.on_beat_flash.max(0.6);
                 self.screen_shake = self.screen_shake.max(8.0);
-                let kick = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                let kick = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
                 self.screen_shake_vel = Vec2::new(kick.cos(), kick.sin()) * 8.0 * 60.0;
                 // upgrade.ogg removed — tiresome and crackly; new sound TBD
             }
@@ -420,7 +420,7 @@ impl MainState {
             self.on_beat_flash = self.on_beat_flash.max(0.7);
             self.beat_intensity = self.beat_intensity.max(1.6);
             self.zoom_punch = self.zoom_punch.max(0.06);
-            let mut rng = rand::rng();
+            let mut rng = crate::rng::rng();
             self.particle_system.spawn_milestone_fireworks(
                 self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
                 24,
@@ -617,11 +617,11 @@ impl MainState {
         if self.dash_flash > 0.95 {
             let center = self.player_pos + Vec2::new(PLAYER_SIZE / 2.0, PLAYER_SIZE / 2.0);
             self.particle_system
-                .spawn_dash_burst(center, self.last_dir, &mut rand::rng());
+                .spawn_dash_burst(center, self.last_dir, &mut crate::rng::rng());
             // A GROOVE DASH (on-beat, gather-wake armed this same frame) throws an extra, brighter
             // burst so a watcher can instantly tell the timed dash apart from the plain escape dash.
             if self.groove_dash_timer > 0.0 {
-                let rng = &mut rand::rng();
+                let rng = &mut crate::rng::rng();
                 self.particle_system
                     .spawn_dash_burst(center, self.groove_dash_dir, rng);
                 self.particle_system
@@ -728,7 +728,7 @@ impl MainState {
         self.penned_marchers.update(dt, &mut arrivals);
         for &(pos, color) in arrivals.iter() {
             self.particle_system
-                .spawn_catch_effect(pos, color, CrabType::Normal, &mut rand::rng());
+                .spawn_catch_effect(pos, color, CrabType::Normal, &mut crate::rng::rng());
         }
         self.marcher_arrivals_buf = arrivals;
         // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the
@@ -770,7 +770,7 @@ impl MainState {
                 center,
                 self.player_vel,
                 self.time_elapsed,
-                &mut rand::rng(),
+                &mut crate::rng::rng(),
             );
         }
 
@@ -1024,7 +1024,7 @@ impl MainState {
             // Warm puffs rising off the crabs the pulse just calmed — the visual counterpart to
             // the cold "!" alarm rings the panic contagion throws.
             if !soothed.is_empty() {
-                let mut rng = rand::rng();
+                let mut rng = crate::rng::rng();
                 for &pos in soothed.iter().take(8) {
                     self.particle_system.spawn_soothe_puff(pos, &mut rng);
                 }
@@ -1233,7 +1233,7 @@ impl MainState {
                             self.lasso_phase = LassoPhase::Snag;
                             self.lasso_timer = LASSO_SNAG_TIME;
                         }
-                        let mut rng = rand::rng();
+                        let mut rng = crate::rng::rng();
                         let mut lasso_startle_origins = std::mem::take(&mut self.lasso_startle_buf);
                         lasso_startle_origins.clear();
                         for i in to_catch.iter().copied() {
@@ -1281,7 +1281,7 @@ impl MainState {
                             self.chain_join_ripple = true;
                             self.crabs[i].chain_index = Some(self.chain_count);
                             self.chain_count += 1;
-                            self.check_milestone(&mut rand::rng());
+                            self.check_milestone(&mut crate::rng::rng());
                             self.score += self.combo_multiplier();
                             self.shake_timer = 0.15;
                             self.hitstop_timer = self.hitstop_timer.max(0.06);
@@ -1369,7 +1369,7 @@ impl MainState {
                 1 => (
                     spawn_tide_boss(
                         (self.world_width, self.world_height),
-                        &mut rand::rng(),
+                        &mut crate::rng::rng(),
                         BOSS_MAX_HEALTH,
                     ),
                     "A TIDE BOSS SURGES IN!",
@@ -1379,7 +1379,7 @@ impl MainState {
                 2 => (
                     spawn_rhythm_boss(
                         (self.world_width, self.world_height),
-                        &mut rand::rng(),
+                        &mut crate::rng::rng(),
                         BOSS_MAX_HEALTH,
                     ),
                     "THE REEF DJ DROPS IN!",
@@ -1389,7 +1389,7 @@ impl MainState {
                 _ => (
                     spawn_boss(
                         (self.world_width, self.world_height),
-                        &mut rand::rng(),
+                        &mut crate::rng::rng(),
                         BOSS_MAX_HEALTH,
                     ),
                     "A KING CRAB APPROACHES!",
@@ -1416,8 +1416,8 @@ impl MainState {
                 [1.0, 0.95, 0.7, 0.9],
             );
             self.particle_system
-                .spawn_milestone_fireworks(bpos, 12, &mut rand::rng());
-            let a = rand::rng().random_range(0.0_f32..std::f32::consts::TAU);
+                .spawn_milestone_fireworks(bpos, 12, &mut crate::rng::rng());
+            let a = crate::rng::rng().random_range(0.0_f32..std::f32::consts::TAU);
             self.screen_shake = 18.0;
             self.screen_shake_vel = Vec2::new(a.cos(), a.sin()) * 18.0 * 60.0;
         }
