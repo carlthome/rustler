@@ -440,6 +440,7 @@ impl MainState {
             position_history,
             chain_count: 0,
             total_caught: 0,
+            chord_tools_fired: 0,
             crabs_stolen_by_npc: 0,
             max_single_steal_by_npc: 0,
             crabs_stolen_by_player: 0,

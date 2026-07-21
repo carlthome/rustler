@@ -76,10 +76,12 @@ pub(crate) fn how_to_play_body_text() -> String {
         "3. Catch crabs on the beat for better rewards.",
         "4. Bring caught crabs to the pen to bank points.",
         "5. Avoid losing your train before banking.",
+        "6. Tip: tap Space on the beat. Hold a tool (E/R/Q) + tap Space",
+        "   to flavor that beat-tap with a tool instead of a dash.",
         "",
         "Controls:",
         "- Left click hold/release: lasso",
-        "- Space: dash",
+        "- Space: dash (beat-tap) — hold E/R/Q + Space to chord a tool",
         "- Q: wave",
         "- E: whistle",
         "- R: stomp",
@@ -822,6 +824,7 @@ impl MainState {
         }
         self.chain_count = 0;
         self.total_caught = 0;
+        self.chord_tools_fired = 0;
         self.banked_crabs_run = 0;
         self.shells_cracked_run = 0;
         self.hold_train_timer = 0.0;

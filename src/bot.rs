@@ -70,6 +70,9 @@ pub enum BotAssert {
     /// snaps, or is scattered, so a ChainAtLeast(1) check can race a reset and flake even though the
     /// bot caught plenty. total_caught never drops, so the assert is stable.
     CaughtAtLeast(usize),
+    /// Monotonic count of SPACE beat-tap tool chords fired this run (see MainState::chord_tools_fired).
+    /// Asserts the #165 "tap SPACE on the beat + tool chord" input path actually fired a tool.
+    ChordFiredAtLeast(usize),
     /// Monotonic count of crabs a rival NPC train has spliced away this run (see
     /// MainState::crabs_stolen_by_npc). Asserts the reverse-Snake steal path actually fired.
     StolenAtLeast(usize),
@@ -451,6 +454,10 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
 }
 
 pub fn script_groove_dash() -> Vec<BotEvent> {
+    // Smoke-tests the SPACE beat-tap: a dash on its own, and — added with #165 — a SPACE+tool CHORD.
+    // Holding a tool key (E) and tapping SPACE fires that tool ON the beat-tap instead of dashing, so
+    // it exercises the new chord input path end to end. The chord is a no-op-safe cast (self-guards on
+    // cooldown), so we assert the monotonic chord counter rose rather than any tool side effect.
     vec![
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
@@ -458,5 +465,13 @@ pub fn script_groove_dash() -> Vec<BotEvent> {
         BotEvent { at: 4.5, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 5.0, action: BotAction::ReleaseKey(KeyCode::ArrowRight) },
         BotEvent { at: 5.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        // #165 chord: hold the whistle key, then tap SPACE on it — fires the whistle as a beat-tap
+        // flavor rather than a dash. HoldKey lands the key in keys_held the frame BEFORE the SPACE
+        // tap so the chord detection (which reads keys_held) sees it held.
+        BotEvent { at: 5.5, action: BotAction::HoldKey(KeyCode::KeyE) },
+        BotEvent { at: 5.8, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 6.0, action: BotAction::ReleaseKey(KeyCode::KeyE) },
+        BotEvent { at: 6.2, action: BotAction::Assert(BotAssert::ChordFiredAtLeast(1)) },
+        BotEvent { at: 6.2, action: BotAction::Assert(BotAssert::GameNotOver) },
     ]
 }
