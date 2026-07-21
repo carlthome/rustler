@@ -1788,6 +1788,7 @@ impl MainState {
             self.beat_intensity,
             beat_progress,
             self.on_beat_now(),
+            (self.beat_count % 4) as usize,
             self.time_elapsed,
         )?;
 

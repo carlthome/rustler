@@ -3692,8 +3692,14 @@ pub fn draw_beat_indicator(
     // True while the current instant counts as "on beat" (within BEAT_WINDOW). Flashes the marker
     // green so the exact hit window is unmistakable.
     on_beat: bool,
+    // Which beat of the current 4/4 bar is sounding (0..=3, 0 = the downbeat). Drives the bar-position
+    // pip row and the extra downbeat punch, so the player can read *where* in the bar they are — the
+    // "it's not obvious what you're timing" legibility gap (#164) — and feels beat 1 land like the fill
+    // it is ("downbeats are the biggest moment", INSPIRATION.md).
+    beat_in_bar: usize,
     _time: f32,
 ) -> ggez::GameResult {
+    let is_downbeat = beat_in_bar % 4 == 0;
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
@@ -3722,13 +3728,22 @@ pub fn draw_beat_indicator(
     // draw call still positions/colors it per-frame via DrawParam, so the sweep still reads as
     // smooth); this bounds the ring to ~12 reusable mesh variants instead of one alloc per frame.
     let cache_r = (approach_r / 4.0).round() * 4.0;
-    let approach = cached_stroke_circle(ctx, cache_r, 2.5)?;
+    // The downbeat's approach ring is drawn thicker so bar 1 reads as the heavier beat even before
+    // it lands — the eye catches the fatter ring closing in and knows "the big one is coming".
+    let ring_w = if is_downbeat { 3.5 } else { 2.5 };
+    let approach = cached_stroke_circle(ctx, cache_r, ring_w)?;
     canvas.draw(&approach, DrawParam::default().dest(center).color(ring_col));
 
     let pulse_r = base_r + beat_intensity * 14.0;
+    // The downbeat punches ~35% bigger and flashes white-hot on the hit, so beat 1 feels like the
+    // fill it is rather than one of four identical ticks. Off-beat 2/3/4 keep the normal size/colour.
+    let downbeat_hit = is_downbeat && on_beat;
+    let pulse_r = if downbeat_hit { pulse_r * 1.35 } else { pulse_r };
     let alpha = ((80.0 + beat_intensity * 175.0) as u8).min(255);
-    // The marker itself flashes green in the on-beat window, otherwise its usual warm amber.
-    let marker_col = if on_beat {
+    // The marker flashes green in the on-beat window (white-hot on the downbeat), otherwise warm amber.
+    let marker_col = if downbeat_hit {
+        Color::from_rgba(230, 255, 210, 255)
+    } else if on_beat {
         Color::from_rgba(150, 255, 160, alpha.max(200))
     } else {
         Color::from_rgba(255, 200, 50, alpha)
@@ -3747,6 +3762,50 @@ pub fn draw_beat_indicator(
             .scale(Vec2::splat(base_r * 0.55))
             .color(Color::from_rgba(255, 140, 50, 220)),
     );
+
+    // Bar-position tracker: four pips under the marker showing which beat of the 4/4 bar is sounding,
+    // so the beat clock reads as "1 · 2 · 3 · 4" instead of an undifferentiated pulse. This is the
+    // legibility half of #164 ("not obvious what you're timing") and the groundwork for #165's
+    // "tap on beats 1/2/3/4": the downbeat pip (0) is drawn larger and gold so the bar's "1" is always
+    // findable, and the pip for the beat sounding now brightens/rings so you can read your place at a
+    // glance. Reuses the already-fetched unit circle + shared stroke-circle cache — no per-frame mesh.
+    let pip_spacing = 13.0;
+    let pip_y = center.y + base_r + 20.0;
+    let pip_start_x = center.x - pip_spacing * 1.5;
+    for i in 0..4 {
+        let pip = Vec2::new(pip_start_x + pip_spacing * i as f32, pip_y);
+        let is_here = i == beat_in_bar % 4;
+        let is_one = i == 0;
+        // Base size: the downbeat pip sits a touch larger so "1" anchors the row; the active beat
+        // swells and (on-beat) blooms so the moving playhead is unmistakable.
+        let r = if is_one { 4.2 } else { 3.2 }
+            + if is_here { 2.6 } else { 0.0 }
+            + if is_here && on_beat { 1.8 } else { 0.0 };
+        let col = if is_here && on_beat {
+            // Active beat landed on-time: green (white-hot on the downbeat), matching the marker.
+            if is_one {
+                Color::from_rgba(230, 255, 210, 255)
+            } else {
+                Color::from_rgba(150, 255, 160, 255)
+            }
+        } else if is_here {
+            // Sounding now but between windows — bright amber cursor.
+            Color::from_rgba(255, 210, 90, 235)
+        } else if is_one {
+            // Idle downbeat pip — dim gold so the bar's "1" is still readable when it's not playing.
+            Color::from_rgba(210, 170, 70, 150)
+        } else {
+            // Idle off-beat pip — a faint dot.
+            Color::from_rgba(150, 140, 130, 120)
+        };
+        canvas.draw(
+            unit_circle,
+            DrawParam::default()
+                .dest(pip)
+                .scale(Vec2::splat(r))
+                .color(col),
+        );
+    }
     Ok(())
 }
 
