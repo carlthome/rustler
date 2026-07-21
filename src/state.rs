@@ -15,6 +15,10 @@ pub struct PostProcessUniform {
     pub screen_height: f32,
     /// 0 = normal, 1 = full desaturate/title-card effect
     pub title_card_t: f32,
+    /// Main-menu moon bloom intensity and normalized position.
+    pub menu_bloom: f32,
+    pub menu_moon_x: f32,
+    pub menu_moon_y: f32,
 }
 
 /// Uniform for the conga trail / echo-afterimage accumulation shader (`trail.wgsl`).

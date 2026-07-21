@@ -316,6 +316,9 @@ impl MainState {
             screen_width: width,
             screen_height: height,
             title_card_t: 0.0,
+            menu_bloom: 0.0,
+            menu_moon_x: 0.82,
+            menu_moon_y: 0.2,
         };
         let postprocess_params = ShaderParamsBuilder::new(&initial_pp_uniform).build(ctx);
 
