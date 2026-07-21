@@ -41,7 +41,7 @@ use crate::world_map::WorldMap;
 
 pub struct GameSounds {
     pub(crate) intro_music: Source,
-    pub(crate) action_music: Source,
+    pub(crate) action_music: Vec<Source>,
     pub(crate) outro_music: Source,
     pub(crate) upgrade: Source,
     pub(crate) success: Source,
@@ -107,6 +107,25 @@ pub struct GameSounds {
     /// broadcasts a louder, fuller motif from across the field (INSPIRATION.md: "the dominant train
     /// dominates the mix"). Layered on top of the creature rumble — the melodic half of the radar.
     pub(crate) king_crab_motif: Vec<(Source, Source)>,
+}
+
+impl MainState {
+    pub(crate) fn action_music_index(&self) -> usize {
+        self.current_level
+            .min(self.sounds.action_music.len().saturating_sub(1))
+    }
+
+    /// The tutorial on-ramp begins with rhythm and sound effects almost alone, then introduces more
+    /// of the backing loop before the first full campaign groove.
+    pub(crate) fn tutorial_music_gain(&self) -> f32 {
+        match self.tutorial.as_ref().map(|tutorial| tutorial.kind) {
+            Some(crate::tutorial::TutorialKind::BeatTiming) => 0.03,
+            Some(crate::tutorial::TutorialKind::LassoGrab) => 0.07,
+            Some(crate::tutorial::TutorialKind::ChainDeliver) => 0.14,
+            Some(crate::tutorial::TutorialKind::ShellCrack) => 0.22,
+            None => 1.0,
+        }
+    }
 }
 
 /// Play the catch chime with a touch of random pitch variation so a burst of rapid catches
@@ -321,6 +340,8 @@ pub struct MainState {
     pub(crate) sprint_stamina: f32, // Shift sprint meter: drains while sprinting, refills after
     pub(crate) levels: Vec<Level>, // List of levels with patterns
     pub(crate) current_level: usize, // Current level index
+    /// One-based stage number in endless arcade mode. Unlike `current_level`, this never wraps.
+    pub(crate) arcade_stage: usize,
     pub(crate) current_pattern: usize, // Current pattern index within the level
     pub(crate) pattern_timer: f32, // Timer for current pattern duration
     pub(crate) debug_mode: bool, // Debug mode flag

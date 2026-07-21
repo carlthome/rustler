@@ -9,6 +9,8 @@
 use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
 
+use crate::levels::BiomeMusic;
+
 use super::audio::{
     bitcrush, compress, encode_wav_mono16, encode_wav_stereo16_at_rate, gb_pulse_note,
     master_limiter, mix_into, normalize_and_saturate, samples_to_pcm, synth_note, Adsr, Waveform,
@@ -596,6 +598,22 @@ enum GrooveVoice {
     Pad,
 }
 
+#[derive(Clone, Copy)]
+enum GrooveLead {
+    ElectricPiano,
+    Sine,
+    Triangle,
+    Pulse,
+}
+
+#[derive(Clone, Copy)]
+enum GrooveDrums {
+    Disco,
+    HalfTime,
+    Shanty,
+    Chip,
+}
+
 /// One scheduled note on the 1/16 grid.
 struct GrooveNote {
     step: u32, // start position in 1/16 units
@@ -699,6 +717,8 @@ fn synth_groove(
     bars: u32,
     melody_gain: f32,
     bit_depth: u32,
+    lead: GrooveLead,
+    drums: GrooveDrums,
 ) -> GameResult<Source> {
     let mut rng = GrooveRng(seed | 1);
 
@@ -713,9 +733,12 @@ fn synth_groove(
     // (bass roots + pad stabs) while the tune stays put: that is what makes the loop sound
     // *composed* rather than like a scale exercise, and what lets you HUM it after one pass.
     // Semitone offsets from the root (A): Am 0, F -4, C +3, G -2 — a smooth low bassline.
-    let chord_root_semi: [i32; 4] = [0, -4, 3, -2];
-    // Chord thirds relative to each chord root: Am is minor (+3), F/C/G are major (+4).
-    let chord_third_semi: [i32; 4] = [3, 4, 4, 4];
+    let (chord_root_semi, chord_third_semi): ([i32; 4], [i32; 4]) = match drums {
+        GrooveDrums::Disco => ([0, -4, 3, -2], [3, 4, 4, 4]),
+        GrooveDrums::HalfTime => ([0, -2, -4, -5], [3, 4, 4, 3]),
+        GrooveDrums::Shanty => ([0, 5, 3, 7], [3, 4, 4, 4]),
+        GrooveDrums::Chip => ([0, 3, 5, 1], [3, 4, 3, 4]),
+    };
 
     // --- The signature HOOK (the "question"): a fixed, singable one-bar riff. -----------------
     // Pentatonic scale-DEGREE indices (0=A root, 1=C, 2=D, 3=E/the fifth, 4=G, 5=A octave). It
@@ -843,7 +866,16 @@ fn synth_groove(
         let rendered = match note.voice {
             // Lead sings through the warm electric-piano voice; bass and pad are triangle beds
             // (the pad just sits lower-gain and holds far longer, so it reads as sustained chord).
-            GrooveVoice::Lead => synth_ep_note(hz, dur_s, note.gain),
+            GrooveVoice::Lead => match lead {
+                GrooveLead::ElectricPiano => synth_ep_note(hz, dur_s, note.gain),
+                GrooveLead::Sine => groove_voice_note(hz, dur_s, Waveform::Sine, note.gain),
+                GrooveLead::Triangle => {
+                    groove_voice_note(hz, dur_s, Waveform::Triangle, note.gain)
+                }
+                GrooveLead::Pulse => {
+                    groove_voice_note(hz, dur_s, Waveform::Rect(0.25), note.gain * 0.72)
+                }
+            },
             GrooveVoice::Bass | GrooveVoice::Pad => {
                 groove_voice_note(hz, dur_s, Waveform::Triangle, note.gain)
             }
@@ -860,10 +892,38 @@ fn synth_groove(
         let bar_start = bar * steps_per_bar;
         let step_offset =
             |st: u32| -> usize { (st as f32 * step_s * SAMPLE_RATE as f32) as usize };
-        render_kick(&mut mix, step_offset(bar_start), melody_gain);
-        render_kick(&mut mix, step_offset(bar_start + 8), melody_gain);
-        render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.8, &mut rng);
-        render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.8, &mut rng);
+        match drums {
+            GrooveDrums::Disco => {
+                for step in [0, 4, 8, 12] {
+                    render_kick(&mut mix, step_offset(bar_start + step), melody_gain * 0.78);
+                }
+                render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.8, &mut rng);
+                render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.8, &mut rng);
+            }
+            GrooveDrums::HalfTime => {
+                render_kick(&mut mix, step_offset(bar_start), melody_gain);
+                render_kick(&mut mix, step_offset(bar_start + 10), melody_gain * 0.62);
+                render_snare(&mut mix, step_offset(bar_start + 8), melody_gain * 0.72, &mut rng);
+            }
+            GrooveDrums::Shanty => {
+                render_kick(&mut mix, step_offset(bar_start), melody_gain);
+                render_kick(&mut mix, step_offset(bar_start + 8), melody_gain * 0.82);
+                for step in [4, 7, 12, 15] {
+                    render_snare(
+                        &mut mix,
+                        step_offset(bar_start + step),
+                        melody_gain * 0.55,
+                        &mut rng,
+                    );
+                }
+            }
+            GrooveDrums::Chip => {
+                render_kick(&mut mix, step_offset(bar_start), melody_gain * 0.8);
+                render_kick(&mut mix, step_offset(bar_start + 8), melody_gain * 0.8);
+                render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.55, &mut rng);
+                render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.55, &mut rng);
+            }
+        }
         // Turnaround FILL on the final bar: a snare roll accelerating into the loop point (steps
         // 10, 13, 14, 15), a rising tension that resolves on the downbeat when the phrase restarts.
         // This connects each loop to the next instead of butting two identical bars together —
@@ -909,19 +969,116 @@ fn synth_groove(
 /// runtime (see `music_pitch` in `EventHandler::update`), never by baking a
 /// different tempo here, which would drift. The BPM also seeds the RNG, so the
 /// ghost-note variations are reproducible build-to-build.
-pub fn synth_action_groove(ctx: &mut Context, bpm: f32) -> GameResult<Source> {
+/// Build the player's loop for one biome. All variants share the gameplay BPM and 4/4 grid, but
+/// use different roots, scales, lead timbres, harmonies, and drum arrangements.
+pub fn synth_biome_action_groove(
+    ctx: &mut Context,
+    bpm: f32,
+    theme: BiomeMusic,
+) -> GameResult<Source> {
+    let (seed, scale, root, swing, gain, bit_depth, lead, drums) = match theme {
+        BiomeMusic::SunnyGroove => (
+            0xC0FFEE,
+            GrooveScale::PentatonicMinor,
+            ACTION_KEY_ROOT_MIDI,
+            GROOVE_SWING,
+            0.56,
+            11,
+            GrooveLead::ElectricPiano,
+            GrooveDrums::Disco,
+        ),
+        BiomeMusic::TidalDorian => (
+            0x71DA1,
+            GrooveScale::Dorian,
+            50,
+            0.54,
+            0.48,
+            12,
+            GrooveLead::Sine,
+            GrooveDrums::HalfTime,
+        ),
+        BiomeMusic::RockShanty => (
+            0x50C4,
+            GrooveScale::Blues,
+            52,
+            0.30,
+            0.52,
+            9,
+            GrooveLead::Pulse,
+            GrooveDrums::Shanty,
+        ),
+        BiomeMusic::KelpDisco => (
+            0xD15C0,
+            GrooveScale::Dorian,
+            57,
+            0.44,
+            0.62,
+            12,
+            GrooveLead::ElectricPiano,
+            GrooveDrums::Disco,
+        ),
+        BiomeMusic::MoonlitWaltz => (
+            0xB411,
+            GrooveScale::PentatonicMajor,
+            62,
+            0.20,
+            0.45,
+            13,
+            GrooveLead::Sine,
+            GrooveDrums::HalfTime,
+        ),
+        BiomeMusic::WarrenMarch => (
+            0xA117,
+            GrooveScale::Dorian,
+            50,
+            0.18,
+            0.53,
+            10,
+            GrooveLead::Triangle,
+            GrooveDrums::Shanty,
+        ),
+        BiomeMusic::TreasuryRave => (
+            0x601D,
+            GrooveScale::PentatonicMajor,
+            55,
+            0.38,
+            0.64,
+            12,
+            GrooveLead::ElectricPiano,
+            GrooveDrums::Disco,
+        ),
+        BiomeMusic::SplitterShanty => (
+            0xC071A55,
+            GrooveScale::Blues,
+            58,
+            0.58,
+            0.58,
+            9,
+            GrooveLead::Pulse,
+            GrooveDrums::Shanty,
+        ),
+        BiomeMusic::DesktopChip => (
+            0xD35C70,
+            GrooveScale::PentatonicMinor,
+            60,
+            0.0,
+            0.50,
+            7,
+            GrooveLead::Pulse,
+            GrooveDrums::Chip,
+        ),
+    };
     synth_groove(
         ctx,
-        0xC0FFEE ^ (bpm as u32),
-        GrooveScale::PentatonicMinor,
-        ACTION_KEY_ROOT_MIDI,
+        seed ^ (bpm as u32),
+        scale,
+        root,
         bpm,
-        GROOVE_SWING, // shuffle: odd 1/16s land noticeably late — shared with the live hi-hat kit
+        swing,
         8,
-        0.56,
-        // Bit depth was 6 (64 levels) — a Game Boy crush that turned the warm electric-piano
-        // lead back into chiptune. Raised to 11 (2048 levels) so the EP's round body survives
-        // to tape; the master limiter still glues the mix.
-        11,
+        gain,
+        bit_depth,
+        lead,
+        drums,
     )
 }

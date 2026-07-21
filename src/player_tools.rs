@@ -893,7 +893,7 @@ impl MainState {
                         BotAssert::TitleMenuReady => {
                             self.show_instructions
                                 && !self.show_world_map
-                                && !self.sounds.action_music.playing()
+                                && !self.sounds.action_music.iter().any(|music| music.playing())
                                 && self.sounds.intro_music.playing()
                         }
                         BotAssert::TutorialActive => self.tutorial.is_some(),

@@ -26,7 +26,7 @@ pub struct WorldMapNode {
     /// What this node launches.
     pub kind: NodeKind,
     /// Short display name shown on the map.
-    pub name: &'static str,
+    pub name: String,
     /// Normalized position (0..1, 0..1) on the map canvas. Converted to screen coords at draw time.
     pub position: (f32, f32),
     pub completed: bool,
@@ -96,7 +96,7 @@ impl WorldMap {
         for (i, &(kind, name, position)) in tutorial_nodes.iter().enumerate() {
             nodes.push(WorldMapNode {
                 kind: NodeKind::Tutorial(kind),
-                name,
+                name: format!("Tutorial {} — {}", i + 1, name),
                 position,
                 completed: false,
                 unlocked: i == 0,
@@ -107,10 +107,7 @@ impl WorldMap {
             let map_i = tutorial_nodes.len() + i;
             nodes.push(WorldMapNode {
                 kind: NodeKind::Level(i),
-                // The map and in-game title card share the biome's canonical name. The card can
-                // still use the more expressive level title, but the place never changes names
-                // between the two views.
-                name: level.biome.name,
+                name: format!("Stage {} — {}", i + 1, level.biome.name),
                 position: campaign_positions.get(i).copied().unwrap_or((0.5, 0.5)),
                 completed: false,
                 unlocked: map_i == 0,
@@ -195,5 +192,19 @@ impl WorldMap {
     /// True once every node has been completed (end of campaign).
     pub fn is_complete(&self) -> bool {
         self.nodes.iter().all(|n| n.completed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_nodes_are_enumerated_tutorials_then_campaign_stages() {
+        let map = WorldMap::new();
+        assert!(map.nodes[0].name.starts_with("Tutorial 1 —"));
+        assert!(map.nodes[3].name.starts_with("Tutorial 4 —"));
+        assert!(map.nodes[4].name.starts_with("Stage 1 —"));
+        assert!(map.nodes.last().unwrap().name.starts_with("Stage 9 —"));
     }
 }

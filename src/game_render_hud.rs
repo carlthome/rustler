@@ -642,19 +642,29 @@ impl MainState {
         // Debug info: current level in bottom-left corner, small and unobtrusive.
         LEVEL_LABEL_CACHE.with(|c| -> GameResult {
             let mut cache = c.borrow_mut();
-            if !cache.contains_key(&self.current_level) {
+            let display_stage = if self.in_campaign {
+                self.current_level + 1
+            } else {
+                self.arcade_stage
+            };
+            let cache_key = if self.in_campaign {
+                self.current_level
+            } else {
+                self.levels.len() + self.arcade_stage
+            };
+            if !cache.contains_key(&cache_key) {
                 let mut label = Text::new(format!(
-                    "Level {}: {} | {} | Difficulty: {}",
-                    self.current_level + 1,
+                    "Stage {}: {} | {} | Difficulty: {}",
+                    display_stage,
                     self.levels[self.current_level].title,
                     self.levels[self.current_level].description,
                     self.levels[self.current_level].difficulty
                 ));
                 label.set_scale(13.0);
                 let dims = label.measure(ctx)?;
-                cache.insert(self.current_level, (label, dims.x, dims.y));
+                cache.insert(cache_key, (label, dims.x, dims.y));
             }
-            let (label, _label_width, label_height) = cache.get(&self.current_level).unwrap();
+            let (label, _label_width, label_height) = cache.get(&cache_key).unwrap();
             canvas.draw(
                 label,
                 DrawParam::default()
