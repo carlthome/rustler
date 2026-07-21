@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.35.1 — 2026-07-21
+
+### Fixes
+- Fix campaign Escape handling: return to main menu instead of quitting
+
 ## v0.35.0 — 2026-07-21
 
 ### Features
