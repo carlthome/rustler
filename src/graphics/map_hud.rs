@@ -41,7 +41,7 @@ thread_local! {
     // never the label text, so it's not part of the key. Title and hint are static literals →
     // cached unconditionally. A path-line segment cache is skipped: there are only N-1 ≤ 3 path
     // segments and they're connection-only (two endpoint positions, no text/glyphs), so the per-
-    // frame cost of `Mesh::new_line` for three lines is negligible compared to glyph-shaping.
+    // frame cost of their static geometry is negligible compared to glyph-shaping.
     static WORLD_MAP_NODE_LABELS: RefCell<Vec<Option<((bool, bool), Text, f32)>>> = RefCell::new(Vec::new());
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
@@ -137,6 +137,46 @@ pub fn draw_world_map(
             }
             builder.polygon(DrawMode::fill(), &island, Color::new(0.78, 0.63, 0.32, 1.0))?;
             builder.polygon(DrawMode::fill(), &jungle, Color::new(0.09, 0.29, 0.19, 0.92))?;
+            // The island's regions give the route geography: a sheltered starter cove, a river
+            // through the jungle, a high northern ridge, and dangerous eastern reefs. The nodes
+            // now travel through those places instead of appearing as an abstract zig-zag.
+            let cove = [
+                Vec2::new(sx * 0.05, sy * 0.64),
+                Vec2::new(sx * 0.17, sy * 0.57),
+                Vec2::new(sx * 0.31, sy * 0.64),
+                Vec2::new(sx * 0.24, sy * 0.75),
+                Vec2::new(sx * 0.10, sy * 0.73),
+            ];
+            builder.polygon(DrawMode::fill(), &cove, Color::new(0.12, 0.47, 0.56, 0.86))?;
+            let ridge = [
+                Vec2::new(sx * 0.50, sy * 0.39),
+                Vec2::new(sx * 0.61, sy * 0.27),
+                Vec2::new(sx * 0.72, sy * 0.41),
+            ];
+            builder.polygon(DrawMode::fill(), &ridge, Color::new(0.24, 0.29, 0.25, 0.95))?;
+            let river = [
+                Vec2::new(sx * 0.39, sy * 0.40),
+                Vec2::new(sx * 0.46, sy * 0.48),
+                Vec2::new(sx * 0.42, sy * 0.56),
+                Vec2::new(sx * 0.50, sy * 0.65),
+                Vec2::new(sx * 0.57, sy * 0.73),
+            ];
+            builder.line(&river, 14.0, Color::new(0.10, 0.42, 0.50, 0.78))?;
+            builder.line(&river, 4.0, Color::new(0.39, 0.74, 0.72, 0.75))?;
+            for &(x, y, r) in &[
+                (0.84, 0.44, 20.0),
+                (0.90, 0.52, 14.0),
+                (0.86, 0.66, 18.0),
+                (0.76, 0.77, 12.0),
+            ] {
+                builder.circle(
+                    DrawMode::fill(),
+                    Vec2::new(sx * x, sy * y),
+                    r,
+                    0.8,
+                    Color::new(0.38, 0.72, 0.60, 0.65),
+                )?;
+            }
             *cache = Some((key, Mesh::from_data(ctx, builder.build())));
         }
         canvas.draw(&cache.as_ref().unwrap().1, DrawParam::default());
@@ -202,8 +242,9 @@ pub fn draw_world_map(
         cache.clone().unwrap()
     });
 
-    // Connecting trails between consecutive nodes. The dotted, warm route reads as a pirate's
-    // treasure trail while biome tint on unlocked segments still previews each destination.
+    // Connecting trails between consecutive nodes. Curved trails follow the island's coast and
+    // river rather than cutting arbitrary straight lines across it. The dotted, warm route reads
+    // as a pirate's treasure trail while biome tint previews each destination.
     WORLD_MAP_ROUTE_CACHE.with(|c| -> ggez::GameResult {
         let mut cache = c.borrow_mut();
         let unlocked: Vec<bool> = map.nodes.iter().map(|node| node.unlocked).collect();
@@ -213,6 +254,12 @@ pub fn draw_world_map(
             for i in 0..map.nodes.len().saturating_sub(1) {
                 let a = node_to_screen(map.nodes[i].position);
                 let b = node_to_screen(map.nodes[i + 1].position);
+                let bend = if i % 2 == 0 { 1.0 } else { -1.0 };
+                let control = (a + b) * 0.5 + Vec2::new(0.0, bend * sy * 0.055);
+                let curve = |t: f32| {
+                    let u = 1.0 - t;
+                    a * (u * u) + control * (2.0 * u * t) + b * (t * t)
+                };
                 if map.nodes[i + 1].unlocked {
                     let (ca, cb) = (node_tints[i], node_tints[i + 1]);
                     const SEGS: usize = 14;
@@ -226,11 +273,12 @@ pub fn draw_world_map(
                             (ca.b + (cb.b - ca.b) * tm) * 0.35 + 0.08,
                             0.9,
                         );
-                        builder.line(&[a.lerp(b, t0), a.lerp(b, t1)], 4.0, col)?;
+                        builder.line(&[curve(t0), curve(t1)], 4.0, col)?;
                     }
                 } else {
                     // Locked trails remain faint, as if unfinished ink on a treasure chart.
-                    builder.line(&[a, b], 2.0, Color::new(0.13, 0.18, 0.18, 0.65))?;
+                    let points = (0..=12).map(|step| curve(step as f32 / 12.0)).collect::<Vec<_>>();
+                    builder.line(&points, 2.0, Color::new(0.13, 0.18, 0.18, 0.65))?;
                 }
             }
             *cache = Some((key, Mesh::from_data(ctx, builder.build())));
@@ -317,7 +365,9 @@ pub fn draw_world_map(
                 }),
         );
 
-        // Node label — cached per-node by (completed, unlocked). Selection changes fill color
+        // Node label — alternating above and below the route prevents the dense island circuit
+        // from becoming a row of overlapping captions. Text is cached per-node by (completed,
+        // unlocked). Selection changes fill color
         // only, never the label text (suffix " ✓" derives from completed, lock " [locked]" from
         // unlocked), so it's not part of the cache key. Same rebuild-on-change pattern as
         // WHISTLE_LABEL_CACHE, STOMP_LABEL_CACHE, and all the other HUD caches in main.rs.
@@ -344,10 +394,14 @@ pub fn draw_world_map(
                 *entry = Some((label_key, label, w));
             }
             if let Some((_, label, w)) = entry.as_ref() {
+                let label_y = match i {
+                    0 | 2 | 4 | 6 | 9 | 11 => pos.y - 40.0,
+                    _ => pos.y + 25.0,
+                };
                 canvas.draw(
                     label,
                     DrawParam::default()
-                        .dest(Vec2::new(pos.x - w * 0.5, pos.y + 24.0))
+                        .dest(Vec2::new(pos.x - w * 0.5, label_y))
                         .color(label_color),
                 );
             }
