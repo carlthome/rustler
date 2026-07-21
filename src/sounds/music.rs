@@ -261,6 +261,32 @@ mod intro_tests {
     }
 }
 
+#[cfg(test)]
+mod biome_tuning_tests {
+    use super::{biome_rival_motif_tuning, BiomeMusic};
+
+    #[test]
+    fn rival_motifs_use_each_biomes_root_note() {
+        let cases = [
+            (BiomeMusic::SunnyGroove, 57),
+            (BiomeMusic::TidalDorian, 50),
+            (BiomeMusic::RockShanty, 52),
+            (BiomeMusic::KelpDisco, 57),
+            (BiomeMusic::MoonlitWaltz, 62),
+            (BiomeMusic::WarrenMarch, 50),
+            (BiomeMusic::TreasuryRave, 55),
+            (BiomeMusic::SplitterShanty, 58),
+            (BiomeMusic::DesktopChip, 60),
+        ];
+
+        for (biome, expected_root) in cases {
+            let (root, offsets) = biome_rival_motif_tuning(biome);
+            assert_eq!(root, expected_root);
+            assert!(offsets.contains(&0));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Crab-theme melody synthesiser
 //
