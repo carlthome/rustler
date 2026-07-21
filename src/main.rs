@@ -8,6 +8,7 @@ mod chain_steal;
 mod constants;
 mod controls;
 mod crab_boss_update;
+mod crab_catching;
 mod crab_render;
 mod crab_update;
 mod enemies;
