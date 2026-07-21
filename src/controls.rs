@@ -454,7 +454,39 @@ pub fn handle_key_down_event(
             }
         } else {
             if key == KeyCode::Space {
-                if state.boost_cooldown <= 0.0 {
+                // #165 groove chord — SPACE is the unified beat-tap. Tapped alone it dashes
+                // (unchanged, and Carl's explicit "don't touch the dash"). Tapped while a tool key
+                // is held it fires that tool ON this beat-tap instead of dashing — so the player
+                // keeps ONE timing to learn ("tap SPACE on the beat") and flavors the beat with a
+                // chord rather than juggling each tool's own independent on-beat window. Fully
+                // additive and reversible: the standalone E/R/Q keys still fire their tools on their
+                // own, and SPACE with no tool held still dashes byte-for-byte as before.
+                // A tool held down counts whether it's a real key or a bot's synthetic key (the
+                // groove_dash playtest drives the chord this way), mirroring handle_player_movement.
+                let held = |code: KeyCode| -> bool {
+                    ctx.keyboard
+                        .is_physical_key_pressed(&PhysicalKey::Code(code))
+                        || state
+                            .bot
+                            .as_ref()
+                            .map_or(false, |b| b.keys_held.contains(&code))
+                };
+                let whistle_chord = held(KeyCode::KeyE);
+                let stomp_chord = held(KeyCode::KeyR);
+                let wave_chord = held(KeyCode::KeyQ);
+                if whistle_chord || stomp_chord || wave_chord {
+                    // Flavor this beat with the held tool(s) — a chord may layer more than one.
+                    if whistle_chord {
+                        state.fire_whistle();
+                    }
+                    if stomp_chord {
+                        state.fire_stomp();
+                    }
+                    if wave_chord {
+                        state.fire_wave();
+                    }
+                    state.chord_tools_fired += 1;
+                } else if state.boost_cooldown <= 0.0 {
                     state.boost_timer = 0.18;
                     state.boost_cooldown = 0.08;
                     state.dash_just_fired = true;
@@ -492,68 +524,16 @@ pub fn handle_key_down_event(
                 }
             }
             if key == KeyCode::KeyQ {
-                if !state.beat_wave_active {
-                    state.beat_wave_active = true;
-                    state.beat_wave_radius = 0.0;
-                    let center = state.player_pos
-                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    state.reward_on_beat_action(center, "WAVE");
-                    // Defensive parry: the Wave is the wide ranged save — an on-beat cast repels a
-                    // rival mid-steal from clear across the lane.
-                    state.try_defend_steal(center, crate::WAVE_DEFEND_RADIUS, "WAVE");
-                }
+                // Wave: the wide ranged beat pulse / ranged parry. Same cast as the SPACE+Q chord.
+                state.fire_wave();
             }
             if key == KeyCode::KeyE {
-                // Whistle: yank nearby crabs toward the player. Great for skittish Sneaky crabs.
-                if state.whistle_cooldown <= 0.0 {
-                    state.whistle_center = state.player_pos
-                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    state.whistle_radius = 0.0;
-                    state.whistle_active = 0.4;
-                    state.whistle_cooldown = state.whistle_cooldown_dur();
-                    // On-beat whistle reaches farther and pulls harder this cast.
-                    state.whistle_beat_bonus =
-                        state.reward_on_beat_action(state.whistle_center, "WHISTLE");
-                    {
-                        use ggez::audio::SoundSource;
-                        let _ = state.sounds.whistle_sfx.play();
-                    }
-                    state.floating_texts.spawn(
-                        "WHISTLE!".to_string(),
-                        state.whistle_center - Vec2::new(48.0, 60.0),
-                        30.0,
-                        [1.0, 0.85, 0.35, 1.0],
-                    );
-                }
+                // Whistle: yank nearby crabs toward the player. Same cast as the SPACE+E chord.
+                state.fire_whistle();
             }
             if key == KeyCode::KeyR {
-                // Stomp: a close-range ground-pound that cracks armored crab shells wide open.
-                if state.stomp_cooldown <= 0.0 {
-                    let center = state.player_pos
-                        + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-                    state.stomp_center = center;
-                    state.stomp_radius = 0.0;
-                    state.stomp_active = 0.32;
-                    state.stomp_cooldown = state.stomp_cooldown_dur();
-                    state.screen_shake = 22.0;
-                    state.screen_shake_vel = ggez::glam::Vec2::new(0.0, 1.0) * 22.0 * 60.0;
-                    state.zoom_punch = state.zoom_punch.max(0.08);
-                    // On-beat stomp slams wider this cast.
-                    state.stomp_beat_bonus = state.reward_on_beat_action(center, "STOMP");
-                    // Defensive parry: the Stomp is the up-close bodyguard — an on-beat pound cancels
-                    // a rival's armed splice if it's threading your tail right on top of you.
-                    state.try_defend_steal(center, crate::STOMP_DEFEND_RADIUS, "STOMP");
-                    {
-                        use ggez::audio::SoundSource;
-                        let _ = state.sounds.stomp_sfx.play();
-                    }
-                    state.floating_texts.spawn(
-                        "STOMP!".to_string(),
-                        center - Vec2::new(40.0, 60.0),
-                        30.0,
-                        [0.85, 0.8, 0.7, 1.0],
-                    );
-                }
+                // Stomp: cracks armored shells / up-close parry. Same cast as the SPACE+R chord.
+                state.fire_stomp();
             }
             if key == KeyCode::KeyF {
                 // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.

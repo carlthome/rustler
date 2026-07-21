@@ -340,6 +340,10 @@ pub struct MainState {
     /// train is banked at the pen, snaps, or gets scattered by a King Crab hit. Used by the bot
     /// playtests to assert "the catching verb produced a catch" without racing a chain reset.
     pub(crate) total_caught: usize,
+    /// Monotonic count of SPACE beat-tap tool chords fired this run (#165) — a SPACE tap while a tool
+    /// key (E/R/Q) is held fires that tool on the beat-tap instead of dashing. Never drops, so the
+    /// `groove_dash` playtest can assert the chord input path fired without racing any live counter.
+    pub(crate) chord_tools_fired: usize,
     /// Monotonic count of crabs a rival NPC King Crab train has spliced away from the player this run
     /// (the reverse-Snake steal). Like `total_caught` it never drops, so the bot playtests can assert
     /// "the steal path fired" without racing the live chain count, which the steal itself lowers.

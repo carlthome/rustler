@@ -591,6 +591,72 @@ impl MainState {
         self.beat_intensity = 2.0;
         let _ = self.sounds.success2.play();
     }
+
+    // --- Tool casts, extracted so both the standalone tool keys (E/R/Q) and the SPACE beat-tap
+    // chord (#165) fire the exact same cast. Each self-guards on its own cooldown, so calling it
+    // while the tool is recharging is a safe no-op.
+
+    /// Whistle: yank nearby crabs toward the player. Great for skittish Sneaky crabs. On-beat casts
+    /// reach farther and pull harder (see reward_on_beat_action).
+    pub(crate) fn fire_whistle(&mut self) {
+        if self.whistle_cooldown > 0.0 {
+            return;
+        }
+        self.whistle_center =
+            self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        self.whistle_radius = 0.0;
+        self.whistle_active = 0.4;
+        self.whistle_cooldown = self.whistle_cooldown_dur();
+        self.whistle_beat_bonus = self.reward_on_beat_action(self.whistle_center, "WHISTLE");
+        let _ = self.sounds.whistle_sfx.play();
+        self.floating_texts.spawn(
+            "WHISTLE!".to_string(),
+            self.whistle_center - Vec2::new(48.0, 60.0),
+            30.0,
+            [1.0, 0.85, 0.35, 1.0],
+        );
+    }
+
+    /// Stomp: a close-range ground-pound that cracks armored shells wide open. On-beat casts slam
+    /// wider and parry a rival splice threading your tail on top of you (see try_defend_steal).
+    pub(crate) fn fire_stomp(&mut self) {
+        if self.stomp_cooldown > 0.0 {
+            return;
+        }
+        let center =
+            self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        self.stomp_center = center;
+        self.stomp_radius = 0.0;
+        self.stomp_active = 0.32;
+        self.stomp_cooldown = self.stomp_cooldown_dur();
+        self.screen_shake = 22.0;
+        self.screen_shake_vel = Vec2::new(0.0, 1.0) * 22.0 * 60.0;
+        self.zoom_punch = self.zoom_punch.max(0.08);
+        self.stomp_beat_bonus = self.reward_on_beat_action(center, "STOMP");
+        self.try_defend_steal(center, crate::STOMP_DEFEND_RADIUS, "STOMP");
+        let _ = self.sounds.stomp_sfx.play();
+        self.floating_texts.spawn(
+            "STOMP!".to_string(),
+            center - Vec2::new(40.0, 60.0),
+            30.0,
+            [0.85, 0.8, 0.7, 1.0],
+        );
+    }
+
+    /// Wave: the wide ranged beat pulse. An on-beat cast is the ranged parry — it repels a rival
+    /// mid-steal from clear across the lane (see try_defend_steal). Self-guards on beat_wave_active.
+    pub(crate) fn fire_wave(&mut self) {
+        if self.beat_wave_active {
+            return;
+        }
+        self.beat_wave_active = true;
+        self.beat_wave_radius = 0.0;
+        let center =
+            self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        self.reward_on_beat_action(center, "WAVE");
+        self.try_defend_steal(center, crate::WAVE_DEFEND_RADIUS, "WAVE");
+    }
+
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
     pub(crate) fn whistle_max_radius(&self) -> f32 {
         WHISTLE_MAX_RADIUS * (1.0 + 0.28 * self.whistle_rank as f32)
@@ -676,6 +742,7 @@ impl MainState {
                         BotAssert::GameNotOver => !self.game_over,
                         BotAssert::ChainAtLeast(n) => self.chain_count >= *n,
                         BotAssert::CaughtAtLeast(n) => self.total_caught >= *n,
+                        BotAssert::ChordFiredAtLeast(n) => self.chord_tools_fired >= *n,
                         BotAssert::StolenAtLeast(n) => self.crabs_stolen_by_npc >= *n,
                         BotAssert::MaxSingleStealAtMost(n) => self.max_single_steal_by_npc <= *n,
                         BotAssert::StolenByPlayerAtLeast(n) => self.crabs_stolen_by_player >= *n,
