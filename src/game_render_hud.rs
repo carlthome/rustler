@@ -24,6 +24,9 @@ use crate::graphics::{
     draw_day_weather_hud, draw_king_loadout, draw_minimap, draw_tool_roster, minimap_dimensions,
 };
 
+const BEAT_CLOCK_MAP_CLEARANCE: f32 = 86.0;
+const BEAT_CLOCK_MIN_X: f32 = 90.0;
+const BEAT_CLOCK_Y: f32 = 60.0;
 
 impl MainState {
     /// Screen-space HUD / overlay pass. Called from `draw_game` after the world-space pass;
@@ -230,6 +233,27 @@ impl MainState {
         } else {
             0
         };
+        let stats_height = 30.0
+            + if self.rhythm_bonus_score > 0 { 20.0 } else { 0.0 }
+            + if self.in_campaign && self.tutorial.is_none() {
+                20.0
+            } else {
+                0.0
+            };
+        canvas.draw(
+            unit_square(ctx)?,
+            DrawParam::default()
+                .dest(Vec2::new(5.0, 5.0))
+                .scale(Vec2::new(370.0, stats_height))
+                .color(Color::from_rgba(8, 14, 30, 175)),
+        );
+        let stats_border = cached_stroke_rect(ctx, 370.0, stats_height, 1.0)?;
+        canvas.draw(
+            &stats_border,
+            DrawParam::default()
+                .dest(Vec2::new(5.0, 5.0))
+                .color(Color::from_rgba(120, 210, 230, 100)),
+        );
         HUD_TEXT_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
@@ -395,62 +419,57 @@ impl MainState {
         let max_cooldown = 0.08;
         let cooldown_ratio = (self.boost_cooldown / max_cooldown).clamp(0.0, 1.0);
 
-        // Draw background bar
-        canvas.draw(
-            unit_square(ctx)?,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x, bar_y))
-                .scale(Vec2::new(bar_width, bar_height))
-                .color(Color::from_rgb(40, 40, 40)),
-        );
-
-        // Draw boost timer (yellow)
-        let ratio = ((max_boost - self.boost_timer) / max_boost).clamp(0.0, 1.0);
-        if ratio > 0.0 {
+        // Dash readiness is already shown in the tool roster, so only surface this temporary
+        // meter while the dash is active or recharging.
+        if self.boost_timer > 0.0 || cooldown_ratio > 0.0 {
             canvas.draw(
                 unit_square(ctx)?,
                 DrawParam::default()
                     .dest(Vec2::new(bar_x, bar_y))
-                    .scale(Vec2::new(bar_width * ratio, bar_height))
-                    .color(Color::from_rgb(255, 220, 40)),
+                    .scale(Vec2::new(bar_width, bar_height))
+                    .color(Color::from_rgb(40, 40, 40)),
             );
-        }
-
-        // Draw cooldown (red, overlays boost)
-        if cooldown_ratio > 0.0 {
-            canvas.draw(
-                unit_square(ctx)?,
-                DrawParam::default()
-                    .dest(Vec2::new(bar_x, bar_y))
-                    .scale(Vec2::new(bar_width * cooldown_ratio, bar_height))
-                    .color(Color::from_rgb(220, 60, 60)),
-            );
-        }
-
-        // Draw stamina bar border
-        let border = cached_stroke_rect(ctx, bar_width, bar_height, 2.0)?;
-        canvas.draw(
-            &border,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x, bar_y))
-                .color(Color::from_rgb(255, 255, 255)),
-        );
-
-        // Key hint to the right of the bar — compact, no vertical label overhead.
-        DASH_LABEL_CACHE.with(|c| {
-            let mut cache = c.borrow_mut();
-            if cache.is_none() {
-                let mut t = Text::new("Space");
-                t.set_scale(13.0);
-                *cache = Some(t);
+            let ratio = ((max_boost - self.boost_timer) / max_boost).clamp(0.0, 1.0);
+            if ratio > 0.0 {
+                canvas.draw(
+                    unit_square(ctx)?,
+                    DrawParam::default()
+                        .dest(Vec2::new(bar_x, bar_y))
+                        .scale(Vec2::new(bar_width * ratio, bar_height))
+                        .color(Color::from_rgb(255, 220, 40)),
+                );
             }
+            if cooldown_ratio > 0.0 {
+                canvas.draw(
+                    unit_square(ctx)?,
+                    DrawParam::default()
+                        .dest(Vec2::new(bar_x, bar_y))
+                        .scale(Vec2::new(bar_width * cooldown_ratio, bar_height))
+                        .color(Color::from_rgb(220, 60, 60)),
+                );
+            }
+            let border = cached_stroke_rect(ctx, bar_width, bar_height, 2.0)?;
             canvas.draw(
-                cache.as_ref().unwrap(),
+                &border,
                 DrawParam::default()
-                    .dest(Vec2::new(bar_x + bar_width + 5.0, bar_y - 1.0))
-                    .color(Color::from_rgba(255, 255, 255, 160)),
+                    .dest(Vec2::new(bar_x, bar_y))
+                    .color(Color::from_rgb(255, 255, 255)),
             );
-        });
+            DASH_LABEL_CACHE.with(|c| {
+                let mut cache = c.borrow_mut();
+                if cache.is_none() {
+                    let mut t = Text::new("Space");
+                    t.set_scale(13.0);
+                    *cache = Some(t);
+                }
+                canvas.draw(
+                    cache.as_ref().unwrap(),
+                    DrawParam::default()
+                        .dest(Vec2::new(bar_x + bar_width + 5.0, bar_y - 1.0))
+                        .color(Color::from_rgba(255, 255, 255, 160)),
+                );
+            });
+        }
 
         // Draw sprint stamina bar for held Shift sprinting.
         let sprint_y = bar_y + bar_height + 6.0;
@@ -499,33 +518,30 @@ impl MainState {
         let wbar_h = 10.0;
         let ready = self.whistle_cooldown <= 0.0;
         let charge = (1.0 - self.whistle_cooldown / self.whistle_cooldown_dur()).clamp(0.0, 1.0);
-        canvas.draw(
-            unit_square(ctx)?,
-            DrawParam::default()
-                .dest(Vec2::new(bar_x, wbar_y))
-                .scale(Vec2::new(bar_width, wbar_h))
-                .color(Color::from_rgb(40, 40, 40)),
-        );
-        let (wr, wg, wb) = if ready {
-            (255, 210, 90)
-        } else {
-            (150, 110, 40)
-        };
-        canvas.draw(
+        if !ready {
+            canvas.draw(
+                unit_square(ctx)?,
+                DrawParam::default()
+                    .dest(Vec2::new(bar_x, wbar_y))
+                    .scale(Vec2::new(bar_width, wbar_h))
+                    .color(Color::from_rgb(40, 40, 40)),
+            );
+            let (wr, wg, wb) = (150, 110, 40);
+            canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
                 .dest(Vec2::new(bar_x, wbar_y))
                 .scale(Vec2::new(bar_width * charge, wbar_h))
                 .color(Color::from_rgb(wr, wg, wb)),
-        );
-        let wborder = cached_stroke_rect(ctx, bar_width, wbar_h, 2.0)?;
-        canvas.draw(
+            );
+            let wborder = cached_stroke_rect(ctx, bar_width, wbar_h, 2.0)?;
+            canvas.draw(
             &wborder,
             DrawParam::default()
                 .dest(Vec2::new(bar_x, wbar_y))
                 .color(Color::from_rgb(255, 255, 255)),
-        );
-        WHISTLE_LABEL_CACHE.with(|c| {
+            );
+            WHISTLE_LABEL_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == ready);
             if needs_rebuild {
@@ -539,12 +555,14 @@ impl MainState {
                     .dest(Vec2::new(bar_x + bar_width + 5.0, wbar_y - 1.0))
                     .color(Color::from_rgba(255, 230, 150, if ready { 220 } else { 130 })),
             );
-        });
+            });
+        }
 
         let sbar_y = wbar_y + wbar_h + 6.0;
         let sbar_h = 10.0;
         let sready = self.stomp_cooldown <= 0.0;
         let scharge = (1.0 - self.stomp_cooldown / self.stomp_cooldown_dur()).clamp(0.0, 1.0);
+        if !sready {
         canvas.draw(
             unit_square(ctx)?,
             DrawParam::default()
@@ -586,6 +604,7 @@ impl MainState {
                     .color(Color::from_rgba(190, 215, 245, if sready { 220 } else { 130 })),
             );
         });
+        }
 
         if self.flashlight.laser_level > 0 || self.flashlight.charge < 1.0 || self.flashlight.on {
             let fbar_y = sbar_y + sbar_h + 6.0;
@@ -787,8 +806,13 @@ impl MainState {
             beat_phase,
         )?;
 
-        // Beat indicator (top right)
-        let beat_center = Vec2::new(width - 50.0, 50.0);
+        // The minimap owns the top-right corner. Keep the beat clock just to its left so its
+        // approach and wave rings remain clear instead of drawing over map markers.
+        let (map_w, _) = minimap_dimensions(width, self.world_width, self.world_height);
+        let beat_center = Vec2::new(
+            (width - map_w - BEAT_CLOCK_MAP_CLEARANCE).max(BEAT_CLOCK_MIN_X),
+            BEAT_CLOCK_Y,
+        );
         // Wave-incoming telegraph: while a spawn is armed, ring the beat indicator so the player
         // sees the next herd will land on the coming downbeat. Anticipation climbs across the
         // couple of beats before the drop; the ring throbs with the beat phase.
