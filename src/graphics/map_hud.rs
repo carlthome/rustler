@@ -11,6 +11,15 @@ use ggez::graphics::MeshBuilder;
 const MINIMAP_PX_PER_VIEWPORT: f32 = 90.0;
 const MINIMAP_MIN_WIDTH: f32 = 140.0;
 const MINIMAP_MAX_WIDTH: f32 = 280.0;
+const KING_LOADOUT_MARGIN: f32 = 24.0;
+const KING_LOADOUT_MAX_WIDTH: f32 = 652.0;
+const KING_LOADOUT_CARD_GAP: f32 = 5.0;
+const KING_LOADOUT_BOTTOM_OFFSET: f32 = 108.0;
+const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
+const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
+const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
+// Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
+const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
 
 thread_local! {
     // Reusable instance buffer for draw_minimap's dots (crabs, NPC followers/leaders, pen, player).
@@ -597,17 +606,17 @@ pub fn draw_king_loadout(
         return Ok(());
     }
     let cards = [
-        ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08], powers[0], tool_ranks[0]),
-        ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0], powers[1], tool_ranks[2]),
-        ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0], powers[2], tool_ranks[3]),
-        ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16], powers[3], tool_ranks[1]),
-        ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62], powers[4], tool_ranks[2]),
+        ("FIRE KING", "BEAM + RANGE", [1.0, 0.28, 0.08], powers[0], tool_ranks[KING_POWER_TOOL_RANKS[0]]),
+        ("TIDE KING", "WHISTLE PULL", [0.12, 0.72, 1.0], powers[1], tool_ranks[KING_POWER_TOOL_RANKS[1]]),
+        ("REEF DJ", "STOMP WAVE", [0.72, 0.24, 1.0], powers[2], tool_ranks[KING_POWER_TOOL_RANKS[2]]),
+        ("HERMIT KING", "LASSO + REACH", [0.88, 0.46, 0.16], powers[3], tool_ranks[KING_POWER_TOOL_RANKS[3]]),
+        ("DANCER KING", "WHISTLE + SPEED", [1.0, 0.42, 0.62], powers[4], tool_ranks[KING_POWER_TOOL_RANKS[4]]),
     ];
-    let strip_width = (width - 24.0).min(652.0);
-    let gap = 5.0;
+    let strip_width = (width - KING_LOADOUT_MARGIN).min(KING_LOADOUT_MAX_WIDTH);
+    let gap = KING_LOADOUT_CARD_GAP;
     let card_w = (strip_width - gap * 4.0) / 5.0;
     let x0 = (width - strip_width) * 0.5;
-    let y = height - 108.0;
+    let y = height - KING_LOADOUT_BOTTOM_OFFSET;
     let sq = unit_square(ctx)?;
 
     KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
@@ -616,7 +625,8 @@ pub fn draw_king_loadout(
             *saved_powers != powers || *saved_ranks != tool_ranks
         }) {
             let mut labels = Vec::with_capacity(6);
-            let mut title = Text::new(format!("KING CONGA  ·  {} COLOR POWERS", captured));
+            let noun = if captured == 1 { "POWER" } else { "POWERS" };
+            let mut title = Text::new(format!("KING CONGA  ·  {} COLOR {}", captured, noun));
             title.set_scale(12.0);
             labels.push(title);
             for (name, effect, _, count, rank) in cards {
@@ -641,7 +651,7 @@ pub fn draw_king_loadout(
         for (i, (_, _, color, count, _)) in cards.iter().enumerate() {
             let x = x0 + i as f32 * (card_w + gap);
             let active = *count > 0;
-            let pulse = ((time * 6.0 + i as f32 * 0.7).sin() * 0.5 + 0.5) * 0.10;
+            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin() * 0.5 + 0.5) * KING_LOADOUT_PULSE_AMPLITUDE;
             canvas.draw(
                 sq,
                 DrawParam::default()
