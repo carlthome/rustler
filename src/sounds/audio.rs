@@ -263,13 +263,13 @@ pub(crate) fn mix_into(dest: &mut Vec<f32>, src: &[f32], offset_samples: usize) 
 /// a `bit_depth` of 8 with `sample_hold` of 2-4 reads as distinctly "old console", while
 /// `bit_depth` 16 / `sample_hold` 1 is a no-op (transparent passthrough).
 pub(crate) fn bitcrush(samples: &mut [f32], bit_depth: u32, sample_hold: usize) {
-    let arenas = (1u32 << bit_depth.clamp(2, 16)) as f32;
-    let half_levels = arenas * 0.5;
+    let levels = (1u32 << bit_depth.clamp(2, 16)) as f32;
+    let half_levels = levels * 0.5;
     let hold = sample_hold.max(1);
     let mut held_value = 0.0_f32;
     for (i, s) in samples.iter_mut().enumerate() {
         if i % hold == 0 {
-            // Quantize to `arenas` steps across -1..1.
+            // Quantize to `levels` steps across -1..1.
             held_value = (s.clamp(-1.0, 1.0) * half_levels).round() / half_levels;
         }
         *s = held_value;

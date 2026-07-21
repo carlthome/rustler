@@ -298,7 +298,7 @@ impl MainState {
     /// the top of the screen, plus a big centered "PASSED!" flourish once the session is cleared.
     /// Previously rebuilt a Mesh::new_rounded_rectangle (GPU buffer) + 4-6 Text objects (glyph-
     /// shaping) every single frame the tutorial was active. Now uses TUTORIAL_OVERLAY_CACHE:
-    /// — the card mesh is keyed by (width, height) bit-waves (same as MENU_PANEL_CACHE)
+    /// — the card mesh is keyed by (width, height) bit-patterns (same as MENU_PANEL_CACHE)
     /// — the static texts (title, instruction, "Esc" hint, "PASSED!") are cached once per kind
     /// — the progress counter text rebuilds only when the counter actually advances (once per catch)
     pub(crate) fn draw_tutorial_overlay(
