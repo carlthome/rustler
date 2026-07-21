@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# The workflow only checks out code and restores caches.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same PR when new commits land; let main runs
 # complete so every merged commit is verified.
 concurrency:
