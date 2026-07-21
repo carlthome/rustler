@@ -6,6 +6,7 @@ use crate::{
 use ggez::Context;
 use ggez::glam::Vec2;
 use ggez::input::keyboard::KeyCode;
+use ggez::winit::keyboard::PhysicalKey;
 
 pub fn handle_player_movement(
     state: &mut MainState,
@@ -32,39 +33,39 @@ pub fn handle_player_movement(
     let bot_up = state
         .bot
         .as_ref()
-        .map_or(false, |b| b.keys_held.contains(&KeyCode::Up));
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowUp));
     let bot_down = state
         .bot
         .as_ref()
-        .map_or(false, |b| b.keys_held.contains(&KeyCode::Down));
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowDown));
     let bot_left = state
         .bot
         .as_ref()
-        .map_or(false, |b| b.keys_held.contains(&KeyCode::Left));
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowLeft));
     let bot_right = state
         .bot
         .as_ref()
-        .map_or(false, |b| b.keys_held.contains(&KeyCode::Right));
+        .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowRight));
 
     let mut dir = Vec2::ZERO;
-    if ctx.keyboard.is_key_pressed(KeyCode::Up) || ctx.keyboard.is_key_pressed(KeyCode::W) || bot_up
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowUp)) || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyW)) || bot_up
     {
         dir.y -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Down)
-        || ctx.keyboard.is_key_pressed(KeyCode::S)
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowDown))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyS))
         || bot_down
     {
         dir.y += 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Left)
-        || ctx.keyboard.is_key_pressed(KeyCode::A)
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowLeft))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyA))
         || bot_left
     {
         dir.x -= 1.0;
     }
-    if ctx.keyboard.is_key_pressed(KeyCode::Right)
-        || ctx.keyboard.is_key_pressed(KeyCode::D)
+    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowRight))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyD))
         || bot_right
     {
         dir.x += 1.0;
@@ -116,8 +117,8 @@ pub fn handle_player_movement(
         }
     }
 
-    let sprint_held = ctx.keyboard.is_key_pressed(KeyCode::LShift)
-        || ctx.keyboard.is_key_pressed(KeyCode::RShift);
+    let sprint_held = ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight));
     let sprinting =
         sprint_held && dir != Vec2::ZERO && state.boost_timer <= 0.0 && state.sprint_stamina > 0.0;
 
@@ -289,19 +290,19 @@ pub fn handle_key_down_event(
     if let Some(key) = keycode {
         if state.show_world_map {
             match key {
-                KeyCode::Left | KeyCode::A => {
+                KeyCode::ArrowLeft | KeyCode::KeyA => {
                     if let Some(map) = &mut state.world_map {
                         map.move_selection(-1);
                     }
                     return true;
                 }
-                KeyCode::Right | KeyCode::D => {
+                KeyCode::ArrowRight | KeyCode::KeyD => {
                     if let Some(map) = &mut state.world_map {
                         map.move_selection(1);
                     }
                     return true;
                 }
-                KeyCode::Space | KeyCode::Return => {
+                KeyCode::Space | KeyCode::Enter => {
                     if let Some(map) = &mut state.world_map {
                         if map.selected_unlocked() {
                             // Already unlocked — launch straight into it.
@@ -334,14 +335,14 @@ pub fn handle_key_down_event(
                 }
                 _ => {}
             }
-        } else if key == KeyCode::M {
+        } else if key == KeyCode::KeyM {
             // M toggles music mute (beats stay, music pauses)
             state.music_muted = !state.music_muted;
             return true;
         } else if state.show_instructions {
             // While the plain-text How To Play card is open, any confirm/back key returns to Home.
             if state.show_how_to_play_text {
-                if matches!(key, KeyCode::Escape | KeyCode::Space | KeyCode::Return) {
+                if matches!(key, KeyCode::Escape | KeyCode::Space | KeyCode::Enter) {
                     state.show_how_to_play_text = false;
                     state.menu_page = 0;
                 }
@@ -361,7 +362,7 @@ pub fn handle_key_down_event(
                     return true;
                 }
             }
-            if state.menu_page == 1 && key == KeyCode::Back {
+            if state.menu_page == 1 && key == KeyCode::Backspace {
                 state.pop_player_name_char();
                 return true;
             }
@@ -369,16 +370,16 @@ pub fn handle_key_down_event(
             if state.menu_page == 0 {
                 const NUM_BUTTONS: usize = 5;
                 match key {
-                    KeyCode::Up => {
+                    KeyCode::ArrowUp => {
                         state.menu_selection =
                             (state.menu_selection + NUM_BUTTONS - 1) % NUM_BUTTONS;
                         return true;
                     }
-                    KeyCode::Down => {
+                    KeyCode::ArrowDown => {
                         state.menu_selection = (state.menu_selection + 1) % NUM_BUTTONS;
                         return true;
                     }
-                    KeyCode::Space | KeyCode::Return => {
+                    KeyCode::Space | KeyCode::Enter => {
                         match state.menu_selection {
                             0 => {
                                 state.reset_game();
@@ -405,7 +406,7 @@ pub fn handle_key_down_event(
                         return true;
                     }
                     // Legacy shortcut: C still opens campaign.
-                    KeyCode::C => {
+                    KeyCode::KeyC => {
                         state.enter_world_map(ctx);
                         return true;
                     }
@@ -414,28 +415,28 @@ pub fn handle_key_down_event(
             }
             // Loadout-page-only keys: skin picker and perk shop.
             if state.menu_page == 1 {
-                if key == KeyCode::Left {
+                if key == KeyCode::ArrowLeft {
                     state.cycle_skin_option(-1);
                     return true;
                 }
-                if key == KeyCode::Right {
+                if key == KeyCode::ArrowRight {
                     state.cycle_skin_option(1);
                     return true;
                 }
                 match key {
-                    KeyCode::Key1 => {
+                    KeyCode::Digit1 => {
                         state.buy_start_perk(1);
                         return true;
                     }
-                    KeyCode::Key2 => {
+                    KeyCode::Digit2 => {
                         state.buy_start_perk(2);
                         return true;
                     }
-                    KeyCode::Key3 => {
+                    KeyCode::Digit3 => {
                         state.buy_start_perk(3);
                         return true;
                     }
-                    KeyCode::Key4 => {
+                    KeyCode::Digit4 => {
                         state.buy_start_perk(4);
                         return true;
                     }
@@ -443,7 +444,7 @@ pub fn handle_key_down_event(
                 }
             }
         } else if state.game_over {
-            if key == KeyCode::Space || key == KeyCode::Return {
+            if key == KeyCode::Space || key == KeyCode::Enter {
                 if state.in_campaign {
                     state.return_to_world_map();
                 } else {
@@ -490,7 +491,7 @@ pub fn handle_key_down_event(
                     }
                 }
             }
-            if key == KeyCode::Q {
+            if key == KeyCode::KeyQ {
                 if !state.beat_wave_active {
                     state.beat_wave_active = true;
                     state.beat_wave_radius = 0.0;
@@ -502,7 +503,7 @@ pub fn handle_key_down_event(
                     state.try_defend_steal(center, crate::WAVE_DEFEND_RADIUS, "WAVE");
                 }
             }
-            if key == KeyCode::E {
+            if key == KeyCode::KeyE {
                 // Whistle: yank nearby crabs toward the player. Great for skittish Sneaky crabs.
                 if state.whistle_cooldown <= 0.0 {
                     state.whistle_center = state.player_pos
@@ -515,7 +516,7 @@ pub fn handle_key_down_event(
                         state.reward_on_beat_action(state.whistle_center, "WHISTLE");
                     {
                         use ggez::audio::SoundSource;
-                        let _ = state.sounds.whistle_sfx.play_detached(ctx);
+                        let _ = state.sounds.whistle_sfx.play();
                     }
                     state.floating_texts.spawn(
                         "WHISTLE!".to_string(),
@@ -525,7 +526,7 @@ pub fn handle_key_down_event(
                     );
                 }
             }
-            if key == KeyCode::R {
+            if key == KeyCode::KeyR {
                 // Stomp: a close-range ground-pound that cracks armored crab shells wide open.
                 if state.stomp_cooldown <= 0.0 {
                     let center = state.player_pos
@@ -544,7 +545,7 @@ pub fn handle_key_down_event(
                     state.try_defend_steal(center, crate::STOMP_DEFEND_RADIUS, "STOMP");
                     {
                         use ggez::audio::SoundSource;
-                        let _ = state.sounds.stomp_sfx.play_detached(ctx);
+                        let _ = state.sounds.stomp_sfx.play();
                     }
                     state.floating_texts.spawn(
                         "STOMP!".to_string(),
@@ -554,27 +555,27 @@ pub fn handle_key_down_event(
                     );
                 }
             }
-            if key == KeyCode::F {
+            if key == KeyCode::KeyF {
                 // Call: a rhythm summon. On the beat, nearby Dancer crabs answer and hop toward you.
                 state.issue_call();
             }
-            if key == KeyCode::X {
+            if key == KeyCode::KeyX {
                 // Cycle: the reposition verb. On the beat: aim at an interior link to BUBBLE that
                 // crab one slot toward the centre (build a centerpiece on purpose); aim at nothing
                 // to rotate the whole train one slot and arrange the coveted head/tail ends.
                 state.cycle_train();
             }
-            if key == KeyCode::V {
+            if key == KeyCode::KeyV {
                 // Groove Call: a field-wide beat lure. Call on the beat and the WHOLE herd streams
                 // toward you over the next couple bars, surging on each downbeat.
                 state.issue_groove_call();
             }
-            if key == KeyCode::G {
+            if key == KeyCode::KeyG {
                 // Downbeat Slam: the Groove-meter ultimate. Only fires with a full meter on the beat;
                 // yanks every nearby free crab into the train at once for a spectacle payoff.
                 state.downbeat_slam(ctx);
             }
-            if key == KeyCode::B {
+            if key == KeyCode::KeyB {
                 // Bank: cash out the live Groove Gamble streak into a safe multiplier floor. On the
                 // beat it locks the whole stack; off-beat takes a haircut. Turns the gamble into an
                 // active "when do I bank?" call instead of a passive streak.
@@ -582,7 +583,7 @@ pub fn handle_key_down_event(
                 // Also: jam emote! Your crab vibes. Plays a hi-hat and does a little shimmy.
                 state.jam_timer = 0.55;
                 use ggez::audio::SoundSource;
-                let _ = state.sounds.hihat.play(ctx);
+                let _ = state.sounds.hihat.play();
             }
             if key == KeyCode::Escape {
                 if state.tutorial.is_some() {

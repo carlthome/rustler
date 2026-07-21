@@ -642,7 +642,7 @@ impl MainState {
         self.slowmo_timer = SLOWMO_DURATION;
         self.on_beat_flash = 0.7;
         self.beat_intensity = 2.0;
-        let _ = self.sounds.success2.play_detached(ctx);
+        let _ = self.sounds.success2.play();
     }
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
     pub(crate) fn whistle_max_radius(&self) -> f32 {

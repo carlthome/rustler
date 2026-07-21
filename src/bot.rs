@@ -191,7 +191,7 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
     // "tutorial->world-map" flow this test exists to guard.
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting campaign tutorial test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::C) },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
         BotEvent { at: 1.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
         BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TutorialActive) },
@@ -434,9 +434,9 @@ pub fn script_groove_dash() -> Vec<BotEvent> {
     vec![
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 3.0, action: BotAction::HoldKey(KeyCode::Right) },
+        BotEvent { at: 3.0, action: BotAction::HoldKey(KeyCode::ArrowRight) },
         BotEvent { at: 4.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 5.0, action: BotAction::ReleaseKey(KeyCode::Right) },
+        BotEvent { at: 5.0, action: BotAction::ReleaseKey(KeyCode::ArrowRight) },
         BotEvent { at: 5.0, action: BotAction::Assert(BotAssert::GameNotOver) },
     ]
 }

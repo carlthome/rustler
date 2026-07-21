@@ -95,6 +95,7 @@ use ggez::event::{self, EventHandler};
 use ggez::glam::Vec2;
 use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Sampler};
 use ggez::input::keyboard::{KeyCode, KeyInput};
+use ggez::winit::keyboard::PhysicalKey;
 use ggez::input::mouse::MouseButton;
 use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
@@ -950,7 +951,7 @@ impl MainState {
         self.game_over = false;
         self.in_campaign = false;
         // A calm ambient pad for the campaign map — a breather moment between levels.
-        let _ = self.sounds.world_map_pad.play_detached(ctx);
+        let _ = self.sounds.world_map_pad.play();
     }
 
     /// Start a campaign run (or tutorial) from the currently selected world map node.
@@ -1156,23 +1157,47 @@ impl EventHandler for MainState {
     }
 
     fn key_down_event(&mut self, ctx: &mut Context, input: KeyInput, _repeat: bool) -> GameResult {
+        // ggez 0.10 (winit 0.30) no longer exposes `KeyInput::keycode`; derive the physical
+        // key code ourselves so the rest of the handling reads exactly as before.
+        let keycode = match input.event.physical_key {
+            PhysicalKey::Code(code) => Some(code),
+            _ => None,
+        };
+        // Player-name text entry. ggez 0.10 removed the separate `text_input_event` callback and
+        // delivers typed text on the key event itself (`input.event.text`). Handled first and
+        // unconditionally (like 0.9's independent text callback) so a name character still lands
+        // even when a later branch returns early for the same key.
+        if self.show_instructions
+            && !self.show_world_map
+            && !self.game_over
+            && !self.pending_upgrade
+            && self.menu_page == 1
+        {
+            if let Some(text) = &input.event.text {
+                for character in text.chars() {
+                    if !character.is_control() && self.player_name.chars().count() < 24 {
+                        self.push_player_name_char(character);
+                    }
+                }
+            }
+        }
         if self.pending_upgrade {
             // The choice is a live overlay now, not a freeze: 1/2/3 pick a card, but every other key
             // falls through to normal in-game handling so the player can keep steering and using
             // tools while they decide (and a rival can steal from them mid-decision — the intended
             // pressure to pick fast). 1/2/3 aren't bound to anything in-game (they're loadout-screen
             // only), so consuming them here can't shadow a gameplay action.
-            if let Some(key) = input.keycode {
+            if let Some(key) = keycode {
                 match key {
-                    KeyCode::Key1 => {
+                    KeyCode::Digit1 => {
                         self.apply_upgrade(1);
                         return Ok(());
                     }
-                    KeyCode::Key2 => {
+                    KeyCode::Digit2 => {
                         self.apply_upgrade(2);
                         return Ok(());
                     }
-                    KeyCode::Key3 => {
+                    KeyCode::Digit3 => {
                         self.apply_upgrade(3);
                         return Ok(());
                     }
@@ -1180,34 +1205,19 @@ impl EventHandler for MainState {
                 }
             }
         }
-        if let Some(key) = input.keycode {
-            if key == KeyCode::F {
+        if let Some(key) = keycode {
+            if key == KeyCode::KeyF {
                 self.flashlight.on = !self.flashlight.on;
                 use ggez::audio::SoundSource;
                 // Slightly higher pitch on, lower on off, so the toggle direction is audible.
                 let pitch = if self.flashlight.on { 1.15 } else { 0.85 };
                 self.sounds.flashlight_toggle.set_pitch(pitch);
-                let _ = self.sounds.flashlight_toggle.play_detached(ctx);
+                let _ = self.sounds.flashlight_toggle.play();
                 return Ok(());
             }
         }
-        if handle_key_down_event(self, ctx, input.keycode) {
+        if handle_key_down_event(self, ctx, keycode) {
             return Ok(());
-        }
-        Ok(())
-    }
-
-    fn text_input_event(&mut self, _ctx: &mut Context, character: char) -> GameResult {
-        if self.show_instructions
-            && !self.show_world_map
-            && !self.game_over
-            && !self.pending_upgrade
-        {
-            if self.menu_page == 1 && !character.is_control() {
-                if self.player_name.chars().count() < 24 {
-                    self.push_player_name_char(character);
-                }
-            }
         }
         Ok(())
     }
@@ -1279,7 +1289,7 @@ impl EventHandler for MainState {
             self.lasso_mouse_down = false;
             {
                 use ggez::audio::SoundSource;
-                let _ = self.sounds.lasso_sfx.play_detached(ctx);
+                let _ = self.sounds.lasso_sfx.play();
             }
             // Compute scaled range from charge: tap = MIN_RANGE_FRAC × MAX_RANGE, full = MAX_RANGE.
             let charge_frac = (self.lasso_charge / LASSO_MAX_CHARGE_TIME).min(1.0);

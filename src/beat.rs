@@ -42,13 +42,13 @@ impl MainState {
                 self.music_pitch = desired_pitch;
                 self.sounds.action_music.set_pitch(desired_pitch);
                 if self.sounds.action_music.playing() {
-                    let _ = self.sounds.action_music.play(ctx);
+                    let _ = self.sounds.action_music.play();
                 }
                 for layer in self.music_layers.iter_mut() {
                     let was_playing = layer.playing();
                     layer.set_pitch(desired_pitch);
                     if was_playing {
-                        let _ = layer.play(ctx);
+                        let _ = layer.play();
                     }
                 }
             }

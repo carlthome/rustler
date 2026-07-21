@@ -4,8 +4,8 @@ version = "0.30.6"
 edition = "2024"
 
 [dependencies]
-crevice = "0.13.0"
-ggez = "0.9.3"
+crevice = { version = "0.19", features = ["glam"] }
+ggez = "0.10.0"
 lewton = "0.10"
 rand = "0.9.1"
 
@@ -15,9 +15,6 @@ path = "src/main.rs"
 
 [package.metadata.ggez]
 resources = ["resources"]
-
-[patch.crates-io]
-winit = { path = "vendor/winit-0.28.7" }
 
 # CI/local dev builds don't need debug symbols (no debugger attached in CI, and
 # playtests/tests only check exit codes and stdout). Skipping debuginfo cuts

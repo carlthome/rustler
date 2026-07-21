@@ -12,6 +12,7 @@ use ggez::graphics::{
     BlendMode, Canvas, Color, DrawParam, Rect, Sampler, Text,
 };
 use ggez::input::keyboard::KeyCode;
+use ggez::winit::keyboard::PhysicalKey;
 use ggez::{Context, GameResult};
 
 use crate::constants::*;
@@ -775,8 +776,8 @@ impl MainState {
             }
         });
 
-        let sprinting = (ctx.keyboard.is_key_pressed(KeyCode::LShift)
-            || ctx.keyboard.is_key_pressed(KeyCode::RShift))
+        let sprinting = (ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+            || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight)))
             && self.sprint_stamina > 0.0
             && self.boost_timer <= 0.0;
 
@@ -2090,7 +2091,7 @@ impl MainState {
                     self.sounds.outro_music.pause();
                 }
                 if !self.sounds.intro_music.playing() {
-                    self.sounds.intro_music.play(ctx)?;
+                    self.sounds.intro_music.play();
                 }
                 draw_world_map(ctx, &mut canvas, map, width, height, self.menu_time)?;
                 canvas.finish(ctx)?;
@@ -2106,7 +2107,7 @@ impl MainState {
                 self.sounds.action_music.pause();
             }
             if !self.sounds.intro_music.playing() {
-                self.sounds.intro_music.play(ctx)?;
+                self.sounds.intro_music.play();
             }
             self.draw_instructions_screen(ctx, &mut canvas, width, height)?;
             canvas.finish(ctx)?;
@@ -2114,7 +2115,7 @@ impl MainState {
         } else if self.game_over {
             self.sounds.action_music.pause();
             if !self.sounds.outro_music.playing() {
-                self.sounds.outro_music.play(ctx)?;
+                self.sounds.outro_music.play();
             }
             self.draw_game_over_screen(ctx, &mut canvas)?;
         } else {
@@ -2122,7 +2123,7 @@ impl MainState {
                 self.sounds.intro_music.pause();
             }
             if !self.sounds.action_music.playing() {
-                self.sounds.action_music.play(ctx)?;
+                self.sounds.action_music.play();
             } else {
                 self.sounds.action_music.resume();
             }

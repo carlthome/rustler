@@ -393,7 +393,7 @@ fn synth_coin_arpeggio_wav(root_hz: f32, gain: f32) -> Vec<u8> {
 /// replayed with `play_detached`/pitch variation on each catch.
 pub fn synth_coin_chime(ctx: &mut Context) -> GameResult<Source> {
     let wav = synth_coin_arpeggio_wav(660.0, 0.8); // E5-ish root: high and bright.
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -760,7 +760,7 @@ pub fn synth_ambient_pad(
     note_duration: f32,
 ) -> GameResult<Source> {
     let wav = synth_pad_wav(preset, root_hz, note_duration, 0.7);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -872,7 +872,7 @@ pub fn synth_hihat(ctx: &mut Context) -> GameResult<Source> {
     }
     let pcm = samples_to_pcm(&mut samples, 4, 2);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -929,7 +929,7 @@ pub fn synth_flashlight_toggle(ctx: &mut Context) -> GameResult<Source> {
     }
     let pcm = samples_to_pcm(&mut samples, 8, 1);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -974,13 +974,13 @@ fn kick_source(
     gain: f32,
 ) -> GameResult<Source> {
     let bytes = synth_kick_wav(start_hz, end_hz, duration, gain);
-    let data = SoundData::from_bytes(&bytes);
+    let data = SoundData::from_bytes(&bytes)?;
     Source::from_data(ctx, data)
 }
 
 fn snare_source(ctx: &mut Context, duration: f32, gain: f32) -> GameResult<Source> {
     let bytes = synth_snare_wav(duration, gain);
-    let data = SoundData::from_bytes(&bytes);
+    let data = SoundData::from_bytes(&bytes)?;
     Source::from_data(ctx, data)
 }
 
@@ -1012,7 +1012,7 @@ impl BeatSynth {
             // Closed hi-hat: full gain baked in, per-play volume set by the caller.
             hihat: {
                 let bytes = synth_beat_hihat_wav();
-                Source::from_data(ctx, SoundData::from_bytes(&bytes))?
+                Source::from_data(ctx, SoundData::from_bytes(&bytes)?)?
             },
             snare_volume: 0.0,
         })
@@ -1027,7 +1027,7 @@ impl BeatSynth {
             return;
         }
         self.hihat.set_volume(volume.clamp(0.0, 1.0));
-        let _ = self.hihat.play_detached(ctx);
+        let _ = self.hihat.play();
     }
 
     /// Fade snare volume toward target each beat (call once per beat tick).
@@ -1049,7 +1049,7 @@ impl BeatSynth {
         } else {
             &mut self.offbeat_kick
         };
-        let _ = src.play_detached(ctx);
+        let _ = src.play();
     }
 
     /// Play the snare if it has audible volume. `beat_index` is the beat position within the bar
@@ -1064,7 +1064,7 @@ impl BeatSynth {
             return;
         }
         self.snare.set_volume(self.snare_volume);
-        let _ = self.snare.play_detached(ctx);
+        let _ = self.snare.play();
     }
 }
 
@@ -1110,7 +1110,7 @@ pub fn synth_whistle(ctx: &mut Context) -> GameResult<Source> {
 
     let pcm = samples_to_pcm(&mut samples, 12, 1); // mild bit-crush, no sample-hold
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -1155,7 +1155,7 @@ pub fn synth_stomp(ctx: &mut Context) -> GameResult<Source> {
 
     let pcm = samples_to_pcm(&mut samples, 6, 2);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -1195,7 +1195,7 @@ pub fn synth_steal_loss(ctx: &mut Context) -> GameResult<Source> {
     }
     let pcm = samples_to_pcm(&mut samples, 6, 2);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -1227,7 +1227,7 @@ pub fn synth_steal_gain(ctx: &mut Context) -> GameResult<Source> {
     }
     let pcm = samples_to_pcm(&mut samples, 7, 1);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 
@@ -1278,8 +1278,8 @@ pub fn synth_rival_steal(ctx: &mut Context) -> GameResult<(Source, Source)> {
     let silence = vec![0.0_f32; mono.len()];
     let left_wav = encode_wav_stereo16(&mono, &silence);
     let right_wav = encode_wav_stereo16(&silence, &mono);
-    let left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
-    let right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    let left = Source::from_data(ctx, SoundData::from_bytes(&left_wav)?)?;
+    let right = Source::from_data(ctx, SoundData::from_bytes(&right_wav)?)?;
     Ok((left, right))
 }
 
@@ -1318,7 +1318,7 @@ pub fn synth_lasso_throw(ctx: &mut Context) -> GameResult<Source> {
 
     let pcm = samples_to_pcm(&mut samples, 8, 1);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     Source::from_data(ctx, data)
 }
 

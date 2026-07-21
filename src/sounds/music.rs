@@ -210,7 +210,7 @@ fn synth_two_voice(
         .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
         .collect();
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     Ok(src)
@@ -773,7 +773,7 @@ fn synth_groove(
 
     let pcm = samples_to_pcm(&mut mix, bit_depth, 1);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     Ok(src)

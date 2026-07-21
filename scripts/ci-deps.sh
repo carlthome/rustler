@@ -45,22 +45,28 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -qq
-# Trimmed to what Cargo.lock actually links against, plus xvfb + a software GL
-# driver so bot mode can render offscreen. default.nix's buildInputs are wider
-# (glib/gtk3/cairo/pango/gdk-pixbuf/dbus/freetype/fontconfig/vulkan-loader) but
-# none of those have a corresponding -sys crate in Cargo.lock: text rendering
-# goes through the pure-Rust ab_glyph/glyph_brush stack, X11/Wayland access is
-# dlopen'd via x11-dl/wayland-client, and this cargo-only path forces the GL
-# backend (WGPU_BACKEND in scripts/playtest.sh), so Vulkan is never touched. Dropping them
-# here cuts a real chunk off "apt-get install" on every CI job — verified with
-# a full `cargo clean && cargo build && bash scripts/playtest.sh` after
-# uninstalling them locally.
+# Trimmed to what Cargo.lock actually links against, plus xvfb + software GPU
+# drivers so bot mode can render offscreen. default.nix's buildInputs are wider
+# (glib/gtk3/cairo/pango/gdk-pixbuf/dbus/freetype/fontconfig) but none of those
+# have a corresponding -sys crate in Cargo.lock: text rendering goes through the
+# pure-Rust ab_glyph/glyph_brush stack and X11/Wayland access is dlopen'd via
+# x11-dl/wayland-client.
+#
+# ggez 0.10 (wgpu 29 / winit 0.30) changed two runtime requirements vs 0.9:
+#   • ggez picks wgpu Backends::PRIMARY first (Vulkan on Linux), ignoring the
+#     WGPU_BACKEND env var, and only falls back to GL as SECONDARY. The software
+#     GL/EGL path no longer initializes headless under wgpu 29, so we install the
+#     Mesa software Vulkan driver (lavapipe: libvulkan1 + mesa-vulkan-drivers) to
+#     give that PRIMARY backend a working ICD. This is why Vulkan is no longer
+#     "never touched" — it is now the backend the game actually renders through.
+#   • winit 0.30 dlopens libxkbcommon-x11 (separate from libxkbcommon) for X11
+#     keyboard input, so bot mode panics in xkbcommon-dl without it.
 $SUDO apt-get install -y -qq \
   pkg-config \
   libasound2-dev libudev-dev \
   libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxext-dev \
   libxinerama-dev libxxf86vm-dev libxrender-dev libxcb1-dev libxau-dev libxdmcp-dev \
-  libxkbcommon-dev libwayland-dev wayland-protocols \
-  libgl1-mesa-dev libgl1-mesa-dri xvfb
+  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev wayland-protocols \
+  libgl1-mesa-dev libgl1-mesa-dri libvulkan1 mesa-vulkan-drivers xvfb
 
 echo "ci-deps: done."

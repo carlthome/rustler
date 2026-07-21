@@ -134,7 +134,7 @@ pub fn play_catch_sound(
     // multi-catch without the crackling/phase artifacts the sampled files produced
     // when many copies played simultaneously, and fits the retro chiptune direction.
     sounds.coin_chime.set_pitch(pitch);
-    let _ = sounds.coin_chime.play_detached(ctx);
+    let _ = sounds.coin_chime.play();
 }
 
 pub struct Flashlight {
@@ -1327,7 +1327,7 @@ impl MainState {
         let detected_beat_interval: f32 = {
             use std::io::Read as _;
             let mut bytes = Vec::new();
-            let result = ggez::filesystem::open(ctx, "/action.ogg")
+            let result = ctx.fs.open("/action.ogg")
                 .and_then(|mut f| {
                     f.read_to_end(&mut bytes)
                         .map_err(|e| ggez::GameError::CustomError(e.to_string()))
@@ -1557,7 +1557,6 @@ impl MainState {
         // shader_bind_group, which would poison every subsequent instanced draw on the same canvas).
         let flashlight_cone_image = ggez::graphics::Image::new_canvas_image(
             ctx,
-            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
             width as u32,
             height as u32,
             1,
@@ -1567,7 +1566,6 @@ impl MainState {
         // The postprocess pass will handle any HiDPI scaling when blitting to screen.
         let scene_image = ggez::graphics::Image::new_canvas_image(
             ctx,
-            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
             width as u32,
             height as u32,
             1,
@@ -1597,14 +1595,12 @@ impl MainState {
         let trail_params = ShaderParamsBuilder::new(&initial_trail_uniform).build(ctx);
         let trail_image_a = ggez::graphics::Image::new_canvas_image(
             ctx,
-            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
             width as u32,
             height as u32,
             1,
         );
         let trail_image_b = ggez::graphics::Image::new_canvas_image(
             ctx,
-            ggez::graphics::ImageFormat::Rgba8UnormSrgb,
             width as u32,
             height as u32,
             1,
