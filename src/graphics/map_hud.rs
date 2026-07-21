@@ -19,8 +19,11 @@ const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
 const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
 const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
 const KING_LOADOUT_SINE_MIDPOINT: f32 = 0.5;
+// Expands the near-shore silhouette just beyond the sand.
 const WORLD_MAP_SHALLOWS_SCALE: f32 = 1.035;
+// Places each direction chevron just beyond the middle of its route segment.
 const WORLD_MAP_CHEVRON_T: f32 = 0.55;
+// Samples equally ahead/behind the chevron to derive the curve tangent.
 const WORLD_MAP_CHEVRON_TANGENT_DELTA: f32 = 0.03;
 // Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
 const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
@@ -567,8 +570,8 @@ pub fn draw_world_map(
             let entry = &mut labels[i];
             // Rebuild only when the node's (completed, unlocked) state actually changes.
             if entry.as_ref().map(|(k, _, _)| *k) != Some(label_key) {
-                let marker = format!("{}", i + 1);
-                let mut label = Text::new(marker);
+                let stop_number = format!("{}", i + 1);
+                let mut label = Text::new(stop_number);
                 label.set_scale(18.0);
                 let w = label.measure(ctx)?.x;
                 *entry = Some((label_key, label, w));
