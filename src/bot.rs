@@ -135,6 +135,9 @@ pub enum BotAssert {
     SelectedNextUnlocked(bool),
     ShowWorldMap,
     MainMenu,
+    /// Title screen is fully restored after leaving a run: gameplay audio is stopped and the title
+    /// music is playing again.
+    TitleMenuReady,
     TutorialActive,
     TutorialDone,           // tutorial field is None and show_world_map is true
     InGame,                 // not on menu, not game_over, not world_map
@@ -332,6 +335,7 @@ pub fn script_campaign_escape() -> Vec<BotEvent> {
         BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 3.0, action: BotAction::TapKey(KeyCode::Escape) },
         BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::MainMenu) },
+        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TitleMenuReady) },
     ]
 }
 

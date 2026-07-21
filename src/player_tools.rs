@@ -882,6 +882,12 @@ impl MainState {
                         }
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::MainMenu => self.show_instructions && !self.show_world_map,
+                        BotAssert::TitleMenuReady => {
+                            self.show_instructions
+                                && !self.show_world_map
+                                && !self.sounds.action_music.playing()
+                                && self.sounds.intro_music.playing()
+                        }
                         BotAssert::TutorialActive => self.tutorial.is_some(),
                         BotAssert::TutorialDone => self.tutorial.is_none() && self.show_world_map,
                         BotAssert::InGame => {
