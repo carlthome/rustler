@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.39.1 — 2026-07-21
+
+### Performance
+- Cache static ground-detail geometry in draw_world_zones
+
+### Refactoring
+- Extract boss-crab movement AI into crab_boss_update.rs
+- Extract world-space crab rendering out of overlays.rs into crab_render.rs
+
 ## v0.39.0 — 2026-07-21
 
 ### Features
