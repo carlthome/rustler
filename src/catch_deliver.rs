@@ -69,6 +69,9 @@ impl MainState {
         let bank =
             (base as f32 * streak_mult * perfect_mult * self.beat_gamble_mult).round() as usize;
         self.score += bank;
+        // Raw crab-count tally for the campaign win conditions (BankCrabs) — score is multiplied
+        // points, so the goal needs its own honest headcount of what actually filed into the pen.
+        self.banked_crabs_run += delivered;
         // Attribute the rhythm-driven extra of this bank: the delivery streak is a pace reward that
         // survives without the beat, so the baseline keeps it — but the PERFECT (on-beat) delivery
         // bonus and the Groove Gamble multiplier are pure rhythm, so strip only those for the flat

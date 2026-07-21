@@ -644,6 +644,11 @@ impl MainState {
                 self.spawn_catch_shockwave(pos, [1.0, 0.75, 0.3]); // gold burst — it's the prize wobbling
             }
             for &(pos, broke, was_hermit) in chipped.iter() {
+                // Campaign win tracking: a Dancer hop that fully opens a shell counts toward a
+                // CrackAndHold goal, same as a Stomp crack.
+                if broke {
+                    self.shells_cracked_run += 1;
+                }
                 // A Dancer hop that pops a Hermit clean open earns the signature copper Hermit-pop
                 // instead of the generic blue crack — it's a pure archetype-web crack (the beam
                 // can't do it), so the emergent play reads as the win it is.

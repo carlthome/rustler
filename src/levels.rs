@@ -22,6 +22,66 @@ impl MapSize {
     }
 }
 
+/// The completion goal for a campaign level. Each condition tests the mechanic the biome was
+/// built for — not just "get X score" — so crossing into the next biome feels like a gear change.
+/// Evaluated every frame during a campaign run (see the win-check block in `game_update`); when
+/// met, the world-map node completes and the next one unlocks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WinCondition {
+    /// Total crabs banked at the pen reaches this count.
+    BankCrabs(usize),
+    /// Train length simultaneously reaches this count.
+    BuildTrain(usize),
+    /// Armored/Hermit shells cracked reaches `shells` while the train is at least `min_train` —
+    /// both gates at once, so shells can't be farmed from a safe corner with an empty train.
+    CrackAndHold { shells: usize, min_train: usize },
+    /// Train stays at or above `target` for `seconds` consecutive seconds (the timer resets the
+    /// moment the train dips below the target).
+    HoldTrain { target: usize, seconds: f32 },
+}
+
+impl WinCondition {
+    /// Pure evaluation against the live run counters, so the same predicate is reachable from a
+    /// headless test as from the frame loop. `hold_secs` is how long the train has continuously
+    /// been at or above the HoldTrain target (maintained by the caller).
+    pub fn met(&self, banked: usize, train: usize, shells: usize, hold_secs: f32) -> bool {
+        match *self {
+            WinCondition::BankCrabs(n) => banked >= n,
+            WinCondition::BuildTrain(n) => train >= n,
+            WinCondition::CrackAndHold { shells: s, min_train } => shells >= s && train >= min_train,
+            WinCondition::HoldTrain { seconds, .. } => hold_secs >= seconds,
+        }
+    }
+
+    /// Short live-progress line for the HUD corner counter, so the player always knows where they
+    /// stand against the goal.
+    pub fn progress_text(&self, banked: usize, train: usize, shells: usize, hold_secs: f32) -> String {
+        match *self {
+            WinCondition::BankCrabs(n) => format!("GOAL  Bank crabs: {} / {}", banked.min(n), n),
+            WinCondition::BuildTrain(n) => format!("GOAL  Train of {} at once: {} / {}", n, train.min(n), n),
+            WinCondition::CrackAndHold { shells: s, min_train } => format!(
+                "GOAL  Shells cracked: {} / {}  |  Train: {} (keep \u{2265} {})",
+                shells.min(s),
+                s,
+                train,
+                min_train
+            ),
+            WinCondition::HoldTrain { target, seconds } => {
+                if train >= target {
+                    format!(
+                        "GOAL  Hold train \u{2265} {}: {:.0}s / {:.0}s",
+                        target,
+                        hold_secs.min(seconds),
+                        seconds
+                    )
+                } else {
+                    format!("GOAL  Build a train of {} and hold it {:.0}s", target, seconds)
+                }
+            }
+        }
+    }
+}
+
 pub struct LevelPattern {
     pub pattern: SpawnPattern,
     pub count: usize,
@@ -79,6 +139,9 @@ pub struct Level {
     /// terrain: Water→Magnet (routing), Rock→Armored (shells to crack), Kelp→Thief (tail
     /// pressure). `None` on the beginner zone, which stays a clean, unflavored intro.
     pub emphasis: Option<CrabType>,
+    /// The completion goal for this level during a campaign run. Meeting it completes the
+    /// world-map node and unlocks the next one.
+    pub win_condition: WinCondition,
     pub patterns: Vec<LevelPattern>,
 }
 
@@ -110,6 +173,8 @@ pub fn get_levels() -> Vec<Level> {
                 terrain: TerrainKind::Open,
             },
             emphasis: None,
+            // Clean intro: teaches the full catch -> train -> bank loop with no hazards.
+            win_condition: WinCondition::BankCrabs(25),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::SingleRandom,
@@ -139,6 +204,9 @@ pub fn get_levels() -> Vec<Level> {
             // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
             // zone becomes a routing puzzle where you catch a Magnet to net the blob it gathered.
             emphasis: Some(CrabType::Magnet),
+            // One gross catching move: a well-timed Magnet catch scoops the clustered herd, so the
+            // win fires mid-wave the instant the train hits 15 — no banking, no patience required.
+            win_condition: WinCondition::BuildTrain(15),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::UniformRandom,
@@ -186,6 +254,9 @@ pub fn get_levels() -> Vec<Level> {
             // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
             // reach for the Stomp constantly — a zone of shells to crack while dodging the rocks.
             emphasis: Some(CrabType::Armored),
+            // Two gates force both verbs: stomp shells open in the rock chokepoints AND hold a
+            // real train — no cheesing shells from a safe corner while ignoring the herd.
+            win_condition: WinCondition::CrackAndHold { shells: 8, min_train: 15 },
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::Cluster,
@@ -233,6 +304,9 @@ pub fn get_levels() -> Vec<Level> {
             // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
             // zone is one long fight to defend the train you've built. Tail pressure squared.
             emphasis: Some(CrabType::Thief),
+            // Pure defense: getting to 20 is easy, keeping them against kelp snags and Thieves is
+            // the whole game. The 30s timer resets the moment the train dips below 20.
+            win_condition: WinCondition::HoldTrain { target: 20, seconds: 30.0 },
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::BeatGrid,
@@ -284,6 +358,10 @@ pub fn get_levels() -> Vec<Level> {
             // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
             // (the windows) is what reads as different, not the crabs.
             emphasis: None,
+            // The hardest banking challenge: the window panels force long, risky routes to the pen.
+            // (The issue's BankUnderPressure escape-tracking variant is deferred — there's no
+            // "escaped off-world" concept in the sim yet — so this takes its sanctioned fallback.)
+            win_condition: WinCondition::BankCrabs(40),
             patterns: vec![
                 LevelPattern {
                     pattern: SpawnPattern::UniformRandom,
@@ -320,5 +398,42 @@ mod tests {
         assert_eq!(MapSize::Tutorial.viewport_multiplier(), 1.0);
         assert_eq!(MapSize::Medium.viewport_multiplier(), 2.0);
         assert_eq!(MapSize::Large.viewport_multiplier(), 4.0);
+    }
+
+    #[test]
+    fn every_campaign_level_has_the_designed_win_condition() {
+        let levels = get_levels();
+        assert_eq!(levels.len(), 5);
+        assert_eq!(levels[0].win_condition, WinCondition::BankCrabs(25));
+        assert_eq!(levels[1].win_condition, WinCondition::BuildTrain(15));
+        assert_eq!(
+            levels[2].win_condition,
+            WinCondition::CrackAndHold { shells: 8, min_train: 15 }
+        );
+        assert_eq!(
+            levels[3].win_condition,
+            WinCondition::HoldTrain { target: 20, seconds: 30.0 }
+        );
+        assert_eq!(levels[4].win_condition, WinCondition::BankCrabs(40));
+    }
+
+    #[test]
+    fn win_condition_predicates_gate_correctly() {
+        // BankCrabs cares only about the banked total.
+        assert!(WinCondition::BankCrabs(25).met(25, 0, 0, 0.0));
+        assert!(!WinCondition::BankCrabs(25).met(24, 99, 99, 99.0));
+        // BuildTrain fires the instant the live train hits the target.
+        assert!(WinCondition::BuildTrain(15).met(0, 15, 0, 0.0));
+        assert!(!WinCondition::BuildTrain(15).met(99, 14, 0, 0.0));
+        // CrackAndHold needs BOTH gates at once.
+        let cah = WinCondition::CrackAndHold { shells: 8, min_train: 15 };
+        assert!(cah.met(0, 15, 8, 0.0));
+        assert!(!cah.met(0, 14, 8, 0.0));
+        assert!(!cah.met(0, 15, 7, 0.0));
+        // HoldTrain is satisfied purely by the accumulated hold time (the caller resets it when
+        // the train dips below target).
+        let hold = WinCondition::HoldTrain { target: 20, seconds: 30.0 };
+        assert!(hold.met(0, 20, 0, 30.0));
+        assert!(!hold.met(0, 20, 0, 29.9));
     }
 }

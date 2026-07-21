@@ -1673,6 +1673,9 @@ impl MainState {
         // Armored shells the beam just wore through — a lighter "crack" than the boss fanfare, but
         // still a scorch pop: a hot-tinted shockwave, a short shake and a light hitstop so burning a
         // shell open with the beam reads as a satisfying break rather than a silent state flip.
+        // Campaign win tracking: shells the beam wore through count toward CrackAndHold too — the
+        // goal is "shells cracked", not "shells stomped", so every verb's full crack tallies.
+        self.shells_cracked_run += armor_broke.len();
         for &pos in armor_broke.iter() {
             self.floating_texts.spawn(
                 "SHELL CRACKED!".to_string(),
@@ -1753,6 +1756,11 @@ impl MainState {
         // cues as the Dancer-chip and Stomp crack so the shell-progress language stays consistent,
         // but tinted the Magnet's lodestone orange so the "the charged pull did this" story reads.
         for (pos, broke, was_hermit) in magnet_grind.drain(..) {
+            // Campaign win tracking: a Magnet grind/rip that fully opens a shell counts toward a
+            // CrackAndHold goal (chips don't — only the final crack).
+            if broke {
+                self.shells_cracked_run += 1;
+            }
             // A charged Magnet ripping a Hermit clean out fires the signature copper Hermit-pop — a
             // pure archetype-web crack (the beam can't do it), so it earns its own watchable beat.
             if broke && was_hermit {

@@ -1413,6 +1413,50 @@ impl MainState {
             });
         }
 
+        // Campaign goal counter, under the score/rhythm lines: the live progress toward the
+        // level's win condition, so the player always knows where they stand against the goal.
+        // Only shows during a campaign run (goal read from the launched world-map node).
+        if self.in_campaign && self.tutorial.is_none() {
+            if let Some(cond) = self
+                .world_map
+                .as_ref()
+                .and_then(|m| m.selected_level_index())
+                .and_then(|i| self.levels.get(i))
+                .map(|l| l.win_condition)
+            {
+                let goal = if self.level_complete {
+                    "LEVEL COMPLETE!".to_string()
+                } else {
+                    cond.progress_text(
+                        self.banked_crabs_run,
+                        self.chain_count,
+                        self.shells_cracked_run,
+                        self.hold_train_timer,
+                    )
+                };
+                CAMPAIGN_GOAL_CACHE.with(|c| {
+                    let mut cache = c.borrow_mut();
+                    let needs_rebuild = match &*cache {
+                        Some((s, _)) => *s != goal,
+                        None => true,
+                    };
+                    if needs_rebuild {
+                        let txt = Text::new(goal.clone());
+                        *cache = Some((goal, txt));
+                    }
+                    let col = if self.level_complete {
+                        Color::from_rgb(255, 230, 80) // celebratory gold once the goal lands
+                    } else {
+                        Color::from_rgb(140, 235, 255) // cool goal-teal while it's in progress
+                    };
+                    canvas.draw(
+                        &cache.as_ref().unwrap().1,
+                        DrawParam::default().dest(Vec2::new(10.0, 50.0)).color(col),
+                    );
+                });
+            }
+        }
+
         // Debug-only perf overlay, top-right: avg/worst frame time + fps over the last ~2s
         // window (see the accumulation block in update()). Lets a feature/optimizer agent (or
         // Carl) see the cost of whatever just landed without needing a terminal in view.

@@ -515,6 +515,19 @@ pub struct MainState {
     pub(crate) world_map: Option<WorldMap>,
     pub(crate) show_world_map: bool,
     pub(crate) in_campaign: bool,
+    // --- Campaign win-condition tracking (see `Level::win_condition`). All per-run counters,
+    // reset in reset_game_at. `banked_crabs_run` counts crabs delivered to the pen this run;
+    // `shells_cracked_run` counts Armored/Hermit shells fully cracked by ANY verb (stomp, dancer
+    // hop, beam wear-down, magnet grind); `hold_train_timer` accumulates seconds the train has
+    // continuously been at/above a HoldTrain target (reset the instant it dips below).
+    pub(crate) banked_crabs_run: usize,
+    pub(crate) shells_cracked_run: usize,
+    pub(crate) hold_train_timer: f32,
+    // Latch + celebration countdown once the level goal is met: the win fires exactly once, a
+    // short "LEVEL COMPLETE!" beat plays out, then the run returns to the world map (which marks
+    // the node complete and unlocks the next).
+    pub(crate) level_complete: bool,
+    pub(crate) level_complete_timer: f32,
     // Active "How to Play" tutorial session, if any. `Some` while a scripted learn-session runs;
     // it uses the normal live update/draw path but constrains the run (no bosses, no wave
     // escalation, no level advance) and tracks its own machine-readable pass condition. `None`
@@ -1700,6 +1713,11 @@ impl MainState {
             world_map: None,
             show_world_map: false,
             in_campaign: false,
+            banked_crabs_run: 0,
+            shells_cracked_run: 0,
+            hold_train_timer: 0.0,
+            level_complete: false,
+            level_complete_timer: 0.0,
             tutorial: None,
             last_dir: Vec2::ZERO,
             shake_timer: 0.0,
