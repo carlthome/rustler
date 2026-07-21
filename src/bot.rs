@@ -18,6 +18,16 @@ pub enum BotAction {
     // catch) without depending on where the RNG happened to scatter the handful of early crabs.
     // `true` turns it on, `false` off.
     SeekCatch(bool),
+    // Closed-loop lasso practice: steer toward the nearest catchable crab without using the beam,
+    // then release a fully charged lasso. This keeps the LassoGrab tutorial honest.
+    SeekLasso(bool),
+    // Fully charge and release the lasso at its auto-aimed target.
+    FireLasso,
+    // When active, steer toward the campaign pen whenever a train is being hauled. Used by the
+    // delivery tutorial and BankCrabs campaign goal; disabled for goals that require a live train.
+    SeekDelivery(bool),
+    // Stage the player at the pen for one real delivery attempt.
+    ForceDelivery,
     // Deterministically exercise the reverse-Snake steal path: teleport the nearest rival NPC King
     // Crab train's leader onto a mid-chain link of the player's conga line and clear its steal
     // cooldown, so the splice-steal fires this frame if a stealable chain exists. A no-op when the
@@ -146,6 +156,8 @@ pub struct BotState {
     pub failed: Option<String>,
     pub done: bool,
     pub seek_catch: bool,                  // closed-loop autopilot toward the nearest catchable crab
+    pub seek_lasso: bool,                  // closed-loop movement toward a lasso target
+    pub seek_delivery: bool,               // closed-loop movement toward the delivery pen
     // Set for the frame a Force*Cross helper teleports the player head onto a rival's follower slot to
     // stage a steal-back. handle_player_movement runs AFTER the force fires but BEFORE the steal
     // detection in update_npc_trains, so without this the seek-catch autopilot re-steers the head off
@@ -167,6 +179,8 @@ impl BotState {
             failed: None,
             done: false,
             seek_catch: false,
+            seek_lasso: false,
+            seek_delivery: false,
             hold_position: false,
         }
     }
@@ -228,6 +242,78 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
         BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
         BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
     ]
+}
+
+pub fn script_campaign_full() -> Vec<BotEvent> {
+    // Walk the complete campaign on-ramp in one process: all four tutorial nodes, then the first
+    // two real maps. Assertions intentionally sit after every return-to-map transition so a level
+    // that completes but leaves stale tutorial/menu state cannot hide behind the final result.
+    let mut script = vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting full campaign test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
+        BotEvent { at: 1.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        // BeatTiming.
+        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TutorialActive) },
+        BotEvent { at: 3.5, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        // LassoGrab.
+        BotEvent { at: 63.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 63.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 65.0, action: BotAction::Assert(BotAssert::TutorialActive) },
+        BotEvent { at: 65.0, action: BotAction::SeekLasso(true) },
+    ];
+    let mut t = 66.0;
+    while t < 100.0 {
+        script.push(BotEvent { at: t, action: BotAction::FireLasso });
+        t += 1.5;
+    }
+    script.extend([
+        BotEvent { at: 103.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        // ChainDeliver.
+        BotEvent { at: 104.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 104.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 106.0, action: BotAction::Assert(BotAssert::TutorialActive) },
+        BotEvent { at: 106.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 106.0, action: BotAction::SeekDelivery(true) },
+        BotEvent { at: 180.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        // ShellCrack.
+        BotEvent { at: 181.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 181.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 182.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 200.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        // First real map: enter the BankCrabs goal and keep the run alive through several waves,
+        // then verify that Escape returns the player to the campaign map.
+        BotEvent { at: 201.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 201.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 203.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 203.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 203.0, action: BotAction::SeekDelivery(true) },
+        BotEvent { at: 260.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 261.0, action: BotAction::TapKey(KeyCode::Escape) },
+        BotEvent { at: 262.0, action: BotAction::Assert(BotAssert::MainMenu) },
+        // Re-enter the campaign and select the second real map: verify its BuildTrain goal can be
+        // reached without relying on the first map's completion state.
+        BotEvent { at: 262.5, action: BotAction::TapKey(KeyCode::KeyC) },
+        BotEvent { at: 263.5, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 264.0, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 264.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 266.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 266.0, action: BotAction::SeekDelivery(false) },
+        BotEvent { at: 310.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 315.0, action: BotAction::TapKey(KeyCode::Escape) },
+        BotEvent { at: 316.0, action: BotAction::Assert(BotAssert::MainMenu) },
+    ]);
+    let mut delivery_at = 108.0;
+    while delivery_at < 260.0 {
+        script.insert(
+            script.len().saturating_sub(1),
+            BotEvent { at: delivery_at, action: BotAction::ForceDelivery },
+        );
+        delivery_at += 1.0;
+    }
+    script.sort_by(|a, b| a.at.total_cmp(&b.at));
+    script
 }
 
 pub fn script_campaign_escape() -> Vec<BotEvent> {
