@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.30.7 — 2026-07-21
+
+### Refactoring
+- Extract the per-frame update tick from main.rs into src/game_update.rs
+- Extract per-frame audio mixing from main.rs into src/audio_mix.rs
+
 ## v0.30.6 — 2026-07-21
 
 ### Gameplay
