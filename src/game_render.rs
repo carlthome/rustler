@@ -1261,6 +1261,8 @@ impl MainState {
                 !matches!(self.lasso_phase, LassoPhase::Idle),
                 self.groove,
                 self.time_elapsed,
+                1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0),
+                self.on_beat_action(),
             )?;
         }
 
