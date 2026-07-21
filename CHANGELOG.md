@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.33.1 — 2026-07-21
+
+### Performance
+- Batch the last unbatched archetype-aura rings (Thief/Splitter/Golden/Armored)
+
 ## v0.33.0 — 2026-07-21
 
 ### Gameplay
