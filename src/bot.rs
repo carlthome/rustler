@@ -200,6 +200,7 @@ pub fn script_menu_to_game() -> Vec<BotEvent> {
     vec![
         BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
         BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::Space) },
         BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
         BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 8.0, action: BotAction::Assert(BotAssert::GameNotOver) },

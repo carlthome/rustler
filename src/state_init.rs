@@ -390,6 +390,8 @@ impl MainState {
             flashlight,
             show_instructions: true,
             show_how_to_play_text: false,
+            show_play_recommendation: false,
+            play_recommendation_continue_selected: true,
             player_skin,
             player_name,
             skin_slot: 0,
