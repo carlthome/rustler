@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.36.0 — 2026-07-21
+
+### Features
+- Campaign levels: add win conditions so each level has a clear completion goal
+
+### Fixes
+- Campaign Escape handling: return to main menu instead of quitting
+
 ## v0.35.0 — 2026-07-21
 
 ### Features
