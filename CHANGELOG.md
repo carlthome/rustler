@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.36.0 — 2026-07-21
+
+### Features
+- Add Hermit King and Dancer King boss encounters
+
+### Performance
+- Avoid a per-frame String allocation for the campaign goal HUD line
+
+### Refactoring
+- Split game_render.rs: extract screen-space HUD pass into game_render_hud.rs
+- Extract NpcCongaTrain state into its own module
+
 ## v0.35.2 — 2026-07-21
 
 ### Fixes
