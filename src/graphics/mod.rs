@@ -7554,6 +7554,13 @@ pub fn draw_tool_roster(
     // Groove/G state
     groove: f32,         // 0..1 groove meter level (for V/G readiness hint)
     time: f32,
+    // Rhythm sync: progress toward the next beat (0 = just landed, 1 = about to land) and whether
+    // the current instant is inside the on-beat cast window. A READY pad breathes with the beat
+    // instead of a free-running sine — it swells as the beat approaches and flashes brightest right
+    // in the on-beat window, so the roster reads as a row of drum pads telling you *when* to hit for
+    // the on-beat bonus (#164 legibility; the ROADMAP "each tool key is a drum pad" vision).
+    beat_progress: f32,
+    on_beat: bool,
 ) -> ggez::GameResult {
     struct ToolSlot {
         key: &'static str,
@@ -7584,6 +7591,16 @@ pub fn draw_tool_roster(
     let y0 = height - slot_h - 10.0;
 
     let sq = unit_square(ctx)?;
+
+    // Beat-synced pad glow (0..1): eases up as the next beat approaches and snaps to full inside
+    // the on-beat window, so a ready pad pulses ON the beat rather than to a free-running clock.
+    // This is the timing cue for on-beat tool casts — the pads light up when it pays to hit them.
+    let beat_glow = if on_beat {
+        1.0
+    } else {
+        let p = beat_progress.clamp(0.0, 1.0);
+        p * p * 0.7
+    };
 
     for (i, slot) in slots.iter().enumerate() {
         let sx = x0 + i as f32 * (slot_w + slot_gap);
@@ -7637,9 +7654,10 @@ pub fn draw_tool_roster(
             Ok(())
         })?;
 
-        // Tool name — centred, accent color, slight pulse when ready
+        // Tool name — centred, accent color, pulsing ON the beat when ready (drum-pad feel) so the
+        // player reads the moment to fire for the on-beat bonus, rather than a free-running blink.
         let pulse = if ready {
-            (time * 4.0).sin() * 0.5 + 0.5
+            0.55 + beat_glow * 0.45
         } else {
             0.75
         };
@@ -7715,8 +7733,8 @@ pub fn draw_tool_roster(
                     Color::new(slot.color[0], slot.color[1], slot.color[2], 0.9)
                 }
             } else if ready {
-                let glow = (time * 5.0 + i as f32).sin() * 0.5 + 0.5;
-                Color::new(r * (0.8 + glow * 0.2), g * (0.8 + glow * 0.2), b * (0.8 + glow * 0.2), 1.0)
+                // Ready pad's fill brightens on the beat too, in lockstep with the name pulse.
+                Color::new(r * (0.8 + beat_glow * 0.2), g * (0.8 + beat_glow * 0.2), b * (0.8 + beat_glow * 0.2), 1.0)
             } else {
                 Color::new(r * 0.75, g * 0.75, b * 0.75, 0.85)
             };
