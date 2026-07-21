@@ -214,6 +214,8 @@ pub struct EnemyCrab {
     pub scale: f32,
     pub spawn_time: f32,
     pub crab_type: CrabType,
+    /// Tint inherited from the player's captured King Crab power-up.
+    pub chain_color: Option<[f32; 3]>,
     pub spooked_timer: f32,
     pub beat_phase_offset: f32,
     pub join_pulse: f32,
@@ -244,7 +246,7 @@ pub struct EnemyCrab {
 impl EnemyCrab {
     pub fn crab_color(&self) -> [f32; 3] {
         let t = (self.spawn_time / 10.0).min(1.0);
-        match self.crab_type {
+        let base = match self.crab_type {
             CrabType::Normal => [
                 0.6 + 0.4 * t,
                 100.0 / 255.0 * (1.0 - t),
@@ -265,6 +267,15 @@ impl EnemyCrab {
             CrabType::RhythmBoss => [0.72, 0.30, 0.95], // pulsing disco violet
             CrabType::HermitKing => [0.82, 0.48, 0.20], // burnished royal copper — the Hermit's earthy brown crowned into a gleaming shell-house king
             CrabType::DancerKing => [1.0, 0.62, 0.45], // golden-rose disco royalty — the Dancer's hot pink gilded into a shimmering king
+        };
+        if let Some(tint) = self.chain_color {
+            [
+                base[0] * 0.62 + tint[0] * 0.38,
+                base[1] * 0.62 + tint[1] * 0.38,
+                base[2] * 0.62 + tint[2] * 0.38,
+            ]
+        } else {
+            base
         }
     }
 

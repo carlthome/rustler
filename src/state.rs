@@ -286,6 +286,9 @@ pub struct MainState {
     // so the cards stay stable instead of reshuffling every frame. Read by draw_upgrade_screen and
     // apply_upgrade so both always agree on which three are on offer.
     pub(crate) offered_upgrades: [usize; 3],
+    /// King Crab colors captured this run, used to tint the train and branch its tool loadout.
+    pub(crate) king_crab_count: usize,
+    pub(crate) conga_tint: [f32; 3],
     // Persistent player top-speed multiplier, folded into base_speed in controls.rs. Tradeoff
     // upgrades push it up (nimbler) or down (sluggish); 1.0 is neutral. A stat knob, not a new
     // mechanic — the movement it scales already exists.

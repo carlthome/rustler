@@ -385,6 +385,9 @@ impl MainState {
                         dancer_king_catch = Some((crab.pos, on_beat_now));
                     }
                 }
+                if self.king_crab_count > 0 {
+                    crab.chain_color = Some(self.conga_tint);
+                }
                 // Get crab color before marking as caught
                 let crab_color = crab.crab_color();
 
