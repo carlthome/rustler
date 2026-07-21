@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.33.3 — 2026-07-21
+
+### Performance
+- Draw level-title overlay rects from cached unit-square mesh instead of per-frame GPU buffers
+
+### Refactoring
+- Extract per-crab body rendering from graphics.rs into crab_draw.rs
+- Extract archetype-aura & cleave-effect draws from graphics.rs into auras.rs
+
 ## v0.33.2 — 2026-07-21
 
 ### Fixes
