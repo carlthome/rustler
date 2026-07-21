@@ -310,7 +310,9 @@ pub fn draw_world_map(
 }
 
 /// Pick a minimap size that keeps the visible-area rectangle legible as maps grow. A viewport-sized
-/// tutorial stays compact, while the larger campaign maps expand up to a readable HUD limit.
+/// tutorial stays compact, while the larger campaign maps expand up to a readable HUD limit. The
+/// 90px-per-world-viewport factor preserves the 90px medium-map viewport marker; 140–280px keeps
+/// the map useful without competing with the playfield.
 pub(crate) fn minimap_dimensions(viewport_w: f32, world_w: f32, world_h: f32) -> (f32, f32) {
     let map_w = (90.0 * (world_w / viewport_w)).clamp(140.0, 280.0);
     (map_w, map_w * (world_h / world_w))

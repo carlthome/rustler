@@ -11,6 +11,8 @@ pub enum MapSize {
 }
 
 impl MapSize {
+    /// Returns the factor by which each world dimension exceeds the viewport: 1.0 fits the
+    /// tutorial in one screen, while 2.0 and 4.0 create progressively larger campaign maps.
     pub const fn viewport_multiplier(self) -> f32 {
         match self {
             Self::Tutorial => 1.0,
