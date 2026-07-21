@@ -22,6 +22,7 @@ thread_local! {
     pub static SPRINT_LABEL_CACHE: RefCell<Option<Text>> = RefCell::new(None);
     pub static WHISTLE_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
     pub static STOMP_LABEL_CACHE: RefCell<Option<(bool, Text)>> = RefCell::new(None);
+    pub static FLASHLIGHT_LABEL_CACHE: RefCell<Option<(u8, Text)>> = RefCell::new(None);
 
     pub static GROOVE_LABEL_CACHE: RefCell<Option<(bool, Text, f32)>> = RefCell::new(None);
 

@@ -1624,21 +1624,33 @@ impl MainState {
                     .dest(Vec2::new(bar_x, fbar_y))
                     .color(Color::from_rgb(255, 255, 255)),
             );
-            let flabel = if self.flashlight.on {
-                "Flashlight (F) ON"
+            let fstate: u8 = if self.flashlight.on {
+                0
             } else if fready {
-                "Flashlight (F)"
+                1
             } else {
-                "Flashlight (F) recharging..."
+                2
             };
-            let mut ft = Text::new(flabel);
-            ft.set_scale(13.0);
-            canvas.draw(
-                &ft,
-                DrawParam::default()
-                    .dest(Vec2::new(bar_x + bar_width + 8.0, fbar_y - 2.0))
-                    .color(Color::from_rgb(255, 200, 100)),
-            );
+            FLASHLIGHT_LABEL_CACHE.with(|c| {
+                let mut cache = c.borrow_mut();
+                let needs_rebuild = !matches!(&*cache, Some((s, _)) if *s == fstate);
+                if needs_rebuild {
+                    let flabel = match fstate {
+                        0 => "Flashlight (F) ON",
+                        1 => "Flashlight (F)",
+                        _ => "Flashlight (F) recharging...",
+                    };
+                    let mut text = Text::new(flabel);
+                    text.set_scale(13.0);
+                    *cache = Some((fstate, text));
+                }
+                canvas.draw(
+                    &cache.as_ref().unwrap().1,
+                    DrawParam::default()
+                        .dest(Vec2::new(bar_x + bar_width + 8.0, fbar_y - 2.0))
+                        .color(Color::from_rgb(255, 200, 100)),
+                );
+            });
         }
 
         // Debug info: current level in bottom-left corner, small and unobtrusive.
