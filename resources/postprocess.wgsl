@@ -66,6 +66,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = mix(color, blurred, blend);
     }
 
+    // Color punch — keep the beach vivid at rest, then intensify it with the groove.
+    let luma = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+    let saturation = 1.12 + pp.groove * 0.28;
+    color = mix(vec3<f32>(luma), color, saturation);
+    let contrast = 1.04 + pp.groove * 0.10;
+    color = clamp(
+        (color - vec3<f32>(0.5)) * contrast + vec3<f32>(0.5),
+        vec3<f32>(0.0),
+        vec3<f32>(1.0),
+    );
+
     // Title card effect — desaturate + darken the world while the level card is showing.
     // t=0: no effect. t=1: full greyscale + slight darkening.
     if (pp.title_card_t > 0.0) {
