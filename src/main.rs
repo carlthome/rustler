@@ -787,6 +787,17 @@ impl MainState {
 
 enum AppState {
     Loading { has_drawn: bool },
+    // Holds the freshly-created MainState for one extra frame so that the first
+    // state.draw() call happens in a different ggez tick than MainState::new().
+    // ggez's ShaderParams::set_uniforms() uses a dynamic-offset uniform buffer
+    // whose BindGroup covers the full buffer (size: None).  If new() and the
+    // first draw() share the same tick number, set_uniforms() sees last_tick ==
+    // ticks() and skips the per-tick arena reset, allocating at offset 256
+    // instead of 0.  set_bind_group(3, bg, &[256]) then overruns the 512-byte
+    // buffer → wgpu validation panic.  Spending one more frame in Warming
+    // advances the tick counter so the arena is properly freed before the first
+    // game draw.
+    Warming(MainState),
     Ready(MainState),
 }
 
@@ -794,11 +805,20 @@ impl event::EventHandler for AppState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         match self {
             Self::Loading { has_drawn } if *has_drawn => {
-                *self = Self::Ready(MainState::new(ctx)?);
+                *self = Self::Warming(MainState::new(ctx)?);
                 Ok(())
             }
             Self::Loading { has_drawn } => {
                 *has_drawn = true;
+                Ok(())
+            }
+            Self::Warming(_) => {
+                // Transition to Ready on the tick after MainState was created.
+                if let Self::Warming(state) =
+                    std::mem::replace(self, Self::Loading { has_drawn: false })
+                {
+                    *self = Self::Ready(state);
+                }
                 Ok(())
             }
             Self::Ready(state) => state.update(ctx),
@@ -807,7 +827,9 @@ impl event::EventHandler for AppState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         match self {
-            Self::Loading { .. } => draw_loading_screen(ctx, 0.0, "LOADING THE RAVE..."),
+            Self::Loading { .. } | Self::Warming(_) => {
+                draw_loading_screen(ctx, 0.0, "LOADING THE RAVE...")
+            }
             Self::Ready(state) => state.draw(ctx),
         }
     }
