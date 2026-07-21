@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.30.6 — 2026-07-21
+
+### Gameplay
+- Widen on-beat window for ranged tool casts (whistle, stomp, beat-wave, lasso), keep dash and catch tight per player feedback
+
 ## v0.30.5 — 2026-07-21
 
 ### Fixes

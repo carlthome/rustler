@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "rustler"
-version = "0.30.5"
+version = "0.30.6"
 dependencies = [
  "crevice",
  "ggez",
