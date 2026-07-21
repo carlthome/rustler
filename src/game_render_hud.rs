@@ -6,6 +6,9 @@
 //! overlay, minimap, tool roster, groove/combo meters, banners, and the flashlight
 //! shader pass. Pure rendering (`&self`), no gameplay-logic mutation; the heavy
 //! per-widget drawing lives in `graphics.rs` and `overlays.rs`.
+//!
+//! The screen-space switch itself (re-pinning the canvas to a fixed viewport offset only
+//! by screen shake) stays in `game_render.rs::draw_game`; this module runs entirely after it.
 
 use ggez::glam::Vec2;
 use ggez::graphics::{
