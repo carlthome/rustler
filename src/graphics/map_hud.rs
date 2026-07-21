@@ -19,6 +19,9 @@ const KING_LOADOUT_PULSE_FREQUENCY: f32 = 6.0;
 const KING_LOADOUT_PULSE_PHASE: f32 = 0.7;
 const KING_LOADOUT_PULSE_AMPLITUDE: f32 = 0.10;
 const KING_LOADOUT_SINE_MIDPOINT: f32 = 0.5;
+const WORLD_MAP_SHALLOWS_SCALE: f32 = 1.035;
+const WORLD_MAP_CHEVRON_T: f32 = 0.55;
+const WORLD_MAP_CHEVRON_TANGENT_DELTA: f32 = 0.03;
 // Fire, Tide, Rhythm, Hermit, Dancer map to Beam, Whistle, Stomp, Lasso, Whistle.
 const KING_POWER_TOOL_RANKS: [usize; 5] = [0, 2, 3, 1, 2];
 const KING_LOADOUT_CARDS: [(&str, &str, [f32; 3]); 5] = [
@@ -158,7 +161,7 @@ pub fn draw_world_map(
             // Shallow water and a pale surf line separate the coast from the near-black ocean.
             let shallows = island
                 .iter()
-                .map(|p| (*p - Vec2::new(sx * 0.5, sy * 0.55)) * 1.035
+                .map(|p|                 (*p - Vec2::new(sx * 0.5, sy * 0.55)) * WORLD_MAP_SHALLOWS_SCALE
                     + Vec2::new(sx * 0.5, sy * 0.55))
                 .collect::<Vec<_>>();
             builder.polygon(DrawMode::fill(), &shallows, Color::new(0.08, 0.39, 0.48, 0.82))?;
@@ -404,6 +407,8 @@ pub fn draw_world_map(
                     let u = 1.0 - t;
                     a * (u * u) + control * (2.0 * u * t) + b * (t * t)
                 };
+                // The dark silhouette uses a few extra samples to keep its wider curve smooth;
+                // the thinner colored dashes below need fewer samples for the same visual result.
                 let outline = (0..=18)
                     .map(|step| curve(step as f32 / 18.0))
                     .collect::<Vec<_>>();
@@ -437,8 +442,10 @@ pub fn draw_world_map(
                     }
                 }
                 // Small forward chevrons remove any ambiguity about the numbered itinerary.
-                let mid = curve(0.55);
-                let tangent = (curve(0.58) - curve(0.52)).normalize_or_zero();
+                let mid = curve(WORLD_MAP_CHEVRON_T);
+                let tangent = (curve(WORLD_MAP_CHEVRON_T + WORLD_MAP_CHEVRON_TANGENT_DELTA)
+                    - curve(WORLD_MAP_CHEVRON_T - WORLD_MAP_CHEVRON_TANGENT_DELTA))
+                .normalize_or_zero();
                 let normal = Vec2::new(-tangent.y, tangent.x);
                 builder.polygon(
                     DrawMode::fill(),
@@ -593,6 +600,8 @@ pub fn draw_world_map(
         WORLD_MAP_SELECTED_CACHE.with(|c| -> ggez::GameResult {
             let mut cache = c.borrow_mut();
             let key = (map.selected, selected.completed, selected.unlocked);
+            // Only selection and progression state affect the caption; cached text and width are the
+            // derived payload and therefore intentionally excluded from the validity key.
             if cache
                 .as_ref()
                 .map(|(i, completed, unlocked, _, _)| (*i, *completed, *unlocked))

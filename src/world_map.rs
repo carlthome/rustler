@@ -85,6 +85,8 @@ impl WorldMap {
             (0.77, 0.23),
             (0.88, 0.41),
             (0.82, 0.61),
+            // The circuit rounds the southern caves and treasury before climbing the eastern
+            // causeway, putting the remote Desktop finale directly beyond the last island stop.
             (0.59, 0.72),
             (0.72, 0.77),
             (0.88, 0.63),
