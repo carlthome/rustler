@@ -106,7 +106,7 @@ impl MainState {
             )?);
         }
         let sounds = GameSounds {
-            intro_music: Source::new(ctx, "/intro.ogg")?,
+            intro_music: sounds::synth_intro_menu(ctx)?,
             // Procedurally generated action groove — a driving pentatonic shuffle
             // with a generative riff, swing, call-and-response phrasing, and a
             // layered bass line (see sounds::synth_action_groove). Replaces the

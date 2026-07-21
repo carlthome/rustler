@@ -10,7 +10,7 @@ use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
 
 use super::audio::{
-    bitcrush, compress, encode_wav_mono16, gb_pulse_note, master_limiter, mix_into,
+    bitcrush, compress, encode_wav_mono16, encode_wav_stereo16, gb_pulse_note, master_limiter, mix_into,
     normalize_and_saturate, samples_to_pcm, synth_note, Adsr, Waveform, SAMPLE_RATE,
 };
 
@@ -131,6 +131,67 @@ pub fn detect_bpm_from_ogg(ogg_bytes: &[u8]) -> Option<f32> {
 pub const GROOVE_SWING: f32 = 0.66;
 /// Canonical key center for every gameplay music source: A3 / A minor.
 pub const ACTION_KEY_ROOT_MIDI: i32 = 57;
+
+/// Build the distant menu loop: a sparse, low-register A-minor motif under a wide, gently
+/// shifting bed of filtered wind and shoreline hiss. The deliberately imperfect noise keeps the
+/// menu from feeling like a sterile synth pad, while the long attacks and soft stereo movement
+/// make the music feel like it is arriving from far down the beach.
+pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
+    const LOOP_SECONDS: f32 = 8.0;
+    let n = (SAMPLE_RATE as f32 * LOOP_SECONDS) as usize;
+    let dt = 1.0 / SAMPLE_RATE as f32;
+    let mut left = vec![0.0_f32; n];
+    let mut right = vec![0.0_f32; n];
+    let notes = [220.0_f32, 261.63, 329.63, 293.66];
+    let mut noise_state = 0x51EA_BEEFu32;
+    let mut wind_l = 0.0_f32;
+    let mut wind_r = 0.0_f32;
+
+    for i in 0..n {
+        let t = i as f32 * dt;
+        let phrase = (t / 2.0).floor() as usize;
+        let phrase_t = t % 2.0;
+        let note = notes[phrase % notes.len()];
+        let fade_in = (phrase_t / 0.55).min(1.0);
+        let fade_out = ((2.0 - phrase_t) / 0.7).min(1.0);
+        let env = fade_in * fade_out;
+        let phase = std::f32::consts::TAU * note * t;
+        let sub = std::f32::consts::TAU * (note * 0.5) * t;
+        let music = (phase.sin() * 0.72 + sub.sin() * 0.28) * env * 0.11;
+
+        // A slow one-pole low-pass turns deterministic noise into a soft, irregular sea breeze.
+        noise_state ^= noise_state << 13;
+        noise_state ^= noise_state >> 17;
+        noise_state ^= noise_state << 5;
+        let raw = noise_state as f32 / u32::MAX as f32 * 2.0 - 1.0;
+        wind_l += (raw - wind_l) * 0.0018;
+        wind_r += (raw * 0.73 - wind_r) * 0.0015;
+        let gust = 0.72 + 0.28 * (std::f32::consts::TAU * 0.11 * t).sin();
+        let hiss = raw * 0.004 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
+        let ambience_l = (wind_l * 0.07 + hiss) * gust;
+        let ambience_r = (wind_r * 0.07 + hiss * 0.8) * gust;
+
+        // Slow, opposing movement keeps the image broad without sounding like a hard pan.
+        let pan = (std::f32::consts::TAU * 0.045 * t).sin() * 0.72;
+        let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
+        left[i] = ambience_l + music * angle.cos();
+        right[i] = ambience_r + music * angle.sin();
+    }
+
+    // A quiet cross-channel reflection supplies natural distance and prevents the dry motif from
+    // sitting directly between the speakers.
+    let delay = (0.19 * SAMPLE_RATE as f32) as usize;
+    for i in delay..n {
+        left[i] += right[i - delay] * 0.12;
+        right[i] += left[i - delay] * 0.12;
+    }
+    let wav = encode_wav_stereo16(&left, &right);
+    let data = SoundData::from_bytes(&wav)?;
+    let mut src = Source::from_data(ctx, data)?;
+    src.set_repeat(true);
+    src.set_volume(0.34);
+    Ok(src)
+}
 
 // ---------------------------------------------------------------------------
 // Crab-theme melody synthesiser
