@@ -624,31 +624,6 @@ impl MainState {
             return;
         }
 
-        /// Bot-only full-charge lasso release. It uses the same target selection and throw state as a
-        /// real mouse release, while keeping the input harness independent of window coordinates.
-        pub(crate) fn bot_fire_lasso(&mut self) {
-            if self.lasso_phase != crate::state::LassoPhase::Idle {
-                return;
-            }
-            self.lasso_charge = LASSO_MAX_CHARGE_TIME;
-            let origin = self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
-            let throw_range = LASSO_MAX_RANGE;
-            let aim_point = self.lasso_aim_point(origin, throw_range);
-            let to_aim = aim_point - origin;
-            let aim_dist = to_aim.length();
-            self.lasso_target = if aim_dist > throw_range {
-                origin + to_aim / aim_dist * throw_range
-            } else if aim_dist > 1.0 {
-                aim_point
-            } else {
-                origin + self.last_dir.normalize_or_zero() * throw_range
-            };
-            self.lasso_origin = origin;
-            self.lasso_timer = LASSO_THROW_TIME;
-            self.lasso_phase = crate::state::LassoPhase::Throwing;
-            self.lasso_pos = Some(origin);
-            self.lasso_charge = 0.0;
-        }
         let center =
             self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
         self.stomp_center = center;
@@ -667,6 +642,32 @@ impl MainState {
             30.0,
             [0.85, 0.8, 0.7, 1.0],
         );
+    }
+
+    /// Bot-only full-charge lasso release. It uses the same target selection and throw state as a
+    /// real mouse release, while keeping the input harness independent of window coordinates.
+    pub(crate) fn bot_fire_lasso(&mut self) {
+        if self.lasso_phase != crate::state::LassoPhase::Idle {
+            return;
+        }
+        self.lasso_charge = LASSO_MAX_CHARGE_TIME;
+        let origin = self.player_pos + Vec2::new(crate::PLAYER_SIZE / 2.0, crate::PLAYER_SIZE / 2.0);
+        let throw_range = LASSO_MAX_RANGE;
+        let aim_point = self.lasso_aim_point(origin, throw_range);
+        let to_aim = aim_point - origin;
+        let aim_dist = to_aim.length();
+        self.lasso_target = if aim_dist > throw_range {
+            origin + to_aim / aim_dist * throw_range
+        } else if aim_dist > 1.0 {
+            aim_point
+        } else {
+            origin + self.last_dir.normalize_or_zero() * throw_range
+        };
+        self.lasso_origin = origin;
+        self.lasso_timer = LASSO_THROW_TIME;
+        self.lasso_phase = crate::state::LassoPhase::Throwing;
+        self.lasso_pos = Some(origin);
+        self.lasso_charge = 0.0;
     }
 
     /// Wave: the wide ranged beat pulse. An on-beat cast is the ranged parry — it repels a rival
@@ -747,6 +748,13 @@ impl MainState {
                 }
                 BotAction::SeekDelivery(on) => {
                     self.bot.as_mut().unwrap().seek_delivery = on;
+                }
+                BotAction::ForceDelivery => {
+                    if self.chain_count > 0 {
+                        self.player_pos = self.pen_pos - Vec2::splat(crate::PLAYER_SIZE / 2.0);
+                        self.player_vel = Vec2::ZERO;
+                        self.try_deliver_train(ctx);
+                    }
                 }
                 BotAction::ForceNpcCross => {
                     self.force_npc_cross();

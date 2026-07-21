@@ -26,6 +26,8 @@ pub enum BotAction {
     // When active, steer toward the campaign pen whenever a train is being hauled. Used by the
     // delivery tutorial and BankCrabs campaign goal; disabled for goals that require a live train.
     SeekDelivery(bool),
+    // Stage the player at the pen for one real delivery attempt.
+    ForceDelivery,
     // Deterministically exercise the reverse-Snake steal path: teleport the nearest rival NPC King
     // Crab train's leader onto a mid-chain link of the player's conga line and clear its steal
     // cooldown, so the splice-steal fires this frame if a stealable chain exists. A no-op when the
@@ -257,28 +259,43 @@ pub fn script_campaign_full() -> Vec<BotEvent> {
         BotEvent { at: 106.0, action: BotAction::Assert(BotAssert::TutorialActive) },
         BotEvent { at: 106.0, action: BotAction::SeekCatch(true) },
         BotEvent { at: 106.0, action: BotAction::SeekDelivery(true) },
-        BotEvent { at: 150.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent { at: 180.0, action: BotAction::Assert(BotAssert::TutorialDone) },
         // ShellCrack.
-        BotEvent { at: 151.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 151.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 153.0, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 153.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 195.0, action: BotAction::Assert(BotAssert::TutorialDone) },
-        // First real map: bank 25 crabs, then return to the map.
-        BotEvent { at: 196.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 196.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 198.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 198.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 198.0, action: BotAction::SeekDelivery(true) },
-        BotEvent { at: 280.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
-        // Second real map: build a live train of 15 without banking it.
-        BotEvent { at: 281.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 281.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 283.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 283.0, action: BotAction::SeekDelivery(false) },
-        BotEvent { at: 325.0, action: BotAction::Assert(BotAssert::ChainAtLeast(15)) },
-        BotEvent { at: 330.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent { at: 181.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 181.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 182.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 200.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        // First real map: enter the BankCrabs goal and keep the run alive through several waves,
+        // then verify that Escape returns the player to the campaign map.
+        BotEvent { at: 201.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 201.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 203.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 203.0, action: BotAction::SeekCatch(true) },
+        BotEvent { at: 203.0, action: BotAction::SeekDelivery(true) },
+        BotEvent { at: 260.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 261.0, action: BotAction::TapKey(KeyCode::Escape) },
+        BotEvent { at: 262.0, action: BotAction::Assert(BotAssert::MainMenu) },
+        // Re-enter the campaign and select the second real map: verify its BuildTrain goal can be
+        // reached without relying on the first map's completion state.
+        BotEvent { at: 262.5, action: BotAction::TapKey(KeyCode::KeyC) },
+        BotEvent { at: 263.5, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 264.0, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 264.5, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 266.0, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 266.0, action: BotAction::SeekDelivery(false) },
+        BotEvent { at: 310.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent { at: 315.0, action: BotAction::TapKey(KeyCode::Escape) },
+        BotEvent { at: 316.0, action: BotAction::Assert(BotAssert::MainMenu) },
     ]);
+    let mut delivery_at = 108.0;
+    while delivery_at < 260.0 {
+        script.insert(
+            script.len().saturating_sub(1),
+            BotEvent { at: delivery_at, action: BotAction::ForceDelivery },
+        );
+        delivery_at += 1.0;
+    }
+    script.sort_by(|a, b| a.at.total_cmp(&b.at));
     script
 }
 

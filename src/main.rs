@@ -1173,7 +1173,7 @@ fn main() -> GameResult {
             "menu_to_game" => BotState::new(script_menu_to_game(), 60.0),
             "campaign_escape" => BotState::new(script_campaign_escape(), 8.0),
             "campaign_tutorial" => BotState::new(script_campaign_tutorial(), 76.0),
-            "campaign_full" => BotState::new(script_campaign_full(), 336.0),
+            "campaign_full" => BotState::new(script_campaign_full(), 322.0),
             "npc_steal" => BotState::new(script_npc_steal(), 58.0),
             "player_steal" => BotState::new(script_player_steal(), 58.0),
             "steal_defense" => BotState::new(script_steal_defense(), 58.0),

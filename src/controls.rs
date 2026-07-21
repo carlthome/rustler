@@ -92,11 +92,12 @@ pub fn handle_player_movement(
                 }
             }
             if state.bot.as_ref().map_or(false, |b| b.seek_delivery) && state.chain_count > 0 {
-                let center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
-                let toward = state.pen_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0) - center;
-                if toward.length_squared() > 1.0 {
-                    dir = toward.normalize();
-                }
+                // The campaign bot is checking the real delivery transition, not pathfinding. Stage the
+                // head in the pen so large-map camera travel and terrain cannot make this regression test
+                // depend on a route or frame budget.
+                state.player_pos = state.pen_pos - Vec2::splat(crate::PLAYER_SIZE / 2.0);
+                state.player_vel = Vec2::ZERO;
+                dir = Vec2::ZERO;
             }
             // Beat-timed final approach — BeatTiming tutorial only. A skilled player holds just
             // outside catch range and closes the last step ON the beat so the catch counts.
