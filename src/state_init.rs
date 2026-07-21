@@ -105,8 +105,14 @@ impl MainState {
                 tier,
             )?);
         }
+        let intro_music = {
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            ctx.fs.open("/intro.ogg")?.read_to_end(&mut bytes)?;
+            sounds::synth_intro_menu(ctx, &bytes)?
+        };
         let sounds = GameSounds {
-            intro_music: Source::new(ctx, "/intro.ogg")?,
+            intro_music,
             // Procedurally generated action groove — a driving pentatonic shuffle
             // with a generative riff, swing, call-and-response phrasing, and a
             // layered bass line (see sounds::synth_action_groove). Replaces the
