@@ -35,7 +35,11 @@ pub fn draw_deliver_beam(
     let angle = dir.y.atan2(dir.x);
     let f = flash.clamp(0.0, 1.0);
     // Base color: gold for a perfect on-beat bank, go-green for a plain one.
-    let (r, g, b) = if perfect { (1.0, 0.85, 0.35) } else { (0.5, 1.0, 0.55) };
+    let (r, g, b) = if perfect {
+        (1.0, 0.85, 0.35)
+    } else {
+        (0.5, 1.0, 0.55)
+    };
 
     let line = unit_line(ctx)?;
     let orig = canvas.blend_mode();
@@ -128,7 +132,8 @@ pub fn draw_delivery_pen(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -152,7 +157,11 @@ pub fn draw_delivery_pen(
     let beat = beat_intensity.clamp(0.0, 1.0);
 
     // Warm goal-zone fill (normal blend so it reads as a marked patch of ground, not a glow).
-    let fill_alpha = if ready { 0.16 + 0.12 * pulse + haul * 0.12 } else { 0.08 + 0.04 * pulse };
+    let fill_alpha = if ready {
+        0.16 + 0.12 * pulse + haul * 0.12
+    } else {
+        0.08 + 0.04 * pulse
+    };
     canvas.draw(
         unit_circle,
         DrawParam::default()
@@ -172,7 +181,11 @@ pub fn draw_delivery_pen(
     } else {
         (1.0, 0.82, 0.35)
     };
-    let ring_alpha = if ready { 0.55 + 0.35 * pulse + haul * 0.1 } else { 0.3 + 0.15 * pulse };
+    let ring_alpha = if ready {
+        0.55 + 0.35 * pulse + haul * 0.1
+    } else {
+        0.3 + 0.15 * pulse
+    };
     let boundary = cached_stroke_circle(ctx, radius, 3.0)?;
     canvas.draw(
         &boundary,
@@ -199,14 +212,12 @@ pub fn draw_delivery_pen(
         let reach = cached_stroke_circle(ctx, reach_r, 2.0 + haul * 2.0)?;
         canvas.draw(
             &reach,
-            DrawParam::default()
-                .dest(center)
-                .color(Color::new(
-                    0.6 + haul * 0.4,
-                    1.0,
-                    0.45,
-                    (haul * 0.55 * (1.0 - reach_phase)).clamp(0.0, 1.0),
-                )),
+            DrawParam::default().dest(center).color(Color::new(
+                0.6 + haul * 0.4,
+                1.0,
+                0.45,
+                (haul * 0.55 * (1.0 - reach_phase)).clamp(0.0, 1.0),
+            )),
         );
     }
 
@@ -517,9 +528,12 @@ pub fn draw_haul_worth(
         );
         canvas.draw(
             text,
-            DrawParam::default()
-                .dest(base)
-                .color(Color::new(0.65 * glow + 0.2, 1.0 * glow, 0.45 * glow + 0.1, 0.92)),
+            DrawParam::default().dest(base).color(Color::new(
+                0.65 * glow + 0.2,
+                1.0 * glow,
+                0.45 * glow + 0.1,
+                0.92,
+            )),
         );
         Ok(())
     })
@@ -587,7 +601,8 @@ pub fn draw_delivery_streak(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -640,7 +655,11 @@ pub fn draw_delivery_streak(
         let w = *w;
         // Sit just below the pen, opposite the worth tag above it. A tiny urgency jitter shakes the
         // tag when a notch-drop is imminent so the warning reads even without color.
-        let jitter = if urgency > 0.5 { (time * 40.0).sin() * urgency * 2.0 } else { 0.0 };
+        let jitter = if urgency > 0.5 {
+            (time * 40.0).sin() * urgency * 2.0
+        } else {
+            0.0
+        };
         let base = center + Vec2::new(-w * 0.5 + jitter, radius + 12.0);
         canvas.draw(
             text,
@@ -650,9 +669,12 @@ pub fn draw_delivery_streak(
         );
         canvas.draw(
             text,
-            DrawParam::default()
-                .dest(base)
-                .color(Color::new(cr, (cg + 0.2).min(1.0), cb.max(0.15), 0.7 + 0.3 * pulse)),
+            DrawParam::default().dest(base).color(Color::new(
+                cr,
+                (cg + 0.2).min(1.0),
+                cb.max(0.15),
+                0.7 + 0.3 * pulse,
+            )),
         );
         Ok(())
     })?;
@@ -718,7 +740,12 @@ pub fn draw_pen_guide(
 
     // Warm green-gold, matching the pen's "come cash in" palette. Brightens with urgency + beat.
     let bright = (0.6 + u * 0.35 + beat * 0.15).clamp(0.0, 1.0);
-    let col = Color::new(0.55 * bright + 0.25, 1.0 * bright, 0.5 * bright + 0.15, bright);
+    let col = Color::new(
+        0.55 * bright + 0.25,
+        1.0 * bright,
+        0.5 * bright + 0.15,
+        bright,
+    );
 
     // Draw a downward-into-the-pen chevron (two wings) pointing along `angle`, plus a soft dot,
     // at `at` with size `size`. Reused for both the edge-pinned and on-field cases.

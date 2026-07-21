@@ -30,7 +30,8 @@ pub fn draw_beat_indicator(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -65,7 +66,11 @@ pub fn draw_beat_indicator(
     // The downbeat punches ~35% bigger and flashes white-hot on the hit, so beat 1 feels like the
     // fill it is rather than one of four identical ticks. Off-beat 2/3/4 keep the normal size/colour.
     let downbeat_hit = is_downbeat && on_beat;
-    let pulse_r = if downbeat_hit { pulse_r * 1.35 } else { pulse_r };
+    let pulse_r = if downbeat_hit {
+        pulse_r * 1.35
+    } else {
+        pulse_r
+    };
     let alpha = ((80.0 + beat_intensity * 175.0) as u8).min(255);
     // The marker flashes green in the on-beat window (white-hot on the downbeat), otherwise warm amber.
     let marker_col = if downbeat_hit {
@@ -153,7 +158,8 @@ pub fn draw_reef_phrase(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -225,7 +231,8 @@ pub fn draw_wave_telegraph(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -247,7 +254,9 @@ pub fn draw_wave_telegraph(
         DrawParam::default()
             .dest(center)
             .scale(Vec2::splat(ring_r + 6.0))
-            .color(Color::from_rgba(halo_rgb.0, halo_rgb.1, halo_rgb.2, halo_alpha)),
+            .color(Color::from_rgba(
+                halo_rgb.0, halo_rgb.1, halo_rgb.2, halo_alpha,
+            )),
     );
     // Thin bright leading ring, built stroked so it reads as an outline closing in. Reuses
     // `cached_stroke_circle` (same cache every other beat-synced ring in this file draws from)
@@ -266,9 +275,12 @@ pub fn draw_wave_telegraph(
         let outer = cached_stroke_circle(ctx, ring_r + 14.0 + throb * 6.0, 2.0)?;
         canvas.draw(
             &outer,
-            DrawParam::default()
-                .dest(center)
-                .color(Color::from_rgba(255, 170, 40, ((70.0 + a * 120.0) as u8).min(210))),
+            DrawParam::default().dest(center).color(Color::from_rgba(
+                255,
+                170,
+                40,
+                ((70.0 + a * 120.0) as u8).min(210),
+            )),
         );
     }
     Ok(())
@@ -315,7 +327,12 @@ pub fn draw_combo_meter(
     // live (most of active play). Two instanced draws is the same technique already used for
     // particles/legs/bodies/rope/trails/marchers/radar.
     let glow_radius = radius + 5.0;
-    let glow_color = Color::new(tier_color.r, tier_color.g, tier_color.b, tier_color.a * 0.35);
+    let glow_color = Color::new(
+        tier_color.r,
+        tier_color.g,
+        tier_color.b,
+        tier_color.a * 0.35,
+    );
 
     COMBO_ARC_MAIN_PARAMS.with(|main_cell| -> ggez::GameResult {
         COMBO_ARC_GLOW_PARAMS.with(|glow_cell| -> ggez::GameResult {
@@ -331,7 +348,8 @@ pub fn draw_combo_meter(
                     break;
                 }
                 let angle0 = rotation_offset + t0 * fill_fraction * std::f32::consts::TAU;
-                let angle1 = rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
+                let angle1 =
+                    rotation_offset + t1.min(fill_fraction) * fill_fraction * std::f32::consts::TAU;
 
                 // Main arc segment
                 let p0 = center + Vec2::new(angle0.cos(), angle0.sin()) * radius;
@@ -369,7 +387,11 @@ pub fn draw_combo_meter(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(main_params.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(line.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(
+                        line.clone(),
+                        instances,
+                        DrawParam::default(),
+                    );
                     Ok(())
                 })?;
             }
@@ -502,8 +524,12 @@ pub fn draw_crab_radar(
                 );
 
                 // Glow outline — same shape at 1.5x scale, matching the old glow_pts geometry.
-                let glow_color =
-                    Color::new(r.min(1.0), g.min(1.0), b.min(1.0), 0.35 + beat_intensity * 0.15);
+                let glow_color = Color::new(
+                    r.min(1.0),
+                    g.min(1.0),
+                    b.min(1.0),
+                    0.35 + beat_intensity * 0.15,
+                );
                 glow_params.push(
                     DrawParam::default()
                         .dest(origin)
@@ -518,14 +544,22 @@ pub fn draw_crab_radar(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(arrow_params.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(triangle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(
+                        triangle.clone(),
+                        instances,
+                        DrawParam::default(),
+                    );
                     Ok(())
                 })?;
                 RADAR_GLOW_INSTANCES.with(|inst_cell| -> ggez::GameResult {
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(glow_params.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(triangle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(
+                        triangle.clone(),
+                        instances,
+                        DrawParam::default(),
+                    );
                     Ok(())
                 })?;
             }

@@ -14,11 +14,7 @@ use rand::Rng;
 use crate::*;
 
 pub(crate) fn treasure_groove_level(current: f32, on_beat: bool) -> f32 {
-    if on_beat {
-        1.0
-    } else {
-        current.max(0.5)
-    }
+    if on_beat { 1.0 } else { current.max(0.5) }
 }
 
 impl MainState {
@@ -257,8 +253,12 @@ impl MainState {
                 TutorialKind::LassoGrab => self.crabs.iter().all(|c| c.caught),
             };
             if !completed && needs_restock {
-                self.crabs =
-                    spawn_tutorial_crabs(tut_kind, 6, (self.width, self.height), &mut crate::rng::rng());
+                self.crabs = spawn_tutorial_crabs(
+                    tut_kind,
+                    6,
+                    (self.width, self.height),
+                    &mut crate::rng::rng(),
+                );
             }
             let t = self.tutorial.as_mut().unwrap();
             if t.completed {
@@ -580,16 +580,15 @@ impl MainState {
                 self.groove = treasure_groove_level(self.groove, on_beat);
                 self.treasure_chest = None;
                 self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
-                self.particle_system
-                    .spawn_milestone_fireworks(
-                        pos,
-                        if on_beat {
-                            TREASURE_CHEST_ON_BEAT_PARTICLES
-                        } else {
-                            TREASURE_CHEST_OFF_BEAT_PARTICLES
-                        },
-                        &mut crate::rng::rng(),
-                    );
+                self.particle_system.spawn_milestone_fireworks(
+                    pos,
+                    if on_beat {
+                        TREASURE_CHEST_ON_BEAT_PARTICLES
+                    } else {
+                        TREASURE_CHEST_OFF_BEAT_PARTICLES
+                    },
+                    &mut crate::rng::rng(),
+                );
                 self.spawn_catch_shockwave(
                     pos,
                     if on_beat {
@@ -697,17 +696,27 @@ impl MainState {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
 
             // Collect candidate positions: NPC train leaders + uncaught boss crabs.
-            let npc_target = self.npc_trains.iter()
+            let npc_target = self
+                .npc_trains
+                .iter()
                 .map(|t| t.leader_pos)
                 .min_by_key(|p| (p.distance(player_center) * 100.0) as i32);
-            let boss_target = self.crabs.iter()
+            let boss_target = self
+                .crabs
+                .iter()
                 .filter(|c| !c.caught && c.is_boss())
                 .min_by_key(|c| (c.pos.distance(player_center) * 100.0) as i32)
                 .map(|c| c.pos);
 
             // Pick whichever is closer.
             let target = match (npc_target, boss_target) {
-                (Some(n), Some(b)) => Some(if n.distance(player_center) < b.distance(player_center) { n } else { b }),
+                (Some(n), Some(b)) => {
+                    Some(if n.distance(player_center) < b.distance(player_center) {
+                        n
+                    } else {
+                        b
+                    })
+                }
                 (Some(n), None) => Some(n),
                 (None, Some(b)) => Some(b),
                 (None, None) => None,
@@ -717,13 +726,15 @@ impl MainState {
                 let desired = (t - player_center).normalize_or_zero();
                 if desired.length() > 0.1 {
                     let speed = 6.0 * dt;
-                    self.flashlight.aim_dir = (self.flashlight.aim_dir + (desired - self.flashlight.aim_dir) * speed).normalize_or_zero();
+                    self.flashlight.aim_dir = (self.flashlight.aim_dir
+                        + (desired - self.flashlight.aim_dir) * speed)
+                        .normalize_or_zero();
                 }
             }
 
             // Charge drain while on, passive regen while off.
-            const DRAIN_PER_SEC: f32 = 0.18;   // ~5.5s full charge
-            const REGEN_PER_SEC: f32 = 0.055;  // ~18s passive regen (on-beat adds on top)
+            const DRAIN_PER_SEC: f32 = 0.18; // ~5.5s full charge
+            const REGEN_PER_SEC: f32 = 0.055; // ~18s passive regen (on-beat adds on top)
             if self.flashlight.on {
                 self.flashlight.charge = (self.flashlight.charge - DRAIN_PER_SEC * dt).max(0.0);
                 if self.flashlight.charge <= 0.0 {
@@ -788,8 +799,12 @@ impl MainState {
         let mut arrivals = std::mem::take(&mut self.marcher_arrivals_buf);
         self.penned_marchers.update(dt, &mut arrivals);
         for &(pos, color) in arrivals.iter() {
-            self.particle_system
-                .spawn_catch_effect(pos, color, CrabType::Normal, &mut crate::rng::rng());
+            self.particle_system.spawn_catch_effect(
+                pos,
+                color,
+                CrabType::Normal,
+                &mut crate::rng::rng(),
+            );
         }
         self.marcher_arrivals_buf = arrivals;
         // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the

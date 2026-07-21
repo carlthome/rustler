@@ -8,36 +8,35 @@
 
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
-use ggez::graphics::{
-    BlendMode, Canvas, Color, DrawParam, Rect, Sampler, Text,
-};
+use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Rect, Sampler, Text};
 use ggez::input::keyboard::KeyCode;
 use ggez::winit::keyboard::PhysicalKey;
 use ggez::{Context, GameResult};
 
 use crate::constants::*;
 use crate::enemies::CrabType;
-use crate::hud_cache::*;
-use crate::state::*;
-use crate::{how_to_play_body_text, menu, panic_snap_links};
 use crate::graphics::{
-    LassoDrawPhase, draw_ambient_motes, draw_beat_hit_punch, draw_beat_wave_ring,
-    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_shockwaves, draw_catch_trails,
-    draw_beat_keeper_ring, draw_chain_rings, draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_deliver_beam, draw_delivery_pen,
-    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings,
-    draw_floating_texts, draw_groove_call_ring, draw_haul_worth, draw_kelp_snag_warning, draw_lasso,
-    draw_lasso_windup, draw_particles, draw_pen_guide, draw_penned_marchers,
-    draw_puddle_ripples, draw_rustler, draw_sky_overlay, draw_slam_ring,
-    draw_speed_lines, draw_sprint_whoosh, draw_stomp_ring, draw_tail_run_badge, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_whistle_ring, draw_world_edge, draw_world_map, draw_world_zones, unit_circle, unit_line, unit_square,
+    LassoDrawPhase, draw_ambient_motes, draw_beat_hit_punch, draw_beat_keeper_ring,
+    draw_beat_wave_ring, draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring,
+    draw_catch_shockwaves, draw_catch_trails, draw_chain_rings, draw_cleave_slash,
+    draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_deliver_beam, draw_delivery_pen,
+    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_floating_texts,
+    draw_groove_call_ring, draw_haul_worth, draw_kelp_snag_warning, draw_lasso, draw_lasso_windup,
+    draw_particles, draw_pen_guide, draw_penned_marchers, draw_puddle_ripples, draw_rustler,
+    draw_sky_overlay, draw_slam_ring, draw_speed_lines, draw_sprint_whoosh, draw_stomp_ring,
+    draw_tail_run_badge, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_whistle_ring,
+    draw_world_edge, draw_world_map, draw_world_zones, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
     draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_beam_sneaky_pin,
-    draw_lasso_big_match, draw_lasso_magnet_match,
-    draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull,
-    draw_stomp_armored_crack, draw_stomp_dancer_match, draw_whistle_dancer_match,
-    draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
-    draw_whistle_thief_match,
+    draw_lasso_big_match, draw_lasso_magnet_match, draw_lasso_shell_deflect,
+    draw_lasso_thief_match, draw_magnet_cluster_pull, draw_stomp_armored_crack,
+    draw_stomp_dancer_match, draw_whistle_dancer_match, draw_whistle_golden_pull,
+    draw_whistle_shell_deflect, draw_whistle_sneaky_match, draw_whistle_thief_match,
 };
+use crate::hud_cache::*;
+use crate::state::*;
+use crate::{how_to_play_body_text, menu, panic_snap_links};
 
 impl MainState {
     fn draw_startup_logo(
@@ -923,7 +922,11 @@ impl MainState {
             }
             // The splice aims ~2/3 down the chain (cached_steal_target_pos); on a short chain it falls
             // back to the tail. Match that so the heat band centers on the link actually threatened.
-            let splice_center_frac = if self.chain_count >= 4 { 2.0 / 3.0 } else { 1.0 };
+            let splice_center_frac = if self.chain_count >= 4 {
+                2.0 / 3.0
+            } else {
+                1.0
+            };
             draw_conga_rope(
                 ctx,
                 canvas,
@@ -1038,8 +1041,12 @@ impl MainState {
             }
         });
 
-        let sprinting = (ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
-            || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight)))
+        let sprinting = (ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+            || ctx
+                .keyboard
+                .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight)))
             && self.sprint_stamina > 0.0
             && self.boost_timer <= 0.0;
 

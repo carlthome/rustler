@@ -22,23 +22,18 @@ pub(crate) fn presentation(time: f32) -> MenuIntroPresentation {
     let logo_alpha = if time < LOGO_FADE_IN_START {
         0.0
     } else if time < LOGO_FADE_IN_END {
-        smoothstep(
-            (time - LOGO_FADE_IN_START) / (LOGO_FADE_IN_END - LOGO_FADE_IN_START),
-        )
+        smoothstep((time - LOGO_FADE_IN_START) / (LOGO_FADE_IN_END - LOGO_FADE_IN_START))
     } else if time < LOGO_FADE_OUT_START {
         1.0
     } else if time < LOGO_FADE_OUT_END {
-        1.0 - smoothstep(
-            (time - LOGO_FADE_OUT_START) / (LOGO_FADE_OUT_END - LOGO_FADE_OUT_START),
-        )
+        1.0 - smoothstep((time - LOGO_FADE_OUT_START) / (LOGO_FADE_OUT_END - LOGO_FADE_OUT_START))
     } else {
         0.0
     };
     let menu_progress = smoothstep((time - MENU_REVEAL_AT) / (INTRO_END - MENU_REVEAL_AT));
     let moon_rise = menu_progress;
-    let moon_bloom = smoothstep(
-        (time - (MENU_REVEAL_AT + 0.18)) / (INTRO_END - (MENU_REVEAL_AT + 0.18)),
-    );
+    let moon_bloom =
+        smoothstep((time - (MENU_REVEAL_AT + 0.18)) / (INTRO_END - (MENU_REVEAL_AT + 0.18)));
     let menu_flash = (1.0 - (time - MENU_REVEAL_AT) / 0.16).clamp(0.0, 1.0);
     MenuIntroPresentation {
         logo_alpha,

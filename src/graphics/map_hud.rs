@@ -107,9 +107,8 @@ pub fn draw_world_map(
 
     let (sx, sy) = (width, height);
 
-    let node_to_screen = |(nx, ny): (f32, f32)| -> Vec2 {
-        Vec2::new(nx * sx, 0.18 * sy + ny * sy * 0.64)
-    };
+    let node_to_screen =
+        |(nx, ny): (f32, f32)| -> Vec2 { Vec2::new(nx * sx, 0.18 * sy + ny * sy * 0.64) };
 
     // A broad sandbar forms the playable island, with a smaller jungle core. The irregular
     // silhouettes reference DKC-style overworlds while the parchment colours sell the chart idea.
@@ -145,7 +144,10 @@ pub fn draw_world_map(
     WORLD_MAP_SCENERY_CACHE.with(|c| -> ggez::GameResult {
         let mut cache = c.borrow_mut();
         let key = (sx.round() as i32, sy.round() as i32);
-        if cache.as_ref().map_or(true, |(cached_key, _)| *cached_key != key) {
+        if cache
+            .as_ref()
+            .map_or(true, |(cached_key, _)| *cached_key != key)
+        {
             let mut builder = MeshBuilder::new();
             // The current pattern is static by design: this lets the decorative ocean remain
             // inexpensive while the selection ring supplies the map's motion.
@@ -164,17 +166,27 @@ pub fn draw_world_map(
             // Shallow water and a pale surf line separate the coast from the near-black ocean.
             let shallows = island
                 .iter()
-                .map(|p|                 (*p - Vec2::new(sx * 0.5, sy * 0.55)) * WORLD_MAP_SHALLOWS_SCALE
-                    + Vec2::new(sx * 0.5, sy * 0.55))
+                .map(|p| {
+                    (*p - Vec2::new(sx * 0.5, sy * 0.55)) * WORLD_MAP_SHALLOWS_SCALE
+                        + Vec2::new(sx * 0.5, sy * 0.55)
+                })
                 .collect::<Vec<_>>();
-            builder.polygon(DrawMode::fill(), &shallows, Color::new(0.08, 0.39, 0.48, 0.82))?;
+            builder.polygon(
+                DrawMode::fill(),
+                &shallows,
+                Color::new(0.08, 0.39, 0.48, 0.82),
+            )?;
             builder.polygon(DrawMode::fill(), &island, Color::new(0.78, 0.63, 0.32, 1.0))?;
             builder.polyline(
                 DrawMode::stroke(3.0),
                 &island,
                 Color::new(0.96, 0.87, 0.56, 0.9),
             )?;
-            builder.polygon(DrawMode::fill(), &jungle, Color::new(0.09, 0.29, 0.19, 0.92))?;
+            builder.polygon(
+                DrawMode::fill(),
+                &jungle,
+                Color::new(0.09, 0.29, 0.19, 0.92),
+            )?;
             // The island's regions give the route geography: a sheltered starter cove, a river
             // through the jungle, a high northern ridge, and dangerous eastern reefs. The nodes
             // now travel through those places instead of appearing as an abstract zig-zag.
@@ -198,11 +210,7 @@ pub fn draw_world_map(
                     Vec2::new(sx * x, sy * (y - 0.045 * scale)),
                     Vec2::new(sx * (x + 0.035 * scale), sy * (y + 0.055 * scale)),
                 ];
-                builder.polygon(
-                    DrawMode::fill(),
-                    &peak,
-                    Color::new(0.32, 0.34, 0.31, 1.0),
-                )?;
+                builder.polygon(DrawMode::fill(), &peak, Color::new(0.32, 0.34, 0.31, 1.0))?;
                 builder.line(
                     &[
                         Vec2::new(sx * (x - 0.012 * scale), sy * (y - 0.010 * scale)),
@@ -393,7 +401,10 @@ pub fn draw_world_map(
         let mut cache = c.borrow_mut();
         let unlocked: Vec<bool> = map.nodes.iter().map(|node| node.unlocked).collect();
         let key = (sx.round() as i32, sy.round() as i32, unlocked);
-        if cache.as_ref().map_or(true, |(cached_key, _)| *cached_key != key) {
+        if cache
+            .as_ref()
+            .map_or(true, |(cached_key, _)| *cached_key != key)
+        {
             let mut builder = MeshBuilder::new();
             for i in 0..map.nodes.len().saturating_sub(1) {
                 let a = node_to_screen(map.nodes[i].position);
@@ -658,7 +669,8 @@ pub fn draw_world_map(
     WORLD_MAP_HINT_CACHE.with(|c| -> ggez::GameResult {
         let mut cache = c.borrow_mut();
         if cache.is_none() {
-            let mut hint = Text::new("Left / Right: Navigate     Space / Enter: Play     Esc: Back");
+            let mut hint =
+                Text::new("Left / Right: Navigate     Space / Enter: Play     Esc: Back");
             hint.set_scale(15.0);
             let w = hint.measure(ctx)?.x;
             *cache = Some((hint, w));
@@ -681,8 +693,9 @@ pub fn draw_world_map(
         WORLD_MAP_SKIP_CACHE.with(|c| -> ggez::GameResult {
             let mut cache = c.borrow_mut();
             if cache.is_none() {
-                let mut warn =
-                    Text::new("Skipping ahead — earlier nodes will be marked complete. Confirm again to go.");
+                let mut warn = Text::new(
+                    "Skipping ahead — earlier nodes will be marked complete. Confirm again to go.",
+                );
                 warn.set_scale(16.0);
                 let w = warn.measure(ctx)?.x;
                 *cache = Some((warn, w));
@@ -733,30 +746,71 @@ pub fn draw_minimap(
     let (map_w, map_h) = minimap_dimensions(viewport_w, world_w, world_h);
     let map_x = viewport_w - map_w - 10.0;
     let map_y = 10.0;
-    let sp = |pos: Vec2| Vec2::new(map_x + (pos.x / world_w) * map_w, map_y + (pos.y / world_h) * map_h);
+    let sp = |pos: Vec2| {
+        Vec2::new(
+            map_x + (pos.x / world_w) * map_w,
+            map_y + (pos.y / world_h) * map_h,
+        )
+    };
     let dot = unit_circle(ctx)?;
     let sq = unit_square(ctx)?;
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 2.0, map_y - 2.0)).scale(Vec2::new(map_w + 4.0, map_h + 4.0)).color(Color::from_rgba(0, 0, 0, 150)));
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(map_x - 2.0, map_y - 2.0))
+            .scale(Vec2::new(map_w + 4.0, map_h + 4.0))
+            .color(Color::from_rgba(0, 0, 0, 150)),
+    );
     MINIMAP_DOT_PARAMS.with(|params_cell| -> ggez::GameResult {
         let mut params = params_cell.borrow_mut();
         params.clear();
         for crab in crabs.iter().filter(|c| !c.caught && !c.is_boss()) {
             let [r, g, b] = crab.crab_color();
-            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(2.5)).color(Color::new(r, g, b, 0.45)));
+            params.push(
+                DrawParam::default()
+                    .dest(sp(crab.pos))
+                    .scale(Vec2::splat(2.5))
+                    .color(Color::new(r, g, b, 0.45)),
+            );
         }
         for crab in crabs.iter().filter(|c| c.caught) {
             let [r, g, b] = crab.crab_color();
-            params.push(DrawParam::default().dest(sp(crab.pos)).scale(Vec2::splat(3.0)).color(Color::new(r, g, b, 0.85)));
+            params.push(
+                DrawParam::default()
+                    .dest(sp(crab.pos))
+                    .scale(Vec2::splat(3.0))
+                    .color(Color::new(r, g, b, 0.85)),
+            );
         }
         for &pos in npc_followers {
-            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat(2.0)).color(Color::new(0.96, 0.72, 0.16, 0.6)));
+            params.push(
+                DrawParam::default()
+                    .dest(sp(pos))
+                    .scale(Vec2::splat(2.0))
+                    .color(Color::new(0.96, 0.72, 0.16, 0.6)),
+            );
         }
         for &(pos, ls) in npc_leaders {
             let pulse = 0.6 + 0.4 * (time * 3.0).sin().abs();
-            params.push(DrawParam::default().dest(sp(pos)).scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse)).color(Color::new(0.96, 0.72, 0.16, 0.9)));
+            params.push(
+                DrawParam::default()
+                    .dest(sp(pos))
+                    .scale(Vec2::splat((3.0 + (ls - 1.2) * 2.0) * pulse))
+                    .color(Color::new(0.96, 0.72, 0.16, 0.9)),
+            );
         }
-        params.push(DrawParam::default().dest(sp(pen_pos)).scale(Vec2::splat(4.0)).color(Color::new(0.3, 1.0, 0.4, 0.85)));
-        params.push(DrawParam::default().dest(sp(player_pos)).scale(Vec2::splat(5.0)).color(Color::WHITE));
+        params.push(
+            DrawParam::default()
+                .dest(sp(pen_pos))
+                .scale(Vec2::splat(4.0))
+                .color(Color::new(0.3, 1.0, 0.4, 0.85)),
+        );
+        params.push(
+            DrawParam::default()
+                .dest(sp(player_pos))
+                .scale(Vec2::splat(5.0))
+                .color(Color::WHITE),
+        );
 
         MINIMAP_DOT_INSTANCES.with(|inst_cell| -> ggez::GameResult {
             let mut inst_slot = inst_cell.borrow_mut();
@@ -771,15 +825,63 @@ pub fn draw_minimap(
     let vw = (viewport_w / world_w) * map_w;
     let vh = (viewport_h / world_h) * map_h;
     let vc = Color::new(1.0, 1.0, 1.0, 0.45);
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy)).scale(Vec2::new(vw, 1.0)).color(vc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy + vh)).scale(Vec2::new(vw, 1.0)).color(vc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx, vy)).scale(Vec2::new(1.0, vh)).color(vc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(vx + vw, vy)).scale(Vec2::new(1.0, vh)).color(vc));
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(vx, vy))
+            .scale(Vec2::new(vw, 1.0))
+            .color(vc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(vx, vy + vh))
+            .scale(Vec2::new(vw, 1.0))
+            .color(vc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(vx, vy))
+            .scale(Vec2::new(1.0, vh))
+            .color(vc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(vx + vw, vy))
+            .scale(Vec2::new(1.0, vh))
+            .color(vc),
+    );
     let bc = Color::from_rgba(200, 200, 200, 80);
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y - 1.0)).scale(Vec2::new(map_w + 2.0, 1.0)).color(bc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y + map_h)).scale(Vec2::new(map_w + 2.0, 1.0)).color(bc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x - 1.0, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(map_x + map_w, map_y)).scale(Vec2::new(1.0, map_h)).color(bc));
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(map_x - 1.0, map_y - 1.0))
+            .scale(Vec2::new(map_w + 2.0, 1.0))
+            .color(bc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(map_x - 1.0, map_y + map_h))
+            .scale(Vec2::new(map_w + 2.0, 1.0))
+            .color(bc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(map_x - 1.0, map_y))
+            .scale(Vec2::new(1.0, map_h))
+            .color(bc),
+    );
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(map_x + map_w, map_y))
+            .scale(Vec2::new(1.0, map_h))
+            .color(bc),
+    );
     crate::hud_cache::MINIMAP_LABEL_CACHE.with(|c| {
         let mut slot = c.borrow_mut();
         if slot.is_none() {
@@ -787,7 +889,12 @@ pub fn draw_minimap(
             t.set_scale(11.0);
             *slot = Some(t);
         }
-        canvas.draw(slot.as_ref().unwrap(), DrawParam::default().dest(Vec2::new(map_x, map_y - 13.0)).color(Color::from_rgba(200, 200, 200, 110)));
+        canvas.draw(
+            slot.as_ref().unwrap(),
+            DrawParam::default()
+                .dest(Vec2::new(map_x, map_y - 13.0))
+                .color(Color::from_rgba(200, 200, 200, 110)),
+        );
     });
     Ok(())
 }
@@ -821,37 +928,101 @@ pub fn draw_day_weather_hud(
     let sq = unit_square(ctx)?;
     let night = ((day_phase_t - 0.5) / 0.5).clamp(0.0, 1.0);
     let day_bright = 1.0 - night;
-    canvas.draw(dot, DrawParam::default().dest(Vec2::new(x + 8.0, y + 8.0)).scale(Vec2::splat(8.0 * day_bright.max(0.2))).color(Color::new(1.0, 0.85 + 0.1 * day_bright, 0.3, day_bright.max(0.15))));
+    canvas.draw(
+        dot,
+        DrawParam::default()
+            .dest(Vec2::new(x + 8.0, y + 8.0))
+            .scale(Vec2::splat(8.0 * day_bright.max(0.2)))
+            .color(Color::new(
+                1.0,
+                0.85 + 0.1 * day_bright,
+                0.3,
+                day_bright.max(0.15),
+            )),
+    );
     if night > 0.1 {
-        canvas.draw(dot, DrawParam::default().dest(Vec2::new(x + 8.0, y + 8.0)).scale(Vec2::splat(7.0 * night)).color(Color::new(0.88, 0.9, 1.0, night * 0.85)));
+        canvas.draw(
+            dot,
+            DrawParam::default()
+                .dest(Vec2::new(x + 8.0, y + 8.0))
+                .scale(Vec2::splat(7.0 * night))
+                .color(Color::new(0.88, 0.9, 1.0, night * 0.85)),
+        );
     }
-    let phase_label: &'static str = match (day_phase_t * 4.0) as u32 { 0 => "DAWN", 1 => "DAY", 2 => "DUSK", _ => "NIGHT" };
+    let phase_label: &'static str = match (day_phase_t * 4.0) as u32 {
+        0 => "DAWN",
+        1 => "DAY",
+        2 => "DUSK",
+        _ => "NIGHT",
+    };
     crate::hud_cache::WEATHER_PHASE_CACHE.with(|c| {
         let mut slot = c.borrow_mut();
-        if slot.as_ref().map_or(true, |(cached, _)| *cached != phase_label) {
-            let mut t = Text::new(phase_label); t.set_scale(10.0);
+        if slot
+            .as_ref()
+            .map_or(true, |(cached, _)| *cached != phase_label)
+        {
+            let mut t = Text::new(phase_label);
+            t.set_scale(10.0);
             *slot = Some((phase_label, t));
         }
-        canvas.draw(&slot.as_ref().unwrap().1, DrawParam::default().dest(Vec2::new(x + 20.0, y + 2.0)).color(Color::new(0.85, 0.85, 0.95, 0.7)));
+        canvas.draw(
+            &slot.as_ref().unwrap().1,
+            DrawParam::default()
+                .dest(Vec2::new(x + 20.0, y + 2.0))
+                .color(Color::new(0.85, 0.85, 0.95, 0.7)),
+        );
     });
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w, 3.0)).color(Color::from_rgba(30, 30, 60, 180)));
-    let fc = if night > 0.5 { Color::new(0.5, 0.55, 0.9, 0.8) } else if day_phase_t < 0.15 || (day_phase_t > 0.45 && day_phase_t < 0.6) { Color::new(1.0, 0.6, 0.2, 0.8) } else { Color::new(1.0, 0.92, 0.4, 0.8) };
-    canvas.draw(sq, DrawParam::default().dest(Vec2::new(x, y + 18.0)).scale(Vec2::new(map_w * day_phase_t, 3.0)).color(fc));
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(x, y + 18.0))
+            .scale(Vec2::new(map_w, 3.0))
+            .color(Color::from_rgba(30, 30, 60, 180)),
+    );
+    let fc = if night > 0.5 {
+        Color::new(0.5, 0.55, 0.9, 0.8)
+    } else if day_phase_t < 0.15 || (day_phase_t > 0.45 && day_phase_t < 0.6) {
+        Color::new(1.0, 0.6, 0.2, 0.8)
+    } else {
+        Color::new(1.0, 0.92, 0.4, 0.8)
+    };
+    canvas.draw(
+        sq,
+        DrawParam::default()
+            .dest(Vec2::new(x, y + 18.0))
+            .scale(Vec2::new(map_w * day_phase_t, 3.0))
+            .color(fc),
+    );
     if weather_intensity > 0.05 {
         let da = weather_intensity * 0.8;
         for i in 0..4 {
             let dx = x + map_w - 30.0 + i as f32 * 7.0;
             let dy = y + 2.0 + ((time * 3.0 + i as f32 * 0.7).sin() * 3.0).abs();
-            canvas.draw(sq, DrawParam::default().dest(Vec2::new(dx, dy)).scale(Vec2::new(2.0, 6.0)).color(Color::new(0.5, 0.7, 1.0, da)));
+            canvas.draw(
+                sq,
+                DrawParam::default()
+                    .dest(Vec2::new(dx, dy))
+                    .scale(Vec2::new(2.0, 6.0))
+                    .color(Color::new(0.5, 0.7, 1.0, da)),
+            );
         }
         let is_storm = weather_intensity > 0.5;
         crate::hud_cache::WEATHER_STATE_CACHE.with(|c| {
             let mut slot = c.borrow_mut();
-            if slot.as_ref().map_or(true, |(cached_storm, _)| *cached_storm != is_storm) {
-                let mut t = Text::new(if is_storm { "STORM" } else { "RAIN" }); t.set_scale(10.0);
+            if slot
+                .as_ref()
+                .map_or(true, |(cached_storm, _)| *cached_storm != is_storm)
+            {
+                let mut t = Text::new(if is_storm { "STORM" } else { "RAIN" });
+                t.set_scale(10.0);
                 *slot = Some((is_storm, t));
             }
-            canvas.draw(&slot.as_ref().unwrap().1, DrawParam::default().dest(Vec2::new(x + map_w - 38.0, y + 12.0)).color(Color::new(0.6, 0.8, 1.0, da)));
+            canvas.draw(
+                &slot.as_ref().unwrap().1,
+                DrawParam::default()
+                    .dest(Vec2::new(x + map_w - 38.0, y + 12.0))
+                    .color(Color::new(0.6, 0.8, 1.0, da)),
+            );
         });
     }
     Ok(())
@@ -882,9 +1053,12 @@ pub fn draw_king_loadout(
 
     KING_LOADOUT_TEXT_CACHE.with(|cache| -> ggez::GameResult {
         let mut cache = cache.borrow_mut();
-        if cache.as_ref().map_or(true, |(saved_powers, saved_ranks, _)| {
-            *saved_powers != powers || *saved_ranks != tool_ranks
-        }) {
+        if cache
+            .as_ref()
+            .map_or(true, |(saved_powers, saved_ranks, _)| {
+                *saved_powers != powers || *saved_ranks != tool_ranks
+            })
+        {
             let mut labels = Vec::with_capacity(6);
             let noun = if captured == 1 { "POWER" } else { "POWERS" };
             let mut title = Text::new(format!("KING CONGA  ·  {} COLOR {}", captured, noun));
@@ -909,34 +1083,55 @@ pub fn draw_king_loadout(
             &labels[0],
             DrawParam::default()
                 .dest(Vec2::new(x0, y - 15.0))
-                .color(Color::new(conga_tint[0], conga_tint[1], conga_tint[2], 0.95)),
+                .color(Color::new(
+                    conga_tint[0],
+                    conga_tint[1],
+                    conga_tint[2],
+                    0.95,
+                )),
         );
         for (i, (_, _, color)) in KING_LOADOUT_CARDS.iter().enumerate() {
             let x = x0 + i as f32 * (card_w + gap);
             let active = powers[i] > 0;
-            let pulse = ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin()
-                * KING_LOADOUT_SINE_MIDPOINT
-                + KING_LOADOUT_SINE_MIDPOINT)
-                * KING_LOADOUT_PULSE_AMPLITUDE;
+            let pulse =
+                ((time * KING_LOADOUT_PULSE_FREQUENCY + i as f32 * KING_LOADOUT_PULSE_PHASE).sin()
+                    * KING_LOADOUT_SINE_MIDPOINT
+                    + KING_LOADOUT_SINE_MIDPOINT)
+                    * KING_LOADOUT_PULSE_AMPLITUDE;
             canvas.draw(
                 square_mesh,
                 DrawParam::default()
                     .dest(Vec2::new(x, y))
                     .scale(Vec2::new(card_w, 38.0))
-                    .color(Color::new(color[0], color[1], color[2], if active { 0.25 + pulse } else { 0.07 })),
+                    .color(Color::new(
+                        color[0],
+                        color[1],
+                        color[2],
+                        if active { 0.25 + pulse } else { 0.07 },
+                    )),
             );
             canvas.draw(
                 square_mesh,
                 DrawParam::default()
                     .dest(Vec2::new(x, y))
                     .scale(Vec2::new(card_w, if active { 3.0 } else { 1.0 }))
-                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.35 })),
+                    .color(Color::new(
+                        color[0],
+                        color[1],
+                        color[2],
+                        if active { 1.0 } else { 0.35 },
+                    )),
             );
             canvas.draw(
                 &labels[i + 1],
                 DrawParam::default()
                     .dest(Vec2::new(x + 5.0, y + 5.0))
-                    .color(Color::new(color[0], color[1], color[2], if active { 1.0 } else { 0.45 })),
+                    .color(Color::new(
+                        color[0],
+                        color[1],
+                        color[2],
+                        if active { 1.0 } else { 0.45 },
+                    )),
             );
         }
         Ok(())
@@ -955,11 +1150,11 @@ pub fn draw_tool_roster(
     whistle_max: f32,
     stomp_cd: f32,
     stomp_max: f32,
-    wave_busy: bool,     // true while the Wave shockwave ring is flying
+    wave_busy: bool, // true while the Wave shockwave ring is flying
     call_cd: f32,
     call_max: f32,
-    boost_cd: f32,       // dash cooldown
-    lasso_busy: bool,    // true when lasso is in flight/dragging
+    boost_cd: f32,    // dash cooldown
+    lasso_busy: bool, // true when lasso is in flight/dragging
     // Contextual usefulness: true when firing this tool RIGHT NOW would actually do something
     // (a target is in range). A ready+useful pad lights up bright so the player reads *which* tool
     // the moment calls for, not just which are off cooldown.
@@ -969,7 +1164,7 @@ pub fn draw_tool_roster(
     wave_useful: bool,
     call_useful: bool,
     // Groove/G state
-    groove: f32,         // 0..1 groove meter level (for V/G readiness hint)
+    groove: f32, // 0..1 groove meter level (for V/G readiness hint)
     time: f32,
     // Rhythm sync: progress toward the next beat (0 = just landed, 1 = about to land) and whether
     // the current instant is inside the on-beat cast window. A READY pad breathes with the beat
@@ -989,20 +1184,73 @@ pub fn draw_tool_roster(
     }
 
     let whistle_max_safe = if whistle_max <= 0.0 { 1.0 } else { whistle_max };
-    let stomp_max_safe   = if stomp_max   <= 0.0 { 1.0 } else { stomp_max };
-    let groove_clamped   = groove.clamp(0.0, 1.0);
-    let groove_hint: &str = if groove_clamped >= 0.75 { "SLAM ready!" } else { "need groove" };
+    let stomp_max_safe = if stomp_max <= 0.0 { 1.0 } else { stomp_max };
+    let groove_clamped = groove.clamp(0.0, 1.0);
+    let groove_hint: &str = if groove_clamped >= 0.75 {
+        "SLAM ready!"
+    } else {
+        "need groove"
+    };
 
     let call_max_safe = if call_max <= 0.0 { 1.0 } else { call_max };
 
     let slots = [
-        ToolSlot { key: "click",  name: "LASSO",   hint: "snags Thieves", color: [0.3, 0.85, 0.45], cooldown_ratio: if lasso_busy { 0.6 } else { 0.0 }, useful: lasso_useful },
-        ToolSlot { key: "E",      name: "WHISTLE",  hint: "pulls Dancers",  color: [0.4, 0.85, 1.0],  cooldown_ratio: (whistle_cd / whistle_max_safe).clamp(0.0, 1.0), useful: whistle_useful },
-        ToolSlot { key: "R",      name: "STOMP",    hint: "cracks shells",  color: [0.6, 0.7, 1.0],   cooldown_ratio: (stomp_cd   / stomp_max_safe).clamp(0.0, 1.0), useful: stomp_useful },
-        ToolSlot { key: "Q",      name: "WAVE",     hint: "shoves rivals",  color: [0.45, 0.9, 1.0],  cooldown_ratio: if wave_busy { 0.6 } else { 0.0 }, useful: wave_useful },
-        ToolSlot { key: "T",      name: "CALL",     hint: "calls Dancers",  color: [1.0, 0.55, 0.9],  cooldown_ratio: (call_cd / call_max_safe).clamp(0.0, 1.0), useful: call_useful },
-        ToolSlot { key: "Space",  name: "DASH",     hint: "on beat = +",    color: [1.0, 0.9, 0.5],   cooldown_ratio: (boost_cd   / 0.08_f32).clamp(0.0, 1.0), useful: true },
-        ToolSlot { key: "V · G", name: "GROOVE",   hint: groove_hint,      color: [0.45, 1.0, 0.85], cooldown_ratio: 1.0 - groove_clamped, useful: groove_clamped >= 0.75 },
+        ToolSlot {
+            key: "click",
+            name: "LASSO",
+            hint: "snags Thieves",
+            color: [0.3, 0.85, 0.45],
+            cooldown_ratio: if lasso_busy { 0.6 } else { 0.0 },
+            useful: lasso_useful,
+        },
+        ToolSlot {
+            key: "E",
+            name: "WHISTLE",
+            hint: "pulls Dancers",
+            color: [0.4, 0.85, 1.0],
+            cooldown_ratio: (whistle_cd / whistle_max_safe).clamp(0.0, 1.0),
+            useful: whistle_useful,
+        },
+        ToolSlot {
+            key: "R",
+            name: "STOMP",
+            hint: "cracks shells",
+            color: [0.6, 0.7, 1.0],
+            cooldown_ratio: (stomp_cd / stomp_max_safe).clamp(0.0, 1.0),
+            useful: stomp_useful,
+        },
+        ToolSlot {
+            key: "Q",
+            name: "WAVE",
+            hint: "shoves rivals",
+            color: [0.45, 0.9, 1.0],
+            cooldown_ratio: if wave_busy { 0.6 } else { 0.0 },
+            useful: wave_useful,
+        },
+        ToolSlot {
+            key: "T",
+            name: "CALL",
+            hint: "calls Dancers",
+            color: [1.0, 0.55, 0.9],
+            cooldown_ratio: (call_cd / call_max_safe).clamp(0.0, 1.0),
+            useful: call_useful,
+        },
+        ToolSlot {
+            key: "Space",
+            name: "DASH",
+            hint: "on beat = +",
+            color: [1.0, 0.9, 0.5],
+            cooldown_ratio: (boost_cd / 0.08_f32).clamp(0.0, 1.0),
+            useful: true,
+        },
+        ToolSlot {
+            key: "V · G",
+            name: "GROOVE",
+            hint: groove_hint,
+            color: [0.45, 1.0, 0.85],
+            cooldown_ratio: 1.0 - groove_clamped,
+            useful: groove_clamped >= 0.75,
+        },
     ];
 
     let slot_w: f32 = 88.0;
@@ -1091,7 +1339,8 @@ pub fn draw_tool_roster(
                 )),
             );
         }
-        let border_mesh = cached_rounded_stroke_rect(ctx, sx, sy, slot_w, slot_h, 5.0, 1.5, border_color)?;
+        let border_mesh =
+            cached_rounded_stroke_rect(ctx, sx, sy, slot_w, slot_h, 5.0, 1.5, border_color)?;
         canvas.draw(&border_mesh, DrawParam::default());
 
         // Key label — small, top-left. Cached per slot (see TOOL_ROSTER_TEXT_CACHE) instead of a
@@ -1190,13 +1439,23 @@ pub fn draw_tool_roster(
             let fill_color = if slot.name == "GROOVE" {
                 if groove_clamped >= 0.75 {
                     let glow = (time * 6.0).sin() * 0.5 + 0.5;
-                    Color::new(1.0 * (0.7 + glow * 0.3), 0.85 * (0.7 + glow * 0.3), 0.2, 1.0)
+                    Color::new(
+                        1.0 * (0.7 + glow * 0.3),
+                        0.85 * (0.7 + glow * 0.3),
+                        0.2,
+                        1.0,
+                    )
                 } else {
                     Color::new(slot.color[0], slot.color[1], slot.color[2], 0.9)
                 }
             } else if ready {
                 // Ready pad's fill brightens on the beat too, in lockstep with the name pulse.
-                Color::new(r * (0.8 + beat_glow * 0.2), g * (0.8 + beat_glow * 0.2), b * (0.8 + beat_glow * 0.2), 1.0)
+                Color::new(
+                    r * (0.8 + beat_glow * 0.2),
+                    g * (0.8 + beat_glow * 0.2),
+                    b * (0.8 + beat_glow * 0.2),
+                    1.0,
+                )
             } else {
                 Color::new(r * 0.75, g * 0.75, b * 0.75, 0.85)
             };

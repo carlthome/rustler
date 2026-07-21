@@ -6,8 +6,8 @@
 
 use crate::constants::BEAT_INTERVAL;
 use crate::sounds::{
-    encode_wav_mono16, encode_wav_stereo16, master_limiter, oscillator_sample, samples_to_pcm,
-    Waveform, SAMPLE_RATE,
+    SAMPLE_RATE, Waveform, encode_wav_mono16, encode_wav_stereo16, master_limiter,
+    oscillator_sample, samples_to_pcm,
 };
 use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
@@ -45,7 +45,7 @@ fn king_crab_rumble_mono_samples() -> Vec<f32> {
         let breathe = 0.55 + 0.25 * (0.7 * t * std::f32::consts::TAU).sin();
         let rumble = 0.55 * oscillator_sample(Waveform::Triangle, 55.0 * t)   // A1 sub
             + 0.28 * oscillator_sample(Waveform::Rect(0.5), 110.0 * t)        // A2
-            + 0.12 * oscillator_sample(Waveform::Triangle, 165.0 * t);        // E3 (perfect fifth)
+            + 0.12 * oscillator_sample(Waveform::Triangle, 165.0 * t); // E3 (perfect fifth)
         samples[i] += rumble * breathe * 0.35;
     }
 

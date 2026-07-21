@@ -7,8 +7,8 @@
 //! structural move — no behaviour change; the caller still owns the surrounding
 //! simulation and invokes these at the same points, with the same `dt`.
 
-use ggez::audio::SoundSource;
 use ggez::Context;
+use ggez::audio::SoundSource;
 
 use crate::beat::downbeat_started;
 use crate::*;
@@ -67,7 +67,8 @@ impl MainState {
 
             // Find the nearest uncaught boss crab position (if any).
             let nearest_boss: Option<Vec2> = if game_active {
-                self.crabs.iter()
+                self.crabs
+                    .iter()
                     .filter(|c| !c.caught && c.is_boss())
                     .map(|c| c.pos)
                     .min_by(|a, b| {
@@ -84,7 +85,8 @@ impl MainState {
                 // Distance factor: full within 150 px, zero at 600 px.
                 const FULL_DIST: f32 = 150.0;
                 const SILENT_DIST: f32 = 600.0;
-                let near_factor = ((SILENT_DIST - dist) / (SILENT_DIST - FULL_DIST)).clamp(0.0, 1.0);
+                let near_factor =
+                    ((SILENT_DIST - dist) / (SILENT_DIST - FULL_DIST)).clamp(0.0, 1.0);
                 // Soft/far factor: kicks in beyond FULL_DIST, full at SILENT_DIST.
                 let far_factor = (1.0 - near_factor) * near_factor.max(0.15);
 
@@ -251,8 +253,7 @@ impl MainState {
         // into L/R by the leader's angle. Muted on menu/game-over screens.
         {
             use ggez::audio::SoundSource as _;
-            let game_active =
-                !self.show_instructions && !self.game_over && !self.show_world_map;
+            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
             let (target_l, target_r) = if game_active {
                 self.npc_trains.first().map_or((0.0, 0.0), |t| {
                     // pan in -1..1: negative = left, positive = right, from leader bearing.
@@ -298,8 +299,7 @@ impl MainState {
         // rumble path, so the headless playtests are unaffected.
         {
             use ggez::audio::SoundSource as _;
-            let game_active =
-                !self.show_instructions && !self.game_over && !self.show_world_map;
+            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
             let downbeat_started =
                 downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
             const RIVAL_MOTIF_TIERS: usize = 3;
@@ -326,9 +326,9 @@ impl MainState {
                 // genuinely nearby. The creature rumble remains the longer-range directional cue.
                 const FULL_MOTIF_DIST: f32 = 120.0;
                 const SILENT_MOTIF_DIST: f32 = 500.0;
-                let distance_swell =
-                    ((SILENT_MOTIF_DIST - dist) / (SILENT_MOTIF_DIST - FULL_MOTIF_DIST))
-                        .clamp(0.0, 1.0);
+                let distance_swell = ((SILENT_MOTIF_DIST - dist)
+                    / (SILENT_MOTIF_DIST - FULL_MOTIF_DIST))
+                    .clamp(0.0, 1.0);
                 let dist_factor = distance_swell * distance_swell;
                 // Tier from the scale floor: scout 1.2 -> 0, wanderer 1.8 -> 0.5, elder 2.4 -> 1.0.
                 let tier_floor = ((t.base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
@@ -352,7 +352,9 @@ impl MainState {
             let mut order = [0usize, 1, 2, 3, 4, 5, 6, 7];
             let order = &mut order[..n];
             order.sort_by(|&a, &b| {
-                raw[b].partial_cmp(&raw[a]).unwrap_or(std::cmp::Ordering::Equal)
+                raw[b]
+                    .partial_cmp(&raw[a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
             const DUCK: [f32; 3] = [0.5, 0.28, 0.15];
             let mut ducked = [0.0_f32; 8];

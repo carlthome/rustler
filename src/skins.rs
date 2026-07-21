@@ -23,14 +23,14 @@
 pub enum Hat {
     #[default]
     None,
-    Cowboy,         // wide brim, classic Rustler energy
-    TopHat,         // tall and formal — unexpected on a crab, which is the point
-    Sombrero,       // extra-wide, festive, reads great at a glance
-    Bucket,         // low-key bucket hat; the casual pick
-    Bandana,        // tied around the shell; outlaw chic
-    Beret,          // sideways on a claw; artiste vibes
-    Crown,          // gold crown — reserved for champions
-    HardHat,        // safety first, even while wrangling crabs
+    Cowboy,   // wide brim, classic Rustler energy
+    TopHat,   // tall and formal — unexpected on a crab, which is the point
+    Sombrero, // extra-wide, festive, reads great at a glance
+    Bucket,   // low-key bucket hat; the casual pick
+    Bandana,  // tied around the shell; outlaw chic
+    Beret,    // sideways on a claw; artiste vibes
+    Crown,    // gold crown — reserved for champions
+    HardHat,  // safety first, even while wrangling crabs
 }
 
 impl Hat {
@@ -81,12 +81,12 @@ impl Hat {
 pub enum FacialHair {
     #[default]
     None,
-    Mustache,       // classic curled ends — the timeless choice
-    Handlebar,      // wide, dramatic; pairs with anything formal
-    Beard,          // full beard; this crab has been out here a while
-    GoateePatch,    // small chin tuft; understated
-    Mutton,         // mutton chops on the claw joints; baroque energy
-    FuManchu,       // long thin drops; maximum drama
+    Mustache,    // classic curled ends — the timeless choice
+    Handlebar,   // wide, dramatic; pairs with anything formal
+    Beard,       // full beard; this crab has been out here a while
+    GoateePatch, // small chin tuft; understated
+    Mutton,      // mutton chops on the claw joints; baroque energy
+    FuManchu,    // long thin drops; maximum drama
 }
 
 impl FacialHair {
@@ -131,13 +131,13 @@ impl FacialHair {
 pub enum Accessory {
     #[default]
     None,
-    StarBadge,      // sheriff's star on the shell — law of the beach
-    Monocle,        // on the eyestalk; maximum class
-    BowTie,         // formal; pair with the Top Hat for full tuxedo
-    NeonChain,      // gold chain around the shell; for the drip-forward players
-    Shades,         // sunglasses on the eyestalks; effortlessly cool
-    LassoLoop,      // a coiled lasso worn on a claw; off-duty rustler
-    GoldTooth,      // glint in the smile; player knows what they're doing
+    StarBadge, // sheriff's star on the shell — law of the beach
+    Monocle,   // on the eyestalk; maximum class
+    BowTie,    // formal; pair with the Top Hat for full tuxedo
+    NeonChain, // gold chain around the shell; for the drip-forward players
+    Shades,    // sunglasses on the eyestalks; effortlessly cool
+    LassoLoop, // a coiled lasso worn on a claw; off-duty rustler
+    GoldTooth, // glint in the smile; player knows what they're doing
 }
 
 impl Accessory {
@@ -204,7 +204,7 @@ impl PlayerSkin {
                 "Tuxedo crab. Black tie. Zero crabs escaped.".into()
             }
             (Hat::Sombrero, _, Accessory::NeonChain) => "Fiesta energy. Maximum drip.".into(),
-            (_, _, Accessory::Shades) => "Too cool to panic. Crabs panic instead.".into()  ,
+            (_, _, Accessory::Shades) => "Too cool to panic. Crabs panic instead.".into(),
             (Hat::None, FacialHair::None, Accessory::None) => {
                 "The raw crab. Unfiltered. Dangerous.".into()
             }
@@ -261,7 +261,11 @@ impl PlayerSkin {
             "GoldTooth" => Accessory::GoldTooth,
             _ => Accessory::None,
         };
-        PlayerSkin { hat, facial_hair, accessory }
+        PlayerSkin {
+            hat,
+            facial_hair,
+            accessory,
+        }
     }
 }
 
@@ -271,7 +275,11 @@ mod tests {
 
     #[test]
     fn save_round_trip() {
-        let skin = PlayerSkin { hat: Hat::Cowboy, facial_hair: FacialHair::Mustache, accessory: Accessory::StarBadge };
+        let skin = PlayerSkin {
+            hat: Hat::Cowboy,
+            facial_hair: FacialHair::Mustache,
+            accessory: Accessory::StarBadge,
+        };
         let line = skin.to_save_line();
         let loaded = PlayerSkin::from_save_line(&line);
         assert_eq!(loaded.hat, Hat::Cowboy);
@@ -298,7 +306,11 @@ mod tests {
 
     #[test]
     fn tagline_full_sheriff() {
-        let skin = PlayerSkin { hat: Hat::Cowboy, facial_hair: FacialHair::Mustache, accessory: Accessory::StarBadge };
+        let skin = PlayerSkin {
+            hat: Hat::Cowboy,
+            facial_hair: FacialHair::Mustache,
+            accessory: Accessory::StarBadge,
+        };
         assert!(skin.tagline().contains("Sheriff"));
     }
 

@@ -495,7 +495,12 @@ impl MainState {
             label.to_string(),
             pos - Vec2::new(150.0, 92.0),
             30.0,
-            [self.conga_tint[0], self.conga_tint[1], self.conga_tint[2], 1.0],
+            [
+                self.conga_tint[0],
+                self.conga_tint[1],
+                self.conga_tint[2],
+                1.0,
+            ],
         );
         self.spawn_catch_shockwave(pos, self.conga_tint);
     }
@@ -814,8 +819,11 @@ impl MainState {
                         30.0,
                         [1.0, 0.85, 0.3, 1.0],
                     );
-                    self.particle_system
-                        .spawn_milestone_fireworks(mpos, 10, &mut crate::rng::rng());
+                    self.particle_system.spawn_milestone_fireworks(
+                        mpos,
+                        10,
+                        &mut crate::rng::rng(),
+                    );
                 }
                 self.screen_shake = self.screen_shake.max(10.0);
                 self.on_beat_flash = self.on_beat_flash.max(0.35);

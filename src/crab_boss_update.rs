@@ -85,8 +85,7 @@ pub(crate) fn update_boss_crab(
     let drain_active = crab_in_light
         && !crab.is_hermit_king() // the Hermit King's shell-house stack is beam-proof: only Stomps crack it (see the stomp pass in game_update)
         && (!crab.is_rhythm_boss() || ctx.reef_hot_now);
-    if crab.is_rhythm_boss() && crab_in_light && ctx.reef_hot_now && crab.boss_health > 0.0
-    {
+    if crab.is_rhythm_boss() && crab_in_light && ctx.reef_hot_now && crab.boss_health > 0.0 {
         *ctx.reef_hit_landed = true;
     }
     if crab.boss_health > 0.0 && drain_active {
@@ -249,7 +248,9 @@ pub(crate) fn update_boss_crab(
                 crab.host_swap_timer -= dt;
                 if crab.host_swap_timer <= 0.0 {
                     let ang = rng.random_range(0.0_f32..std::f32::consts::TAU);
-                    crab.vel = Vec2::new(ang.cos(), ang.sin()) * crab.speed * HERMIT_KING_RATTLED_SPEED_MULT;
+                    crab.vel = Vec2::new(ang.cos(), ang.sin())
+                        * crab.speed
+                        * HERMIT_KING_RATTLED_SPEED_MULT;
                     crab.join_pulse = crab.join_pulse.max(0.7); // squash-pop as it darts
                     crab.host_swap_timer = rng.random_range(0.5..0.9);
                 }
@@ -274,7 +275,10 @@ pub(crate) fn update_boss_crab(
                 } else {
                     Vec2::new(0.0, 1.0)
                 };
-                crab.vel = crab.vel.lerp(dir * crab.speed * HERMIT_KING_PANICKED_SPEED_MULT, (4.0 * dt).min(1.0));
+                crab.vel = crab.vel.lerp(
+                    dir * crab.speed * HERMIT_KING_PANICKED_SPEED_MULT,
+                    (4.0 * dt).min(1.0),
+                );
                 crab.pos += crab.vel * dt;
                 // Escaped! It scuttles off the sand line and drags a whole fresh
                 // shell-house stack back in — the panic race lost, start over.
@@ -412,9 +416,10 @@ pub(crate) fn update_boss_crab(
             // near-miss still counts as a block, matching how the tail-snap gives the
             // charge a wide hitbox.
             const BLOCK_REACH: f32 = CRAB_SIZE * 1.1;
-            let block_hit = ctx.armored_positions.iter().find(|&&ap| {
-                crab.pos.distance(ap) < BLOCK_REACH + crab.scale * CRAB_SIZE * 0.5
-            });
+            let block_hit = ctx
+                .armored_positions
+                .iter()
+                .find(|&&ap| crab.pos.distance(ap) < BLOCK_REACH + crab.scale * CRAB_SIZE * 0.5);
             if let Some(&shell_pos) = block_hit {
                 crab.charge_cooldown = if crab.enraged {
                     BOSS_CHARGE_COOLDOWN * BOSS_ENRAGE_COOLDOWN_SCALE

@@ -318,7 +318,13 @@ fn lfsr_noise(state: &mut u32) -> f32 {
 /// passes untouched. Squashes the loudest transient peaks so a busy mix of layered notes stays
 /// punchy without clipping, in the "loud but controlled" style of retro console audio (everything
 /// slammed to feel bigger than it is).
-pub(crate) fn compress(samples: &mut [f32], threshold: f32, ratio: f32, attack_s: f32, release_s: f32) {
+pub(crate) fn compress(
+    samples: &mut [f32],
+    threshold: f32,
+    ratio: f32,
+    attack_s: f32,
+    release_s: f32,
+) {
     let dt = 1.0 / SAMPLE_RATE as f32;
     let attack_coeff = (-dt / attack_s.max(0.0001)).exp();
     let release_coeff = (-dt / release_s.max(0.0001)).exp();
@@ -758,10 +764,10 @@ fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32)
     // Then the minor triad a fifth below (bVII) for the second cell, creating
     // the two-chord Deus Ex shimmer.
     let arp_pattern: &[i32] = &[
-        0, 3, 7, 12,  7, 3,   // Am arpeggio up and back
-        -2, 2, 5, 10, 5, 2,   // Gm colour (bVII), same motion
-        0, 3, 7, 12,  10, 7,  // Am again, top-note linger
-        -5, 0, 3,  7,  3, 0,  // Fm (bVI) — the "unease" colour
+        0, 3, 7, 12, 7, 3, // Am arpeggio up and back
+        -2, 2, 5, 10, 5, 2, // Gm colour (bVII), same motion
+        0, 3, 7, 12, 10, 7, // Am again, top-note linger
+        -5, 0, 3, 7, 3, 0, // Fm (bVI) — the "unease" colour
     ];
     let n_arp_steps = arp_pattern.len();
     // Rests: skip steps 4, 11, 22 for a bit of rhythmic air.
@@ -781,24 +787,39 @@ fn synth_pad_wav(preset: PadPreset, root_hz: f32, note_duration: f32, gain: f32)
             &tracker_adsr,
             gain * 0.18,
         );
-        mix_into(&mut mono, &voice, (step_s * step as f32 * SAMPLE_RATE as f32) as usize);
+        mix_into(
+            &mut mono,
+            &voice,
+            (step_s * step as f32 * SAMPLE_RATE as f32) as usize,
+        );
     }
     // Voice B — slow counter-melody descending (half-note pace = 8 steps each).
     // A Aeolian descent: A → G → F → E → repeat.
     let counter_melody: &[(i32, usize)] = &[
-        (0, 8),   // A — root, two bars
-        (-2, 8),  // G
-        (-5, 8),  // F
-        (-7, 8),  // E
-        (0, 8),   // A again
-        (-2, 8),  // G cadence
+        (0, 8),  // A — root, two bars
+        (-2, 8), // G
+        (-5, 8), // F
+        (-7, 8), // E
+        (0, 8),  // A again
+        (-2, 8), // G cadence
     ];
-    let counter_adsr = Adsr { attack: 0.005, decay: 0.08, sustain: 0.3, release: 0.12 };
+    let counter_adsr = Adsr {
+        attack: 0.005,
+        decay: 0.08,
+        sustain: 0.3,
+        release: 0.12,
+    };
     let mut counter_cursor = 0usize;
     for &(semitone, len_steps) in counter_melody {
         let ratio = 2.0_f32.powf(semitone as f32 / 12.0);
         let dur = step_s * len_steps as f32 * 0.85;
-        let voice = synth_note(Waveform::Rect(0.5), root_hz * 0.5 * ratio, dur, &counter_adsr, gain * 0.14);
+        let voice = synth_note(
+            Waveform::Rect(0.5),
+            root_hz * 0.5 * ratio,
+            dur,
+            &counter_adsr,
+            gain * 0.14,
+        );
         let offset_samples = (step_s * counter_cursor as f32 * SAMPLE_RATE as f32) as usize;
         if offset_samples < mono.len() {
             mix_into(&mut mono, &voice, offset_samples);
@@ -1423,7 +1444,11 @@ pub(crate) fn gb_pulse_note(hz: f32, dur_s: f32, duty: f32, amp: f32) -> Vec<f32
         let t = i as f32 / SAMPLE_RATE as f32;
         phase += hz / SAMPLE_RATE as f32;
         let p = phase.rem_euclid(1.0);
-        let wave = if p < duty.clamp(0.01, 0.99) { 1.0_f32 } else { -1.0 };
+        let wave = if p < duty.clamp(0.01, 0.99) {
+            1.0_f32
+        } else {
+            -1.0
+        };
         // Short linear attack (1.5 ms) + linear decay at the tail of the gate to avoid clicks.
         let attack = (t / 0.0015).min(1.0);
         let tail_start = gate_n.saturating_sub((SAMPLE_RATE as f32 * 0.004) as usize);

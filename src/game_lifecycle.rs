@@ -6,9 +6,9 @@
 //! menu/world-map/campaign/tutorial transitions. Pure structural move: behaviour
 //! is unchanged.
 
+use ggez::Context;
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
-use ggez::Context;
 use rand::Rng;
 
 use crate::constants::*;
@@ -435,7 +435,8 @@ impl MainState {
         self.reset_game_at(0, MapSize::Tutorial);
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
-        self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
+        self.crabs =
+            spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
         // Tutorial worlds are exactly one viewport, so the player and scripted crab ring start
         // together in the centre without any camera travel.
         let tut_center = Vec2::new(

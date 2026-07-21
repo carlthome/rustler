@@ -185,8 +185,14 @@ mod tests {
         let mut t = Tutorial::new(TutorialKind::BeatTiming);
         t.on_beat_catches = 2;
         let line = t.progress_line();
-        assert!(line.contains("2"), "progress line should show current count");
-        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+        assert!(
+            line.contains("2"),
+            "progress line should show current count"
+        );
+        assert!(
+            line.contains(&t.target.to_string()),
+            "progress line should show target"
+        );
     }
 
     #[test]
@@ -217,8 +223,14 @@ mod tests {
         let mut t = Tutorial::new(TutorialKind::ChainDeliver);
         t.deliveries = 1;
         let line = t.progress_line();
-        assert!(line.contains('1'), "progress line should show current count");
-        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+        assert!(
+            line.contains('1'),
+            "progress line should show current count"
+        );
+        assert!(
+            line.contains(&t.target.to_string()),
+            "progress line should show target"
+        );
     }
 
     #[test]
@@ -251,8 +263,14 @@ mod tests {
         let mut t = Tutorial::new(TutorialKind::ShellCrack);
         t.shells_cracked = 2;
         let line = t.progress_line();
-        assert!(line.contains('2'), "progress line should show current count");
-        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+        assert!(
+            line.contains('2'),
+            "progress line should show current count"
+        );
+        assert!(
+            line.contains(&t.target.to_string()),
+            "progress line should show target"
+        );
     }
 
     #[test]
@@ -286,7 +304,13 @@ mod tests {
         let mut t = Tutorial::new(TutorialKind::LassoGrab);
         t.lasso_catches = 2;
         let line = t.progress_line();
-        assert!(line.contains('2'), "progress line should show current count");
-        assert!(line.contains(&t.target.to_string()), "progress line should show target");
+        assert!(
+            line.contains('2'),
+            "progress line should show current count"
+        );
+        assert!(
+            line.contains(&t.target.to_string()),
+            "progress line should show target"
+        );
     }
 }

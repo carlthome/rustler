@@ -128,8 +128,12 @@ impl MainState {
         // Pick the rival nearest the player so the staged crossing reads like a real pursuit steal.
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            let da = self.npc_trains[a]
+                .leader_pos
+                .distance_squared(player_center);
+            let db = self.npc_trains[b]
+                .leader_pos
+                .distance_squared(player_center);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
         let Some(ni) = ni else {
@@ -260,8 +264,12 @@ impl MainState {
         };
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            let da = self.npc_trains[a]
+                .leader_pos
+                .distance_squared(player_center);
+            let db = self.npc_trains[b]
+                .leader_pos
+                .distance_squared(player_center);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
         let Some(ni) = ni else {
@@ -287,8 +295,12 @@ impl MainState {
         self.ensure_bot_npc_trains();
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            let da = self.npc_trains[a]
+                .leader_pos
+                .distance_squared(player_center);
+            let db = self.npc_trains[b]
+                .leader_pos
+                .distance_squared(player_center);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
         let Some(ni) = ni else {
@@ -389,8 +401,12 @@ impl MainState {
             let a_empty = self.npc_trains[a].follower_types.is_empty();
             let b_empty = self.npc_trains[b].follower_types.is_empty();
             a_empty.cmp(&b_empty).then_with(|| {
-                let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-                let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+                let da = self.npc_trains[a]
+                    .leader_pos
+                    .distance_squared(player_center);
+                let db = self.npc_trains[b]
+                    .leader_pos
+                    .distance_squared(player_center);
                 da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
             })
         });
@@ -423,7 +439,11 @@ impl MainState {
         let center = Vec2::new(self.world_width / 2.0, self.world_height / 2.0);
         let inward = {
             let d = (center - target_pos).normalize_or_zero();
-            if d == Vec2::ZERO { Vec2::new(1.0, 0.0) } else { d }
+            if d == Vec2::ZERO {
+                Vec2::new(1.0, 0.0)
+            } else {
+                d
+            }
         };
         let margin = 80.0;
         self.npc_trains[ni].leader_pos = (target_pos + inward * 265.0).clamp(
@@ -442,8 +462,8 @@ impl MainState {
     pub fn force_rival_cross(&mut self) {
         self.ensure_bot_npc_trains();
         const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
-        let thief = (0..self.npc_trains.len())
-            .max_by_key(|&i| self.npc_trains[i].follower_types.len());
+        let thief =
+            (0..self.npc_trains.len()).max_by_key(|&i| self.npc_trains[i].follower_types.len());
         let Some(thief) = thief else {
             return;
         };
@@ -477,7 +497,10 @@ impl MainState {
         // guarantees `stolen_count ≥ 2`, which is what makes the collision spill a loose crumb
         // (RivalSpillAtLeast); aiming dead-centre could leave a 1-crab pickpocket that never spills.
         let mid_fi = (vlen - 1) / 2;
-        if let Some(&fpos) = self.npc_trains[victim].path_history.get((mid_fi + 1) * STEPS) {
+        if let Some(&fpos) = self.npc_trains[victim]
+            .path_history
+            .get((mid_fi + 1) * STEPS)
+        {
             self.npc_trains[thief].leader_pos = fpos;
             self.npc_trains[thief].rival_steal_cooldown = 0.0;
         }
@@ -507,7 +530,11 @@ impl MainState {
         if dir == Vec2::ZERO {
             dir = Vec2::new(1.0, 0.0);
         }
-        let mut p = self.npc_trains[ni].path_history.back().copied().unwrap_or(head);
+        let mut p = self.npc_trains[ni]
+            .path_history
+            .back()
+            .copied()
+            .unwrap_or(head);
         while self.npc_trains[ni].path_history.len() < needed {
             p += dir * 7.0;
             self.npc_trains[ni].path_history.push_back(p);
@@ -585,8 +612,12 @@ impl MainState {
         }
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
         let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+            let da = self.npc_trains[a]
+                .leader_pos
+                .distance_squared(player_center);
+            let db = self.npc_trains[b]
+                .leader_pos
+                .distance_squared(player_center);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
         let Some(ni) = ni else {

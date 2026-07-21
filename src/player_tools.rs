@@ -5,9 +5,9 @@
 //! Slam, Whistle/Stomp/Wave casts — live in `tool_actions.rs`. Extracted out of `main.rs`'s
 //! `impl MainState` — same methods, same behaviour, just grouped by subsystem.
 
+use ggez::Context;
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
-use ggez::Context;
 
 use crate::constants::*;
 use crate::controls;
@@ -108,7 +108,8 @@ impl MainState {
                 // Reward: a clean defensive read feeds the groove and streak, like an on-beat catch.
                 self.groove = (self.groove + if downbeat { 0.24 } else { 0.16 }).min(1.0);
                 self.beat_streak = (self.beat_streak + 1).min(99);
-                self.on_beat_flash = (self.on_beat_flash + if downbeat { 0.6 } else { 0.4 }).min(0.9);
+                self.on_beat_flash =
+                    (self.on_beat_flash + if downbeat { 0.6 } else { 0.4 }).min(0.9);
                 self.beat_intensity = (self.beat_intensity + 1.0).min(2.0);
                 self.zoom_punch = self.zoom_punch.max(if downbeat { 0.09 } else { 0.06 });
                 self.screen_shake = self.screen_shake.max(if downbeat { 12.0 } else { 8.0 });
@@ -173,7 +174,13 @@ impl MainState {
     /// caller (tight `BEAT_WINDOW` for the dash, wider `ACTION_BEAT_WINDOW` for ranged casts).
     /// `audible` latches the on-beat drum-pad accent (ranged casts only; the dash passes false so
     /// its feel stays unchanged); the sound itself fires from the audio pass, which owns `ctx`.
-    fn reward_on_beat_windowed(&mut self, at: Vec2, label: &str, on_beat: bool, audible: bool) -> f32 {
+    fn reward_on_beat_windowed(
+        &mut self,
+        at: Vec2,
+        label: &str,
+        on_beat: bool,
+        audible: bool,
+    ) -> f32 {
         if on_beat {
             self.groove = (self.groove + 0.14).min(1.0);
             self.on_beat_flash = (self.on_beat_flash + 0.35).min(0.7);
@@ -232,12 +239,8 @@ impl MainState {
         } else {
             ("EARLY", [0.88, 0.82, 0.70, alpha])
         };
-        self.floating_texts.spawn(
-            word.to_string(),
-            at - Vec2::new(38.0, 74.0),
-            17.0,
-            col,
-        );
+        self.floating_texts
+            .spawn(word.to_string(), at - Vec2::new(38.0, 74.0), 17.0, col);
     }
 
     /// Reach of the whistle pulse. Ranking the whistle lane grows it toward a full-screen gather.
@@ -261,7 +264,13 @@ impl MainState {
     pub(crate) fn bot_fire_events(&mut self, ctx: &mut Context) {
         use crate::bot::{BotAction, BotAssert};
         // Release tap keys queued last frame.
-        let taps: Vec<_> = self.bot.as_mut().unwrap().tap_release_queue.drain(..).collect();
+        let taps: Vec<_> = self
+            .bot
+            .as_mut()
+            .unwrap()
+            .tap_release_queue
+            .drain(..)
+            .collect();
         for k in taps {
             self.bot.as_mut().unwrap().keys_held.remove(&k);
         }
@@ -384,7 +393,8 @@ impl MainState {
                         }
                     };
                     if !ok {
-                        let msg = format!("ASSERT FAILED at t={:.1}: {:?}", self.time_elapsed, check);
+                        let msg =
+                            format!("ASSERT FAILED at t={:.1}: {:?}", self.time_elapsed, check);
                         println!("FAIL: {}", msg);
                         self.bot.as_mut().unwrap().failed = Some(msg);
                         self.bot.as_mut().unwrap().done = true;
@@ -458,9 +468,7 @@ impl MainState {
             self.crabs
                 .iter()
                 .filter(|c| {
-                    !c.caught
-                        && c.boss_health > 0.0
-                        && (c.is_armored() || c.is_shelled_hermit())
+                    !c.caught && c.boss_health > 0.0 && (c.is_armored() || c.is_shelled_hermit())
                 })
                 .min_by(|a, b| {
                     center
