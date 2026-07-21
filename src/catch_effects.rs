@@ -450,16 +450,25 @@ impl MainState {
             CrabType::Boss => {
                 self.rank_beam_lane();
                 self.flashlight.range_upgrade += 35.0;
+                self.king_crab_powers[0] += 1;
             }
-            CrabType::TideBoss => self.whistle_rank += 1,
-            CrabType::RhythmBoss => self.stomp_rank += 1,
+            CrabType::TideBoss => {
+                self.whistle_rank += 1;
+                self.king_crab_powers[1] += 1;
+            }
+            CrabType::RhythmBoss => {
+                self.stomp_rank += 1;
+                self.king_crab_powers[2] += 1;
+            }
             CrabType::HermitKing => {
                 self.lasso_rank += 1;
                 self.catch_radius_upgrade += 16.0;
+                self.king_crab_powers[3] += 1;
             }
             CrabType::DancerKing => {
                 self.whistle_rank += 1;
                 self.speed_mult = (self.speed_mult + 0.12).min(2.2);
+                self.king_crab_powers[4] += 1;
             }
             _ => {}
         }

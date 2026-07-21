@@ -104,6 +104,7 @@ impl MainState {
         }
         self.chain_count = 0;
         self.king_crab_count = 0;
+        self.king_crab_powers = [0; 5];
         self.conga_tint = [0.0, 0.0, 0.0];
         self.total_caught = 0;
         self.chord_tools_fired = 0;

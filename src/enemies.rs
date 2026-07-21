@@ -1,7 +1,7 @@
 use ggez::glam::Vec2;
 
-const CRAB_BASE_COLOR_BLEND: f32 = 0.62;
-const CRAB_CONGA_TINT_BLEND: f32 = 0.38;
+const CRAB_BASE_COLOR_BLEND: f32 = 0.38;
+const CRAB_CONGA_TINT_BLEND: f32 = 0.62;
 
 /// King Crab charge state machine. Only the Boss archetype ever leaves `Idle`: it roams toward
 /// the conga train, `Winding` up a telegraphed charge, then `Charging` in a locked direction that
