@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.31.1 — 2026-07-21
+
+### Gameplay
+- Tool roster pads pulse on the beat for clearer ready-state feedback
+
 ## v0.31.0 — 2026-07-21
 
 ### Gameplay
