@@ -132,42 +132,47 @@ pub fn draw_menu(
     // Front train (bottom row): King Crab leads right with a retinue — moody, authoritative.
     // Back train (slightly higher): rival leads left, smaller and scrappier.
     // This previews the actual ecology: competing conga leaders, not a generic herd.
-    let make_crab = |crab_type: CrabType, x: f32, y: f32, speed: f32, scale: f32, idx: usize| EnemyCrab {
-        pos: Vec2::new(x, y),
-        vel: Vec2::new(speed, 0.0),
-        speed: speed.abs(),
-        caught: true,
-        chain_index: Some(idx),
-        scale,
-        spawn_time: 10.0,
-        crab_type,
-        chain_color: None,
-        spooked_timer: 0.0,
-        beat_phase_offset: idx as f32 * 0.4,
-        join_pulse: 0.0,
-        fleeing: false,
-        facing_angle: if speed < 0.0 { std::f32::consts::PI } else { 0.0 },
-        in_flashlight: false,
-        startle_timer: 0.0,
-        charm_timer: 0.0,
-        answering_call: 0.0,
-        boss_health: 0.0,
-        boss_max_health: 0.0001,
-        enraged: false,
-        charge_state: BossCharge::Idle,
-        charge_cooldown: 0.0,
-        latch_timer: 0.0,
-        panic_amp: 1.0,
-        magnet_snared: 0.0,
-        magnet_lured: 0.0,
-        thief_lured: 0.0,
-        magnet_charged: 0.0,
-        slingshot_spent: 0.0,
-        stun_timer: 0.0,
-        host_swap_timer: 0.0,
-        surge_timer: 0.0,
-        entranced: 0.0,
-    };
+    let make_crab =
+        |crab_type: CrabType, x: f32, y: f32, speed: f32, scale: f32, idx: usize| EnemyCrab {
+            pos: Vec2::new(x, y),
+            vel: Vec2::new(speed, 0.0),
+            speed: speed.abs(),
+            caught: true,
+            chain_index: Some(idx),
+            scale,
+            spawn_time: 10.0,
+            crab_type,
+            chain_color: None,
+            spooked_timer: 0.0,
+            beat_phase_offset: idx as f32 * 0.4,
+            join_pulse: 0.0,
+            fleeing: false,
+            facing_angle: if speed < 0.0 {
+                std::f32::consts::PI
+            } else {
+                0.0
+            },
+            in_flashlight: false,
+            startle_timer: 0.0,
+            charm_timer: 0.0,
+            answering_call: 0.0,
+            boss_health: 0.0,
+            boss_max_health: 0.0001,
+            enraged: false,
+            charge_state: BossCharge::Idle,
+            charge_cooldown: 0.0,
+            latch_timer: 0.0,
+            panic_amp: 1.0,
+            magnet_snared: 0.0,
+            magnet_lured: 0.0,
+            thief_lured: 0.0,
+            magnet_charged: 0.0,
+            slingshot_spent: 0.0,
+            stun_timer: 0.0,
+            host_swap_timer: 0.0,
+            surge_timer: 0.0,
+            entranced: 0.0,
+        };
 
     // Only a handful of decorative crabs on the menu, so render them at full detail (reset the LOD
     // hint in case a prior gameplay pass left a high crowd count set).
@@ -193,7 +198,17 @@ pub fn draw_menu(
             let bob = (t * 5.0 + i as f32 * 0.8).sin() * if i == 0 { 7.0 } else { 4.0 };
             let deco = make_crab(ctype, x, y_base, speed, scale, i);
             let beat_phase = (t * 4.0 + i as f32 * 0.5).sin().abs();
-            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), 0.0, t)?;
+            draw_crab(
+                ctx,
+                canvas,
+                &deco,
+                Vec2::new(x, y_base - bob),
+                beat_phase,
+                0.0,
+                bob.max(0.0),
+                0.0,
+                t,
+            )?;
         }
     }
 
@@ -215,7 +230,17 @@ pub fn draw_menu(
             let bob = (t * 4.5 + i as f32 * 1.1).sin() * if i == 0 { 5.0 } else { 3.0 };
             let deco = make_crab(ctype, x, y_base, speed, scale, i);
             let beat_phase = (t * 3.8 + i as f32 * 0.6).sin().abs();
-            draw_crab(ctx, canvas, &deco, Vec2::new(x, y_base - bob), beat_phase, 0.0, bob.max(0.0), 0.0, t)?;
+            draw_crab(
+                ctx,
+                canvas,
+                &deco,
+                Vec2::new(x, y_base - bob),
+                beat_phase,
+                0.0,
+                bob.max(0.0),
+                0.0,
+                t,
+            )?;
         }
     }
 
@@ -475,7 +500,12 @@ pub fn draw_menu(
                     10.0,
                     Color::from_rgba(80, 100, 130, 120),
                 )?;
-                *cache = Some((bg_selected, bg_unselected, border_selected, border_unselected));
+                *cache = Some((
+                    bg_selected,
+                    bg_unselected,
+                    border_selected,
+                    border_unselected,
+                ));
             }
             let (bg_selected, bg_unselected, border_selected, border_unselected) =
                 cache.as_ref().unwrap();
@@ -491,7 +521,11 @@ pub fn draw_menu(
                         DrawParam::default().dest(dest),
                     );
                     canvas.draw(
-                        if selected { border_selected } else { border_unselected },
+                        if selected {
+                            border_selected
+                        } else {
+                            border_unselected
+                        },
                         DrawParam::default().dest(dest),
                     );
                     let label_x = btn_x + (btn_w - tw) / 2.0;

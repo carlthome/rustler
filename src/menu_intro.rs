@@ -19,15 +19,11 @@ pub(crate) fn presentation(time: f32) -> MenuIntroPresentation {
     let logo_alpha = if time < LOGO_FADE_IN_START {
         0.0
     } else if time < LOGO_FADE_IN_END {
-        smoothstep(
-            (time - LOGO_FADE_IN_START) / (LOGO_FADE_IN_END - LOGO_FADE_IN_START),
-        )
+        smoothstep((time - LOGO_FADE_IN_START) / (LOGO_FADE_IN_END - LOGO_FADE_IN_START))
     } else if time < LOGO_FADE_OUT_START {
         1.0
     } else if time < LOGO_FADE_OUT_END {
-        1.0 - smoothstep(
-            (time - LOGO_FADE_OUT_START) / (LOGO_FADE_OUT_END - LOGO_FADE_OUT_START),
-        )
+        1.0 - smoothstep((time - LOGO_FADE_OUT_START) / (LOGO_FADE_OUT_END - LOGO_FADE_OUT_START))
     } else {
         0.0
     };

@@ -70,10 +70,26 @@ impl WorldMap {
     pub fn new() -> Self {
         // Tutorial nodes — teach one mechanic each, in escalating complexity.
         let tutorial_nodes: &[(TutorialKind, &'static str, (f32, f32))] = &[
-            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.08, 0.60)),
-            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.22, 0.42)),
-            (TutorialKind::ChainDeliver,"The Cove — Build a Train",        (0.36, 0.65)),
-            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",     (0.50, 0.40)),
+            (
+                TutorialKind::BeatTiming,
+                "The Beach — Catch the Beat",
+                (0.08, 0.60),
+            ),
+            (
+                TutorialKind::LassoGrab,
+                "The Docks — Throw the Lasso",
+                (0.22, 0.42),
+            ),
+            (
+                TutorialKind::ChainDeliver,
+                "The Cove — Build a Train",
+                (0.36, 0.65),
+            ),
+            (
+                TutorialKind::ShellCrack,
+                "The Reef — Crack the Shells",
+                (0.50, 0.40),
+            ),
         ];
 
         // Campaign nodes — the regular levels follow after the tutorials.
@@ -114,7 +130,11 @@ impl WorldMap {
             });
         }
 
-        WorldMap { nodes, selected: 0, skip_warn_timer: 0.0 }
+        WorldMap {
+            nodes,
+            selected: 0,
+            skip_warn_timer: 0.0,
+        }
     }
 
     /// The `Level` index that should be loaded when the player confirms from this map.

@@ -1,6 +1,6 @@
-use std::collections::HashSet;
-use ggez::input::keyboard::KeyCode;
 use ggez::glam::Vec2;
+use ggez::input::keyboard::KeyCode;
+use std::collections::HashSet;
 
 use crate::constants::STEAL_MAX_LINKS;
 
@@ -8,7 +8,7 @@ use crate::constants::STEAL_MAX_LINKS;
 pub enum BotAction {
     HoldKey(KeyCode),
     ReleaseKey(KeyCode),
-    TapKey(KeyCode),        // hold for 1 frame then release
+    TapKey(KeyCode), // hold for 1 frame then release
     MouseMove(Vec2),
     Assert(BotAssert),
     Log(&'static str),
@@ -139,13 +139,13 @@ pub enum BotAssert {
     /// music is playing again.
     TitleMenuReady,
     TutorialActive,
-    TutorialDone,           // tutorial field is None and show_world_map is true
-    InGame,                 // not on menu, not game_over, not world_map
+    TutorialDone, // tutorial field is None and show_world_map is true
+    InGame,       // not on menu, not game_over, not world_map
 }
 
 #[derive(Clone, Debug)]
 pub struct BotEvent {
-    pub at: f32,            // game-time seconds (after time_scale applied)
+    pub at: f32, // game-time seconds (after time_scale applied)
     pub action: BotAction,
 }
 
@@ -155,12 +155,12 @@ pub struct BotState {
     pub time_limit: f32,
     pub keys_held: HashSet<KeyCode>,
     pub mouse_pos: Vec2,
-    pub tap_release_queue: Vec<KeyCode>,   // keys to release next frame
+    pub tap_release_queue: Vec<KeyCode>, // keys to release next frame
     pub failed: Option<String>,
     pub done: bool,
-    pub seek_catch: bool,                  // closed-loop autopilot toward the nearest catchable crab
-    pub seek_lasso: bool,                  // closed-loop movement toward a lasso target
-    pub seek_delivery: bool,               // closed-loop movement toward the delivery pen
+    pub seek_catch: bool, // closed-loop autopilot toward the nearest catchable crab
+    pub seek_lasso: bool, // closed-loop movement toward a lasso target
+    pub seek_delivery: bool, // closed-loop movement toward the delivery pen
     // Set for the frame a Force*Cross helper teleports the player head onto a rival's follower slot to
     // stage a steal-back. handle_player_movement runs AFTER the force fires but BEFORE the steal
     // detection in update_npc_trains, so without this the seek-catch autopilot re-steers the head off
@@ -198,17 +198,35 @@ pub fn script_menu_to_game() -> Vec<BotEvent> {
     // movement, whistle charm/pull, stomp crack, and proximity-catch code; only the pathfinding is
     // automated. menu_to_game runs at 3× time_scale (see the setup in main.rs).
     vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting menu->game test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 8.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting menu->game test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 8.0,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
         // Give the autopilot a generous window: the whistle recharges every 4.5 s, so 22 s of
         // seeking guarantees several catch attempts even when the only reachable crab is a far,
         // fast one on the far side of the scrolling world. (menu_to_game runs at 3× time_scale.)
         // Assert on total_caught, not the live chain: by 22 s the autopilot has caught many crabs,
         // but the chain resets to 0 on a bank/snap/scatter, so a ChainAtLeast check here flakes.
-        BotEvent { at: 22.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 22.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ]
 }
 
@@ -228,22 +246,52 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
     // This exercises the real world-map -> tutorial -> pass -> world-map transition, the
     // "tutorial->world-map" flow this test exists to guard.
     vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting campaign tutorial test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
-        BotEvent { at: 1.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
-        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 3.5, action: BotAction::SeekCatch(true) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting campaign tutorial test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::KeyC),
+        },
+        BotEvent {
+            at: 1.5,
+            action: BotAction::Assert(BotAssert::ShowWorldMap),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::Assert(BotAssert::TutorialActive),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::SeekCatch(true),
+        },
         // Mid-run sanity: the tutorial is alive and the autopilot is landing catches (total_caught
         // never drops, unlike the live chain, so this can't race a bank/snap reset).
-        BotEvent { at: 16.0, action: BotAction::Assert(BotAssert::GameNotOver) },
-        BotEvent { at: 16.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 16.0,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
+        BotEvent {
+            at: 16.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
         // By now the 3 on-beat catches are in, the "PASSED!" celebration has played, and the ~2.2s
         // (real-time) exit hold has returned us to the world map. Wide margin so even an unlucky
         // low-on-beat-rate run banks its 3rd on-beat catch and completes the exit hold well before
         // we check — the failure mode we're guarding against is a race, not a missing capability.
-        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
-        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent {
+            at: 62.0,
+            action: BotAction::Assert(BotAssert::TutorialDone),
+        },
+        BotEvent {
+            at: 62.0,
+            action: BotAction::Assert(BotAssert::ShowWorldMap),
+        },
     ]
 }
 
@@ -252,66 +300,189 @@ pub fn script_campaign_full() -> Vec<BotEvent> {
     // two real maps. Assertions intentionally sit after every return-to-map transition so a level
     // that completes but leaves stale tutorial/menu state cannot hide behind the final result.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting full campaign test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
-        BotEvent { at: 1.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting full campaign test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::KeyC),
+        },
+        BotEvent {
+            at: 1.5,
+            action: BotAction::Assert(BotAssert::ShowWorldMap),
+        },
         // BeatTiming.
-        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 3.5, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 62.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::Assert(BotAssert::TutorialActive),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 62.0,
+            action: BotAction::Assert(BotAssert::TutorialDone),
+        },
         // LassoGrab.
-        BotEvent { at: 63.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 63.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 65.0, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 65.0, action: BotAction::SeekLasso(true) },
+        BotEvent {
+            at: 63.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 63.5,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 65.0,
+            action: BotAction::Assert(BotAssert::TutorialActive),
+        },
+        BotEvent {
+            at: 65.0,
+            action: BotAction::SeekLasso(true),
+        },
     ];
     let mut t = 66.0;
     while t < 100.0 {
-        script.push(BotEvent { at: t, action: BotAction::FireLasso });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::FireLasso,
+        });
         t += 1.5;
     }
     script.extend([
-        BotEvent { at: 103.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent {
+            at: 103.0,
+            action: BotAction::Assert(BotAssert::TutorialDone),
+        },
         // ChainDeliver.
-        BotEvent { at: 104.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 104.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 106.0, action: BotAction::Assert(BotAssert::TutorialActive) },
-        BotEvent { at: 106.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 106.0, action: BotAction::SeekDelivery(true) },
-        BotEvent { at: 180.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent {
+            at: 104.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 104.5,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 106.0,
+            action: BotAction::Assert(BotAssert::TutorialActive),
+        },
+        BotEvent {
+            at: 106.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 106.0,
+            action: BotAction::SeekDelivery(true),
+        },
+        BotEvent {
+            at: 180.0,
+            action: BotAction::Assert(BotAssert::TutorialDone),
+        },
         // ShellCrack.
-        BotEvent { at: 181.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 181.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 182.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 200.0, action: BotAction::Assert(BotAssert::TutorialDone) },
+        BotEvent {
+            at: 181.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 181.5,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 182.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 200.0,
+            action: BotAction::Assert(BotAssert::TutorialDone),
+        },
         // First real map: enter the BankCrabs goal and keep the run alive through several waves,
         // then verify that Escape returns the player to the campaign map.
-        BotEvent { at: 201.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 201.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 203.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 203.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 203.0, action: BotAction::SeekDelivery(true) },
-        BotEvent { at: 260.0, action: BotAction::Assert(BotAssert::GameNotOver) },
-        BotEvent { at: 261.0, action: BotAction::TapKey(KeyCode::Escape) },
-        BotEvent { at: 262.0, action: BotAction::Assert(BotAssert::MainMenu) },
+        BotEvent {
+            at: 201.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 201.5,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 203.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 203.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 203.0,
+            action: BotAction::SeekDelivery(true),
+        },
+        BotEvent {
+            at: 260.0,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
+        BotEvent {
+            at: 261.0,
+            action: BotAction::TapKey(KeyCode::Escape),
+        },
+        BotEvent {
+            at: 262.0,
+            action: BotAction::Assert(BotAssert::MainMenu),
+        },
         // Re-enter the campaign and select the second real map: verify its BuildTrain goal can be
         // reached without relying on the first map's completion state.
-        BotEvent { at: 262.5, action: BotAction::TapKey(KeyCode::KeyC) },
-        BotEvent { at: 263.5, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 264.0, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 264.5, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 266.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 266.0, action: BotAction::SeekDelivery(false) },
-        BotEvent { at: 310.0, action: BotAction::Assert(BotAssert::GameNotOver) },
-        BotEvent { at: 315.0, action: BotAction::TapKey(KeyCode::Escape) },
-        BotEvent { at: 316.0, action: BotAction::Assert(BotAssert::MainMenu) },
+        BotEvent {
+            at: 262.5,
+            action: BotAction::TapKey(KeyCode::KeyC),
+        },
+        BotEvent {
+            at: 263.5,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 264.0,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 264.5,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 266.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 266.0,
+            action: BotAction::SeekDelivery(false),
+        },
+        BotEvent {
+            at: 310.0,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
+        BotEvent {
+            at: 315.0,
+            action: BotAction::TapKey(KeyCode::Escape),
+        },
+        BotEvent {
+            at: 316.0,
+            action: BotAction::Assert(BotAssert::MainMenu),
+        },
     ]);
     let mut delivery_at = 108.0;
     while delivery_at < 260.0 {
         script.insert(
             script.len().saturating_sub(1),
-            BotEvent { at: delivery_at, action: BotAction::ForceDelivery },
+            BotEvent {
+                at: delivery_at,
+                action: BotAction::ForceDelivery,
+            },
         );
         delivery_at += 1.0;
     }
@@ -324,18 +495,54 @@ pub fn script_campaign_escape() -> Vec<BotEvent> {
     // the application. Select the first regular campaign node, confirm the soft skip warning, then
     // leave the started level with Escape.
     vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting campaign Escape test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
-        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.1, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.2, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.3, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.6, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 3.0, action: BotAction::TapKey(KeyCode::Escape) },
-        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::MainMenu) },
-        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::TitleMenuReady) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting campaign Escape test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::KeyC),
+        },
+        BotEvent {
+            at: 1.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.1,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.2,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.3,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.6,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 2.5,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 3.0,
+            action: BotAction::TapKey(KeyCode::Escape),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::Assert(BotAssert::MainMenu),
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::Assert(BotAssert::TitleMenuReady),
+        },
     ]
 }
 
@@ -347,22 +554,61 @@ pub fn script_campaign_loss() -> Vec<BotEvent> {
     // first regular campaign node (skip-confirm past the tutorials), then force a game over, dismiss
     // it with Space, and assert we're back on the map with the NEXT node still locked.
     vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting campaign loss test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
-        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.1, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.2, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.3, action: BotAction::TapKey(KeyCode::ArrowRight) },
-        BotEvent { at: 1.6, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
-        BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting campaign loss test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::KeyC),
+        },
+        BotEvent {
+            at: 1.0,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.1,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.2,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.3,
+            action: BotAction::TapKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 1.6,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::TapKey(KeyCode::Enter),
+        },
+        BotEvent {
+            at: 2.5,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
         // Lose the run, then dismiss the game-over screen (Space in campaign returns to the map).
-        BotEvent { at: 3.0, action: BotAction::ForceGameOver },
-        BotEvent { at: 3.5, action: BotAction::TapKey(KeyCode::Space) },
+        BotEvent {
+            at: 3.0,
+            action: BotAction::ForceGameOver,
+        },
+        BotEvent {
+            at: 3.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
         // Back on the map — and crucially losing did NOT unlock the next level (the win condition,
         // not merely finishing the run, is what advances the campaign).
-        BotEvent { at: 4.0, action: BotAction::Assert(BotAssert::ShowWorldMap) },
-        BotEvent { at: 4.0, action: BotAction::Assert(BotAssert::SelectedNextUnlocked(false)) },
+        BotEvent {
+            at: 4.0,
+            action: BotAction::Assert(BotAssert::ShowWorldMap),
+        },
+        BotEvent {
+            at: 4.0,
+            action: BotAction::Assert(BotAssert::SelectedNextUnlocked(false)),
+        },
     ]
 }
 
@@ -377,25 +623,49 @@ pub fn script_npc_steal() -> Vec<BotEvent> {
     // RNG-dependent to land inside a headless time budget. Runs at 3x time_scale like menu_to_game so
     // the proximity catch fires often enough for the autopilot to grow a chain.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting NPC steal test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting NPC steal test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
         // Let the autopilot build a chain first. Catching is genuinely slow/RNG (the whistle
         // recharges every 4.5s and the world is 2x the viewport), so give it the same generous
         // window menu_to_game proves reliable before asserting a catch has landed.
-        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 24.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ];
     // Force a crossing every 0.9s across a wide window. Each attempt is a no-op unless a stealable
     // chain (>= 2 links) exists that frame, so firing many times across ~30s makes it near-certain at
     // least one lands on a chain moment — the seek-catch chain grows and resets as it banks/snaps.
     let mut t = 14.0_f32;
     while t < 46.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForceNpcCross,
+        });
         t += 0.9;
     }
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::StolenAtLeast(1)),
+    });
     // The steal must stay a recoverable bite: across every forced crossing above (the seek-catch
     // chain grows well past the cap), no single splice may take more than STEAL_MAX_LINKS. Guards the
     // "fun, not punishing" cap against a regression that lets a rival wipe the whole tail in one hit.
@@ -418,23 +688,47 @@ pub fn script_player_steal() -> Vec<BotEvent> {
     // RNG-dependent for a headless budget. Runs at 3x time_scale like menu_to_game so the autopilot's
     // proximity catch fires often enough to grow a chain first.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting player steal-back test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting player steal-back test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
         // Same generous window menu_to_game proves reliable before asserting a catch has landed.
-        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 24.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ];
     // Force a crossing every 0.9s across a wide window. Each attempt is a no-op unless the player has
     // a train (>= 1 link) and a rival still has followers, so firing many times across ~30s makes it
     // near-certain at least one lands while the seek-catch chain is alive.
     let mut t = 14.0_f32;
     while t < 46.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForcePlayerCross });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForcePlayerCross,
+        });
         t += 0.9;
     }
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::StolenByPlayerAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::StolenByPlayerAtLeast(1)),
+    });
     script
 }
 
@@ -448,28 +742,58 @@ pub fn script_steal_defense() -> Vec<BotEvent> {
     // deterministic — timing an on-beat cast against an RNG-armed steal isn't reliable headless. Runs
     // at 3x time_scale like npc_steal so the autopilot's proximity catch grows a chain first.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting steal-defense (parry) test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting steal-defense (parry) test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 24.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ];
     // Stage arm+parry every 0.9s across a wide window. Each attempt is a no-op unless a stealable
     // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
     // lands while the seek-catch chain is alive.
     let mut t = 14.0_f32;
     while t < 46.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForceStealDefense });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForceStealDefense,
+        });
         t += 0.9;
     }
     // Also exercise the Wave's proactive shove (fire_wave) a few times across the window — each stages
     // the nearest rival beside the player and casts, so the shove path is regression-covered too.
     for wt in [20.0_f32, 28.0, 36.0, 44.0] {
-        script.push(BotEvent { at: wt, action: BotAction::ForceWaveShove });
+        script.push(BotEvent {
+            at: wt,
+            action: BotAction::ForceWaveShove,
+        });
     }
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::ParriedAtLeast(1)) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::WaveShovedAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::ParriedAtLeast(1)),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::WaveShovedAtLeast(1)),
+    });
     script
 }
 
@@ -484,11 +808,26 @@ pub fn script_steal_dodge() -> Vec<BotEvent> {
     // wandering rival isn't reliable headless. Runs at 3x time_scale like npc_steal so the autopilot's
     // proximity catch grows a chain first.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting steal-dodge (reroute) test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting steal-dodge (reroute) test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 24.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ];
     // Stage arm+dodge every 0.9s across a wide window. Each attempt is a no-op unless a stealable
     // chain (>= 2 links) exists that frame, so firing many times makes it near-certain at least one
@@ -498,15 +837,30 @@ pub fn script_steal_dodge() -> Vec<BotEvent> {
     // counter window" reward so it can't silently regress.
     let mut t = 14.0_f32;
     while t < 46.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForceStealDodge });
-        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRevengeCross });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForceStealDodge,
+        });
+        script.push(BotEvent {
+            at: t + 0.45,
+            action: BotAction::ForceRevengeCross,
+        });
         t += 0.9;
     }
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::DodgedAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::DodgedAtLeast(1)),
+    });
     // The on-beat dodge must open a counter-steal window the player can cash — assert the revenge
     // steal-back fired off a dodge-marked rival (mirrors script_revenge's splice-then-revenge guard).
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)),
+    });
     script
 }
 
@@ -520,11 +874,26 @@ pub fn script_revenge() -> Vec<BotEvent> {
     // it and steal back (ForceRevengeCross)" and assert the revenge steal-back fired. Forcing keeps
     // it deterministic. Runs at 3x time_scale like npc_steal so the autopilot grows a chain first.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting revenge back-and-forth test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
-        BotEvent { at: 24.0, action: BotAction::Assert(BotAssert::CaughtAtLeast(1)) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting revenge back-and-forth test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
+        BotEvent {
+            at: 24.0,
+            action: BotAction::Assert(BotAssert::CaughtAtLeast(1)),
+        },
     ];
     // Interleave splice-then-revenge every 0.7s across a wide window. ForceNpcCross marks the nearest
     // rival and hands it your tail; ~0.5s later ForceRevengeCross threads your head through that same
@@ -537,12 +906,24 @@ pub fn script_revenge() -> Vec<BotEvent> {
     // the real ~one-beat fuse has fired and set the marker before the cross tries to cash it.
     let mut t = 13.0_f32;
     while t < 47.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForceNpcCross });
-        script.push(BotEvent { at: t + 0.5, action: BotAction::ForceRevengeCross });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForceNpcCross,
+        });
+        script.push(BotEvent {
+            at: t + 0.5,
+            action: BotAction::ForceRevengeCross,
+        });
         t += 0.7;
     }
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 48.0, action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)) });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 48.0,
+        action: BotAction::Assert(BotAssert::RevengeStealAtLeast(1)),
+    });
     script
 }
 
@@ -559,10 +940,22 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     // isn't reliable headless. Seek-catch keeps the player busy so free crabs don't pile to the
     // overwhelmed game-over; runs at 3x time_scale like the other steal tests.
     let mut script = vec![
-        BotEvent { at: 0.1, action: BotAction::Log("Starting rival-vs-rival ecology steal test") },
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 2.0, action: BotAction::SeekCatch(true) },
+        BotEvent {
+            at: 0.1,
+            action: BotAction::Log("Starting rival-vs-rival ecology steal test"),
+        },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::SeekCatch(true),
+        },
     ];
     // Force a rival crossing every 0.9s across a wide window. Each attempt is a no-op until a smaller
     // rival has wandered far enough that its mid-follower path slot exists, so firing many times across
@@ -570,26 +963,44 @@ pub fn script_npc_vs_npc() -> Vec<BotEvent> {
     // a path history its followers sit on.
     let mut t = 10.0_f32;
     while t < 44.0 {
-        script.push(BotEvent { at: t, action: BotAction::ForceRivalCross });
+        script.push(BotEvent {
+            at: t,
+            action: BotAction::ForceRivalCross,
+        });
         // Interleave a deterministic hunt setup so the anticipatory "predator closing" telegraph arms
         // on the same frames (both read live positions through the real update path).
-        script.push(BotEvent { at: t + 0.45, action: BotAction::ForceRivalHunt });
+        script.push(BotEvent {
+            at: t + 0.45,
+            action: BotAction::ForceRivalHunt,
+        });
         t += 0.9;
     }
-    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::GameNotOver) });
-    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalStealAtLeast(1)) });
+    script.push(BotEvent {
+        at: 46.0,
+        action: BotAction::Assert(BotAssert::GameNotOver),
+    });
+    script.push(BotEvent {
+        at: 46.0,
+        action: BotAction::Assert(BotAssert::RivalStealAtLeast(1)),
+    });
     // ...and that the collision spilled catchable crumbs into the world (ROADMAP step 3, agar.io
     // "eat the crumbs"): a fraction of each rival-vs-rival cut of ≥2 breaks loose as free crabs the
     // player can swoop in and rustle, instead of all transferring to the winner. Forcing ~38 crossings
     // onto mid-followers of multi-crab rivals makes at least one qualifying cut near-certain, so this
     // guards the spill path can't silently regress to a clean pickpocket.
-    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalSpillAtLeast(1)) });
+    script.push(BotEvent {
+        at: 46.0,
+        action: BotAction::Assert(BotAssert::RivalSpillAtLeast(1)),
+    });
     // ...and that the anticipatory "predator closing" telegraph fired (ROADMAP step 3 "make it legible
     // and swoopable"): a bigger King committing to a smaller rival paints a gold King→King line so the
     // player reads the impending clash from afar and pre-positions to swoop the spilled crumbs. Repeatedly
     // forcing the biggest train onto a smaller rival leaves the two leaders adjacent, so the natural
     // hunt urge arms the telegraph on the following frames — guarding the tell can't silently regress.
-    script.push(BotEvent { at: 46.0, action: BotAction::Assert(BotAssert::RivalHuntTelegraphAtLeast(1)) });
+    script.push(BotEvent {
+        at: 46.0,
+        action: BotAction::Assert(BotAssert::RivalHuntTelegraphAtLeast(1)),
+    });
     script
 }
 
@@ -599,19 +1010,52 @@ pub fn script_groove_dash() -> Vec<BotEvent> {
     // it exercises the new chord input path end to end. The chord is a no-op-safe cast (self-guards on
     // cooldown), so we assert the monotonic chord counter rose rather than any tool side effect.
     vec![
-        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 2.0, action: BotAction::Assert(BotAssert::InGame) },
-        BotEvent { at: 3.0, action: BotAction::HoldKey(KeyCode::ArrowRight) },
-        BotEvent { at: 4.5, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 5.0, action: BotAction::ReleaseKey(KeyCode::ArrowRight) },
-        BotEvent { at: 5.0, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent {
+            at: 0.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 2.0,
+            action: BotAction::Assert(BotAssert::InGame),
+        },
+        BotEvent {
+            at: 3.0,
+            action: BotAction::HoldKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 4.5,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 5.0,
+            action: BotAction::ReleaseKey(KeyCode::ArrowRight),
+        },
+        BotEvent {
+            at: 5.0,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
         // #165 chord: hold the whistle key, then tap SPACE on it — fires the whistle as a beat-tap
         // flavor rather than a dash. HoldKey lands the key in keys_held the frame BEFORE the SPACE
         // tap so the chord detection (which reads keys_held) sees it held.
-        BotEvent { at: 5.5, action: BotAction::HoldKey(KeyCode::KeyE) },
-        BotEvent { at: 5.8, action: BotAction::TapKey(KeyCode::Space) },
-        BotEvent { at: 6.0, action: BotAction::ReleaseKey(KeyCode::KeyE) },
-        BotEvent { at: 6.2, action: BotAction::Assert(BotAssert::ChordFiredAtLeast(1)) },
-        BotEvent { at: 6.2, action: BotAction::Assert(BotAssert::GameNotOver) },
+        BotEvent {
+            at: 5.5,
+            action: BotAction::HoldKey(KeyCode::KeyE),
+        },
+        BotEvent {
+            at: 5.8,
+            action: BotAction::TapKey(KeyCode::Space),
+        },
+        BotEvent {
+            at: 6.0,
+            action: BotAction::ReleaseKey(KeyCode::KeyE),
+        },
+        BotEvent {
+            at: 6.2,
+            action: BotAction::Assert(BotAssert::ChordFiredAtLeast(1)),
+        },
+        BotEvent {
+            at: 6.2,
+            action: BotAction::Assert(BotAssert::GameNotOver),
+        },
     ]
 }

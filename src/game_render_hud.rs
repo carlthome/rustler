@@ -6,24 +6,18 @@
 //! flashlight shader pass. Pure rendering, no gameplay mutation.
 
 use ggez::glam::Vec2;
-use ggez::graphics::{
-    Canvas, Color, DrawParam, Rect, Text,
-};
+use ggez::graphics::{Canvas, Color, DrawParam, Rect, Text};
 use ggez::{Context, GameResult};
 
 use crate::constants::*;
+use crate::graphics::{
+    cached_stroke_rect, draw_beat_indicator, draw_crab_radar, draw_flashlight,
+    draw_groove_vignette, draw_reef_phrase, draw_wave_telegraph, draw_weather, unit_square,
+};
+use crate::graphics::{draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions};
 use crate::hud_cache::*;
 use crate::spawnings::SpawnPattern;
 use crate::state::*;
-use crate::graphics::{
-    cached_stroke_rect, draw_beat_indicator, draw_crab_radar, draw_flashlight,
-    draw_groove_vignette, draw_reef_phrase, draw_wave_telegraph,
-    draw_weather, unit_square,
-};
-use crate::graphics::{
-    draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions,
-};
-
 
 impl MainState {
     /// Screen-space HUD / overlay pass. Called from `draw_game` after the world-space pass;
@@ -144,7 +138,8 @@ impl MainState {
                 if c.is_dancer() && d2 <= 420.0 * 420.0 {
                     call_useful = true;
                 }
-                if !c.is_boss() && c.boss_health > 0.0 && d2 <= STOMP_MAX_RADIUS * STOMP_MAX_RADIUS {
+                if !c.is_boss() && c.boss_health > 0.0 && d2 <= STOMP_MAX_RADIUS * STOMP_MAX_RADIUS
+                {
                     stomp_useful = true;
                 }
                 if c.is_thief() && d2 <= 400.0 * 400.0 {
@@ -224,7 +219,10 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
                 Some((s, cl, cc, m, cached_bpm, _)) => {
-                    *s != self.score || *cl != chain_len || *cc != self.combo_count || *m != mult
+                    *s != self.score
+                        || *cl != chain_len
+                        || *cc != self.combo_count
+                        || *m != mult
                         || *cached_bpm != bpm
                 }
                 None => true,
@@ -236,7 +234,10 @@ impl MainState {
                         self.score, bpm, chain_len, self.combo_count, mult
                     )
                 } else {
-                    format!("Score: {}  |  {} BPM  |  Train: {}", self.score, bpm, chain_len)
+                    format!(
+                        "Score: {}  |  {} BPM  |  Train: {}",
+                        self.score, bpm, chain_len
+                    )
                 };
                 *cache = Some((
                     self.score,
@@ -378,7 +379,7 @@ impl MainState {
 
         // Action bars — pushed down so they don't collide with score/rhythm bonus above.
         let bar_x = 10.0;
-        let bar_y = 80.0;   // was 50 — now clears score(y=10) + rhythm bonus(y=30) with margin
+        let bar_y = 80.0; // was 50 — now clears score(y=10) + rhythm bonus(y=30) with margin
         let bar_width = 160.0; // was 220 — narrower to feel less heavy
         let bar_height = 10.0; // was 18 — thinner, less dominant
         let max_boost = 0.18;
@@ -519,7 +520,11 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == ready);
             if needs_rebuild {
-                let mut text = Text::new(if ready { "Whistle (E) ✓" } else { "Whistle (E)" });
+                let mut text = Text::new(if ready {
+                    "Whistle (E) ✓"
+                } else {
+                    "Whistle (E)"
+                });
                 text.set_scale(13.0);
                 *cache = Some((ready, text));
             }
@@ -527,7 +532,12 @@ impl MainState {
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
                     .dest(Vec2::new(bar_x + bar_width + 5.0, wbar_y - 1.0))
-                    .color(Color::from_rgba(255, 230, 150, if ready { 220 } else { 130 })),
+                    .color(Color::from_rgba(
+                        255,
+                        230,
+                        150,
+                        if ready { 220 } else { 130 },
+                    )),
             );
         });
 
@@ -573,7 +583,12 @@ impl MainState {
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
                     .dest(Vec2::new(bar_x + bar_width + 5.0, sbar_y - 1.0))
-                    .color(Color::from_rgba(190, 215, 245, if sready { 220 } else { 130 })),
+                    .color(Color::from_rgba(
+                        190,
+                        215,
+                        245,
+                        if sready { 220 } else { 130 },
+                    )),
             );
         });
 
@@ -590,11 +605,11 @@ impl MainState {
                     .color(Color::from_rgb(40, 40, 40)),
             );
             let (fr, fg, fb) = if self.flashlight.on {
-                (255, 200, 80)  // bright amber while active
+                (255, 200, 80) // bright amber while active
             } else if fready {
-                (180, 140, 50)  // dim amber when charged but off
+                (180, 140, 50) // dim amber when charged but off
             } else {
-                (80, 60, 20)    // dark when drained
+                (80, 60, 20) // dark when drained
             };
             canvas.draw(
                 unit_square(ctx)?,

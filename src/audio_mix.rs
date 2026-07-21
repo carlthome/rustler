@@ -7,8 +7,8 @@
 //! structural move — no behaviour change; the caller still owns the surrounding
 //! simulation and invokes these at the same points, with the same `dt`.
 
-use ggez::audio::SoundSource;
 use ggez::Context;
+use ggez::audio::SoundSource;
 
 use crate::beat::downbeat_started;
 use crate::*;
@@ -221,7 +221,8 @@ impl MainState {
         // volume and detaches, so simultaneous thefts don't cut each other off. Muted off-field.
         if let Some(splice_pos) = self.rival_steal_sfx.take() {
             use ggez::audio::SoundSource as _;
-            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
+            let game_active =
+                !self.show_instructions && !self.game_over && !self.show_world_map;
             if game_active {
                 let delta = splice_pos - self.player_pos;
                 let dist = delta.length();
@@ -298,8 +299,7 @@ impl MainState {
         // rumble path, so the headless playtests are unaffected.
         {
             use ggez::audio::SoundSource as _;
-            let game_active =
-                !self.show_instructions && !self.game_over && !self.show_world_map;
+            let game_active = !self.show_instructions && !self.game_over && !self.show_world_map;
             let downbeat_started =
                 downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
             const RIVAL_MOTIF_TIERS: usize = 3;

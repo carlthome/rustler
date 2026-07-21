@@ -219,10 +219,9 @@ impl MainState {
                     let dist = center.distance(crab.pos);
                     if dist < self.stomp_radius && crab.boss_health > 0.0 && crab.stun_timer <= 0.0
                     {
-                        let lands = matches!(
-                            hermit_king_phase(crab.boss_health),
-                            HermitKingPhase::Sturdy
-                        ) || on_beat_cast;
+                        let lands =
+                            matches!(hermit_king_phase(crab.boss_health), HermitKingPhase::Sturdy)
+                                || on_beat_cast;
                         if lands {
                             crab.boss_health = (crab.boss_health - 1.0).max(0.0);
                             crab.stun_timer = HERMIT_KING_CRACK_IFRAME;

@@ -157,16 +157,15 @@ pub fn draw_attracted_crab_glow(
     cached_stroke_circle(ctx, outer_radius, 2.5)?;
     ATTRACTED_RING_GROUPS.with(|groups_cell| {
         let mut groups = groups_cell.borrow_mut();
-        groups.entry(ring_key).or_default().push(
-            DrawParam::default()
-                .dest(pos)
-                .color(Color::new(
-                    (r * 0.5 + 0.5).min(1.0),
-                    (g * 0.5 + 0.5).min(1.0),
-                    (b * 0.5 + 0.5).min(1.0),
-                    ring_alpha,
-                )),
-        );
+        groups
+            .entry(ring_key)
+            .or_default()
+            .push(DrawParam::default().dest(pos).color(Color::new(
+                (r * 0.5 + 0.5).min(1.0),
+                (g * 0.5 + 0.5).min(1.0),
+                (b * 0.5 + 0.5).min(1.0),
+                ring_alpha,
+            )));
     });
 
     Ok(())
@@ -204,7 +203,11 @@ pub fn draw_magnet_aura(
     let inner = size * 0.7;
     // Match the 1.4x wider field a charged Magnet actually pulls over (CHARGED_MAGNET_RADIUS in
     // main.rs) so the visual boundary tells the truth about the vacuum's reach.
-    let ring_radius = if charged { pull_radius * 1.4 } else { pull_radius };
+    let ring_radius = if charged {
+        pull_radius * 1.4
+    } else {
+        pull_radius
+    };
     // A charged Magnet's rings sweep faster and read brighter to sell the energized state.
     let sweep_speed = if charged { 1.1 } else { 0.6 };
     let alpha_scale = if charged { 0.5 } else { 0.35 };
@@ -236,7 +239,12 @@ pub fn draw_magnet_aura(
             // Ensure the mesh exists in the cache (cached_stroke_circle builds it if absent).
             cached_stroke_circle(ctx, radius_q, 2.0)?;
             let key = stroke_circle_key(radius_q, 2.0);
-            params.push((key, DrawParam::default().dest(pos).color(Color::new(r, g, b, alpha))));
+            params.push((
+                key,
+                DrawParam::default()
+                    .dest(pos)
+                    .color(Color::new(r, g, b, alpha)),
+            ));
         }
 
         // Core ring — deferred into the same batch. Core radii vary per crab size so they
@@ -247,8 +255,19 @@ pub fn draw_magnet_aura(
         cached_stroke_circle(ctx, core_r, 2.5)?;
         let core_key = stroke_circle_key(core_r, 2.5);
         let core_g = if charged || lured { 0.8 } else { 0.55 } + core_pulse * 0.2;
-        let core_b_val = if charged { 0.4 } else if lured { 0.35 } else { 0.3 };
-        params.push((core_key, DrawParam::default().dest(pos).color(Color::new(1.0, core_g, core_b_val, 0.55))));
+        let core_b_val = if charged {
+            0.4
+        } else if lured {
+            0.35
+        } else {
+            0.3
+        };
+        params.push((
+            core_key,
+            DrawParam::default()
+                .dest(pos)
+                .color(Color::new(1.0, core_g, core_b_val, 0.55)),
+        ));
         Ok(())
     })?;
 
@@ -395,7 +414,11 @@ pub fn draw_golden_sparkle(
     // DrawParam into GOLDEN_SPARKLE_PARAMS and let flush_golden_sparkles() drain them all as one
     // instanced batch after every crab's aura pass — identical output, one GPU submission total.
     const SPARKLES: usize = 5;
-    let orbit = if snared { size * 0.55 + 4.0 } else { size * 0.75 + 6.0 };
+    let orbit = if snared {
+        size * 0.55 + 4.0
+    } else {
+        size * 0.75 + 6.0
+    };
     let spin = if snared { 3.4 } else { 1.6 };
     GOLDEN_SPARKLE_PARAMS.with(|params_cell| {
         let mut params = params_cell.borrow_mut();
@@ -689,7 +712,11 @@ pub fn draw_cleave_slash(
     let p0 = mid - dir * half;
     let p1 = mid + dir * half;
 
-    let (r, g, bl) = if gold { (1.0, 0.88, 0.3) } else { (0.35, 1.0, 0.9) };
+    let (r, g, bl) = if gold {
+        (1.0, 0.88, 0.3)
+    } else {
+        (0.35, 1.0, 0.9)
+    };
     let perp = Vec2::new(-dir.y, dir.x);
 
     // Tapered blade body — a filled quad that's fat at the leading tip (p1) and tapers to nothing at

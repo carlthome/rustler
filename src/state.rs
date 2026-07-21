@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 
 use crevice::std140::AsStd140;
+use ggez::Context;
 use ggez::audio::SoundSource;
 use ggez::audio::Source;
 use ggez::glam::Vec2;
 use ggez::graphics::{Image, ShaderParams};
-use ggez::Context;
 
 #[derive(Copy, Clone, Debug, AsStd140)]
 pub struct PostProcessUniform {
@@ -34,10 +34,10 @@ pub struct TrailUniform {
 use crate::bot::BotState;
 // Re-exported so existing `use crate::state::*` consumers keep resolving these after the
 // NpcCongaTrain cluster moved to its own module.
-pub use crate::npc_conga_train::{NpcCongaTrain, gen_king_crab_name};
 use crate::enemies::{CrabType, EnemyCrab};
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
 use crate::levels::Level;
+pub use crate::npc_conga_train::{NpcCongaTrain, gen_king_crab_name};
 use crate::skins::PlayerSkin;
 use crate::sounds;
 use crate::tutorial::Tutorial;
@@ -121,8 +121,7 @@ impl MainState {
             !self.sounds.action_music.is_empty(),
             "campaign levels must provide at least one music track"
         );
-        self.current_level
-            .min(self.sounds.action_music.len() - 1)
+        self.current_level.min(self.sounds.action_music.len() - 1)
     }
 
     /// The tutorial on-ramp begins with rhythm and sound effects almost alone, then introduces more
@@ -285,26 +284,26 @@ pub enum LassoPhase {
 }
 
 pub struct MainState {
-    pub(crate) player_pos: Vec2,              // Player position
-    pub(crate) player_vel: Vec2,              // Player velocity (for smooth movement)
-    pub(crate) mouse_pos: Vec2,               // Mouse position for flashlight aiming
-    pub(crate) crabs: Vec<EnemyCrab>,         // List of crabs in the game
-    pub(crate) score: usize,                  // Current score
-    pub(crate) spawn_timer: f32,              // Timer for spawning new crabs
+    pub(crate) player_pos: Vec2,      // Player position
+    pub(crate) player_vel: Vec2,      // Player velocity (for smooth movement)
+    pub(crate) mouse_pos: Vec2,       // Mouse position for flashlight aiming
+    pub(crate) crabs: Vec<EnemyCrab>, // List of crabs in the game
+    pub(crate) score: usize,          // Current score
+    pub(crate) spawn_timer: f32,      // Timer for spawning new crabs
     /// A rare pirate chest waiting to be collected. Its groove reward is graded at pickup time.
     pub(crate) treasure_chest: Option<Vec2>,
     /// Counts down to the next rare-chest spawn roll while no chest is on the field.
     pub(crate) treasure_chest_timer: f32,
-    pub(crate) time_elapsed: f32,             // Time since game start
-    pub(crate) menu_time: f32, // Free-running clock for the title/menu screen animation
+    pub(crate) time_elapsed: f32, // Time since game start
+    pub(crate) menu_time: f32,    // Free-running clock for the title/menu screen animation
     pub(crate) menu_intro_time: f32,
     pub(crate) menu_intro_complete: bool,
     pub(crate) menu_intro_pling_played: bool,
-    pub(crate) game_over: bool, // Game over flag
-    pub(crate) sounds: GameSounds, // All game sound effects
+    pub(crate) game_over: bool,               // Game over flag
+    pub(crate) sounds: GameSounds,            // All game sound effects
     pub(crate) beat_synth: sounds::BeatSynth, // Procedural kick drum played on every beat tick
-    pub(crate) flashlight: Flashlight, // Flashlight settings and upgrades
-    pub(crate) show_instructions: bool, // Show instructions screen
+    pub(crate) flashlight: Flashlight,        // Flashlight settings and upgrades
+    pub(crate) show_instructions: bool,       // Show instructions screen
     pub(crate) show_how_to_play_text: bool, // Show plain-text How to Play card instead of Home menu
     // Active cosmetic loadout for the player character (hat, facial hair, accessory).
     // Loaded from career.txt on startup; changed from the title screen customisation menu.
@@ -353,9 +352,9 @@ pub struct MainState {
     /// One-based stage number in endless arcade mode. Unlike `current_level`, this never wraps.
     pub(crate) arcade_stage: usize,
     pub(crate) current_pattern: usize, // Current pattern index within the level
-    pub(crate) pattern_timer: f32, // Timer for current pattern duration
-    pub(crate) debug_mode: bool, // Debug mode flag
-    pub(crate) pending_upgrade: bool, // Whether upgrade screen should be shown
+    pub(crate) pattern_timer: f32,     // Timer for current pattern duration
+    pub(crate) debug_mode: bool,       // Debug mode flag
+    pub(crate) pending_upgrade: bool,  // Whether upgrade screen should be shown
     // The three options rolled for the CURRENT upgrade screen (indices into UPGRADE_POOL). Rolled
     // once when the upgrade is queued (see roll_upgrade_offer / check_upgrade_unlock), NOT in draw,
     // so the cards stay stable instead of reshuffling every frame. Read by draw_upgrade_screen and
@@ -408,10 +407,10 @@ pub struct MainState {
     pub(crate) trail_image_a: ggez::graphics::Image, // Ping-pong accumulation target A
     pub(crate) trail_image_b: ggez::graphics::Image, // Ping-pong accumulation target B
     pub(crate) trail_swap: bool, // Toggles which trail image is read vs written each frame
-    pub(crate) particle_system: ParticleSystem,                      // Particle effects system
-    pub(crate) level_title: String,                                  // Title of the current level
+    pub(crate) particle_system: ParticleSystem, // Particle effects system
+    pub(crate) level_title: String, // Title of the current level
     pub(crate) level_title_timer: f32, // Timer for displaying level title
-    pub(crate) subtitle: String,       // Random subtitle for instructions screen
+    pub(crate) subtitle: String, // Random subtitle for instructions screen
     pub(crate) position_history: VecDeque<Vec2>,
     pub(crate) chain_count: usize,
     /// Monotonic count of every crab caught this run — unlike `chain_count`, it never drops when the

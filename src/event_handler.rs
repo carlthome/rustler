@@ -122,10 +122,7 @@ impl EventHandler for MainState {
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             screen_canvas.set_shader(&self.postprocess_shader);
             screen_canvas.set_shader_params(&self.postprocess_params);
-            screen_canvas.draw(
-                &write_img,
-                DrawParam::default().dest(Vec2::ZERO),
-            );
+            screen_canvas.draw(&write_img, DrawParam::default().dest(Vec2::ZERO));
             screen_canvas.set_default_shader();
             screen_canvas.finish(ctx)?;
         }

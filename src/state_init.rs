@@ -49,7 +49,9 @@ impl MainState {
         let detected_beat_interval: f32 = {
             use std::io::Read as _;
             let mut bytes = Vec::new();
-            let result = ctx.fs.open("/action.ogg")
+            let result = ctx
+                .fs
+                .open("/action.ogg")
                 .and_then(|mut f| {
                     f.read_to_end(&mut bytes)
                         .map_err(|e| ggez::GameError::CustomError(e.to_string()))
@@ -292,21 +294,13 @@ impl MainState {
         // Offscreen target for the flashlight cone shader — kept separate so the custom shader's
         // group-3 bind never touches the scene canvas (ggez 0.9.3 set_default_shader doesn't clear
         // shader_bind_group, which would poison every subsequent instanced draw on the same canvas).
-        let flashlight_cone_image = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let flashlight_cone_image =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
 
         // Use logical size (1280x960) for the offscreen render target, consistent with the viewport.
         // The postprocess pass will handle any HiDPI scaling when blitting to screen.
-        let scene_image = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let scene_image =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
         let postprocess_shader = ShaderBuilder::new()
             .vertex_path("/postprocess.wgsl")
             .fragment_path("/postprocess.wgsl")
@@ -333,18 +327,10 @@ impl MainState {
             .build(&ctx.gfx)?;
         let initial_trail_uniform = TrailUniform { strength: 0.0 };
         let trail_params = ShaderParamsBuilder::new(&initial_trail_uniform).build(ctx);
-        let trail_image_a = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
-        let trail_image_b = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let trail_image_a =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
+        let trail_image_b =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
 
         let flashlight = Flashlight {
             on: false,
