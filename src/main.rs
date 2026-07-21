@@ -36,6 +36,7 @@ mod spawnings;
 mod startle;
 mod state;
 mod state_init;
+mod tool_actions;
 mod tool_resolve;
 mod tutorial;
 mod upgrade;
