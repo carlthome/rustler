@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.33.2 — 2026-07-21
+
+### Fixes
+- Deterministic bot playtests: fixed timestep + seeded RNG
+
+### Refactoring
+- Extract particle system from graphics.rs into particles.rs
+
 ## v0.33.1 — 2026-07-21
 
 ### Performance
