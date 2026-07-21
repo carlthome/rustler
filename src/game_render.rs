@@ -2093,8 +2093,8 @@ impl MainState {
                 if self.sounds.outro_music.playing() {
                     self.sounds.outro_music.pause();
                 }
-                if !self.sounds.intro_music.playing() {
-                    self.sounds.intro_music.play();
+                if self.sounds.intro_music.playing() {
+                    self.sounds.intro_music.pause();
                 }
                 draw_world_map(ctx, &mut canvas, map, width, height, self.menu_time)?;
                 canvas.finish(ctx)?;
