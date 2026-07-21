@@ -349,6 +349,7 @@ impl MainState {
         }
         self.stop_level_audio();
         self.sounds.world_map_pad.pause();
+        self.reset_game();
         self.show_world_map = false;
         self.show_instructions = true;
         self.show_how_to_play_text = false;
@@ -356,6 +357,8 @@ impl MainState {
         self.in_campaign = false;
         self.tutorial = None;
         self.menu_page = 0;
+        self.sounds.intro_music.stop();
+        let _ = self.sounds.intro_music.play();
     }
 
     /// Start a campaign run (or tutorial) from the currently selected world map node.
