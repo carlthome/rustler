@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.37.1 — 2026-07-21
+
+### Performance
+- Cache the chain bond/sandwich crab-index lookup by chain_count
+
+### Refactoring
+- Extract game lifecycle & scene transitions from main.rs into game_lifecycle.rs
+- Split npc_trains.rs: extract the train draw pass into npc_trains_render.rs
+
 ## v0.37.0 — 2026-07-21
 
 ### Features
