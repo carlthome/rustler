@@ -87,6 +87,7 @@ impl MainState {
         let action_bpm = 60.0 / BEAT_INTERVAL;
         // detected_beat_interval still seeds the pre-game beat clock (reset_game overrides it to
         // BEAT_INTERVAL on entry) and the log line above; it no longer drives the music tempo.
+        let levels = get_levels();
 
         // TODO Load all sound effects.
         let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
@@ -113,12 +114,12 @@ impl MainState {
         };
         let sounds = GameSounds {
             intro_music,
-            // Procedurally generated action groove — a driving pentatonic shuffle
-            // with a generative riff, swing, call-and-response phrasing, and a
-            // layered bass line (see sounds::synth_action_groove). Replaces the
-            // static /action.ogg so the in-game loop is real, foot-tapping music
-            // rather than a fixed backing track.
-            action_music: sounds::synth_action_groove(ctx, action_bpm)?,
+            // One authored procedural loop per biome. They share the gameplay grid but vary their
+            // harmony, lead timbre, and arrangement as the map changes.
+            action_music: levels
+                .iter()
+                .map(|level| sounds::synth_biome_action_groove(ctx, action_bpm, level.biome.music))
+                .collect::<GameResult<Vec<_>>>()?,
             outro_music: Source::new(ctx, "/outro.ogg")?,
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
             success: Source::new(ctx, "/success.ogg")?,
@@ -162,9 +163,6 @@ impl MainState {
             sand: Image::from_path(ctx, "/sand.png")?,
             player: Image::from_path(ctx, "/rustler.png")?,
         };
-
-        // Get levels.
-        let levels = get_levels();
 
         // Delivery pen + tide-pool hazards for the opening level, placed before `levels` is moved
         // into the struct so we can read the first zone's difficulty for the pool count.
@@ -414,6 +412,7 @@ impl MainState {
             sprint_stamina: SPRINT_STAMINA_MAX,
             levels,
             current_level: 0,
+            arcade_stage: 1,
             current_pattern: 0,
             pattern_timer: 0.0,
             debug_mode: true,

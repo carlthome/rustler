@@ -74,7 +74,7 @@ impl MainState {
         self.level_title = self
             .levels
             .get(level_index)
-            .map(|level| level.title.clone())
+            .map(|level| format!("Stage {} — {}", level_index + 1, level.title))
             .unwrap_or_default();
         // Both modes use the same title-card language: campaign starts a fresh node, while arcade
         // starts a fresh session. Only arcade transitions between cards without resetting the run.
@@ -126,7 +126,10 @@ impl MainState {
         // grid. set_pitch only takes effect on the next play(), which the draw-side state machine
         // fires on game entry, so applying it here (no ctx needed) is enough.
         self.music_pitch = 1.0;
-        self.sounds.action_music.set_pitch(1.0);
+        for music in &mut self.sounds.action_music {
+            music.stop();
+            music.set_pitch(1.0);
+        }
         for layer in self.music_layers.iter_mut() {
             layer.set_pitch(1.0);
         }
@@ -289,6 +292,9 @@ impl MainState {
         self.boost_cooldown = 0.0;
         self.sprint_stamina = SPRINT_STAMINA_MAX;
         self.current_pattern = 0;
+        if !self.in_campaign {
+            self.arcade_stage = 1;
+        }
         self.start_current_pattern((width, height));
     }
 
@@ -310,7 +316,9 @@ impl MainState {
 
     /// Stop sounds that belong to a campaign level before returning to the world map.
     fn stop_level_audio(&mut self) {
-        self.sounds.action_music.pause();
+        for music in &self.sounds.action_music {
+            music.pause();
+        }
         self.sounds.outro_music.pause();
         for layer in &mut self.music_layers {
             layer.stop();

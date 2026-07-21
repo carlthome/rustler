@@ -102,9 +102,13 @@ impl MainState {
                 self.beat_interval = BEAT_INTERVAL / desired_pitch;
                 self.beat_timer *= self.beat_interval / old_interval;
                 self.music_pitch = desired_pitch;
-                self.sounds.action_music.set_pitch(desired_pitch);
-                if self.sounds.action_music.playing() {
-                    let _ = self.sounds.action_music.play();
+                let active_music = self.action_music_index();
+                for (index, music) in self.sounds.action_music.iter_mut().enumerate() {
+                    let was_playing = index == active_music && music.playing();
+                    music.set_pitch(desired_pitch);
+                    if was_playing {
+                        let _ = music.play();
+                    }
                 }
                 for layer in self.music_layers.iter_mut() {
                     let was_playing = layer.playing();

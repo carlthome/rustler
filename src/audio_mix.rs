@@ -20,7 +20,9 @@ impl MainState {
                 source.pause();
             }
         };
-        pause_if_playing(&self.sounds.action_music);
+        for music in &self.sounds.action_music {
+            pause_if_playing(music);
+        }
         for layer in &self.music_layers {
             pause_if_playing(layer);
         }
@@ -157,11 +159,19 @@ impl MainState {
         let base_vol = if self.music_muted {
             0.0
         } else {
-            (0.25 + self.music_intensity * 0.75) * npc_duck
+            (0.25 + self.music_intensity * 0.75) * npc_duck * self.tutorial_music_gain()
         };
-        self.sounds
-            .action_music
-            .set_volume(base_vol.clamp(0.0, 1.0));
+        let active_music = self.action_music_index();
+        for (index, music) in self.sounds.action_music.iter_mut().enumerate() {
+            music.set_volume(if index == active_music {
+                base_vol.clamp(0.0, 1.0)
+            } else {
+                0.0
+            });
+            if index != active_music && music.playing() {
+                music.pause();
+            }
+        }
         let layer_count = self.music_layers.len();
         for (i, layer) in self.music_layers.iter_mut().enumerate() {
             let threshold = (i + 1) as f32 / (layer_count + 1) as f32;
