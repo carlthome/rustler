@@ -1081,7 +1081,7 @@ impl EventHandler for AppState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         match self {
-            Self::Loading { .. } => draw_loading_screen(ctx, 0.20, "LOADING THE RAVE..."),
+            Self::Loading { .. } => draw_loading_screen(ctx, 0.0, "LOADING THE RAVE..."),
             Self::Ready(state) => state.draw(ctx),
         }
     }
@@ -1293,35 +1293,42 @@ pub(crate) fn draw_loading_screen(
     progress: f32,
     label: &str,
 ) -> GameResult {
+    const BAR_WIDTH: f32 = 400.0;
+    const BLOCK_WIDTH: f32 = 16.0;
+    const BLOCK_GAP: f32 = 4.0;
+    const BLOCK_COUNT: usize = 20;
+    const BAR_HEIGHT: f32 = 20.0;
+    const BORDER_PADDING: f32 = 10.0;
     let (width, height) = ctx.gfx.drawable_size();
-    let bar_width = 400.0;
-    let block_width = 16.0;
-    let block_gap = 4.0;
-    let block_count = 20;
-    let bar_x = (width - bar_width) * 0.5;
+    let bar_x = (width - BAR_WIDTH) * 0.5;
     let bar_y = height * 0.5;
-    let filled_blocks = (progress.clamp(0.0, 1.0) * block_count as f32) as usize;
+    let filled_blocks = (progress.clamp(0.0, 1.0) * BLOCK_COUNT as f32) as usize;
     let mut canvas = Canvas::from_frame(ctx, Color::from_rgb(10, 14, 31));
 
     let border = Mesh::new_rectangle(
         ctx,
         DrawMode::stroke(3.0),
-        Rect::new(bar_x - 10.0, bar_y - 10.0, bar_width + 20.0, 40.0),
+        Rect::new(
+            bar_x - BORDER_PADDING,
+            bar_y - BORDER_PADDING,
+            BAR_WIDTH + BORDER_PADDING * 2.0,
+            BAR_HEIGHT + BORDER_PADDING * 2.0,
+        ),
         Color::from_rgb(250, 214, 104),
     )?;
     canvas.draw(&border, DrawParam::default());
 
-    for block in 0..block_count {
+    for block in 0..BLOCK_COUNT {
         let color = if block < filled_blocks {
             Color::from_rgb(90, 228, 142)
         } else {
             Color::from_rgb(38, 54, 83)
         };
-        let x = bar_x + block as f32 * (block_width + block_gap);
+        let x = bar_x + block as f32 * (BLOCK_WIDTH + BLOCK_GAP);
         let segment = Mesh::new_rectangle(
             ctx,
             DrawMode::fill(),
-            Rect::new(x, bar_y, block_width, 20.0),
+            Rect::new(x, bar_y, BLOCK_WIDTH, BAR_HEIGHT),
             color,
         )?;
         canvas.draw(&segment, DrawParam::default());
