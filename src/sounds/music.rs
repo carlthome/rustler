@@ -180,9 +180,8 @@ pub fn synth_intro_menu(ctx: &mut Context) -> GameResult<Source> {
         right[i] = ambience_r + music * angle.sin();
     }
 
-    // A quiet cross-channel reflection supplies natural distance and prevents the dry motif from
-    // sitting directly between the speakers.
-    // A short cross-channel reflection suggests a distant beach wall without an obvious echo.
+    // A quiet cross-channel reflection suggests a distant beach wall without an obvious echo and
+    // prevents the dry motif from sitting directly between the speakers.
     let delay = (0.19 * SAMPLE_RATE as f32) as usize;
     for i in delay..n {
         left[i] += right[i - delay] * 0.12;
