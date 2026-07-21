@@ -16,8 +16,9 @@ use crate::graphics::{
     cached_stroke_rect, draw_armor_ring, draw_attracted_crab_glow, draw_boss_health_ring,
     draw_catch_next_hint, draw_centerpiece_ring, draw_crab, draw_cycle_preview_ring,
     draw_golden_sparkle, draw_hermit_shell, draw_magnet_aura, draw_splitter_aura,
-    draw_thief_aura, flush_attracted_crab_glows, flush_beat_coronas, flush_catch_next_ticks,
-    flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras, unit_square,
+    draw_thief_aura, flush_archetype_rings, flush_attracted_crab_glows, flush_beat_coronas,
+    flush_catch_next_ticks, flush_centerpiece_dots, flush_hermit_coil_dots, flush_magnet_auras,
+    unit_square,
 };
 
 // Scratch buffer for centerpiece_link_indices — reused every draw frame so the per-frame
@@ -711,6 +712,11 @@ impl MainState {
         // while the canvas is still in ADD blend so they addively light up the train on every
         // downbeat — one GPU submission for the entire conga train's glow regardless of length.
         flush_beat_coronas(ctx, canvas)?;
+        // Flush the Thief/Splitter/Golden/Armored archetype rings (and Splitter's cleave dots)
+        // deferred by draw_thief_aura/draw_splitter_aura/draw_golden_sparkle/draw_armor_ring above
+        // — the last aura draws that were still one canvas.draw() per crab per frame, now batched
+        // the same way as the flushes above. Still in ADD blend mode here (restored right after).
+        flush_archetype_rings(ctx, canvas)?;
         canvas.set_blend_mode(original_blend);
         // Which seated links are part of a paying CENTERPIECE run right now, so we can ring them
         // live (see draw_centerpiece_ring). Computed once per frame from the same predicate the pen
