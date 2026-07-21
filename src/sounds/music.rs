@@ -9,12 +9,12 @@
 use ggez::audio::{SoundData, SoundSource, Source};
 use ggez::{Context, GameResult};
 
-use crate::levels::BiomeMusic;
+use crate::arenas::BiomeMusic;
 
 use super::audio::{
-    bitcrush, compress, encode_wav_mono16, encode_wav_stereo16_at_rate, gb_pulse_note,
-    master_limiter, mix_into, normalize_and_saturate, samples_to_pcm, synth_note, Adsr, Waveform,
-    SAMPLE_RATE,
+    Adsr, SAMPLE_RATE, Waveform, bitcrush, compress, encode_wav_mono16,
+    encode_wav_stereo16_at_rate, gb_pulse_note, master_limiter, mix_into, normalize_and_saturate,
+    samples_to_pcm, synth_note,
 };
 
 /// Detect the dominant BPM from a raw OGG file and return the beat interval in seconds.
@@ -146,8 +146,7 @@ fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) 
     let dry_left = left[..n].to_vec();
     let dry_right = right[..n].to_vec();
     let cutoff_hz = 1_800.0_f32;
-    let low_pass_alpha =
-        1.0 - (-std::f32::consts::TAU * cutoff_hz / sample_rate as f32).exp();
+    let low_pass_alpha = 1.0 - (-std::f32::consts::TAU * cutoff_hz / sample_rate as f32).exp();
     let mut soft_left = 0.0_f32;
     let mut soft_right = 0.0_f32;
     // Arbitrary fixed seed: the texture varies over time but is reproducible across launches.
@@ -168,8 +167,7 @@ fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) 
         let gust = 0.72 + 0.28 * (std::f32::consts::TAU * 0.11 * t).sin();
         let hiss = raw * 0.0025 * (std::f32::consts::TAU * 0.37 * t).sin().abs();
         left[i] = dry_left[i] * 0.72 + soft_left * 0.28 + (wind_l * 0.035 + hiss) * gust;
-        right[i] =
-            dry_right[i] * 0.72 + soft_right * 0.28 + (wind_r * 0.035 + hiss * 0.8) * gust;
+        right[i] = dry_right[i] * 0.72 + soft_right * 0.28 + (wind_r * 0.035 + hiss * 0.8) * gust;
     }
 
     let delay = (0.19 * sample_rate as f32) as usize;
@@ -295,8 +293,8 @@ const R: f32 = 0.0; // rest
 fn synth_two_voice(
     ctx: &mut Context,
     sixteenth_s: f32,
-    voice1: &[(f32, u32)],  // (hz, 16ths) — arpeggio riff, Rect(0.125)
-    voice2: &[(f32, u32)],  // (hz, 16ths) — counter-melody, Rect(0.5)
+    voice1: &[(f32, u32)], // (hz, 16ths) — arpeggio riff, Rect(0.125)
+    voice2: &[(f32, u32)], // (hz, 16ths) — counter-melody, Rect(0.5)
     amp1: f32,
     amp2: f32,
 ) -> GameResult<Source> {
@@ -869,9 +867,7 @@ fn synth_groove(
             GrooveVoice::Lead => match lead {
                 GrooveLead::ElectricPiano => synth_ep_note(hz, dur_s, note.gain),
                 GrooveLead::Sine => groove_voice_note(hz, dur_s, Waveform::Sine, note.gain),
-                GrooveLead::Triangle => {
-                    groove_voice_note(hz, dur_s, Waveform::Triangle, note.gain)
-                }
+                GrooveLead::Triangle => groove_voice_note(hz, dur_s, Waveform::Triangle, note.gain),
                 GrooveLead::Pulse => {
                     groove_voice_note(hz, dur_s, Waveform::Rect(0.25), note.gain * 0.72)
                 }
@@ -890,20 +886,34 @@ fn synth_groove(
     // determinism is untouched; the snare's noise consumes RNG here at the very end.
     for bar in 0..bars {
         let bar_start = bar * steps_per_bar;
-        let step_offset =
-            |st: u32| -> usize { (st as f32 * step_s * SAMPLE_RATE as f32) as usize };
+        let step_offset = |st: u32| -> usize { (st as f32 * step_s * SAMPLE_RATE as f32) as usize };
         match arrangement {
             GrooveArrangement::Disco => {
                 for step in [0, 4, 8, 12] {
                     render_kick(&mut mix, step_offset(bar_start + step), melody_gain * 0.78);
                 }
-                render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.8, &mut rng);
-                render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.8, &mut rng);
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + 4),
+                    melody_gain * 0.8,
+                    &mut rng,
+                );
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + 12),
+                    melody_gain * 0.8,
+                    &mut rng,
+                );
             }
             GrooveArrangement::HalfTime => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain);
                 render_kick(&mut mix, step_offset(bar_start + 10), melody_gain * 0.62);
-                render_snare(&mut mix, step_offset(bar_start + 8), melody_gain * 0.72, &mut rng);
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + 8),
+                    melody_gain * 0.72,
+                    &mut rng,
+                );
             }
             GrooveArrangement::Shanty => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain);
@@ -920,8 +930,18 @@ fn synth_groove(
             GrooveArrangement::Chip => {
                 render_kick(&mut mix, step_offset(bar_start), melody_gain * 0.8);
                 render_kick(&mut mix, step_offset(bar_start + 8), melody_gain * 0.8);
-                render_snare(&mut mix, step_offset(bar_start + 4), melody_gain * 0.55, &mut rng);
-                render_snare(&mut mix, step_offset(bar_start + 12), melody_gain * 0.55, &mut rng);
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + 4),
+                    melody_gain * 0.55,
+                    &mut rng,
+                );
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + 12),
+                    melody_gain * 0.55,
+                    &mut rng,
+                );
             }
         }
         // Turnaround FILL on the final bar: a snare roll accelerating into the loop point (steps
@@ -930,7 +950,12 @@ fn synth_groove(
         // the "fill on the transition" that makes a repeating loop feel like a song coming around.
         if bar + 1 == bars {
             for &st in &[10u32, 13, 14, 15] {
-                render_snare(&mut mix, step_offset(bar_start + st), melody_gain * 0.6, &mut rng);
+                render_snare(
+                    &mut mix,
+                    step_offset(bar_start + st),
+                    melody_gain * 0.6,
+                    &mut rng,
+                );
             }
         }
     }

@@ -95,10 +95,10 @@ impl EventHandler for MainState {
             let _scale_x = draw_w / self.width;
             let _scale_y = draw_h / self.height;
             // title_card_t: ease in fast, hold, ease out over the last 0.6s
-            let title_t = if self.level_title_timer > 0.0 {
+            let title_t = if self.arena_title_timer > 0.0 {
                 let hold = 2.5_f32;
-                let fade_in = (1.0 - (self.level_title_timer - hold) / 0.3).clamp(0.0, 1.0);
-                let fade_out = (self.level_title_timer / 0.6).clamp(0.0, 1.0);
+                let fade_in = (1.0 - (self.arena_title_timer - hold) / 0.3).clamp(0.0, 1.0);
+                let fade_out = (self.arena_title_timer / 0.6).clamp(0.0, 1.0);
                 fade_in.min(fade_out)
             } else {
                 0.0
@@ -122,10 +122,7 @@ impl EventHandler for MainState {
             let mut screen_canvas = Canvas::from_frame(ctx, Color::BLACK);
             screen_canvas.set_shader(&self.postprocess_shader);
             screen_canvas.set_shader_params(&self.postprocess_params);
-            screen_canvas.draw(
-                &write_img,
-                DrawParam::default().dest(Vec2::ZERO),
-            );
+            screen_canvas.draw(&write_img, DrawParam::default().dest(Vec2::ZERO));
             screen_canvas.set_default_shader();
             screen_canvas.finish(ctx)?;
         }

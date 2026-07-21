@@ -1,3 +1,4 @@
+mod arenas;
 mod audio_mix;
 mod beat;
 mod bot;
@@ -21,7 +22,6 @@ mod game_update;
 mod graphics;
 mod hud_cache;
 mod king_crab_audio;
-mod levels;
 mod menu;
 mod menu_intro;
 mod npc_conga_train;
@@ -113,17 +113,17 @@ pub(crate) fn how_to_play_body_text() -> String {
 use ggez::audio::SoundSource;
 use ggez::conf::{FullscreenType, WindowMode, WindowSetup};
 use ggez::event;
-use ggez::winit::dpi::LogicalSize;
 use ggez::glam::Vec2;
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, Mesh, Rect, Text};
 use ggez::input::keyboard::{KeyCode, KeyInput};
 use ggez::input::mouse::MouseButton;
+use ggez::winit::dpi::LogicalSize;
 use ggez::{Context, ContextBuilder, GameResult};
 use rand::Rng;
 
+use crate::arenas::{TerrainKind, get_arenas};
 use crate::controls::handle_player_movement;
 use crate::enemies::{BossCharge, CrabType, EnemyCrab, HermitKingPhase, hermit_king_phase};
-use crate::levels::{TerrainKind, get_levels};
 use crate::spawnings::{
     spawn_boss, spawn_dancer_king, spawn_enemies, spawn_hermit_king, spawn_hype_dancer,
     spawn_rhythm_boss, spawn_tide_boss, spawn_tutorial_crabs,
@@ -185,7 +185,7 @@ pub(crate) fn pick_pen_pos(width: f32, height: f32, avoid: Vec2, rng: &mut impl 
     best
 }
 
-/// Scatter a handful of tide pools across the field for the current level. Pools are kept clear of
+/// Scatter a handful of tide pools across the field for the current arena. Pools are kept clear of
 /// the delivery pen (so banking never means wading), off the player's current spot, and apart from
 /// each other, so they read as distinct hazards to route between rather than one big swamp. Count
 /// scales gently with `difficulty` so later zones have more water to thread the train through.
@@ -234,7 +234,7 @@ impl MainState {
     /// (open field, wade-drag water, solid rock chokepoints, or crab-snagging kelp). Clamped so a
     /// finished run doesn't index past the last level.
     fn current_terrain(&self) -> TerrainKind {
-        self.levels[self.current_level.min(self.levels.len() - 1)]
+        self.arenas[self.current_arena.min(self.arenas.len() - 1)]
             .biome
             .terrain
     }
@@ -522,33 +522,33 @@ impl MainState {
         }
     }
 
-    fn start_current_pattern(&mut self, area: (f32, f32)) {
+    fn start_current_wave(&mut self, area: (f32, f32)) {
         let mut rng = crate::rng::rng();
-        if self.current_level >= self.levels.len() {
-            // No levels left, finish game.
+        if self.current_arena >= self.arenas.len() {
+            // No arenas left, finish game.
             self.game_over = true;
             return;
         }
-        let level = &self.levels[self.current_level];
-        let p = &level.patterns[self.current_pattern];
+        let arena = &self.arenas[self.current_arena];
+        let wave = &arena.waves[self.current_wave];
         // Arcade is an endless tour through the biome set. Each completed tour raises the herd
         // density and shortens the clear window, while deterministic centroid transforms keep later
         // visits from replaying the exact same spatial sequence.
         let arcade_tour = if self.in_campaign {
             0
         } else {
-            (self.arcade_stage.saturating_sub(1) / self.levels.len().max(1)) as u32
+            (self.arcade_round.saturating_sub(1) / self.arenas.len().max(1)) as u32
         };
         let arcade_count_mul = (1.0 + arcade_tour as f32 * 0.12).min(3.0);
         let arcade_duration_mul = (1.0 - arcade_tour as f32 * 0.035).max(0.58);
         let centroid = if self.in_campaign {
-            p.centroid
+            wave.centroid
         } else {
-            match self.arcade_stage % 4 {
-                0 => (1.0 - p.centroid.0, p.centroid.1), // horizontal mirror
-                1 => p.centroid,                         // authored placement
-                2 => (p.centroid.1, 1.0 - p.centroid.0), // quarter turn
-                _ => (1.0 - p.centroid.1, p.centroid.0), // opposite quarter turn
+            match self.arcade_round % 4 {
+                0 => (1.0 - wave.centroid.0, wave.centroid.1), // horizontal mirror
+                1 => wave.centroid,                            // authored placement
+                2 => (wave.centroid.1, 1.0 - wave.centroid.0), // quarter turn
+                _ => (1.0 - wave.centroid.1, wave.centroid.0), // opposite quarter turn
             }
         };
         // Frenzy waves drop a denser herd than the pattern normally calls for — the staged spike.
@@ -557,60 +557,60 @@ impl MainState {
         // here (the flag is what the gold telegraph read); reset it once the drop is spent.
         // Staged ramp: denser herds and less breathing room the further into the run we are. This
         // is the smooth rising spine; the Frenzy bump below stacks on top of it for the periodic
-        // standout spike. `stage` is clamped in-bounds since intensity_stage only climbs.
-        let stage = self.intensity_stage.min(INTENSITY_STAGES.len() - 1);
-        let stage_mul = INTENSITY_STAGES[stage].2;
-        let stage_dur = STAGE_DURATION_SCALE
+        // standout spike. `stage` is clamped in-bounds since intensity_tier only climbs.
+        let stage = self.intensity_tier.min(INTENSITY_TIERS.len() - 1);
+        let stage_mul = INTENSITY_TIERS[stage].2;
+        let stage_dur = INTENSITY_TIER_DURATION_SCALE
             .powi(stage as i32)
-            .max(STAGE_DURATION_FLOOR);
-        let base_count = (p.count as f32 * stage_mul * arcade_count_mul).round() as usize;
+            .max(INTENSITY_TIER_DURATION_FLOOR);
+        let base_count = (wave.count as f32 * stage_mul * arcade_count_mul).round() as usize;
         let frenzy = self.frenzy_wave;
         let count = if frenzy {
             ((base_count as f32 * 1.7).ceil() as usize).max(base_count + 4)
         } else {
             base_count
         };
-        let base_duration = p.duration * stage_dur * arcade_duration_mul;
+        let base_duration = wave.duration * stage_dur * arcade_duration_mul;
         let duration = if frenzy {
             base_duration * 0.85
         } else {
             base_duration
         };
         let crabs = spawn_enemies(
-            p.pattern.clone(),
+            wave.formation.clone(),
             count,
             area,
             centroid,
-            level.emphasis,
+            arena.emphasis,
             &mut rng,
         );
         self.crabs.extend(crabs);
-        self.pattern_timer = duration;
+        self.wave_timer = duration;
         self.frenzy_wave = false;
     }
 
-    fn advance_pattern(&mut self) {
+    fn advance_wave(&mut self) {
         // Count every wave the player clears this run — drives the every-4th Frenzy cadence.
         self.waves_cleared = self.waves_cleared.wrapping_add(1);
-        self.current_pattern += 1;
-        let level = &self.levels[self.current_level];
-        if self.current_pattern >= level.patterns.len() {
-            let previous_title = level.title.clone();
-            self.current_pattern = 0;
+        self.current_wave += 1;
+        let arena = &self.arenas[self.current_arena];
+        if self.current_wave >= arena.waves.len() {
+            let previous_title = arena.title.clone();
+            self.current_wave = 0;
             // Campaign nodes are self-contained maps: keep generating waves in this biome until
             // the explicit win condition returns the player to the world map. Arcade instead moves
             // forever through an escalating, procedurally varied biome sequence.
             if !self.in_campaign {
-                self.arcade_stage = self.arcade_stage.saturating_add(1);
-                self.current_level = (self.current_level + 1) % self.levels.len();
-                self.level_title = self
-                    .levels
-                    .get(self.current_level)
-                    .map(|level| format!("Stage {} — {}", self.arcade_stage, level.title))
+                self.arcade_round = self.arcade_round.saturating_add(1);
+                self.current_arena = (self.current_arena + 1) % self.arenas.len();
+                self.arena_title = self
+                    .arenas
+                    .get(self.current_arena)
+                    .map(|arena| format!("ARENA — {}", arena.title))
                     .unwrap_or(previous_title);
-                self.level_title_timer = 3.1;
-                if let Some(next_level) = self.levels.get(self.current_level) {
-                    self.resize_world(next_level.map_size);
+                self.arena_title_timer = 3.1;
+                if let Some(next_arena) = self.arenas.get(self.current_arena) {
+                    self.resize_world(next_arena.arena_size);
                 }
                 // Fresh biome, fresh pen and terrain locations.
                 let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
@@ -620,7 +620,7 @@ impl MainState {
                     player_center,
                     &mut crate::rng::rng(),
                 );
-                let difficulty = self.levels[self.current_level].difficulty;
+                let difficulty = self.arenas[self.current_arena].difficulty;
                 self.tide_pools = pick_tide_pools(
                     self.world_width,
                     self.world_height,
@@ -635,7 +635,7 @@ impl MainState {
             }
         }
         let area = (self.world_width, self.world_height);
-        self.start_current_pattern(area);
+        self.start_current_wave(area);
     }
 
     /// Bank the just-ended run into the persistent career and write it to disk. Called exactly
@@ -775,14 +775,10 @@ impl MainState {
         }
     }
 
-
-
-
     // --- Effective per-tool values, derived from the chosen upgrade lanes ---
     // These fold each lane's rank into the base constants at the point of use, so a run that pours
     // level-ups into one tool visibly transforms it (a whistle build sweeps the whole screen; a
     // stomp build fires almost on demand) instead of every build feeling the same.
-
 
     // apply_upgrade now lives in src/upgrade.rs (impl MainState there).
 }
@@ -1001,7 +997,10 @@ fn main() -> GameResult {
         let scale = monitor.scale_factor();
         let logical_w = (size.width as f64 / scale) as f32;
         let logical_h = (size.height as f64 / scale) as f32;
-        let _ = ctx.gfx.window().request_inner_size(LogicalSize::new(logical_w, logical_h));
+        let _ = ctx
+            .gfx
+            .window()
+            .request_inner_size(LogicalSize::new(logical_w, logical_h));
     }
     let mut app = if bot_script.is_some() {
         AppState::Ready(MainState::new(&mut ctx)?)
@@ -1068,14 +1067,8 @@ fn main() -> GameResult {
                 // step small enough that catches register reliably, trading a little wall-clock (still
                 // a parallel matrix leg) for a green that isn't a coin-flip.
                 "steal_defense" | "steal_dodge" | "revenge" => 2.0,
-                "campaign_escape"
-                | "campaign_loss"
-                | "menu_to_game"
-                | "campaign_tutorial"
-                | "campaign_full"
-                | "npc_steal"
-                | "player_steal"
-                | "npc_vs_npc" => 3.0,
+                "campaign_escape" | "campaign_loss" | "menu_to_game" | "campaign_tutorial"
+                | "campaign_full" | "npc_steal" | "player_steal" | "npc_vs_npc" => 3.0,
                 _ => 8.0,
             }
         };

@@ -1,16 +1,16 @@
 use crate::enemies::CrabType;
-use crate::spawnings::SpawnPattern;
+use crate::spawnings::WaveFormation;
 
-/// Playfield size relative to the fixed game viewport. Keeping this on `Level` makes the campaign's
+/// Playfield size relative to the fixed game viewport. Keeping this on `Arena` makes the campaign's
 /// sense of travel explicit while all world-space systems continue to use the same bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MapSize {
+pub enum ArenaSize {
     Tutorial,
     Medium,
     Large,
 }
 
-impl MapSize {
+impl ArenaSize {
     /// Returns the factor by which each world dimension exceeds the viewport: 1.0 fits the
     /// tutorial in one screen, while 2.0 and 4.0 create progressively larger campaign maps.
     pub const fn viewport_multiplier(self) -> f32 {
@@ -22,7 +22,7 @@ impl MapSize {
     }
 }
 
-/// The completion goal for a campaign level. Each condition tests the mechanic the biome was
+/// The completion goal for a campaign arena. Each condition tests the mechanic the biome was
 /// built for — not just "get X score" — so crossing into the next biome feels like a gear change.
 /// Evaluated every frame during a campaign run (see the win-check block in `game_update`); when
 /// met, the world-map node completes and the next one unlocks.
@@ -48,18 +48,32 @@ impl WinCondition {
         match *self {
             WinCondition::BankCrabs(n) => banked >= n,
             WinCondition::BuildTrain(n) => train >= n,
-            WinCondition::CrackAndHold { shells: s, min_train } => shells >= s && train >= min_train,
+            WinCondition::CrackAndHold {
+                shells: s,
+                min_train,
+            } => shells >= s && train >= min_train,
             WinCondition::HoldTrain { seconds, .. } => hold_secs >= seconds,
         }
     }
 
     /// Short live-progress line for the HUD corner counter, so the player always knows where they
     /// stand against the goal.
-    pub fn progress_text(&self, banked: usize, train: usize, shells: usize, hold_secs: f32) -> String {
+    pub fn progress_text(
+        &self,
+        banked: usize,
+        train: usize,
+        shells: usize,
+        hold_secs: f32,
+    ) -> String {
         match *self {
             WinCondition::BankCrabs(n) => format!("GOAL  Bank crabs: {} / {}", banked.min(n), n),
-            WinCondition::BuildTrain(n) => format!("GOAL  Train of {} at once: {} / {}", n, train.min(n), n),
-            WinCondition::CrackAndHold { shells: s, min_train } => format!(
+            WinCondition::BuildTrain(n) => {
+                format!("GOAL  Train of {} at once: {} / {}", n, train.min(n), n)
+            }
+            WinCondition::CrackAndHold {
+                shells: s,
+                min_train,
+            } => format!(
                 "GOAL  Shells cracked: {} / {}  |  Train: {} (keep \u{2265} {})",
                 shells.min(s),
                 s,
@@ -75,15 +89,19 @@ impl WinCondition {
                         seconds
                     )
                 } else {
-                    format!("GOAL  Build a train of {} and hold it {:.0}s", target, seconds)
+                    format!(
+                        "GOAL  Build a train of {} and hold it {:.0}s",
+                        target, seconds
+                    )
                 }
             }
         }
     }
 }
 
-pub struct LevelPattern {
-    pub pattern: SpawnPattern,
+pub struct Wave {
+    /// The geometry used to introduce this encounter's herd.
+    pub formation: WaveFormation,
     pub count: usize,
     pub duration: f32,
     pub centroid: (f32, f32),
@@ -114,12 +132,12 @@ pub enum TerrainKind {
     Desktop,
 }
 
-/// The broad visual composition of a campaign map. This is deliberately separate from
+/// The broad visual composition of a campaign arena. This is deliberately separate from
 /// `TerrainKind`: a Sunken Treasury can look fully underwater while retaining the same water-pool
 /// movement rules, and a river can cut through an otherwise open field.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MapLayout {
+pub enum ArenaLayout {
     Meadow,
     Beach,
     Underwater,
@@ -127,7 +145,7 @@ pub enum MapLayout {
     River,
 }
 
-/// A visual "zone" a level takes place in. Gives each level a distinct read so runs feel like
+/// A visual zone an arena takes place in. It gives each arena a distinct read so runs feel like
 /// they travel somewhere instead of one continuous space. `tint` is a multiply grade laid over
 /// the whole ground; `pulse` recolors the on-beat flash to match the zone's mood; `terrain` is the
 /// mechanical wrinkle its patches carry; `layout` gives the ground a distinct broad composition.
@@ -137,7 +155,7 @@ pub struct Biome {
     pub tint: (u8, u8, u8),
     pub pulse: (u8, u8, u8),
     pub terrain: TerrainKind,
-    pub layout: MapLayout,
+    pub layout: ArenaLayout,
     pub music: BiomeMusic,
 }
 
@@ -156,11 +174,11 @@ pub enum BiomeMusic {
     DesktopChip,
 }
 
-pub struct Level {
+pub struct Arena {
     pub title: String,
     pub description: String,
     pub difficulty: usize,
-    pub map_size: MapSize,
+    pub arena_size: ArenaSize,
     pub biome: Biome,
     /// The herd archetype this zone leans on — its "second half" of the gear-change. Terrain
     /// (above) changes how the ground routes; `emphasis` changes *what you're catching* so
@@ -169,16 +187,16 @@ pub struct Level {
     /// terrain: Water→Magnet (routing), Rock→Armored (shells to crack), Kelp→Thief (tail
     /// pressure). `None` on the beginner zone, which stays a clean, unflavored intro.
     pub emphasis: Option<CrabType>,
-    /// Bosses belong to the zone's archetype family. Arcade keeps the same level sequence alive,
+    /// Bosses belong to the zone's archetype family. Arcade keeps the same arena sequence alive,
     /// while the Desktop deliberately cycles through every boss as its meme finale.
     pub boss_sequence: Vec<CrabType>,
-    /// The completion goal for this level during a campaign run. Meeting it completes the
+    /// The completion goal for this arena during a campaign run. Meeting it completes the
     /// world-map node and unlocks the next one.
     pub win_condition: WinCondition,
-    pub patterns: Vec<LevelPattern>,
+    pub waves: Vec<Wave>,
 }
 
-impl Level {
+impl Arena {
     pub fn boss_for_encounter(&self, encounter: usize) -> CrabType {
         if self.boss_sequence.is_empty() {
             CrabType::Boss
@@ -188,7 +206,7 @@ impl Level {
     }
 }
 
-/// The player-facing name of a level's emphasized archetype, for the Control-style title banner.
+/// The player-facing name of an arena's emphasized archetype, for the Control-style title banner.
 /// Surfacing it on the card is what makes the boundary *read* as a gear-change instead of an
 /// invisible probability bump — the zone announces its dominant threat as you cross into it.
 pub fn emphasis_label(emphasis: Option<CrabType>) -> Option<&'static str> {
@@ -216,51 +234,51 @@ pub fn boss_label(boss: CrabType) -> &'static str {
     }
 }
 
-pub fn get_levels() -> Vec<Level> {
+pub fn get_arenas() -> Vec<Arena> {
     vec![
-        Level {
+        Arena {
             title: "First Landing".to_string(),
             description: "Learn the full catch, train, and bank loop on open sand.".to_string(),
             difficulty: 0,
-            map_size: MapSize::Medium,
+            arena_size: ArenaSize::Medium,
             biome: Biome {
                 name: "Sunny Meadow",
                 tint: (255, 248, 214),
                 pulse: (120, 255, 120),
                 terrain: TerrainKind::Open,
-                layout: MapLayout::Meadow,
+                layout: ArenaLayout::Meadow,
                 music: BiomeMusic::SunnyGroove,
             },
             emphasis: None,
             boss_sequence: vec![CrabType::Boss],
             // Clean intro: teaches the full catch -> train -> bank loop with no hazards.
             win_condition: WinCondition::BankCrabs(25),
-            patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::SingleRandom,
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::SingleRandom,
                     count: 6,
                     duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::SingleRandom,
+                Wave {
+                    formation: WaveFormation::SingleRandom,
                     count: 4,
                     duration: 11.2,
                     centroid: (0.2, 0.8),
                 },
             ],
         },
-        Level {
+        Arena {
             title: "Undertow Shuffle".to_string(),
             description: "Route a growing train through dragging tidal pools.".to_string(),
             difficulty: 2,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Tide Pools",
                 tint: (150, 215, 255),
                 pulse: (90, 200, 255),
                 terrain: TerrainKind::Water,
-                layout: MapLayout::Coast,
+                layout: ArenaLayout::Coast,
                 music: BiomeMusic::TidalDorian,
             },
             // Water routes the herd; the Magnet reroutes it again by clustering free crabs — the
@@ -270,50 +288,50 @@ pub fn get_levels() -> Vec<Level> {
             // One gross catching move: a well-timed Magnet catch scoops the clustered herd, so the
             // win fires mid-wave the instant the train hits 15 — no banking, no patience required.
             win_condition: WinCondition::BuildTrain(15),
-            patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::UniformRandom,
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::UniformRandom,
                     count: 10,
                     duration: 11.2,
                     centroid: (0.7, 0.3),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::SineWave,
+                Wave {
+                    formation: WaveFormation::SineWave,
                     count: 13,
                     duration: 14.0,
                     centroid: (0.3, 0.7),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Circle,
+                Wave {
+                    formation: WaveFormation::Circle,
                     count: 15,
                     duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
+                Wave {
+                    formation: WaveFormation::Cluster,
                     count: 18,
                     duration: 14.0,
                     centroid: (0.8, 0.8),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
+                Wave {
+                    formation: WaveFormation::Cluster,
                     count: 11,
                     duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
             ],
         },
-        Level {
+        Arena {
             title: "Breaker's Passage".to_string(),
             description: "Crack shells while threading the rocky chokepoints.".to_string(),
             difficulty: 3,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Rocky Shore",
                 tint: (178, 192, 208),
                 pulse: (205, 222, 235),
                 terrain: TerrainKind::Rock,
-                layout: MapLayout::Coast,
+                layout: ArenaLayout::Coast,
                 music: BiomeMusic::RockShanty,
             },
             // Rocky chokepoints already make you thread the train; the Armored emphasis makes you
@@ -322,51 +340,54 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::HermitKing],
             // Two gates force both verbs: stomp shells open in the rock chokepoints AND hold a
             // real train — no cheesing shells from a safe corner while ignoring the herd.
-            win_condition: WinCondition::CrackAndHold { shells: 8, min_train: 15 },
-            patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
+            win_condition: WinCondition::CrackAndHold {
+                shells: 8,
+                min_train: 15,
+            },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::Cluster,
                     count: 22,
                     duration: 14.0,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::SineWave,
+                Wave {
+                    formation: WaveFormation::SineWave,
                     count: 18,
                     duration: 16.8,
                     centroid: (0.8, 0.2),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Circle,
+                Wave {
+                    formation: WaveFormation::Circle,
                     count: 26,
                     duration: 19.6,
                     centroid: (0.2, 0.8),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
+                Wave {
+                    formation: WaveFormation::Cluster,
                     count: 15,
                     duration: 11.2,
                     centroid: (0.8, 0.8),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::SineWave,
+                Wave {
+                    formation: WaveFormation::SineWave,
                     count: 11,
                     duration: 8.4,
                     centroid: (0.2, 0.2),
                 },
             ],
         },
-        Level {
+        Arena {
             title: "Kelp After Dark".to_string(),
             description: "Defend a packed conga line on a snagging neon dance floor.".to_string(),
             difficulty: 4,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Neon Kelp Forest",
                 tint: (120, 185, 150),
                 pulse: (255, 90, 220),
                 terrain: TerrainKind::Kelp,
-                layout: MapLayout::River,
+                layout: ArenaLayout::River,
                 music: BiomeMusic::KelpDisco,
             },
             // Kelp already snags your tail loose; a Thief infestation gnaws at it too — the whole
@@ -375,130 +396,179 @@ pub fn get_levels() -> Vec<Level> {
             boss_sequence: vec![CrabType::Boss],
             // Pure defense: getting to 20 is easy, keeping them against kelp snags and Thieves is
             // the whole game. The 30s timer resets the moment the train dips below 20.
-            win_condition: WinCondition::HoldTrain { target: 20, seconds: 30.0 },
-            patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::BeatGrid,
+            win_condition: WinCondition::HoldTrain {
+                target: 20,
+                seconds: 30.0,
+            },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::BeatGrid,
                     count: 16,
                     duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Spiral,
+                Wave {
+                    formation: WaveFormation::Spiral,
                     count: 22,
                     duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::BeatGrid,
+                Wave {
+                    formation: WaveFormation::BeatGrid,
                     count: 30,
                     duration: 19.6,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Spiral,
+                Wave {
+                    formation: WaveFormation::Spiral,
                     count: 38,
                     duration: 22.4,
                     centroid: (0.5, 0.5),
                 },
             ],
         },
-        Level {
+        Arena {
             title: "Lunar Waltz".to_string(),
             description: "Follow the beat through a moonlit dance floor.".to_string(),
             difficulty: 5,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Moonlit Ballroom",
                 tint: (126, 118, 190),
                 pulse: (255, 170, 245),
                 terrain: TerrainKind::Open,
-                layout: MapLayout::Beach,
+                layout: ArenaLayout::Beach,
                 music: BiomeMusic::MoonlitWaltz,
             },
             emphasis: Some(CrabType::Dancer),
             boss_sequence: vec![CrabType::RhythmBoss],
             win_condition: WinCondition::BuildTrain(24),
-            patterns: vec![
-                LevelPattern { pattern: SpawnPattern::BeatGrid, count: 22, duration: 16.8, centroid: (0.5, 0.5) },
-                LevelPattern { pattern: SpawnPattern::Spiral, count: 28, duration: 19.6, centroid: (0.3, 0.7) },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::BeatGrid,
+                    count: 22,
+                    duration: 16.8,
+                    centroid: (0.5, 0.5),
+                },
+                Wave {
+                    formation: WaveFormation::Spiral,
+                    count: 28,
+                    duration: 19.6,
+                    centroid: (0.3, 0.7),
+                },
             ],
         },
-        Level {
+        Arena {
             title: "Hermit's March".to_string(),
             description: "Crack the borrowed shells before the Warren closes in.".to_string(),
             difficulty: 6,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Shellgrave Warren",
                 tint: (184, 146, 112),
                 pulse: (255, 205, 125),
                 terrain: TerrainKind::Rock,
-                layout: MapLayout::Beach,
+                layout: ArenaLayout::Beach,
                 music: BiomeMusic::WarrenMarch,
             },
             emphasis: Some(CrabType::Hermit),
             boss_sequence: vec![CrabType::HermitKing],
-            win_condition: WinCondition::CrackAndHold { shells: 12, min_train: 18 },
-            patterns: vec![
-                LevelPattern { pattern: SpawnPattern::Cluster, count: 24, duration: 16.8, centroid: (0.4, 0.4) },
-                LevelPattern { pattern: SpawnPattern::Circle, count: 30, duration: 19.6, centroid: (0.7, 0.6) },
+            win_condition: WinCondition::CrackAndHold {
+                shells: 12,
+                min_train: 18,
+            },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::Cluster,
+                    count: 24,
+                    duration: 16.8,
+                    centroid: (0.4, 0.4),
+                },
+                Wave {
+                    formation: WaveFormation::Circle,
+                    count: 30,
+                    duration: 19.6,
+                    centroid: (0.7, 0.6),
+                },
             ],
         },
-        Level {
+        Arena {
             title: "Gilded Current".to_string(),
             description: "Chase the shine before the tide hides the prize.".to_string(),
             difficulty: 7,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "Sunken Treasury",
                 tint: (214, 180, 106),
                 pulse: (255, 245, 130),
                 terrain: TerrainKind::Water,
-                layout: MapLayout::Underwater,
+                layout: ArenaLayout::Underwater,
                 music: BiomeMusic::TreasuryRave,
             },
             emphasis: Some(CrabType::Golden),
             boss_sequence: vec![CrabType::Boss],
             win_condition: WinCondition::BankCrabs(55),
-            patterns: vec![
-                LevelPattern { pattern: SpawnPattern::UniformRandom, count: 26, duration: 16.8, centroid: (0.6, 0.3) },
-                LevelPattern { pattern: SpawnPattern::Cluster, count: 34, duration: 22.4, centroid: (0.3, 0.7) },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::UniformRandom,
+                    count: 26,
+                    duration: 16.8,
+                    centroid: (0.6, 0.3),
+                },
+                Wave {
+                    formation: WaveFormation::Cluster,
+                    count: 34,
+                    duration: 22.4,
+                    centroid: (0.3, 0.7),
+                },
             ],
         },
-        Level {
+        Arena {
             title: "Cutlass Causeway".to_string(),
             description: "Shape the train carefully: every catch can cut it in two.".to_string(),
             difficulty: 8,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "The Splitter's Causeway",
                 tint: (190, 132, 156),
                 pulse: (255, 125, 180),
                 terrain: TerrainKind::Kelp,
-                layout: MapLayout::River,
+                layout: ArenaLayout::River,
                 music: BiomeMusic::SplitterShanty,
             },
             emphasis: Some(CrabType::Splitter),
             boss_sequence: vec![CrabType::Boss],
-            win_condition: WinCondition::HoldTrain { target: 24, seconds: 36.0 },
-            patterns: vec![
-                LevelPattern { pattern: SpawnPattern::SineWave, count: 28, duration: 19.6, centroid: (0.5, 0.3) },
-                LevelPattern { pattern: SpawnPattern::Spiral, count: 36, duration: 22.4, centroid: (0.5, 0.7) },
+            win_condition: WinCondition::HoldTrain {
+                target: 24,
+                seconds: 36.0,
+            },
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::SineWave,
+                    count: 28,
+                    duration: 19.6,
+                    centroid: (0.5, 0.3),
+                },
+                Wave {
+                    formation: WaveFormation::Spiral,
+                    count: 36,
+                    duration: 22.4,
+                    centroid: (0.5, 0.7),
+                },
             ],
         },
-        // The fourth-wall surprise (Inscryption / old Windows PowerToys): a special level that
+        // The fourth-wall surprise (Inscryption / old Windows PowerToys): a special arena that
         // "shouldn't be in the game." The playfield becomes a flat OS wallpaper and the terrain
         // patches render as rectangular application windows you route the conga train around. It
         // sits last so it's *discovered* by getting this far, per INSPIRATION — the big Control-style
         // title card does the wink. For this first slice the windows are solid walls (reusing the
         // Rock push-out collision); the real transparent-window hookup is deferred to ggez 0.10.
-        Level {
+        Arena {
             title: "Unauthorized Encore".to_string(),
             description: "Wait — this isn't part of the game. Route the train around the windows."
                 .to_string(),
             difficulty: 9,
-            map_size: MapSize::Large,
+            arena_size: ArenaSize::Large,
             biome: Biome {
                 name: "You Shouldn't Be Here",
                 // Flat neutral desktop wallpaper (classic teal). main.rs paints this opaque over the
@@ -507,7 +577,7 @@ pub fn get_levels() -> Vec<Level> {
                 // Cool window-highlight blue for the on-beat pulse / accents.
                 pulse: (150, 190, 235),
                 terrain: TerrainKind::Desktop,
-                layout: MapLayout::Meadow,
+                layout: ArenaLayout::Meadow,
                 music: BiomeMusic::DesktopChip,
             },
             // No archetype emphasis — the wink is the whole hook; keep the herd plain so the terrain
@@ -524,33 +594,33 @@ pub fn get_levels() -> Vec<Level> {
             // (The issue's BankUnderPressure escape-tracking variant is deferred — there's no
             // "escaped off-world" concept in the sim yet — so this takes its sanctioned fallback.)
             win_condition: WinCondition::BankCrabs(40),
-            patterns: vec![
-                LevelPattern {
-                    pattern: SpawnPattern::UniformRandom,
+            waves: vec![
+                Wave {
+                    formation: WaveFormation::UniformRandom,
                     count: 16,
                     duration: 16.8,
                     centroid: (0.5, 0.5),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Cluster,
+                Wave {
+                    formation: WaveFormation::Cluster,
                     count: 22,
                     duration: 19.6,
                     centroid: (0.3, 0.4),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::BeatGrid,
+                Wave {
+                    formation: WaveFormation::BeatGrid,
                     count: 28,
                     duration: 19.6,
                     centroid: (0.7, 0.6),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::SineWave,
+                Wave {
+                    formation: WaveFormation::SineWave,
                     count: 34,
                     duration: 22.4,
                     centroid: (0.4, 0.7),
                 },
-                LevelPattern {
-                    pattern: SpawnPattern::Circle,
+                Wave {
+                    formation: WaveFormation::Circle,
                     count: 40,
                     duration: 25.2,
                     centroid: (0.6, 0.3),
@@ -565,69 +635,87 @@ mod tests {
     use super::*;
 
     #[test]
-    fn campaign_maps_grow_after_the_first_level() {
-        let levels = get_levels();
-        assert_eq!(levels[0].map_size, MapSize::Medium);
-        assert!(levels[1..]
-            .iter()
-            .all(|level| level.map_size == MapSize::Large));
+    fn campaign_arenas_grow_after_the_first_arena() {
+        let arenas = get_arenas();
+        assert_eq!(arenas[0].arena_size, ArenaSize::Medium);
+        assert!(
+            arenas[1..]
+                .iter()
+                .all(|level| level.arena_size == ArenaSize::Large)
+        );
     }
 
     #[test]
     fn campaign_biomes_use_distinct_map_layouts() {
-        let levels = get_levels();
-        assert_eq!(levels[0].biome.layout, MapLayout::Meadow);
-        assert_eq!(levels[4].biome.layout, MapLayout::Beach);
-        assert_eq!(levels[6].biome.layout, MapLayout::Underwater);
-        assert_eq!(levels[3].biome.layout, MapLayout::River);
-        assert_eq!(levels[7].biome.layout, MapLayout::River);
-        assert!(levels.iter().any(|level| level.biome.layout == MapLayout::Coast));
+        let arenas = get_arenas();
+        assert_eq!(arenas[0].biome.layout, ArenaLayout::Meadow);
+        assert_eq!(arenas[4].biome.layout, ArenaLayout::Beach);
+        assert_eq!(arenas[6].biome.layout, ArenaLayout::Underwater);
+        assert_eq!(arenas[3].biome.layout, ArenaLayout::River);
+        assert_eq!(arenas[7].biome.layout, ArenaLayout::River);
+        assert!(
+            arenas
+                .iter()
+                .any(|level| level.biome.layout == ArenaLayout::Coast)
+        );
     }
 
     #[test]
-    fn map_size_multipliers_cover_tutorial_to_campaign() {
-        assert_eq!(MapSize::Tutorial.viewport_multiplier(), 1.0);
-        assert_eq!(MapSize::Medium.viewport_multiplier(), 2.0);
-        assert_eq!(MapSize::Large.viewport_multiplier(), 4.0);
+    fn arena_size_multipliers_cover_tutorial_to_campaign() {
+        assert_eq!(ArenaSize::Tutorial.viewport_multiplier(), 1.0);
+        assert_eq!(ArenaSize::Medium.viewport_multiplier(), 2.0);
+        assert_eq!(ArenaSize::Large.viewport_multiplier(), 4.0);
     }
 
     #[test]
-    fn every_campaign_level_has_the_designed_win_condition() {
-        let levels = get_levels();
-        assert_eq!(levels.len(), 9);
-        assert_eq!(levels[0].win_condition, WinCondition::BankCrabs(25));
-        assert_eq!(levels[1].win_condition, WinCondition::BuildTrain(15));
+    fn every_campaign_arena_has_the_designed_win_condition() {
+        let arenas = get_arenas();
+        assert_eq!(arenas.len(), 9);
+        assert_eq!(arenas[0].win_condition, WinCondition::BankCrabs(25));
+        assert_eq!(arenas[1].win_condition, WinCondition::BuildTrain(15));
         assert_eq!(
-            levels[2].win_condition,
-            WinCondition::CrackAndHold { shells: 8, min_train: 15 }
+            arenas[2].win_condition,
+            WinCondition::CrackAndHold {
+                shells: 8,
+                min_train: 15
+            }
         );
         assert_eq!(
-            levels[3].win_condition,
-            WinCondition::HoldTrain { target: 20, seconds: 30.0 }
+            arenas[3].win_condition,
+            WinCondition::HoldTrain {
+                target: 20,
+                seconds: 30.0
+            }
         );
-        assert_eq!(levels[4].win_condition, WinCondition::BuildTrain(24));
+        assert_eq!(arenas[4].win_condition, WinCondition::BuildTrain(24));
         assert_eq!(
-            levels[5].win_condition,
-            WinCondition::CrackAndHold { shells: 12, min_train: 18 }
+            arenas[5].win_condition,
+            WinCondition::CrackAndHold {
+                shells: 12,
+                min_train: 18
+            }
         );
-        assert_eq!(levels[6].win_condition, WinCondition::BankCrabs(55));
+        assert_eq!(arenas[6].win_condition, WinCondition::BankCrabs(55));
         assert_eq!(
-            levels[7].win_condition,
-            WinCondition::HoldTrain { target: 24, seconds: 36.0 }
+            arenas[7].win_condition,
+            WinCondition::HoldTrain {
+                target: 24,
+                seconds: 36.0
+            }
         );
-        assert_eq!(levels[8].win_condition, WinCondition::BankCrabs(40));
+        assert_eq!(arenas[8].win_condition, WinCondition::BankCrabs(40));
     }
 
     #[test]
     fn bosses_follow_their_biome_families() {
-        let levels = get_levels();
-        assert_eq!(levels[0].boss_for_encounter(0), CrabType::Boss);
-        assert_eq!(levels[1].boss_for_encounter(0), CrabType::TideBoss);
-        assert_eq!(levels[4].emphasis, Some(CrabType::Dancer));
-        assert_eq!(levels[4].boss_for_encounter(0), CrabType::RhythmBoss);
-        assert_eq!(levels[5].emphasis, Some(CrabType::Hermit));
-        assert_eq!(levels[5].boss_for_encounter(0), CrabType::HermitKing);
-        let desktop = levels.last().unwrap();
+        let arenas = get_arenas();
+        assert_eq!(arenas[0].boss_for_encounter(0), CrabType::Boss);
+        assert_eq!(arenas[1].boss_for_encounter(0), CrabType::TideBoss);
+        assert_eq!(arenas[4].emphasis, Some(CrabType::Dancer));
+        assert_eq!(arenas[4].boss_for_encounter(0), CrabType::RhythmBoss);
+        assert_eq!(arenas[5].emphasis, Some(CrabType::Hermit));
+        assert_eq!(arenas[5].boss_for_encounter(0), CrabType::HermitKing);
+        let desktop = arenas.last().unwrap();
         assert_eq!(desktop.boss_for_encounter(4), CrabType::DancerKing);
         assert_eq!(desktop.boss_for_encounter(5), CrabType::Boss);
     }
@@ -636,12 +724,14 @@ mod tests {
     fn campaign_progression_has_unique_music_and_rising_difficulty() {
         use std::collections::HashSet;
 
-        let levels = get_levels();
-        let themes: HashSet<_> = levels.iter().map(|level| level.biome.music).collect();
-        assert_eq!(themes.len(), levels.len());
-        assert!(levels
-            .windows(2)
-            .all(|pair| pair[0].difficulty <= pair[1].difficulty));
+        let arenas = get_arenas();
+        let themes: HashSet<_> = arenas.iter().map(|level| level.biome.music).collect();
+        assert_eq!(themes.len(), arenas.len());
+        assert!(
+            arenas
+                .windows(2)
+                .all(|pair| pair[0].difficulty <= pair[1].difficulty)
+        );
     }
 
     #[test]
@@ -653,13 +743,19 @@ mod tests {
         assert!(WinCondition::BuildTrain(15).met(0, 15, 0, 0.0));
         assert!(!WinCondition::BuildTrain(15).met(99, 14, 0, 0.0));
         // CrackAndHold needs BOTH gates at once.
-        let cah = WinCondition::CrackAndHold { shells: 8, min_train: 15 };
+        let cah = WinCondition::CrackAndHold {
+            shells: 8,
+            min_train: 15,
+        };
         assert!(cah.met(0, 15, 8, 0.0));
         assert!(!cah.met(0, 14, 8, 0.0));
         assert!(!cah.met(0, 15, 7, 0.0));
         // HoldTrain is satisfied purely by the accumulated hold time (the caller resets it when
         // the train dips below target).
-        let hold = WinCondition::HoldTrain { target: 20, seconds: 30.0 };
+        let hold = WinCondition::HoldTrain {
+            target: 20,
+            seconds: 30.0,
+        };
         assert!(hold.met(0, 20, 0, 30.0));
         assert!(!hold.met(0, 20, 0, 29.9));
     }

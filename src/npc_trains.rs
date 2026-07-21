@@ -13,15 +13,14 @@ use crate::spawnings::{spawn_scattered_crab, spawn_stolen_crab};
 use crate::state::MainState;
 
 impl MainState {
-
     pub fn update_npc_trains(&mut self, dt: f32) {
         // One shared cooldown gates how often YOU can rustle from a rival, so threading a line
         // takes one clean back-section per window instead of vacuuming a whole train in a frame.
         self.player_steal_cooldown = (self.player_steal_cooldown - dt).max(0.0);
         // Whether we're inside the on-beat window this frame — the rival's steal snaps ON the beat
         // (see the splice block below) so losing crabs is rhythmic, a drum hit rather than a random grab.
-        let on_beat = self.beat_timer < BEAT_WINDOW
-            || self.beat_timer > self.beat_interval - BEAT_WINDOW;
+        let on_beat =
+            self.beat_timer < BEAT_WINDOW || self.beat_timer > self.beat_interval - BEAT_WINDOW;
         // The downbeat (beat 1 of the 4/4 bar) is the big-hit moment — same convention as
         // on_downbeat_now(). A reroute that lands on the downbeat is the "big save" version.
         let downbeat = on_beat && self.beat_count % 4 == 0;
@@ -185,14 +184,16 @@ impl MainState {
             let exposure = (1.0 - self.groove).clamp(0.0, 1.0); // 0 in the pocket, 1 fully off-beat
             let pursuit_range = PURSUIT_RANGE + exposure * 180.0;
             // Boldness by tier: 0 for the skittish scout (base 1.2) up to 1 for the elder (2.4).
-            let boldness =
-                ((self.npc_trains[i].base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
+            let boldness = ((self.npc_trains[i].base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
             // Hunt intent smooths toward its phase goal while this rival is on a steal route and back
             // toward 0 otherwise, so the early-warning tell fades in/out instead of popping. Updated
             // every non-idle frame (goal 0 when not hunting) so it always relaxes once the chase ends.
             let hunting = self.chain_count >= 2
                 && dist_to_player < pursuit_range
-                && self.cached_steal_target_pos.or(self.cached_tail_pos).is_some();
+                && self
+                    .cached_steal_target_pos
+                    .or(self.cached_tail_pos)
+                    .is_some();
             if !hunting {
                 // Hunt lost (player banked, escaped range, or the chain snapped): drop any commit
                 // and bleed patience so the next hunt starts from a fresh stalk, not a hair trigger.
@@ -219,18 +220,16 @@ impl MainState {
                     // so big trains get pursued with real intent instead of a lazy drift; an exposed
                     // (off-beat) player adds up to +0.3 more.
                     let length_urge = ((self.chain_count as f32 - 2.0) / 8.0).clamp(0.0, 0.4);
-                    let pursuit_blend =
-                        (((pursuit_range - dist_to_player) / pursuit_range)
-                            + length_urge
-                            + exposure * 0.3)
-                            .clamp(0.0, 1.0);
+                    let pursuit_blend = (((pursuit_range - dist_to_player) / pursuit_range)
+                        + length_urge
+                        + exposure * 0.3)
+                        .clamp(0.0, 1.0);
                     if !self.npc_trains[i].hunt_committed {
                         // STALK: build patience — exposure is the loudest signal, then the prize
                         // and this tier's boldness. Even a flawless player eventually gets tested
                         // (the base term), but slowly enough that the read always comes first:
                         // scout-vs-grooving-player takes ~10s to commit, elder-vs-exposed ~1.5s.
-                        let build =
-                            0.10 + boldness * 0.10 + exposure * 0.35 + length_urge * 0.5;
+                        let build = 0.10 + boldness * 0.10 + exposure * 0.35 + length_urge * 0.5;
                         self.npc_trains[i].stalk_patience =
                             (self.npc_trains[i].stalk_patience + build * dt).min(1.0);
                         if self.npc_trains[i].stalk_patience >= 1.0 {
@@ -352,7 +351,8 @@ impl MainState {
                             self.npc_trains[i].rival_hunt_intensity = blend;
                             // Monotonic tally for the bot guard — bumped here (the draw pass only holds
                             // an immutable borrow of npc_trains). Armed ⇒ drawn, so this tracks the tell.
-                            self.rival_hunt_telegraphs = self.rival_hunt_telegraphs.saturating_add(1);
+                            self.rival_hunt_telegraphs =
+                                self.rival_hunt_telegraphs.saturating_add(1);
                         }
                     }
                 }
@@ -411,7 +411,9 @@ impl MainState {
                         let warn_pos = self
                             .crabs
                             .iter()
-                            .find(|c| c.caught && c.chain_index.map_or(false, |idx| idx >= splice_idx))
+                            .find(|c| {
+                                c.caught && c.chain_index.map_or(false, |idx| idx >= splice_idx)
+                            })
                             .map_or(npc_pos, |c| c.pos);
                         // Peripheral threat language: a red warning callout + ring at the threatened tail.
                         self.floating_texts.spawn(
@@ -421,7 +423,8 @@ impl MainState {
                             [0.98, 0.40, 0.16, 1.0],
                         );
                         if self.catch_shockwaves.len() < 48 {
-                            self.catch_shockwaves.push((warn_pos, 0.0, [0.98, 0.30, 0.14]));
+                            self.catch_shockwaves
+                                .push((warn_pos, 0.0, [0.98, 0.30, 0.14]));
                         }
                     }
                 } else {
@@ -504,8 +507,9 @@ impl MainState {
                                 self.groove =
                                     (self.groove + if downbeat { 0.18 } else { 0.12 }).min(1.0);
                                 self.beat_streak = (self.beat_streak + 1).min(99);
-                                self.on_beat_flash =
-                                    (self.on_beat_flash + if downbeat { 0.5 } else { 0.3 }).min(0.85);
+                                self.on_beat_flash = (self.on_beat_flash
+                                    + if downbeat { 0.5 } else { 0.3 })
+                                .min(0.85);
                             }
                             if self.catch_shockwaves.len() < 48 {
                                 self.catch_shockwaves.push((tp, 0.0, [0.5, 1.0, 0.85]));
@@ -528,7 +532,8 @@ impl MainState {
                         }
                     }
                     let telegraph_shown = self.npc_trains[i].steal_threat < STEAL_FUSE - 0.12;
-                    let fire = self.npc_trains[i].steal_threat <= 0.0 || (on_beat && telegraph_shown);
+                    let fire =
+                        self.npc_trains[i].steal_threat <= 0.0 || (on_beat && telegraph_shown);
                     if fire {
                         self.npc_trains[i].steal_threat = 0.0;
                         // Collect the stolen types before mutating crabs
@@ -792,7 +797,8 @@ impl MainState {
                 let col_r = CRAB_SIZE * npc.leader_scale * 1.2 + PLAYER_SIZE * 0.5;
                 if npc.leader_pos.distance(player_center) < col_r {
                     let toward = (npc.leader_pos - player_center).normalize_or_zero();
-                    if ram_speed > CLASH_RAM_MIN_SPEED && player_vel_pre.dot(toward) > ram_speed * 0.5
+                    if ram_speed > CLASH_RAM_MIN_SPEED
+                        && player_vel_pre.dot(toward) > ram_speed * 0.5
                     {
                         clash_npc = Some(ni);
                         break;
@@ -813,7 +819,8 @@ impl MainState {
                     self.player_vel += away_from_npc * 240.0;
                     self.npc_trains[ni].leader_vel += -away_from_npc * 460.0;
                     self.npc_trains[ni].idle_timer = self.npc_trains[ni].idle_timer.max(0.9);
-                    self.npc_trains[ni].steal_cooldown = self.npc_trains[ni].steal_cooldown.max(3.0);
+                    self.npc_trains[ni].steal_cooldown =
+                        self.npc_trains[ni].steal_cooldown.max(3.0);
                     self.npc_trains[ni].steal_threat = 0.0; // cancel any splice it was winding up
                     self.npc_trains[ni].revenge_timer = REVENGE_WINDOW; // "chase me — rustle 'em back"
                     // Punchy but triumphant feedback.
@@ -835,8 +842,7 @@ impl MainState {
                     let npc_lose = 3.min(self.npc_trains[ni].follower_types.len());
                     for k in 0..npc_lose {
                         self.npc_trains[ni].follower_types.pop();
-                        let scatter_angle =
-                            k as f32 * 2.1 + away_from_npc.y.atan2(away_from_npc.x);
+                        let scatter_angle = k as f32 * 2.1 + away_from_npc.y.atan2(away_from_npc.x);
                         let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
                         if self.catch_shockwaves.len() < 48 {
                             self.catch_shockwaves.push((
@@ -858,8 +864,11 @@ impl MainState {
                         20.0,
                         [0.45, 1.0, 0.7, 0.95],
                     );
-                    self.particle_system
-                        .spawn_milestone_fireworks(player_center, 10, &mut crate::rng::rng());
+                    self.particle_system.spawn_milestone_fireworks(
+                        player_center,
+                        10,
+                        &mut crate::rng::rng(),
+                    );
                 } else {
                     // MISTIMED CLASH — the old painful mutual bounce. Ram off the beat and you take a
                     // hit too: both sides recoil and you shed 1–2 tail crabs.
@@ -887,8 +896,11 @@ impl MainState {
                                     crab.vel = away * 250.0;
                                     crab.vel.y -= 70.0; // hop upward before scattering out
                                     if self.catch_shockwaves.len() < 48 {
-                                        self.catch_shockwaves
-                                            .push((crab.pos, 0.0, [1.0, 0.6, 0.2]));
+                                        self.catch_shockwaves.push((
+                                            crab.pos,
+                                            0.0,
+                                            [1.0, 0.6, 0.2],
+                                        ));
                                     }
                                     released += 1;
                                 }
@@ -900,8 +912,8 @@ impl MainState {
                     let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
                     for k in 0..npc_lose {
                         self.npc_trains[ni].follower_types.pop();
-                        let scatter_angle =
-                            k as f32 * std::f32::consts::PI + away_from_npc.y.atan2(away_from_npc.x);
+                        let scatter_angle = k as f32 * std::f32::consts::PI
+                            + away_from_npc.y.atan2(away_from_npc.x);
                         let scatter_dir = Vec2::new(scatter_angle.cos(), scatter_angle.sin());
                         if self.catch_shockwaves.len() < 48 {
                             self.catch_shockwaves.push((
@@ -924,8 +936,11 @@ impl MainState {
                         32.0,
                         [1.0, 0.5, 0.15, 1.0],
                     );
-                    self.particle_system
-                        .spawn_milestone_fireworks(player_center, 8, &mut crate::rng::rng());
+                    self.particle_system.spawn_milestone_fireworks(
+                        player_center,
+                        8,
+                        &mut crate::rng::rng(),
+                    );
                 }
             }
         }
@@ -1003,11 +1018,19 @@ impl MainState {
                         let spill = spill.min(room);
                         for ct in stolen.drain(stolen.len() - spill..) {
                             let angle: f32 = rng.random_range(0.0..std::f32::consts::TAU);
-                            let mut vel = Vec2::new(angle.cos(), angle.sin()) * rng.random_range(120.0..200.0);
+                            let mut vel = Vec2::new(angle.cos(), angle.sin())
+                                * rng.random_range(120.0..200.0);
                             vel.y -= 60.0; // a slight upward arc before it settles into the herd
-                            let jitter = Vec2::new(rng.random_range(-14.0..14.0), rng.random_range(-14.0..14.0));
-                            self.crabs
-                                .push(spawn_scattered_crab(splice_pos + jitter, vel, ct, &mut rng));
+                            let jitter = Vec2::new(
+                                rng.random_range(-14.0..14.0),
+                                rng.random_range(-14.0..14.0),
+                            );
+                            self.crabs.push(spawn_scattered_crab(
+                                splice_pos + jitter,
+                                vel,
+                                ct,
+                                &mut rng,
+                            ));
                             self.rival_spill_crabs += 1;
                         }
                         // Whatever survived the spill goes to the winner.
@@ -1020,9 +1043,15 @@ impl MainState {
                         let thief_name = self.npc_trains[thief].name.clone();
                         let victim_name = self.npc_trains[victim].name.clone();
                         let callout = if spill > 0 {
-                            format!("{} rustled {} from {} — {} spilled loose!", thief_name, stolen_count, victim_name, spill)
+                            format!(
+                                "{} rustled {} from {} — {} spilled loose!",
+                                thief_name, stolen_count, victim_name, spill
+                            )
                         } else {
-                            format!("{} rustled {} from {}!", thief_name, stolen_count, victim_name)
+                            format!(
+                                "{} rustled {} from {}!",
+                                thief_name, stolen_count, victim_name
+                            )
                         };
                         self.floating_texts.spawn(
                             callout,
@@ -1098,7 +1127,8 @@ impl MainState {
                     self.npc_trains[thief].rival_steal_cut_from = cut_from;
                     self.npc_trains[thief].rival_steal_splice_pos = splice_pos;
                     if self.catch_shockwaves.len() < 48 {
-                        self.catch_shockwaves.push((splice_pos, 0.0, [0.7, 0.5, 0.15]));
+                        self.catch_shockwaves
+                            .push((splice_pos, 0.0, [0.7, 0.5, 0.15]));
                     }
                 }
             }

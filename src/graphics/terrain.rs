@@ -20,7 +20,7 @@ pub fn draw_tide_pools(
     time: f32,
     beat_intensity: f32,
     player_center: Vec2,
-    terrain: crate::levels::TerrainKind,
+    terrain: crate::arenas::TerrainKind,
     // Whether these pools carry the Tide Pool current (and so should draw flow streaks). True only
     // for the Water biome's *native* pools — the drift the sim actually applies. Tide Boss flood
     // pools also render as Water but carry no current, so they pass false: a flow streak that lies
@@ -30,14 +30,15 @@ pub fn draw_tide_pools(
     // it — it drives the rising water sheet drawn over the low rocks. Other terrains ignore it.
     rock_tide_fill: f32,
 ) -> ggez::GameResult {
-    use crate::levels::TerrainKind;
+    use crate::arenas::TerrainKind;
     if pools.is_empty() || terrain == TerrainKind::Open {
         return Ok(());
     }
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -47,7 +48,7 @@ pub fn draw_tide_pools(
     // player sees at a glance what a patch will do to them in this zone.
     match terrain {
         TerrainKind::Rock => {
-            return draw_rock_patches(ctx, canvas, pools, unit_circle, beat, rock_tide_fill)
+            return draw_rock_patches(ctx, canvas, pools, unit_circle, beat, rock_tide_fill);
         }
         TerrainKind::Kelp => {
             return draw_kelp_patches(ctx, canvas, pools, unit_circle, time, beat, player_center);
@@ -91,7 +92,11 @@ pub fn draw_tide_pools(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -130,10 +135,11 @@ pub fn draw_tide_pools(
                 let rim_key = stroke_circle_key(radius, 2.5);
                 let rim_alpha =
                     (0.22 + 0.18 * breathe + if wading { 0.25 } else { 0.0 }).clamp(0.0, 1.0);
-                rim_groups
-                    .entry(rim_key)
-                    .or_default()
-                    .push(DrawParam::default().dest(center).color(Color::new(0.45, 0.8, 1.0, rim_alpha)));
+                rim_groups.entry(rim_key).or_default().push(
+                    DrawParam::default()
+                        .dest(center)
+                        .color(Color::new(0.45, 0.8, 1.0, rim_alpha)),
+                );
 
                 // Two ripple rings expanding outward from the middle.
                 for k in 0..2 {
@@ -143,10 +149,11 @@ pub fn draw_tide_pools(
                     if a > 0.01 {
                         cached_stroke_circle(ctx, rr, 1.5)?;
                         let ripple_key = stroke_circle_key(rr, 1.5);
-                        ripple_groups
-                            .entry(ripple_key)
-                            .or_default()
-                            .push(DrawParam::default().dest(center).color(Color::new(0.55, 0.85, 1.0, a)));
+                        ripple_groups.entry(ripple_key).or_default().push(
+                            DrawParam::default()
+                                .dest(center)
+                                .color(Color::new(0.55, 0.85, 1.0, a)),
+                        );
                     }
                 }
             }
@@ -240,7 +247,11 @@ pub fn draw_tide_pools(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(add_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -274,7 +285,8 @@ pub fn draw_boss_fissures(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh,
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh)
         }
     };
@@ -351,7 +363,12 @@ pub fn draw_boss_fissures(
                                         .dest(center + Vec2::new(0.0, -col_h * 0.5))
                                         .rotation(-std::f32::consts::FRAC_PI_2)
                                         .scale(Vec2::new(col_h, col_w))
-                                        .color(Color::new(1.0, 0.55 + 0.35 * glow, 0.2, 0.35 * erupt)),
+                                        .color(Color::new(
+                                            1.0,
+                                            0.55 + 0.35 * glow,
+                                            0.2,
+                                            0.35 * erupt,
+                                        )),
                                 );
                                 cap_params.push(
                                     DrawParam::default()
@@ -365,7 +382,8 @@ pub fn draw_boss_fissures(
                             let spokes = 7;
                             let thickness = 2.0 + 1.5 * beat;
                             for s in 0..spokes {
-                                let a = s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
+                                let a =
+                                    s as f32 * std::f32::consts::TAU / spokes as f32 + phase * 0.3;
                                 let jitter = (time * 3.0 + s as f32 * 2.1).sin() * 0.15;
                                 let dir = Vec2::new((a + jitter).cos(), (a + jitter).sin());
                                 let inner = center + dir * radius * 0.35 * open;
@@ -400,7 +418,11 @@ pub fn draw_boss_fissures(
             let mut inst_slot = ci.borrow_mut();
             let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
             instances.set(pit_params.iter().copied());
-            canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+            canvas.draw_instanced_mesh_guarded(
+                unit_circle.clone(),
+                instances,
+                DrawParam::default(),
+            );
             Ok(())
         })
     })?;
@@ -416,7 +438,11 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = ci.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(core_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
             }
             Ok(())
         })
@@ -429,7 +455,11 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = li.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(geyser_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_line.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
             }
             Ok(())
         })
@@ -442,7 +472,11 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = ci.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(cap_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
             }
             Ok(())
         })
@@ -455,7 +489,11 @@ pub fn draw_boss_fissures(
                 let mut inst_slot = li.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(spoke_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_line.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
             }
             Ok(())
         })
@@ -474,9 +512,12 @@ pub fn draw_boss_fissures(
         let rim = cached_stroke_circle(ctx, (radius * reach) * open.max(0.05), 3.0 + 1.5 * erupt)?;
         canvas.draw(
             &rim,
-            DrawParam::default()
-                .dest(center)
-                .color(Color::new(1.0, 0.5 + 0.3 * beat, 0.12, rim_a.clamp(0.0, 1.0))),
+            DrawParam::default().dest(center).color(Color::new(
+                1.0,
+                0.5 + 0.3 * beat,
+                0.12,
+                rim_a.clamp(0.0, 1.0),
+            )),
         );
     }
 
@@ -535,7 +576,11 @@ fn draw_rock_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -580,7 +625,11 @@ fn draw_rock_patches(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(sparkle_params.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(
+                        unit_circle.clone(),
+                        instances,
+                        DrawParam::default(),
+                    );
                     Ok(())
                 })?;
             }
@@ -622,7 +671,11 @@ fn draw_rock_patches(
                     let mut inst_slot = inst_cell.borrow_mut();
                     let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                     instances.set(water.iter().copied());
-                    canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                    canvas.draw_instanced_mesh_guarded(
+                        unit_circle.clone(),
+                        instances,
+                        DrawParam::default(),
+                    );
                     Ok(())
                 })?;
             }
@@ -694,7 +747,11 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(fill_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -721,7 +778,8 @@ fn draw_kelp_patches(
                 let sway = (time * 1.6 + f as f32 * 0.9).sin() * 0.25;
                 let ang = base_ang + sway;
                 let len = radius * (0.55 + 0.25 * breathe);
-                let start = center + Vec2::new(base_ang.cos(), base_ang.sin() * 0.6) * radius * 0.15;
+                let start =
+                    center + Vec2::new(base_ang.cos(), base_ang.sin() * 0.6) * radius * 0.15;
                 let end = center + Vec2::new(ang.cos(), ang.sin() * 0.6) * len;
                 let dir = end - start;
                 let dist = dir.length().max(0.001);
@@ -740,7 +798,11 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(frond_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_line.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_line.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -810,7 +872,11 @@ fn draw_kelp_patches(
                 let mut inst_slot = inst_cell.borrow_mut();
                 let instances = inst_slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
                 instances.set(streak_params.iter().copied());
-                canvas.draw_instanced_mesh_guarded(unit_circle.clone(), instances, DrawParam::default());
+                canvas.draw_instanced_mesh_guarded(
+                    unit_circle.clone(),
+                    instances,
+                    DrawParam::default(),
+                );
                 Ok(())
             })?;
         }
@@ -903,7 +969,12 @@ fn draw_window_panels(
             DrawParam::default()
                 .dest(top_left)
                 .scale(Vec2::new(w, title_h))
-                .color(Color::new(0.24 * tb + 0.10, 0.42 * tb + 0.12, 0.72 * tb + 0.18, 1.0)),
+                .color(Color::new(
+                    0.24 * tb + 0.10,
+                    0.42 * tb + 0.12,
+                    0.72 * tb + 0.18,
+                    1.0,
+                )),
         );
         // Traffic-light buttons at the top-right of the title bar (close / minimise / maximise).
         let btn_r = (title_h * 0.20).clamp(2.0, 6.0);
@@ -934,4 +1005,3 @@ fn draw_window_panels(
     }
     Ok(())
 }
-

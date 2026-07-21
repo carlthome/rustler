@@ -3,18 +3,18 @@ use ggez::graphics::{Canvas, Color, DrawParam, Mesh, Rect, Text};
 use ggez::{Context, GameResult};
 
 use crate::MainState;
+use crate::graphics::{cached_stroke_rect, unit_square};
 use crate::hud_cache::{
-    FRENZY_BANNER_CACHE, GAME_OVER_CACHE, LEVEL_TITLE_OVERLAY_CACHE, STAGE_BANNER_CACHE,
+    FRENZY_BANNER_CACHE, GAME_OVER_CACHE, INTENSITY_BANNER_CACHE, LEVEL_TITLE_OVERLAY_CACHE,
     TUTORIAL_OVERLAY_CACHE, UPGRADE_SCREEN_CACHE,
 };
 use crate::upgrade::{UPGRADE_POOL, UpgradeId};
-use crate::graphics::{cached_stroke_rect, unit_square};
 
 /// Full-screen overlay and HUD-screen drawing: level title cards, frenzy/stage banners, the
 /// tutorial instruction card, and the game-over and upgrade-choice screens. Split out of
 /// main.rs to keep that file navigable. (World-space crab rendering lives in crab_render.rs.)
 impl MainState {
-    pub(crate) fn draw_level_title(
+    pub(crate) fn draw_arena_title(
         &self,
         ctx: &mut Context,
         canvas: &mut Canvas,
@@ -25,7 +25,7 @@ impl MainState {
         //   3.1..2.8  fade in  (0.3s)
         //   2.8..0.6  hold
         //   0.6..0.0  fade out
-        let t = self.level_title_timer;
+        let t = self.arena_title_timer;
         let alpha = if t > 2.8 {
             ((3.1 - t) / 0.3).clamp(0.0, 1.0)
         } else if t < 0.6 {
@@ -36,20 +36,20 @@ impl MainState {
         // Slide in from left: during fade-in, title slides right into position.
         let slide_x = (1.0 - alpha) * -80.0;
 
-        let level = &self.levels[self.current_level.min(self.levels.len() - 1)];
+        let level = &self.arenas[self.current_arena.min(self.arenas.len() - 1)];
         let biome = level.biome;
 
         LEVEL_TITLE_OVERLAY_CACHE.with(|c| -> Result<(), ggez::GameError> {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
                 Some((cached_title, cached_biome, _, _, _, _, _, _, _, _, _, _)) => {
-                    cached_title != &self.level_title || *cached_biome != biome.name
+                    cached_title != &self.arena_title || *cached_biome != biome.name
                 }
                 None => true,
             };
             if needs_rebuild {
                 // Control style: large title, smaller biome subtitle, threat tag
-                let mut title = Text::new(self.level_title.to_uppercase());
+                let mut title = Text::new(self.arena_title.to_uppercase());
                 title.set_scale(72.0);
                 let title_dims = title.measure(ctx)?;
 
@@ -57,13 +57,13 @@ impl MainState {
                 subtitle.set_scale(22.0);
                 let sub_dims = subtitle.measure(ctx)?;
 
-                let emphasis = self.levels[self.current_level.min(self.levels.len() - 1)].emphasis;
+                let emphasis = self.arenas[self.current_arena.min(self.arenas.len() - 1)].emphasis;
                 let boss = level.boss_for_encounter(self.next_boss_kind);
                 // This string and Text are built only when the title-card cache changes, not per
                 // animation frame.
-                let threat_text = match crate::levels::emphasis_label(emphasis) {
-                    Some(label) => format!("{}  •  {}", label, crate::levels::boss_label(boss)),
-                    None => crate::levels::boss_label(boss).to_string(),
+                let threat_text = match crate::arenas::emphasis_label(emphasis) {
+                    Some(label) => format!("{}  •  {}", label, crate::arenas::boss_label(boss)),
+                    None => crate::arenas::boss_label(boss).to_string(),
                 };
                 let threat_opt = {
                     let mut threat = Text::new(threat_text);
@@ -73,15 +73,23 @@ impl MainState {
                 };
 
                 *cache = Some((
-                    self.level_title.clone(),
+                    self.arena_title.clone(),
                     biome.name,
                     title,
                     // bg_rect slot — unused now, store a dummy
-                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
-                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
+                    Mesh::new_rectangle(
+                        ctx,
+                        ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0),
+                        Color::from_rgba(0, 0, 0, 0),
+                    )?,
                     // border_rect slot — unused now
-                    Mesh::new_rectangle(ctx, ggez::graphics::DrawMode::fill(),
-                        Rect::new(0.0, 0.0, 1.0, 1.0), Color::from_rgba(0,0,0,0))?,
+                    Mesh::new_rectangle(
+                        ctx,
+                        ggez::graphics::DrawMode::fill(),
+                        Rect::new(0.0, 0.0, 1.0, 1.0),
+                        Color::from_rgba(0, 0, 0, 0),
+                    )?,
                     subtitle,
                     title_dims.x,
                     title_dims.y,
@@ -230,21 +238,21 @@ impl MainState {
     /// Cyan "BUILDING / HEATED / FEVER …" shout when the run climbs into a new intensity stage.
     /// Same pop-and-fade feel as the Frenzy banner but a cool color and a slightly lower slot, so
     /// the two read as distinct events (spike vs. rising tide) if they ever land close together.
-    pub(crate) fn draw_stage_banner(
+    pub(crate) fn draw_intensity_banner(
         &self,
         ctx: &mut Context,
         canvas: &mut Canvas,
         width: f32,
         height: f32,
     ) -> Result<(), ggez::GameError> {
-        let life = (self.stage_banner_timer / 2.0).clamp(0.0, 1.0);
+        let life = (self.intensity_banner_timer / 2.0).clamp(0.0, 1.0);
         let alpha = (life * 3.0).min(1.0); // hold, then fade only in the final third
         let beat_phase = 1.0 - (self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         let throb = (beat_phase * std::f32::consts::TAU).sin() * 0.5 + 0.5;
         let scale = 1.1 - life * 0.12 + throb * 0.05;
 
-        let name = self.stage_banner_name;
-        let dims = STAGE_BANNER_CACHE.with(|cache_cell| -> Result<Vec2, ggez::GameError> {
+        let name = self.intensity_banner_name;
+        let dims = INTENSITY_BANNER_CACHE.with(|cache_cell| -> Result<Vec2, ggez::GameError> {
             let mut cache = cache_cell.borrow_mut();
             let needs_rebuild = match cache.as_ref() {
                 Some((cached_name, _, _)) => *cached_name != name,
@@ -264,7 +272,7 @@ impl MainState {
         );
         let a = (alpha * 255.0) as u8;
         let b = (200.0 + throb * 55.0) as u8;
-        STAGE_BANNER_CACHE.with(|cache_cell| {
+        INTENSITY_BANNER_CACHE.with(|cache_cell| {
             let cache = cache_cell.borrow();
             let banner = &cache.as_ref().unwrap().1;
             canvas.draw(
@@ -290,7 +298,7 @@ impl MainState {
     /// the top of the screen, plus a big centered "PASSED!" flourish once the session is cleared.
     /// Previously rebuilt a Mesh::new_rounded_rectangle (GPU buffer) + 4-6 Text objects (glyph-
     /// shaping) every single frame the tutorial was active. Now uses TUTORIAL_OVERLAY_CACHE:
-    /// — the card mesh is keyed by (width, height) bit-patterns (same as MENU_PANEL_CACHE)
+    /// — the card mesh is keyed by (width, height) bit-waves (same as MENU_PANEL_CACHE)
     /// — the static texts (title, instruction, "Esc" hint, "PASSED!") are cached once per kind
     /// — the progress counter text rebuilds only when the counter actually advances (once per catch)
     pub(crate) fn draw_tutorial_overlay(
@@ -458,7 +466,11 @@ impl MainState {
         })
     }
 
-    pub(crate) fn draw_game_over_screen(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
+    pub(crate) fn draw_game_over_screen(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+    ) -> GameResult {
         const BOX_WIDTH: f32 = 600.0;
         const BOX_HEIGHT: f32 = 260.0;
         const BOX_X: f32 = 340.0;
@@ -610,7 +622,9 @@ impl MainState {
                 title_text.set_scale(46.0);
                 let title_w = title_text.measure(ctx)?.x;
                 // Subtitle
-                let mut hint_text = Text::new("Pick fast — the beach keeps moving! Click a card or press its number");
+                let mut hint_text = Text::new(
+                    "Pick fast — the beach keeps moving! Click a card or press its number",
+                );
                 hint_text.set_scale(20.0);
                 let hint_w = hint_text.measure(ctx)?.x;
                 // Per-card texts — built explicitly for each of the 3 cards (try_from_fn is not

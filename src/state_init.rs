@@ -13,28 +13,28 @@ use ggez::{Context, GameResult};
 use rand::Rng;
 use rand::prelude::IndexedRandom;
 
+use crate::arenas::ArenaSize;
 use crate::constants::*;
 use crate::enemies::EnemyCrab;
 use crate::graphics::{FloatingTextSystem, ParticleSystem, PennedMarcherSystem};
-use crate::levels::MapSize;
 use crate::npc_conga_train::NpcCongaTrain;
 use crate::skins::PlayerSkin;
 use crate::sounds;
 use crate::state::{
-    Flashlight, GameSounds, GameTextures, LassoPhase, LevelTexture, MainState, PostProcessUniform,
+    ArenaTexture, Flashlight, GameSounds, GameTextures, LassoPhase, MainState, PostProcessUniform,
     TrailUniform, WeatherState,
 };
 use crate::upgrade::UPGRADE_FIRST_AT;
-use crate::{get_levels, pick_pen_pos, pick_tide_pools};
+use crate::{get_arenas, pick_pen_pos, pick_tide_pools};
 
 impl MainState {
     pub fn new(ctx: &mut Context) -> GameResult<MainState> {
         let width = 1280.0;
         let height = 960.0;
-        // The opening campaign level uses the medium map; individual levels and tutorials replace
+        // The opening campaign arena uses the medium map; individual arenas and tutorials replace
         // these bounds when they begin.
-        let world_width = width * MapSize::Medium.viewport_multiplier();
-        let world_height = height * MapSize::Medium.viewport_multiplier();
+        let world_width = width * ArenaSize::Medium.viewport_multiplier();
+        let world_height = height * ArenaSize::Medium.viewport_multiplier();
 
         // Player starts in the center of the WORLD always.
         let player_pos = Vec2::new(
@@ -49,7 +49,9 @@ impl MainState {
         let detected_beat_interval: f32 = {
             use std::io::Read as _;
             let mut bytes = Vec::new();
-            let result = ctx.fs.open("/action.ogg")
+            let result = ctx
+                .fs
+                .open("/action.ogg")
                 .and_then(|mut f| {
                     f.read_to_end(&mut bytes)
                         .map_err(|e| ggez::GameError::CustomError(e.to_string()))
@@ -87,7 +89,7 @@ impl MainState {
         let action_bpm = 60.0 / BEAT_INTERVAL;
         // detected_beat_interval still seeds the pre-game beat clock (reset_game overrides it to
         // BEAT_INTERVAL on entry) and the log line above; it no longer drives the music tempo.
-        let levels = get_levels();
+        let arenas = get_arenas();
 
         // TODO Load all sound effects.
         let (king_crab_l, king_crab_r, king_crab_soft) = sounds::synth_king_crab_spatial(ctx)?;
@@ -116,9 +118,9 @@ impl MainState {
             intro_music,
             // One authored procedural loop per biome. They share the gameplay grid but vary their
             // harmony, lead timbre, and arrangement as the map changes.
-            action_music: levels
+            action_music: arenas
                 .iter()
-                .map(|level| sounds::synth_biome_action_groove(ctx, action_bpm, level.biome.music))
+                .map(|arena| sounds::synth_biome_action_groove(ctx, action_bpm, arena.biome.music))
                 .collect::<GameResult<Vec<_>>>()?,
             outro_music: Source::new(ctx, "/outro.ogg")?,
             upgrade: Source::new(ctx, "/upgrade.ogg")?,
@@ -164,7 +166,7 @@ impl MainState {
             player: Image::from_path(ctx, "/rustler.png")?,
         };
 
-        // Delivery pen + tide-pool hazards for the opening level, placed before `levels` is moved
+        // Delivery pen + tide-pool hazards for the opening level, placed before `arenas` is moved
         // into the struct so we can read the first zone's difficulty for the pool count.
         let init_pen = pick_pen_pos(
             world_width,
@@ -177,18 +179,18 @@ impl MainState {
             world_height,
             init_pen,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
-            levels.first().map(|l| l.difficulty).unwrap_or(0),
+            arenas.first().map(|l| l.difficulty).unwrap_or(0),
             &mut crate::rng::rng(),
         );
 
-        // Randomly select a texture for each level
+        // Randomly select a texture for each arena
         let mut rng = crate::rng::rng();
-        let level_textures: Vec<LevelTexture> = (0..levels.len())
+        let level_textures: Vec<ArenaTexture> = (0..arenas.len())
             .map(|_| {
                 if rng.random_range(0..2) == 0 {
-                    LevelTexture::Grass
+                    ArenaTexture::Grass
                 } else {
-                    LevelTexture::Sand
+                    ArenaTexture::Sand
                 }
             })
             .collect();
@@ -289,21 +291,13 @@ impl MainState {
         // Offscreen target for the flashlight cone shader — kept separate so the custom shader's
         // group-3 bind never touches the scene canvas (ggez 0.9.3 set_default_shader doesn't clear
         // shader_bind_group, which would poison every subsequent instanced draw on the same canvas).
-        let flashlight_cone_image = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let flashlight_cone_image =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
 
         // Use logical size (1280x960) for the offscreen render target, consistent with the viewport.
         // The postprocess pass will handle any HiDPI scaling when blitting to screen.
-        let scene_image = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let scene_image =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
         let postprocess_shader = ShaderBuilder::new()
             .vertex_path("/postprocess.wgsl")
             .fragment_path("/postprocess.wgsl")
@@ -330,18 +324,10 @@ impl MainState {
             .build(&ctx.gfx)?;
         let initial_trail_uniform = TrailUniform { strength: 0.0 };
         let trail_params = ShaderParamsBuilder::new(&initial_trail_uniform).build(ctx);
-        let trail_image_a = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
-        let trail_image_b = ggez::graphics::Image::new_canvas_image(
-            ctx,
-            width as u32,
-            height as u32,
-            1,
-        );
+        let trail_image_a =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
+        let trail_image_b =
+            ggez::graphics::Image::new_canvas_image(ctx, width as u32, height as u32, 1);
 
         let flashlight = Flashlight {
             on: false,
@@ -401,8 +387,8 @@ impl MainState {
             banked_crabs_run: 0,
             shells_cracked_run: 0,
             hold_train_timer: 0.0,
-            level_complete: false,
-            level_complete_timer: 0.0,
+            arena_complete: false,
+            arena_complete_timer: 0.0,
             tutorial: None,
             last_dir: Vec2::ZERO,
             shake_timer: 0.0,
@@ -410,11 +396,11 @@ impl MainState {
             boost_timer: 0.0,
             boost_cooldown: 0.0,
             sprint_stamina: SPRINT_STAMINA_MAX,
-            levels,
-            current_level: 0,
-            arcade_stage: 1,
-            current_pattern: 0,
-            pattern_timer: 0.0,
+            arenas,
+            current_arena: 0,
+            arcade_round: 1,
+            current_wave: 0,
+            wave_timer: 0.0,
             debug_mode: true,
             pending_upgrade: false,
             offered_upgrades: [0, 1, 2],
@@ -453,8 +439,8 @@ impl MainState {
             trail_image_b,
             trail_swap: false,
             particle_system: ParticleSystem::new(),
-            level_title: String::new(),
-            level_title_timer: 0.0,
+            arena_title: String::new(),
+            arena_title_timer: 0.0,
             textures,
             level_textures,
             subtitle,
@@ -531,9 +517,9 @@ impl MainState {
             waves_cleared: 0,
             frenzy_wave: false,
             frenzy_banner_timer: 0.0,
-            intensity_stage: 0,
-            stage_banner_timer: 0.0,
-            stage_banner_name: "",
+            intensity_tier: 0,
+            intensity_banner_timer: 0.0,
+            intensity_banner_name: "",
             lasso_phase: LassoPhase::Idle,
             lasso_pos: None,
             lasso_timer: 0.0,

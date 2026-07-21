@@ -7,8 +7,8 @@
 //! file navigable. Pure structural move — no behaviour change; the caller still owns the
 //! `beat_timer` countdown and only invokes this when a beat actually lands.
 
-use ggez::glam::Vec2;
 use ggez::Context;
+use ggez::glam::Vec2;
 use rand::Rng;
 
 use crate::*;
@@ -46,9 +46,9 @@ impl MainState {
 
         let frac = (1.0 - self.beat_timer / self.beat_interval).clamp(0.0, 1.0);
         let train_fill = (self.chain_count as f32 / 24.0).clamp(0.0, 1.0);
-        let stage_span = (INTENSITY_STAGES.len().saturating_sub(1)).max(1) as f32;
-        let stage_fill = (self.intensity_stage as f32 / stage_span).clamp(0.0, 1.0);
-        let busy = self.chain_count >= 8 || self.intensity_stage >= 1;
+        let stage_span = (INTENSITY_TIERS.len().saturating_sub(1)).max(1) as f32;
+        let stage_fill = (self.intensity_tier as f32 / stage_span).clamp(0.0, 1.0);
+        let busy = self.chain_count >= 8 || self.intensity_tier >= 1;
         let base_vol = 0.26 + 0.16 * train_fill + 0.10 * stage_fill;
         let swing_late = crate::sounds::GROOVE_SWING * 0.125;
         for local in 1..=3u32 {
@@ -93,10 +93,9 @@ impl MainState {
         // escalates), never per-beat. Null-audio-safe (no-ops on a headless device) and
         // deterministic (stage transitions are), so the bots see byte-identical behaviour.
         if downbeat && self.beat_interval > 1e-4 {
-            let desired_pitch = INTENSITY_STAGES
-                [self.intensity_stage.min(INTENSITY_STAGES.len() - 1)]
-            .3
-            .clamp(0.5, 3.0);
+            let desired_pitch = INTENSITY_TIERS[self.intensity_tier.min(INTENSITY_TIERS.len() - 1)]
+                .3
+                .clamp(0.5, 3.0);
             if (desired_pitch - self.music_pitch).abs() > 1e-3 {
                 let old_interval = self.beat_interval;
                 self.beat_interval = BEAT_INTERVAL / desired_pitch;
@@ -299,7 +298,7 @@ impl MainState {
             self.wave_armed = false;
             self.wave_telegraph = 0.0;
             let was_frenzy = self.frenzy_wave;
-            self.advance_pattern();
+            self.advance_wave();
             // Punch the downbeat that births a wave so the arrival reads as a musical hit.
             // A frenzy drop punches noticeably harder — bigger flash, screen shake, and a
             // banner — so the staged spike lands as a genuine event, not just more crabs.
@@ -454,7 +453,8 @@ impl MainState {
                     self.catch_shockwaves.push((old, 0.0, [1.0, 0.62, 0.45]));
                 }
                 if self.catch_shockwaves.len() < 48 {
-                    self.catch_shockwaves.push((crab.pos, 0.0, [1.0, 0.62, 0.45]));
+                    self.catch_shockwaves
+                        .push((crab.pos, 0.0, [1.0, 0.62, 0.45]));
                 }
             }
         }
@@ -843,9 +843,7 @@ impl MainState {
                 // Armored/Hermit (its shell isn't the aura's to crack), or an already-caught
                 // link. A Golden is fair game: parking a Dancer link where a snared Golden
                 // sits is a legit way to bank the prize on the beat.
-                if self.crabs[i].caught
-                    || !self.crabs[i].is_catchable()
-                    || self.crabs[i].is_boss()
+                if self.crabs[i].caught || !self.crabs[i].is_catchable() || self.crabs[i].is_boss()
                 {
                     continue;
                 }

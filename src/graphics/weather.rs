@@ -55,17 +55,19 @@ pub fn draw_world_zones(
     world_w: f32,
     world_h: f32,
     time: f32,
-    layout: crate::levels::MapLayout,
+    layout: crate::arenas::ArenaLayout,
 ) -> ggez::GameResult {
     let sq = unit_square(ctx)?.clone();
     let line = unit_line(ctx)?.clone();
     let dot = unit_circle(ctx)?.clone();
     let (grass_w, beach_w, water_w) = match layout {
-        crate::levels::MapLayout::Meadow | crate::levels::MapLayout::River => (world_w, 0.0, 0.0),
-        crate::levels::MapLayout::Beach => (0.0, world_w, 0.0),
-        crate::levels::MapLayout::Underwater => (0.0, 0.0, world_w),
+        crate::arenas::ArenaLayout::Meadow | crate::arenas::ArenaLayout::River => {
+            (world_w, 0.0, 0.0)
+        }
+        crate::arenas::ArenaLayout::Beach => (0.0, world_w, 0.0),
+        crate::arenas::ArenaLayout::Underwater => (0.0, 0.0, world_w),
         // A narrow, defensible shore rather than the old equal thirds.
-        crate::levels::MapLayout::Coast => (world_w * 0.55, world_w * 0.25, world_w * 0.20),
+        crate::arenas::ArenaLayout::Coast => (world_w * 0.55, world_w * 0.25, world_w * 0.20),
     };
     let beach_x = grass_w;
     let water_x = grass_w + beach_w;
@@ -205,7 +207,7 @@ pub fn draw_world_zones(
 
             // A diagonal river turns the kelp maps into a crossing problem instead of another
             // shoreline. It remains visual-only; the biome's patch mechanics handle the routing.
-            if layout == crate::levels::MapLayout::River {
+            if layout == crate::arenas::ArenaLayout::River {
                 squares.push(
                     DrawParam::default()
                         .dest(Vec2::new(world_w * 0.08, -world_h * 0.14))
@@ -309,7 +311,12 @@ pub fn draw_grass(
     // builds a bind group each call. set_uniforms() re-uploads the changed uniform data (time, beat)
     // to the GPU queue and rebuilds the bind group, but reuses the existing arena buffer so no
     // fresh device.create_buffer call fires on the gameplay hot path.
-    let uniform = ResolutionUniform { width, height, time, beat };
+    let uniform = ResolutionUniform {
+        width,
+        height,
+        time,
+        beat,
+    };
     GRASS_SHADER_PARAMS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if let Some(params) = slot.as_mut() {
@@ -354,9 +361,13 @@ pub fn draw_grass(
                     *inst_slot = Some(InstanceArray::new(ctx, texture.clone()));
                     *last_key = tile_key;
                     let arr = inst_slot.as_mut().unwrap();
-                    arr.set((0..tiles_y).flat_map(|y| (0..tiles_x).map(move |x| (x, y))).map(
-                        |(x, y)| DrawParam::default().dest([x as f32 * tile_w, y as f32 * tile_h]),
-                    ));
+                    arr.set(
+                        (0..tiles_y)
+                            .flat_map(|y| (0..tiles_x).map(move |x| (x, y)))
+                            .map(|(x, y)| {
+                                DrawParam::default().dest([x as f32 * tile_w, y as f32 * tile_h])
+                            }),
+                    );
                     arr
                 }
             };
@@ -404,7 +415,7 @@ fn ambient_mote_consts() -> &'static [(f32, f32, f32, f32); AMBIENT_MOTE_COUNT] 
             let seed_b = (fi * 78.233).sin() * 12543.219;
             let rx = seed_a - seed_a.floor(); // 0..1
             let ry = seed_b - seed_b.floor(); // 0..1
-            let drift = 9.0 + rx * 14.0;     // px/s, per-mote speed
+            let drift = 9.0 + rx * 14.0; // px/s, per-mote speed
             let size = 1.4 + ry * 2.2;
             *entry = (rx, ry, drift, size);
         }
@@ -430,7 +441,8 @@ pub fn draw_ambient_motes(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh.clone(),
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
@@ -445,25 +457,30 @@ pub fn draw_ambient_motes(
     AMBIENT_MOTE_INSTANCES.with(|cell| -> ggez::GameResult {
         let mut slot = cell.borrow_mut();
         let instances = slot.get_or_insert_with(|| InstanceArray::new(ctx, None));
-        instances.set(mote_consts.iter().enumerate().map(|(i, &(rx, ry, drift, size))| {
-            // Per-mote constants (rx, ry, drift, size) are precomputed once at startup (see
-            // ambient_mote_consts()); only the time-varying position and twinkle are computed here.
-            let fi = i as f32;
-            // Each mote drifts diagonally and wraps around the screen so the field never empties.
-            let base_x = rx * width;
-            let base_y = ry * height;
-            let x = (base_x + time * drift) % width;
-            // Slow vertical sway layered on a slow downward drift, both wrapped to the field.
-            let sway = (time * (0.4 + ry * 0.5) + fi).sin() * 10.0;
-            let y = (base_y + time * (drift * 0.35) + sway) % height - beat_lift;
-            // Twinkle: a slow per-mote brightness pulse so the field shimmers subtly.
-            let twinkle = 0.45 + 0.4 * (time * (0.8 + rx) + fi * 1.7).sin();
-            let alpha = (0.10 + 0.14 * twinkle) + beat.clamp(0.0, 1.0) * 0.06;
-            DrawParam::default()
-                .dest(Vec2::new(x - width / 2.0, y - height / 2.0))
-                .scale(Vec2::splat(size))
-                .color(Color::new(accent.r, accent.g, accent.b, alpha))
-        }));
+        instances.set(
+            mote_consts
+                .iter()
+                .enumerate()
+                .map(|(i, &(rx, ry, drift, size))| {
+                    // Per-mote constants (rx, ry, drift, size) are precomputed once at startup (see
+                    // ambient_mote_consts()); only the time-varying position and twinkle are computed here.
+                    let fi = i as f32;
+                    // Each mote drifts diagonally and wraps around the screen so the field never empties.
+                    let base_x = rx * width;
+                    let base_y = ry * height;
+                    let x = (base_x + time * drift) % width;
+                    // Slow vertical sway layered on a slow downward drift, both wrapped to the field.
+                    let sway = (time * (0.4 + ry * 0.5) + fi).sin() * 10.0;
+                    let y = (base_y + time * (drift * 0.35) + sway) % height - beat_lift;
+                    // Twinkle: a slow per-mote brightness pulse so the field shimmers subtly.
+                    let twinkle = 0.45 + 0.4 * (time * (0.8 + rx) + fi * 1.7).sin();
+                    let alpha = (0.10 + 0.14 * twinkle) + beat.clamp(0.0, 1.0) * 0.06;
+                    DrawParam::default()
+                        .dest(Vec2::new(x - width / 2.0, y - height / 2.0))
+                        .scale(Vec2::splat(size))
+                        .color(Color::new(accent.r, accent.g, accent.b, alpha))
+                }),
+        );
         canvas.draw_instanced_mesh_guarded(unit_circle, instances, DrawParam::default());
         Ok(())
     })?;
@@ -733,13 +750,37 @@ pub fn draw_weather(
             let a = vig * 0.34;
             let dark = Color::new(0.05, 0.07, 0.12, a);
             // top
-            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, 0.0)).scale(Vec2::new(width, band)).color(dark));
+            canvas.draw(
+                &square,
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, 0.0))
+                    .scale(Vec2::new(width, band))
+                    .color(dark),
+            );
             // bottom
-            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, height - band)).scale(Vec2::new(width, band)).color(dark));
+            canvas.draw(
+                &square,
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, height - band))
+                    .scale(Vec2::new(width, band))
+                    .color(dark),
+            );
             // left
-            canvas.draw(&square, DrawParam::default().dest(Vec2::new(0.0, 0.0)).scale(Vec2::new(band, height)).color(dark));
+            canvas.draw(
+                &square,
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, 0.0))
+                    .scale(Vec2::new(band, height))
+                    .color(dark),
+            );
             // right
-            canvas.draw(&square, DrawParam::default().dest(Vec2::new(width - band, 0.0)).scale(Vec2::new(band, height)).color(dark));
+            canvas.draw(
+                &square,
+                DrawParam::default()
+                    .dest(Vec2::new(width - band, 0.0))
+                    .scale(Vec2::new(band, height))
+                    .color(dark),
+            );
         }
     }
 

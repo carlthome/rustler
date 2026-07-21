@@ -4,7 +4,7 @@ use ggez::glam::Vec2;
 use rand::Rng;
 
 #[derive(Clone)]
-pub enum SpawnPattern {
+pub enum WaveFormation {
     UniformRandom,
     SineWave,
     Circle,
@@ -171,7 +171,7 @@ pub fn spawn_scattered_crab(
 
 /// Spawn a rare "King Crab" boss. It enters from a random screen edge, lumbers toward the
 /// play area, and carries `max_health` — the player must hold the flashlight on it to wear it
-/// down before it can be caught. Not part of the normal spawn patterns; triggered on score.
+/// down before it can be caught. Not part of the normal spawn waves; triggered on score.
 pub fn spawn_boss(area: (f32, f32), rng: &mut impl Rng, max_health: f32) -> EnemyCrab {
     let (width, height) = area;
     // Pick a spot on a ring around screen center so the boss makes a visible entrance.
@@ -293,10 +293,8 @@ pub fn spawn_hype_dancer(area: (f32, f32), boss_pos: Vec2, rng: &mut impl Rng) -
     // Ring out from the boss so the dancer reads as *its* summon, not a stray herd crab.
     let angle = rng.random_range(0.0..std::f32::consts::TAU);
     let dist = rng.random_range(80.0..160.0);
-    let pos = (boss_pos + Vec2::new(angle.cos(), angle.sin()) * dist).clamp(
-        Vec2::splat(20.0),
-        Vec2::new(width - 20.0, height - 20.0),
-    );
+    let pos = (boss_pos + Vec2::new(angle.cos(), angle.sin()) * dist)
+        .clamp(Vec2::splat(20.0), Vec2::new(width - 20.0, height - 20.0));
     let vel = Vec2::new(angle.cos(), angle.sin());
     let mut crab = make_crab(pos, vel, 0.0, None, rng);
     crab.crab_type = CrabType::Dancer;
@@ -353,7 +351,7 @@ pub fn spawn_tutorial_crabs(
 }
 
 pub fn spawn_enemies(
-    pattern: SpawnPattern,
+    formation: WaveFormation,
     count: usize,
     area: (f32, f32),
     centroid: (f32, f32),
@@ -362,8 +360,8 @@ pub fn spawn_enemies(
 ) -> Vec<EnemyCrab> {
     let (width, height) = area;
     let centroid_vec = Vec2::from(centroid) * Vec2::from(area);
-    match pattern {
-        SpawnPattern::UniformRandom => (0..count)
+    match formation {
+        WaveFormation::UniformRandom => (0..count)
             .map(|_| {
                 let pos = centroid_vec
                     + Vec2::new(
@@ -375,7 +373,7 @@ pub fn spawn_enemies(
                 make_crab(pos, vel, 0.0, emphasis, rng)
             })
             .collect(),
-        SpawnPattern::SineWave => {
+        WaveFormation::SineWave => {
             let amplitude = height * 0.3;
             let freq = 2.0 * std::f32::consts::PI / width;
             (0..count)
@@ -389,7 +387,7 @@ pub fn spawn_enemies(
                 })
                 .collect()
         }
-        SpawnPattern::Circle => {
+        WaveFormation::Circle => {
             let center = centroid_vec;
             let radius = width.min(height) * 0.35;
             (0..count)
@@ -401,7 +399,7 @@ pub fn spawn_enemies(
                 })
                 .collect()
         }
-        SpawnPattern::Cluster => {
+        WaveFormation::Cluster => {
             let cluster_center = centroid_vec;
             (0..count)
                 .map(|_| {
@@ -413,7 +411,7 @@ pub fn spawn_enemies(
                 })
                 .collect()
         }
-        SpawnPattern::SingleRandom => {
+        WaveFormation::SingleRandom => {
             let count = count.max(1);
             let delay = 0.5;
             (0..count)
@@ -426,7 +424,7 @@ pub fn spawn_enemies(
                 })
                 .collect()
         }
-        SpawnPattern::BeatGrid => {
+        WaveFormation::BeatGrid => {
             let cols = ((count as f32).sqrt().ceil() as usize).max(1);
             let rows = (count + cols - 1) / cols;
             let spacing_x = width * 0.12;
@@ -442,7 +440,7 @@ pub fn spawn_enemies(
                 })
                 .collect()
         }
-        SpawnPattern::Spiral => (0..count)
+        WaveFormation::Spiral => (0..count)
             .map(|i| {
                 let t = i as f32 / count.max(1) as f32;
                 let angle = t * std::f32::consts::TAU * 2.5;

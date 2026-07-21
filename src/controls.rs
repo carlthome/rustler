@@ -48,24 +48,42 @@ pub fn handle_player_movement(
         .map_or(false, |b| b.keys_held.contains(&KeyCode::ArrowRight));
 
     let mut dir = Vec2::ZERO;
-    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowUp)) || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyW)) || bot_up
+    if ctx
+        .keyboard
+        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowUp))
+        || ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyW))
+        || bot_up
     {
         dir.y -= 1.0;
     }
-    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowDown))
-        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyS))
+    if ctx
+        .keyboard
+        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowDown))
+        || ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyS))
         || bot_down
     {
         dir.y += 1.0;
     }
-    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowLeft))
-        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyA))
+    if ctx
+        .keyboard
+        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowLeft))
+        || ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyA))
         || bot_left
     {
         dir.x -= 1.0;
     }
-    if ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowRight))
-        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyD))
+    if ctx
+        .keyboard
+        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ArrowRight))
+        || ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::KeyD))
         || bot_right
     {
         dir.x += 1.0;
@@ -134,8 +152,12 @@ pub fn handle_player_movement(
         }
     }
 
-    let sprint_held = ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
-        || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight));
+    let sprint_held = ctx
+        .keyboard
+        .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+        || ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight));
     let sprinting =
         sprint_held && dir != Vec2::ZERO && state.boost_timer <= 0.0 && state.sprint_stamina > 0.0;
 
@@ -176,12 +198,12 @@ pub fn handle_player_movement(
         acceleration *= 1.3;
     }
 
-    // Biome terrain: the same patch geometry means different things per zone (see levels.rs).
+    // Biome terrain: the same patch geometry means different things per zone (see arenas.rs).
     // Water drags you to a wade, Kelp clings (a lighter drag, plus a tail-snag risk handled in
     // main.rs), Rock is a solid obstacle that shoves you out, and Open has no patches at all. A
     // dash still punches through drag faster than a wade (its speed cap is huge), rewarding routing
     // skill. `in_tide_pool` is remembered so the draw pass can splash on wet terrain.
-    use crate::levels::TerrainKind;
+    use crate::arenas::TerrainKind;
     let terrain = state.current_terrain();
     let player_center = state.player_pos + Vec2::splat(crate::PLAYER_SIZE / 2.0);
     // The biome's native patches are all but the last `boss_flood_pools` entries; those trailing
@@ -330,11 +352,11 @@ pub fn handle_key_down_event(
                         if map.selected_unlocked() {
                             // Already unlocked — launch straight into it.
                             map.cancel_skip();
-                            state.enter_campaign_level();
+                            state.enter_campaign_arena();
                         } else if map.skip_pending() {
                             // Second Confirm on a locked node — commit the skip and launch.
                             map.unlock_through_selected();
-                            state.enter_campaign_level();
+                            state.enter_campaign_arena();
                         } else {
                             // First Confirm on a locked node — arm the soft warning.
                             map.arm_skip_warning();

@@ -1,7 +1,7 @@
+use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 pub use crate::floating_text::{
     FloatingTextSystem, PennedMarcherSystem, draw_floating_texts, draw_penned_marchers,
 };
-use crate::enemies::{BossCharge, CrabType, EnemyCrab};
 use crate::{CRAB_SIZE, Flashlight, PLAYER_SIZE};
 use crevice::std140::AsStd140;
 use ggez::Context;
@@ -185,7 +185,7 @@ thread_local! {
     // segments out of a fixed 48-segment ring). Used by the King Crab health ring, which
     // otherwise rebuilt a fresh ~48-point Vec plus a fresh Mesh::new_line every single frame
     // for its whole (multi-second) time on screen. Bounded to at most a handful of live boss
-    // radii times 49 possible fill levels, so this cache stays small.
+    // radii times 49 possible fill arenas, so this cache stays small.
     static STROKE_ARC_CACHE: RefCell<HashMap<(i32, i32, usize), Mesh>> = RefCell::new(HashMap::new());
 
     // Cache of fill-rectangle meshes keyed by (x, y, w, h) quantized plus the RGBA color,
@@ -631,7 +631,8 @@ pub fn flush_crab_bodies(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameRe
         let unit_circle = match UNIT_CIRCLE.get() {
             Some(mesh) => mesh.clone(),
             None => {
-                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                let mesh =
+                    Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
                 UNIT_CIRCLE.get_or_init(|| mesh).clone()
             }
         };
@@ -661,7 +662,8 @@ pub fn flush_golden_sparkles(ctx: &mut Context, canvas: &mut Canvas) -> ggez::Ga
         let unit_circle = match UNIT_CIRCLE.get() {
             Some(mesh) => mesh.clone(),
             None => {
-                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                let mesh =
+                    Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
                 UNIT_CIRCLE.get_or_init(|| mesh).clone()
             }
         };
@@ -690,7 +692,8 @@ pub fn flush_beat_coronas(ctx: &mut Context, canvas: &mut Canvas) -> ggez::GameR
         let unit_circle = match UNIT_CIRCLE.get() {
             Some(mesh) => mesh.clone(),
             None => {
-                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                let mesh =
+                    Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
                 UNIT_CIRCLE.get_or_init(|| mesh).clone()
             }
         };
@@ -718,7 +721,8 @@ pub fn flush_hermit_coil_dots(ctx: &mut Context, canvas: &mut Canvas) -> ggez::G
         let unit_circle = match UNIT_CIRCLE.get() {
             Some(mesh) => mesh.clone(),
             None => {
-                let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+                let mesh =
+                    Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
                 UNIT_CIRCLE.get_or_init(|| mesh).clone()
             }
         };
@@ -806,13 +810,17 @@ pub fn flush_attracted_crab_glows(ctx: &mut Context, canvas: &mut Canvas) -> gge
                 }
                 let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
                 let Some(mesh) = mesh else { continue };
-                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                let inst = instances
+                    .entry(*key)
+                    .or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
                 canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })?;
-        for v in groups.values_mut() { v.clear(); }
+        for v in groups.values_mut() {
+            v.clear();
+        }
         Ok(())
     })?;
     // Inner bright rings
@@ -826,13 +834,17 @@ pub fn flush_attracted_crab_glows(ctx: &mut Context, canvas: &mut Canvas) -> gge
                 }
                 let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
                 let Some(mesh) = mesh else { continue };
-                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                let inst = instances
+                    .entry(*key)
+                    .or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
                 canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
             Ok(())
         })?;
-        for v in groups.values_mut() { v.clear(); }
+        for v in groups.values_mut() {
+            v.clear();
+        }
         Ok(())
     })
 }
@@ -922,7 +934,9 @@ pub fn flush_archetype_rings(ctx: &mut Context, canvas: &mut Canvas) -> ggez::Ga
                 }
                 let mesh = STROKE_CIRCLE_CACHE.with(|c| c.borrow().get(key).cloned());
                 let Some(mesh) = mesh else { continue };
-                let inst = instances.entry(*key).or_insert_with(|| InstanceArray::new(ctx, None));
+                let inst = instances
+                    .entry(*key)
+                    .or_insert_with(|| InstanceArray::new(ctx, None));
                 inst.set(params.iter().copied());
                 canvas.draw_instanced_mesh_guarded(mesh, inst, DrawParam::default());
             }
@@ -959,7 +973,8 @@ fn cached_unit_circle(ctx: &mut Context) -> ggez::GameResult<Mesh> {
     Ok(match UNIT_CIRCLE.get() {
         Some(mesh) => mesh.clone(),
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     })
@@ -981,7 +996,11 @@ fn cached_stroke_arc(
     let radius = radius.max(0.5);
     let thickness = thickness.max(0.25);
     let filled = filled.clamp(1, segs);
-    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32, filled);
+    let key = (
+        (radius * 2.0).round() as i32,
+        (thickness * 4.0).round() as i32,
+        filled,
+    );
 
     if let Some(mesh) = STROKE_ARC_CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return Ok(mesh);
@@ -1025,7 +1044,11 @@ pub fn stroke_circle_key(radius: f32, thickness: f32) -> (i32, i32) {
 /// existing `UNIT_CIRCLE`/`UNIT_LINE` fill meshes. Public so one-off ring effects driven from
 /// main.rs (e.g. the beat-wave expanding outline) can reuse it instead of building a fresh
 /// `Mesh::new_circle` every frame they're active.
-pub fn cached_stroke_circle(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+pub fn cached_stroke_circle(
+    ctx: &mut Context,
+    radius: f32,
+    thickness: f32,
+) -> ggez::GameResult<Mesh> {
     let radius = radius.max(0.5);
     let thickness = thickness.max(0.25);
     let key = stroke_circle_key(radius, thickness);
@@ -1074,7 +1097,10 @@ const LASSO_LOOP_SEGMENTS: usize = 20;
 fn cached_lasso_loop(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::GameResult<Mesh> {
     let radius = radius.max(0.5);
     let thickness = thickness.max(0.25);
-    let key = ((radius * 2.0).round() as i32, (thickness * 4.0).round() as i32);
+    let key = (
+        (radius * 2.0).round() as i32,
+        (thickness * 4.0).round() as i32,
+    );
 
     if let Some(mesh) = LASSO_LOOP_CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return Ok(mesh);
@@ -1082,7 +1108,9 @@ fn cached_lasso_loop(ctx: &mut Context, radius: f32, thickness: f32) -> ggez::Ga
 
     let pts: Vec<[f32; 2]> = (0..=LASSO_LOOP_SEGMENTS)
         .map(|s| {
-            let angle = (s as f32 / LASSO_LOOP_SEGMENTS as f32) * LASSO_LOOP_ARC_FRACTION * std::f32::consts::TAU;
+            let angle = (s as f32 / LASSO_LOOP_SEGMENTS as f32)
+                * LASSO_LOOP_ARC_FRACTION
+                * std::f32::consts::TAU;
             [angle.cos() * radius, angle.sin() * radius]
         })
         .collect();
@@ -1099,7 +1127,12 @@ pub fn unit_square(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
     match UNIT_SQUARE.get() {
         Some(mesh) => Ok(mesh),
         None => {
-            let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE)?;
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, 0.0, 1.0, 1.0),
+                Color::WHITE,
+            )?;
             Ok(UNIT_SQUARE.get_or_init(|| mesh))
         }
     }
@@ -1114,7 +1147,12 @@ pub fn unit_line(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
     match UNIT_LINE.get() {
         Some(mesh) => Ok(mesh),
         None => {
-            let mesh = Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, -0.5, 1.0, 1.0), Color::WHITE)?;
+            let mesh = Mesh::new_rectangle(
+                ctx,
+                DrawMode::fill(),
+                Rect::new(0.0, -0.5, 1.0, 1.0),
+                Color::WHITE,
+            )?;
             Ok(UNIT_LINE.get_or_init(|| mesh))
         }
     }
@@ -1131,7 +1169,8 @@ pub fn unit_circle(ctx: &mut Context) -> ggez::GameResult<&'static Mesh> {
     match UNIT_CIRCLE.get() {
         Some(mesh) => Ok(mesh),
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             Ok(UNIT_CIRCLE.get_or_init(|| mesh))
         }
     }
@@ -1212,7 +1251,12 @@ pub fn draw_sprint_whoosh(
                 .dest(origin)
                 .rotation(angle)
                 .scale(Vec2::new(length, 1.7 + flutter * 0.5))
-                .color(Color::from_rgba(140, 255, 200, alpha.saturating_add((flutter * 25.0) as u8)))
+                .color(Color::from_rgba(
+                    140,
+                    255,
+                    200,
+                    alpha.saturating_add((flutter * 25.0) as u8),
+                ))
         }));
         canvas.draw_instanced_mesh_guarded(line, instances, DrawParam::default());
         Ok(())
@@ -1315,25 +1359,33 @@ pub fn draw_groove_vignette(
             let a = (peak * (1.0 - f) * (1.0 - f)).clamp(0.0, 0.85);
             let col = Color::new(r, g, b, a);
             // Top edge
-            params.push(DrawParam::default()
-                .dest(Vec2::new(0.0, 0.0))
-                .scale(Vec2::new(width, band))
-                .color(col));
+            params.push(
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, 0.0))
+                    .scale(Vec2::new(width, band))
+                    .color(col),
+            );
             // Bottom edge
-            params.push(DrawParam::default()
-                .dest(Vec2::new(0.0, height - band))
-                .scale(Vec2::new(width, band))
-                .color(col));
+            params.push(
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, height - band))
+                    .scale(Vec2::new(width, band))
+                    .color(col),
+            );
             // Left edge
-            params.push(DrawParam::default()
-                .dest(Vec2::new(0.0, 0.0))
-                .scale(Vec2::new(band, height))
-                .color(col));
+            params.push(
+                DrawParam::default()
+                    .dest(Vec2::new(0.0, 0.0))
+                    .scale(Vec2::new(band, height))
+                    .color(col),
+            );
             // Right edge
-            params.push(DrawParam::default()
-                .dest(Vec2::new(width - band, 0.0))
-                .scale(Vec2::new(band, height))
-                .color(col));
+            params.push(
+                DrawParam::default()
+                    .dest(Vec2::new(width - band, 0.0))
+                    .scale(Vec2::new(band, height))
+                    .color(col),
+            );
         }
         if !params.is_empty() {
             VIGNETTE_INSTANCES.with(|inst_cell| -> ggez::GameResult {
@@ -1361,25 +1413,37 @@ pub fn draw_groove_vignette(
         let band = height * 0.20;
         canvas.set_blend_mode(BlendMode::ADD);
         // top edge
-        canvas.draw(&sq, DrawParam::default()
-            .dest(Vec2::ZERO)
-            .scale(Vec2::new(width, band))
-            .color(glow_col));
+        canvas.draw(
+            &sq,
+            DrawParam::default()
+                .dest(Vec2::ZERO)
+                .scale(Vec2::new(width, band))
+                .color(glow_col),
+        );
         // bottom edge
-        canvas.draw(&sq, DrawParam::default()
-            .dest(Vec2::new(0.0, height - band))
-            .scale(Vec2::new(width, band))
-            .color(glow_col));
+        canvas.draw(
+            &sq,
+            DrawParam::default()
+                .dest(Vec2::new(0.0, height - band))
+                .scale(Vec2::new(width, band))
+                .color(glow_col),
+        );
         // left edge
-        canvas.draw(&sq, DrawParam::default()
-            .dest(Vec2::ZERO)
-            .scale(Vec2::new(band, height))
-            .color(glow_col));
+        canvas.draw(
+            &sq,
+            DrawParam::default()
+                .dest(Vec2::ZERO)
+                .scale(Vec2::new(band, height))
+                .color(glow_col),
+        );
         // right edge
-        canvas.draw(&sq, DrawParam::default()
-            .dest(Vec2::new(width - band, 0.0))
-            .scale(Vec2::new(band, height))
-            .color(glow_col));
+        canvas.draw(
+            &sq,
+            DrawParam::default()
+                .dest(Vec2::new(width - band, 0.0))
+                .scale(Vec2::new(band, height))
+                .color(glow_col),
+        );
         canvas.set_blend_mode(BlendMode::ALPHA);
     }
     Ok(())
@@ -1401,17 +1465,28 @@ pub fn draw_beat_hit_punch(
     let scale = 18.0 + beat_quality * 28.0;
     canvas.set_blend_mode(BlendMode::ADD);
     // Sharp inner flash — the "hit" impulse
-    canvas.draw(&dot, DrawParam::default()
-        .dest(pos)
-        .offset(Vec2::new(0.5, 0.5))
-        .scale(Vec2::splat(scale))
-        .color(Color::new(r, g, b, 0.7 * beat_quality)));
+    canvas.draw(
+        &dot,
+        DrawParam::default()
+            .dest(pos)
+            .offset(Vec2::new(0.5, 0.5))
+            .scale(Vec2::splat(scale))
+            .color(Color::new(r, g, b, 0.7 * beat_quality)),
+    );
     // Expanding outer ring — the "resonance"
-    canvas.draw(&dot, DrawParam::default()
-        .dest(pos)
-        .offset(Vec2::new(0.5, 0.5))
-        .scale(Vec2::splat(scale * 2.2))
-        .color(Color::new(r * 0.7 + 0.3, g * 0.7 + 0.3, b * 0.7 + 0.3, 0.25 * beat_quality)));
+    canvas.draw(
+        &dot,
+        DrawParam::default()
+            .dest(pos)
+            .offset(Vec2::new(0.5, 0.5))
+            .scale(Vec2::splat(scale * 2.2))
+            .color(Color::new(
+                r * 0.7 + 0.3,
+                g * 0.7 + 0.3,
+                b * 0.7 + 0.3,
+                0.25 * beat_quality,
+            )),
+    );
     canvas.set_blend_mode(BlendMode::ALPHA);
     Ok(())
 }
@@ -1420,7 +1495,12 @@ pub fn draw_beat_hit_punch(
 /// key, reused after that), instead of calling `Mesh::new_rectangle` fresh every draw. Baked at
 /// its actual size (not unit-scaled), since scaling would distort the stroke thickness the same
 /// way it would for a stroke circle — draw with `.dest((x, y))` only, no `.scale(..)`.
-pub fn cached_stroke_rect(ctx: &mut Context, w: f32, h: f32, thickness: f32) -> ggez::GameResult<Mesh> {
+pub fn cached_stroke_rect(
+    ctx: &mut Context,
+    w: f32,
+    h: f32,
+    thickness: f32,
+) -> ggez::GameResult<Mesh> {
     let w = w.max(0.5);
     let h = h.max(0.5);
     let thickness = thickness.max(0.25);
@@ -1450,7 +1530,14 @@ pub fn cached_stroke_rect(ctx: &mut Context, w: f32, h: f32, thickness: f32) -> 
 /// `unit_square`, this does NOT get scaled/positioned via `DrawParam`; draw it with
 /// `DrawParam::default()` (or whatever transform the caller already used), matching how the
 /// mesh used to be built fresh each time.
-pub fn cached_fill_rect(ctx: &mut Context, x: f32, y: f32, w: f32, h: f32, color: Color) -> ggez::GameResult<Mesh> {
+pub fn cached_fill_rect(
+    ctx: &mut Context,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: Color,
+) -> ggez::GameResult<Mesh> {
     let key = (
         (x * 2.0).round() as i32,
         (y * 2.0).round() as i32,
@@ -1493,7 +1580,8 @@ pub fn cached_rounded_fill_rect(
         return Ok(mesh);
     }
 
-    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), radius, color)?;
+    let mesh =
+        Mesh::new_rounded_rectangle(ctx, DrawMode::fill(), Rect::new(x, y, w, h), radius, color)?;
     ROUNDED_FILL_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
@@ -1525,7 +1613,13 @@ pub fn cached_rounded_stroke_rect(
         return Ok(mesh);
     }
 
-    let mesh = Mesh::new_rounded_rectangle(ctx, DrawMode::stroke(thickness), Rect::new(x, y, w, h), radius, color)?;
+    let mesh = Mesh::new_rounded_rectangle(
+        ctx,
+        DrawMode::stroke(thickness),
+        Rect::new(x, y, w, h),
+        radius,
+        color,
+    )?;
     ROUNDED_STROKE_RECT_CACHE.with(|c| c.borrow_mut().insert(key, mesh.clone()));
     Ok(mesh)
 }
@@ -1593,9 +1687,12 @@ pub fn draw_boss_health_ring(
     let aura = cached_stroke_circle(ctx, aura_radius, 3.0)?;
     canvas.draw(
         &aura,
-        DrawParam::default()
-            .dest(pos)
-            .color(Color::new(aura_color[0], aura_color[1], aura_color[2], 0.30 + pulse * 0.25)),
+        DrawParam::default().dest(pos).color(Color::new(
+            aura_color[0],
+            aura_color[1],
+            aura_color[2],
+            0.30 + pulse * 0.25,
+        )),
     );
 
     if health_frac > 0.0 {
@@ -1609,10 +1706,12 @@ pub fn draw_boss_health_ring(
         );
 
         // Filled arc from the top, clockwise, spanning the remaining health fraction. Cached
-        // per (radius, filled-segment) combo — bounded to 49 possible fill levels for the
+        // per (radius, filled-segment) combo — bounded to 49 possible fill arenas for the
         // lifetime of a single boss, instead of a fresh mesh every single frame.
         let segs = 48usize;
-        let filled = ((segs as f32) * health_frac.clamp(0.0, 1.0)).ceil().max(1.0) as usize;
+        let filled = ((segs as f32) * health_frac.clamp(0.0, 1.0))
+            .ceil()
+            .max(1.0) as usize;
         // Green when fresh, shading to red as it's worn down.
         let col = Color::new(
             (1.0 - health_frac).clamp(0.2, 1.0),
@@ -1699,7 +1798,8 @@ pub fn draw_flashlight(
     let unit_circle = match UNIT_CIRCLE.get() {
         Some(mesh) => mesh.clone(),
         None => {
-            let mesh = Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
+            let mesh =
+                Mesh::new_circle(ctx, DrawMode::fill(), [0.0, 0.0], 1.0, 0.02, Color::WHITE)?;
             UNIT_CIRCLE.get_or_init(|| mesh).clone()
         }
     };
@@ -1760,7 +1860,8 @@ pub fn draw_flashlight(
     // shader_bind_group, so any instanced draw on the *same* canvas after set_shader_params
     // crashes with a wgpu bind-group layout mismatch. Isolated render pass = no leak.
     {
-        let mut cone_canvas = Canvas::from_image(ctx, cone_image.clone(), Color::from_rgba(0, 0, 0, 0));
+        let mut cone_canvas =
+            Canvas::from_image(ctx, cone_image.clone(), Color::from_rgba(0, 0, 0, 0));
         // The flashlight vertex shader expects NDC positions [-1,+1] and outputs them directly as
         // gl_Position. Set screen coordinates to NDC space and draw a NDC-covering quad so the
         // shader receives the correct vertex positions and computes UV correctly.

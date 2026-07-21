@@ -1,27 +1,27 @@
 //! Campaign world map — the screen between the title and a campaign run.
 //!
-//! Wraps the existing `Level` list as a linear chain of `WorldMapNode`s laid out on a map
+//! Wraps the existing `Arena` list as a linear chain of `WorldMapNode`s laid out on the campaign map
 //! canvas. The player navigates with arrow keys, selects a node, and launches it as a campaign
-//! run. Completing a node unlocks the next. The same `Level` metadata also drives arcade title
+//! run. Completing a node unlocks the next. The same `Arena` metadata also drives arcade title
 //! cards; campaign resets at each selected node, while arcade keeps the train and upgrades alive
 //! as it crosses the same sequence.
 //!
 //! The first four nodes are tutorial sandboxes — the new-player on-ramp lives here, not on a
 //! separate "How to Play" menu screen. Each one teaches one core mechanic, then hands off to
-//! the regular campaign levels that follow.
+//! the regular campaign arenas that follow.
 
-use crate::levels::get_levels;
+use crate::arenas::get_arenas;
 use crate::tutorial::TutorialKind;
 
 /// What a world-map node launches when the player confirms. Tutorial nodes run a scripted
-/// sandbox; campaign nodes load a `Level` from `get_levels()`.
+/// sandbox; campaign nodes load an `Arena` from `get_arenas()`.
 pub enum NodeKind {
     Tutorial(TutorialKind),
-    /// Index into `get_levels()`.
-    Level(usize),
+    /// Index into `get_arenas()`.
+    Arena(usize),
 }
 
-/// One stop on the world map. Either a tutorial sandbox or a campaign level.
+/// One stop on the campaign map. Either a tutorial sandbox or a campaign arena.
 pub struct WorldMapNode {
     /// What this node launches.
     pub kind: NodeKind,
@@ -34,10 +34,10 @@ pub struct WorldMapNode {
 }
 
 impl WorldMapNode {
-    /// Returns the level index if this is a campaign node, or None for tutorial nodes.
-    pub fn level_index(&self) -> Option<usize> {
+    /// Returns the arena index if this is a campaign node, or None for tutorial nodes.
+    pub fn arena_index(&self) -> Option<usize> {
         match self.kind {
-            NodeKind::Level(i) => Some(i),
+            NodeKind::Arena(i) => Some(i),
             NodeKind::Tutorial(_) => None,
         }
     }
@@ -46,7 +46,7 @@ impl WorldMapNode {
     pub fn tutorial_kind(&self) -> Option<TutorialKind> {
         match self.kind {
             NodeKind::Tutorial(k) => Some(k),
-            NodeKind::Level(_) => None,
+            NodeKind::Arena(_) => None,
         }
     }
 }
@@ -65,18 +65,34 @@ pub struct WorldMap {
 
 impl WorldMap {
     /// Build the world map. The first four nodes are tutorial sandboxes (the player's on-ramp);
-    /// the remaining nodes wrap the regular campaign levels. First node always unlocked; the rest
+    /// the remaining nodes wrap the regular campaign arenas. First node always unlocked; the rest
     /// start locked until the previous one is completed.
     pub fn new() -> Self {
         // Tutorial nodes — teach one mechanic each, in escalating complexity.
         let tutorial_nodes: &[(TutorialKind, &'static str, (f32, f32))] = &[
-            (TutorialKind::BeatTiming,  "The Beach — Catch the Beat",     (0.08, 0.60)),
-            (TutorialKind::LassoGrab,   "The Docks — Throw the Lasso",    (0.22, 0.42)),
-            (TutorialKind::ChainDeliver,"The Cove — Build a Train",        (0.36, 0.65)),
-            (TutorialKind::ShellCrack,  "The Reef — Crack the Shells",     (0.50, 0.40)),
+            (
+                TutorialKind::BeatTiming,
+                "The Beach — Catch the Beat",
+                (0.08, 0.60),
+            ),
+            (
+                TutorialKind::LassoGrab,
+                "The Docks — Throw the Lasso",
+                (0.22, 0.42),
+            ),
+            (
+                TutorialKind::ChainDeliver,
+                "The Cove — Build a Train",
+                (0.36, 0.65),
+            ),
+            (
+                TutorialKind::ShellCrack,
+                "The Reef — Crack the Shells",
+                (0.50, 0.40),
+            ),
         ];
 
-        // Campaign nodes — the regular levels follow after the tutorials.
+        // Campaign nodes — the regular arenas follow after the tutorials.
         let campaign_positions: &[(f32, f32)] = &[
             (0.65, 0.62),
             (0.78, 0.38),
@@ -89,8 +105,8 @@ impl WorldMap {
             // The Desktop sits off on its own, past the "end" of the map — you shouldn't be here.
             (0.96, 0.30),
         ];
-        let levels = get_levels();
-        let total = tutorial_nodes.len() + levels.len();
+        let arenas = get_arenas();
+        let total = tutorial_nodes.len() + arenas.len();
         let mut nodes: Vec<WorldMapNode> = Vec::with_capacity(total);
 
         for (i, &(kind, name, position)) in tutorial_nodes.iter().enumerate() {
@@ -103,24 +119,28 @@ impl WorldMap {
             });
         }
 
-        for (i, level) in levels.iter().enumerate() {
+        for (i, arena) in arenas.iter().enumerate() {
             let map_i = tutorial_nodes.len() + i;
             nodes.push(WorldMapNode {
-                kind: NodeKind::Level(i),
-                name: format!("Stage {} — {}", i + 1, level.biome.name),
+                kind: NodeKind::Arena(i),
+                name: format!("Arena {} — {}", i + 1, arena.biome.name),
                 position: campaign_positions.get(i).copied().unwrap_or((0.5, 0.5)),
                 completed: false,
                 unlocked: map_i == 0,
             });
         }
 
-        WorldMap { nodes, selected: 0, skip_warn_timer: 0.0 }
+        WorldMap {
+            nodes,
+            selected: 0,
+            skip_warn_timer: 0.0,
+        }
     }
 
-    /// The `Level` index that should be loaded when the player confirms from this map.
+    /// The `Arena` index that should be loaded when the player confirms from this map.
     /// Returns None if the selected node is a tutorial node.
-    pub fn selected_level_index(&self) -> Option<usize> {
-        self.nodes[self.selected].level_index()
+    pub fn selected_arena_index(&self) -> Option<usize> {
+        self.nodes[self.selected].arena_index()
     }
 
     /// The tutorial kind for the selected node, if it is a tutorial node.
@@ -200,11 +220,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn map_nodes_are_enumerated_tutorials_then_campaign_stages() {
+    fn map_nodes_are_enumerated_tutorials_then_campaign_arenas() {
         let map = WorldMap::new();
         assert!(map.nodes[0].name.starts_with("Tutorial 1 —"));
         assert!(map.nodes[3].name.starts_with("Tutorial 4 —"));
-        assert!(map.nodes[4].name.starts_with("Stage 1 —"));
-        assert!(map.nodes.last().unwrap().name.starts_with("Stage 9 —"));
+        assert!(map.nodes[4].name.starts_with("Arena 1 —"));
+        assert!(map.nodes.last().unwrap().name.starts_with("Arena 9 —"));
     }
 }

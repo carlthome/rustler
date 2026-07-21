@@ -6,24 +6,18 @@
 //! flashlight shader pass. Pure rendering, no gameplay mutation.
 
 use ggez::glam::Vec2;
-use ggez::graphics::{
-    Canvas, Color, DrawParam, Rect, Text,
-};
+use ggez::graphics::{Canvas, Color, DrawParam, Rect, Text};
 use ggez::{Context, GameResult};
 
 use crate::constants::*;
-use crate::hud_cache::*;
-use crate::spawnings::SpawnPattern;
-use crate::state::*;
 use crate::graphics::{
     cached_stroke_rect, draw_beat_indicator, draw_crab_radar, draw_flashlight,
-    draw_groove_vignette, draw_reef_phrase, draw_wave_telegraph,
-    draw_weather, unit_square,
+    draw_groove_vignette, draw_reef_phrase, draw_wave_telegraph, draw_weather, unit_square,
 };
-use crate::graphics::{
-    draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions,
-};
-
+use crate::graphics::{draw_day_weather_hud, draw_minimap, draw_tool_roster, minimap_dimensions};
+use crate::hud_cache::*;
+use crate::spawnings::WaveFormation;
+use crate::state::*;
 
 impl MainState {
     /// Screen-space HUD / overlay pass. Called from `draw_game` after the world-space pass;
@@ -144,7 +138,8 @@ impl MainState {
                 if c.is_dancer() && d2 <= 420.0 * 420.0 {
                     call_useful = true;
                 }
-                if !c.is_boss() && c.boss_health > 0.0 && d2 <= STOMP_MAX_RADIUS * STOMP_MAX_RADIUS {
+                if !c.is_boss() && c.boss_health > 0.0 && d2 <= STOMP_MAX_RADIUS * STOMP_MAX_RADIUS
+                {
                     stomp_useful = true;
                 }
                 if c.is_thief() && d2 <= 400.0 * 400.0 {
@@ -204,7 +199,7 @@ impl MainState {
         // Show stats. The HUD line changes only on score/combo/tempo events, not every tick, so cache
         // the built Text and only rebuild it (fresh format! String + fresh Text, which re-triggers
         // glyph shaping) when the underlying values actually differ from last frame's.
-        // Same pattern as the per-level label cache above. Also use the
+        // Same pattern as the per-arena label cache above. Also use the
         // already-maintained self.chain_count instead of re-scanning every crab for `.caught`
         // every frame just to display the same number (crabs are never removed from the vec —
         // caught state only flips via chain_count-tracked catches/snaps — so the two stay in
@@ -224,7 +219,10 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
                 Some((s, cl, cc, m, cached_bpm, _)) => {
-                    *s != self.score || *cl != chain_len || *cc != self.combo_count || *m != mult
+                    *s != self.score
+                        || *cl != chain_len
+                        || *cc != self.combo_count
+                        || *m != mult
                         || *cached_bpm != bpm
                 }
                 None => true,
@@ -236,7 +234,10 @@ impl MainState {
                         self.score, bpm, chain_len, self.combo_count, mult
                     )
                 } else {
-                    format!("Score: {}  |  {} BPM  |  Train: {}", self.score, bpm, chain_len)
+                    format!(
+                        "Score: {}  |  {} BPM  |  Train: {}",
+                        self.score, bpm, chain_len
+                    )
                 };
                 *cache = Some((
                     self.score,
@@ -291,15 +292,15 @@ impl MainState {
             if let Some(cond) = self
                 .world_map
                 .as_ref()
-                .and_then(|m| m.selected_level_index())
-                .and_then(|i| self.levels.get(i))
+                .and_then(|m| m.selected_arena_index())
+                .and_then(|i| self.arenas.get(i))
                 .map(|l| l.win_condition)
             {
                 // Bucketed to whole seconds (matches the `{:.0}s` display) so the key only moves
                 // as often as the rendered text actually would.
                 let hold_key = self.hold_train_timer.round() as i32;
                 let key = (
-                    self.level_complete,
+                    self.arena_complete,
                     cond,
                     self.banked_crabs_run,
                     self.chain_count,
@@ -313,8 +314,8 @@ impl MainState {
                         None => true,
                     };
                     if needs_rebuild {
-                        let goal = if self.level_complete {
-                            "LEVEL COMPLETE!".to_string()
+                        let goal = if self.arena_complete {
+                            "ARENA COMPLETE!".to_string()
                         } else {
                             cond.progress_text(
                                 self.banked_crabs_run,
@@ -326,7 +327,7 @@ impl MainState {
                         let txt = Text::new(goal);
                         *cache = Some((key, txt));
                     }
-                    let col = if self.level_complete {
+                    let col = if self.arena_complete {
                         Color::from_rgb(255, 230, 80) // celebratory gold once the goal lands
                     } else {
                         Color::from_rgb(140, 235, 255) // cool goal-teal while it's in progress
@@ -378,7 +379,7 @@ impl MainState {
 
         // Action bars — pushed down so they don't collide with score/rhythm bonus above.
         let bar_x = 10.0;
-        let bar_y = 80.0;   // was 50 — now clears score(y=10) + rhythm bonus(y=30) with margin
+        let bar_y = 80.0; // was 50 — now clears score(y=10) + rhythm bonus(y=30) with margin
         let bar_width = 160.0; // was 220 — narrower to feel less heavy
         let bar_height = 10.0; // was 18 — thinner, less dominant
         let max_boost = 0.18;
@@ -519,7 +520,11 @@ impl MainState {
             let mut cache = c.borrow_mut();
             let needs_rebuild = !matches!(&*cache, Some((r, _)) if *r == ready);
             if needs_rebuild {
-                let mut text = Text::new(if ready { "Whistle (E) ✓" } else { "Whistle (E)" });
+                let mut text = Text::new(if ready {
+                    "Whistle (E) ✓"
+                } else {
+                    "Whistle (E)"
+                });
                 text.set_scale(13.0);
                 *cache = Some((ready, text));
             }
@@ -527,7 +532,12 @@ impl MainState {
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
                     .dest(Vec2::new(bar_x + bar_width + 5.0, wbar_y - 1.0))
-                    .color(Color::from_rgba(255, 230, 150, if ready { 220 } else { 130 })),
+                    .color(Color::from_rgba(
+                        255,
+                        230,
+                        150,
+                        if ready { 220 } else { 130 },
+                    )),
             );
         });
 
@@ -573,7 +583,12 @@ impl MainState {
                 &cache.as_ref().unwrap().1,
                 DrawParam::default()
                     .dest(Vec2::new(bar_x + bar_width + 5.0, sbar_y - 1.0))
-                    .color(Color::from_rgba(190, 215, 245, if sready { 220 } else { 130 })),
+                    .color(Color::from_rgba(
+                        190,
+                        215,
+                        245,
+                        if sready { 220 } else { 130 },
+                    )),
             );
         });
 
@@ -590,11 +605,11 @@ impl MainState {
                     .color(Color::from_rgb(40, 40, 40)),
             );
             let (fr, fg, fb) = if self.flashlight.on {
-                (255, 200, 80)  // bright amber while active
+                (255, 200, 80) // bright amber while active
             } else if fready {
-                (180, 140, 50)  // dim amber when charged but off
+                (180, 140, 50) // dim amber when charged but off
             } else {
-                (80, 60, 20)    // dark when drained
+                (80, 60, 20) // dark when drained
             };
             canvas.draw(
                 unit_square(ctx)?,
@@ -639,22 +654,22 @@ impl MainState {
             });
         }
 
-        // Debug info: current level in bottom-left corner, small and unobtrusive. Campaign uses
-        // the bounded per-level HashMap cache (levels.len() is small and fixed, so it reaches
-        // steady state quickly); endless arcade uses a single-slot cache instead — arcade_stage
+        // Debug info: current arena in bottom-left corner, small and unobtrusive. Campaign uses
+        // the bounded per-level HashMap cache (arenas.len() is small and fixed, so it reaches
+        // steady state quickly); endless arcade uses a single-slot cache instead — arcade_round
         // climbs forever and is never revisited, so keying into the same HashMap would leak one
         // Text entry per stage for the life of the run.
         if self.in_campaign {
-            LEVEL_LABEL_CACHE.with(|c| -> GameResult {
+            ARENA_LABEL_CACHE.with(|c| -> GameResult {
                 let mut cache = c.borrow_mut();
-                let cache_key = self.current_level;
+                let cache_key = self.current_arena;
                 if !cache.contains_key(&cache_key) {
                     let mut label = Text::new(format!(
-                        "Stage {}: {} | {} | Difficulty: {}",
-                        self.current_level + 1,
-                        self.levels[self.current_level].title,
-                        self.levels[self.current_level].description,
-                        self.levels[self.current_level].difficulty
+                        "Arena {}: {} | {} | Difficulty: {}",
+                        self.current_arena + 1,
+                        self.arenas[self.current_arena].title,
+                        self.arenas[self.current_arena].description,
+                        self.arenas[self.current_arena].difficulty
                     ));
                     label.set_scale(13.0);
                     let dims = label.measure(ctx)?;
@@ -672,15 +687,15 @@ impl MainState {
         } else {
             ARCADE_STAGE_LABEL_CACHE.with(|c| -> GameResult {
                 let mut cache = c.borrow_mut();
-                let cache_key = self.arcade_stage;
+                let cache_key = self.arcade_round;
                 let needs_rebuild = !matches!(&*cache, Some((k, ..)) if *k == cache_key);
                 if needs_rebuild {
                     let mut label = Text::new(format!(
-                        "Stage {}: {} | {} | Difficulty: {}",
-                        self.arcade_stage,
-                        self.levels[self.current_level].title,
-                        self.levels[self.current_level].description,
-                        self.levels[self.current_level].difficulty
+                        "Arena {}: {} | {} | Difficulty: {}",
+                        self.arcade_round,
+                        self.arenas[self.current_arena].title,
+                        self.arenas[self.current_arena].description,
+                        self.arenas[self.current_arena].difficulty
                     ));
                     label.set_scale(13.0);
                     let dims = label.measure(ctx)?;
@@ -697,21 +712,21 @@ impl MainState {
             })?;
         }
 
-        // Draw level title if timer is active.
-        if self.level_title_timer > 0.0 {
-            self.draw_level_title(ctx, canvas, width, height)?;
+        // Draw the arena title if its transition timer is active.
+        if self.arena_title_timer > 0.0 {
+            self.draw_arena_title(ctx, canvas, width, height)?;
         }
 
         // Frenzy banner — the staged difficulty spike's on-screen shout. Rides in high so it
-        // doesn't collide with the centered level title, fades with its timer, and pulses gold.
+        // doesn't collide with the centered arena title, fades with its timer, and pulses gold.
         if self.frenzy_banner_timer > 0.0 {
             self.draw_frenzy_banner(ctx, canvas, width, height)?;
         }
 
         // Stage-up banner — the smooth ramp's on-screen shout when the run climbs into a new
         // intensity stage. Sits a touch lower than the gold Frenzy banner so the two never overlap.
-        if self.stage_banner_timer > 0.0 {
-            self.draw_stage_banner(ctx, canvas, width, height)?;
+        if self.intensity_banner_timer > 0.0 {
+            self.draw_intensity_banner(ctx, canvas, width, height)?;
         }
 
         // Tutorial overlay — the "How to Play" instruction card and pass-progress readout, plus the
@@ -721,30 +736,30 @@ impl MainState {
         }
 
         if self.debug_mode {
-            let level = &self.levels[self.current_level];
-            let pat = &level.patterns[self.current_pattern];
-            let pattern_name = match &pat.pattern {
-                SpawnPattern::UniformRandom => "UniformRandom",
-                SpawnPattern::SineWave => "SineWave",
-                SpawnPattern::Circle => "Circle",
-                SpawnPattern::Cluster => "Cluster",
-                SpawnPattern::SingleRandom => "SingleRandom",
-                SpawnPattern::BeatGrid => "BeatGrid",
-                SpawnPattern::Spiral => "Spiral",
+            let arena = &self.arenas[self.current_arena];
+            let wave = &arena.waves[self.current_wave];
+            let formation_name = match &wave.formation {
+                WaveFormation::UniformRandom => "UniformRandom",
+                WaveFormation::SineWave => "SineWave",
+                WaveFormation::Circle => "Circle",
+                WaveFormation::Cluster => "Cluster",
+                WaveFormation::SingleRandom => "SingleRandom",
+                WaveFormation::BeatGrid => "BeatGrid",
+                WaveFormation::Spiral => "Spiral",
             };
-            let timer_key = (self.pattern_timer * 100.0).round() as i32;
+            let timer_key = (self.wave_timer * 100.0).round() as i32;
             DEBUG_TEXT_CACHE.with(|c| {
                 let mut cache = c.borrow_mut();
                 let needs_rebuild = match &*cache {
-                    Some((p, t, _)) => *p != pattern_name || *t != timer_key,
+                    Some((p, t, _)) => *p != formation_name || *t != timer_key,
                     None => true,
                 };
                 if needs_rebuild {
                     let text = Text::new(format!(
-                        "[DEBUG] Pattern: {} | Time left: {:.2}s",
-                        pattern_name, self.pattern_timer
+                        "[DEBUG] Wave: {} | Time left: {:.2}s",
+                        formation_name, self.wave_timer
                     ));
-                    *cache = Some((pattern_name, timer_key, text));
+                    *cache = Some((formation_name, timer_key, text));
                 }
                 canvas.draw(
                     &cache.as_ref().unwrap().2,

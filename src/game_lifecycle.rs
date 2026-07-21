@@ -6,13 +6,13 @@
 //! menu/world-map/campaign/tutorial transitions. Pure structural move: behaviour
 //! is unchanged.
 
+use ggez::Context;
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
-use ggez::Context;
 use rand::Rng;
 
+use crate::arenas::ArenaSize;
 use crate::constants::*;
-use crate::levels::MapSize;
 use crate::npc_conga_train::NpcCongaTrain;
 use crate::spawnings::spawn_tutorial_crabs;
 use crate::state::{LassoPhase, MainState, WeatherState};
@@ -23,23 +23,23 @@ use crate::{pick_pen_pos, pick_tide_pools};
 
 impl MainState {
     pub(crate) fn reset_game(&mut self) {
-        // `get_levels()` always supplies campaign content, but retain this guard so a malformed
-        // future level source cannot cause a reset-path panic.
-        if let Some(level) = self.levels.first() {
-            self.reset_game_at(0, level.map_size);
+        // `get_arenas()` always supplies campaign content, but retain this guard so a malformed
+        // future arena source cannot cause a reset-path panic.
+        if let Some(arena) = self.arenas.first() {
+            self.reset_game_at(0, arena.arena_size);
         }
     }
 
-    fn reset_game_at_level(&mut self, requested_level: usize) {
-        if !self.levels.is_empty() {
-            let level_index = requested_level.min(self.levels.len() - 1);
-            self.reset_game_at(level_index, self.levels[level_index].map_size);
+    fn reset_game_at_arena(&mut self, requested_arena: usize) {
+        if !self.arenas.is_empty() {
+            let arena_index = requested_arena.min(self.arenas.len() - 1);
+            self.reset_game_at(arena_index, self.arenas[arena_index].arena_size);
         }
     }
 
-    pub(crate) fn resize_world(&mut self, map_size: MapSize) {
-        let new_width = self.width * map_size.viewport_multiplier();
-        let new_height = self.height * map_size.viewport_multiplier();
+    pub(crate) fn resize_world(&mut self, arena_size: ArenaSize) {
+        let new_width = self.width * arena_size.viewport_multiplier();
+        let new_height = self.height * arena_size.viewport_multiplier();
         let shift = Vec2::new(
             (new_width - self.world_width) * 0.5,
             (new_height - self.world_height) * 0.5,
@@ -69,18 +69,18 @@ impl MainState {
         self.world_height = new_height;
     }
 
-    fn reset_game_at(&mut self, level_index: usize, map_size: MapSize) {
-        self.current_level = level_index;
-        self.level_title = self
-            .levels
-            .get(level_index)
-            .map(|level| format!("Stage {} — {}", level_index + 1, level.title))
+    fn reset_game_at(&mut self, arena_index: usize, arena_size: ArenaSize) {
+        self.current_arena = arena_index;
+        self.arena_title = self
+            .arenas
+            .get(arena_index)
+            .map(|arena| format!("ARENA — {}", arena.title))
             .unwrap_or_default();
         // Both modes use the same title-card language: campaign starts a fresh node, while arcade
         // starts a fresh session. Only arcade transitions between cards without resetting the run.
-        self.level_title_timer = 3.1;
-        self.world_width = self.width * map_size.viewport_multiplier();
-        self.world_height = self.height * map_size.viewport_multiplier();
+        self.arena_title_timer = 3.1;
+        self.world_width = self.width * arena_size.viewport_multiplier();
+        self.world_height = self.height * arena_size.viewport_multiplier();
         self.npc_trains = (0..3)
             .map(|index| NpcCongaTrain::new_at(self.world_width, self.world_height, index))
             .collect();
@@ -110,8 +110,8 @@ impl MainState {
         self.banked_crabs_run = 0;
         self.shells_cracked_run = 0;
         self.hold_train_timer = 0.0;
-        self.level_complete = false;
-        self.level_complete_timer = 0.0;
+        self.arena_complete = false;
+        self.arena_complete_timer = 0.0;
         self.crabs_stolen_by_npc = 0;
         self.max_single_steal_by_npc = 0;
         self.crabs_stolen_by_player = 0;
@@ -185,10 +185,10 @@ impl MainState {
         self.waves_cleared = 0;
         self.frenzy_wave = false;
         self.frenzy_banner_timer = 0.0;
-        self.intensity_stage = 0;
+        self.intensity_tier = 0;
         self.beat_interval = BEAT_INTERVAL;
-        self.stage_banner_timer = 0.0;
-        self.stage_banner_name = "";
+        self.intensity_banner_timer = 0.0;
+        self.intensity_banner_name = "";
         self.lasso_phase = LassoPhase::Idle;
         self.lasso_pos = None;
         self.lasso_timer = 0.0;
@@ -265,7 +265,7 @@ impl MainState {
             self.world_height,
             self.pen_pos,
             player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
-            self.levels.first().map(|l| l.difficulty).unwrap_or(0),
+            self.arenas.first().map(|l| l.difficulty).unwrap_or(0),
             &mut crate::rng::rng(),
         );
         self.in_tide_pool = false;
@@ -291,11 +291,11 @@ impl MainState {
         self.boost_timer = 0.0;
         self.boost_cooldown = 0.0;
         self.sprint_stamina = SPRINT_STAMINA_MAX;
-        self.current_pattern = 0;
+        self.current_wave = 0;
         if !self.in_campaign {
-            self.arcade_stage = 1;
+            self.arcade_round = 1;
         }
-        self.start_current_pattern((width, height));
+        self.start_current_wave((width, height));
     }
 
     /// Open the campaign world map. Creates it on first visit; subsequent visits reuse the same
@@ -304,18 +304,18 @@ impl MainState {
         if self.world_map.is_none() {
             self.world_map = Some(WorldMap::new());
         }
-        self.stop_level_audio();
+        self.stop_arena_audio();
         self.show_instructions = false;
         self.show_how_to_play_text = false;
         self.show_world_map = true;
         self.game_over = false;
         self.in_campaign = false;
-        // A calm ambient pad for the campaign map — a breather moment between levels.
+        // A calm ambient pad for the campaign map — a breather moment between arenas.
         let _ = self.sounds.world_map_pad.play();
     }
 
-    /// Stop sounds that belong to a campaign level before returning to the world map.
-    fn stop_level_audio(&mut self) {
+    /// Stop sounds that belong to a campaign arena before returning to the world map.
+    fn stop_arena_audio(&mut self) {
         for music in &self.sounds.action_music {
             music.pause();
         }
@@ -355,7 +355,7 @@ impl MainState {
         if let Some(map) = &mut self.world_map {
             map.cancel_skip();
         }
-        self.stop_level_audio();
+        self.stop_arena_audio();
         self.sounds.world_map_pad.pause();
         self.reset_game();
         self.show_world_map = false;
@@ -370,10 +370,10 @@ impl MainState {
     }
 
     /// Start a campaign run (or tutorial) from the currently selected world map node.
-    /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Level from scratch.
+    /// Tutorial nodes enter a scripted sandbox; campaign nodes load a regular Arena from scratch.
     /// Arcade never enters this path, so its title-card progression skips the tutorials and keeps
     /// the live train, upgrades, and escalating run state intact.
-    pub(crate) fn enter_campaign_level(&mut self) {
+    pub(crate) fn enter_campaign_arena(&mut self) {
         self.sounds.world_map_pad.pause();
         // Check if the selected node is a tutorial sandbox.
         let tutorial_kind = self
@@ -389,12 +389,12 @@ impl MainState {
             return;
         }
 
-        let level_index = self
+        let arena_index = self
             .world_map
             .as_ref()
-            .and_then(|m| m.selected_level_index())
+            .and_then(|m| m.selected_arena_index())
             .unwrap_or(0);
-        self.reset_game_at_level(level_index);
+        self.reset_game_at_arena(arena_index);
         self.show_world_map = false;
         self.in_campaign = true;
     }
@@ -403,7 +403,7 @@ impl MainState {
     /// on a genuine win (the level's `WinCondition` was met, or a tutorial node was passed) the node
     /// is marked complete and the next one unlocks; on a loss (dismissing the game-over screen) the
     /// node stays incomplete so the win condition still gates the campaign and the player can retry
-    /// it. Without this gate a loss also unlocked the next level, defeating the point of #182.
+    /// it. Without this gate a loss also unlocked the next arena, defeating the point of #182.
     /// Career stats are NOT updated here (that path stays in `record_run`).
     pub(crate) fn return_to_world_map(&mut self, won: bool) {
         if won {
@@ -414,22 +414,23 @@ impl MainState {
         self.game_over = false;
         self.show_world_map = true;
         self.in_campaign = false;
-        self.stop_level_audio();
+        self.stop_arena_audio();
         let _ = self.sounds.world_map_pad.play();
     }
 
     /// Enter a scripted "How to Play" tutorial session. Starts from a clean run state (so no
-    /// leftover herd/boss), then constrains it into a tiny sandbox: leave the spawn patterns alone
+    /// leftover herd/boss), then constrains it into a tiny sandbox: leave the spawn waves alone
     /// (the tutorial gates them off in update) and drop in just a handful of plain crabs to catch.
     /// The session runs the normal LIVE update/draw path — the beat clock and catches have to
     /// actually tick for a rhythm lesson — so we clear `show_instructions` and set `self.tutorial`
     /// instead of staying on the paused menu screen. Exit is opt-in: pressing Escape returns to the
     /// menu without ever touching `game_over`, so tutorial runs never pollute the persistent career.
     fn enter_tutorial(&mut self, kind: TutorialKind) {
-        self.reset_game_at(0, MapSize::Tutorial);
+        self.reset_game_at(0, ArenaSize::Tutorial);
         // reset_game seeded a normal first wave; wipe it and drop in the calm tutorial set instead.
         self.crabs.clear();
-        self.crabs = spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
+        self.crabs =
+            spawn_tutorial_crabs(kind, 6, (self.width, self.height), &mut crate::rng::rng());
         // Tutorial worlds are exactly one viewport, so the player and scripted crab ring start
         // together in the centre without any camera travel.
         let tut_center = Vec2::new(

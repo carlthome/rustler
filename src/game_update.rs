@@ -14,11 +14,7 @@ use rand::Rng;
 use crate::*;
 
 pub(crate) fn treasure_groove_level(current: f32, on_beat: bool) -> f32 {
-    if on_beat {
-        1.0
-    } else {
-        current.max(0.5)
-    }
+    if on_beat { 1.0 } else { current.max(0.5) }
 }
 
 impl MainState {
@@ -257,8 +253,12 @@ impl MainState {
                 TutorialKind::LassoGrab => self.crabs.iter().all(|c| c.caught),
             };
             if !completed && needs_restock {
-                self.crabs =
-                    spawn_tutorial_crabs(tut_kind, 6, (self.width, self.height), &mut crate::rng::rng());
+                self.crabs = spawn_tutorial_crabs(
+                    tut_kind,
+                    6,
+                    (self.width, self.height),
+                    &mut crate::rng::rng(),
+                );
             }
             let t = self.tutorial.as_mut().unwrap();
             if t.completed {
@@ -298,14 +298,14 @@ impl MainState {
         // Staged difficulty ramp: as elapsed time crosses the next stage threshold, climb one
         // stage and make it a telegraphed event — a shout banner plus a musical punch — so the run
         // has a felt rising arc with earned standout moments, not a flat curve. Only ever climbs;
-        // the density/duration scaling itself is read per-wave in start_current_pattern.
-        self.stage_banner_timer = (self.stage_banner_timer - dt).max(0.0);
-        if self.intensity_stage + 1 < INTENSITY_STAGES.len() {
-            let (next_threshold, next_name, _, _) = INTENSITY_STAGES[self.intensity_stage + 1];
+        // the density/duration scaling itself is read per-wave in start_current_wave.
+        self.intensity_banner_timer = (self.intensity_banner_timer - dt).max(0.0);
+        if self.intensity_tier + 1 < INTENSITY_TIERS.len() {
+            let (next_threshold, next_name, _, _) = INTENSITY_TIERS[self.intensity_tier + 1];
             if self.time_elapsed >= next_threshold {
-                self.intensity_stage += 1;
-                self.stage_banner_name = next_name;
-                self.stage_banner_timer = 2.0;
+                self.intensity_tier += 1;
+                self.intensity_banner_name = next_name;
+                self.intensity_banner_timer = 2.0;
                 // The master clock applies this stage's tempo on the next bar downbeat, where every
                 // looping source can restart on the same "1". Changing the grid here, mid-bar, made
                 // the live kick immediately quicken while the melody stayed at its old tempo.
@@ -556,10 +556,10 @@ impl MainState {
             self.dash_flash = (self.dash_flash - dt * 7.0).max(0.0);
         }
 
-        if self.level_title_timer > 0.0 {
-            self.level_title_timer -= dt;
-            if self.level_title_timer < 0.0 {
-                self.level_title_timer = 0.0;
+        if self.arena_title_timer > 0.0 {
+            self.arena_title_timer -= dt;
+            if self.arena_title_timer < 0.0 {
+                self.arena_title_timer = 0.0;
             }
         }
 
@@ -580,16 +580,15 @@ impl MainState {
                 self.groove = treasure_groove_level(self.groove, on_beat);
                 self.treasure_chest = None;
                 self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
-                self.particle_system
-                    .spawn_milestone_fireworks(
-                        pos,
-                        if on_beat {
-                            TREASURE_CHEST_ON_BEAT_PARTICLES
-                        } else {
-                            TREASURE_CHEST_OFF_BEAT_PARTICLES
-                        },
-                        &mut crate::rng::rng(),
-                    );
+                self.particle_system.spawn_milestone_fireworks(
+                    pos,
+                    if on_beat {
+                        TREASURE_CHEST_ON_BEAT_PARTICLES
+                    } else {
+                        TREASURE_CHEST_OFF_BEAT_PARTICLES
+                    },
+                    &mut crate::rng::rng(),
+                );
                 self.spawn_catch_shockwave(
                     pos,
                     if on_beat {
@@ -697,17 +696,27 @@ impl MainState {
             let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
 
             // Collect candidate positions: NPC train leaders + uncaught boss crabs.
-            let npc_target = self.npc_trains.iter()
+            let npc_target = self
+                .npc_trains
+                .iter()
                 .map(|t| t.leader_pos)
                 .min_by_key(|p| (p.distance(player_center) * 100.0) as i32);
-            let boss_target = self.crabs.iter()
+            let boss_target = self
+                .crabs
+                .iter()
                 .filter(|c| !c.caught && c.is_boss())
                 .min_by_key(|c| (c.pos.distance(player_center) * 100.0) as i32)
                 .map(|c| c.pos);
 
             // Pick whichever is closer.
             let target = match (npc_target, boss_target) {
-                (Some(n), Some(b)) => Some(if n.distance(player_center) < b.distance(player_center) { n } else { b }),
+                (Some(n), Some(b)) => {
+                    Some(if n.distance(player_center) < b.distance(player_center) {
+                        n
+                    } else {
+                        b
+                    })
+                }
                 (Some(n), None) => Some(n),
                 (None, Some(b)) => Some(b),
                 (None, None) => None,
@@ -717,13 +726,15 @@ impl MainState {
                 let desired = (t - player_center).normalize_or_zero();
                 if desired.length() > 0.1 {
                     let speed = 6.0 * dt;
-                    self.flashlight.aim_dir = (self.flashlight.aim_dir + (desired - self.flashlight.aim_dir) * speed).normalize_or_zero();
+                    self.flashlight.aim_dir = (self.flashlight.aim_dir
+                        + (desired - self.flashlight.aim_dir) * speed)
+                        .normalize_or_zero();
                 }
             }
 
             // Charge drain while on, passive regen while off.
-            const DRAIN_PER_SEC: f32 = 0.18;   // ~5.5s full charge
-            const REGEN_PER_SEC: f32 = 0.055;  // ~18s passive regen (on-beat adds on top)
+            const DRAIN_PER_SEC: f32 = 0.18; // ~5.5s full charge
+            const REGEN_PER_SEC: f32 = 0.055; // ~18s passive regen (on-beat adds on top)
             if self.flashlight.on {
                 self.flashlight.charge = (self.flashlight.charge - DRAIN_PER_SEC * dt).max(0.0);
                 if self.flashlight.charge <= 0.0 {
@@ -788,8 +799,12 @@ impl MainState {
         let mut arrivals = std::mem::take(&mut self.marcher_arrivals_buf);
         self.penned_marchers.update(dt, &mut arrivals);
         for &(pos, color) in arrivals.iter() {
-            self.particle_system
-                .spawn_catch_effect(pos, color, CrabType::Normal, &mut crate::rng::rng());
+            self.particle_system.spawn_catch_effect(
+                pos,
+                color,
+                CrabType::Normal,
+                &mut crate::rng::rng(),
+            );
         }
         self.marcher_arrivals_buf = arrivals;
         // Idle-decay the delivery streak: if too long passes between banks, drop a notch so the
@@ -1013,12 +1028,12 @@ impl MainState {
             // stack one pound at a time before it escapes), and the Dancer King (chase — pin down
             // the beat-teleporting evader and bank its entranced court with an on-beat catch).
             // Cycling guarantees variety instead of RNG streaks.
-            // `current_level` can briefly point past the final pattern while the run is ending;
+            // `current_arena` can briefly point past the final pattern while the run is ending;
             // use the last zone's boss metadata rather than letting a transition panic.
             let boss_kind = self
-                .levels
-                .get(self.current_level)
-                .or_else(|| self.levels.last())
+                .arenas
+                .get(self.current_arena)
+                .or_else(|| self.arenas.last())
                 .map(|level| level.boss_for_encounter(self.next_boss_kind))
                 .unwrap_or(CrabType::Boss);
             let (boss, title, hint, title_color) = match boss_kind {
@@ -1107,27 +1122,27 @@ impl MainState {
             return Ok(());
         }
 
-        // Campaign win condition: evaluate the entered level's goal every frame during a campaign
-        // run. The goal comes from the world-map node the player launched (NOT current_level,
-        // which auto-advances when patterns run out). On win: latch once, celebrate briefly, then
+        // Campaign win condition: evaluate the entered arena's goal every frame during a campaign
+        // run. The goal comes from the world-map node the player launched (NOT current_arena,
+        // which auto-advances when waves run out). On win: latch once, celebrate briefly, then
         // return to the world map — which marks the node complete and unlocks the next one.
         if self.in_campaign && self.tutorial.is_none() && !self.game_over {
-            if self.level_complete {
-                self.level_complete_timer = (self.level_complete_timer - dt).max(0.0);
-                if self.level_complete_timer <= 0.0 {
-                    // The WinCondition was met — complete the node and unlock the next level.
+            if self.arena_complete {
+                self.arena_complete_timer = (self.arena_complete_timer - dt).max(0.0);
+                if self.arena_complete_timer <= 0.0 {
+                    // The WinCondition was met — complete the node and unlock the next arena.
                     self.return_to_world_map(true);
                 }
             } else if let Some(cond) = self
                 .world_map
                 .as_ref()
-                .and_then(|m| m.selected_level_index())
-                .and_then(|i| self.levels.get(i))
+                .and_then(|m| m.selected_arena_index())
+                .and_then(|i| self.arenas.get(i))
                 .map(|l| l.win_condition)
             {
                 // HoldTrain streak clock: accumulate while the train holds the target, reset the
                 // instant it dips below — a single bad moment resets a long streak, by design.
-                if let crate::levels::WinCondition::HoldTrain { target, .. } = cond {
+                if let crate::arenas::WinCondition::HoldTrain { target, .. } = cond {
                     if self.chain_count >= target {
                         self.hold_train_timer += dt;
                     } else {
@@ -1140,11 +1155,11 @@ impl MainState {
                     self.shells_cracked_run,
                     self.hold_train_timer,
                 ) {
-                    self.level_complete = true;
-                    self.level_complete_timer = 2.5;
+                    self.arena_complete = true;
+                    self.arena_complete_timer = 2.5;
                     let center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
                     self.floating_texts.spawn(
-                        "LEVEL COMPLETE!".to_string(),
+                        "ARENA COMPLETE!".to_string(),
                         center - Vec2::new(120.0, 80.0),
                         48.0,
                         [1.0, 0.9, 0.3, 1.0],
@@ -1160,19 +1175,19 @@ impl MainState {
         // it, and the beat handler drops the herd on the next downbeat so waves arrive locked to
         // the music. Whole field caught still counts, so the player is never left waiting with
         // nothing to chase. `wave_telegraph` counts up while armed to drive the draw-side flash.
-        self.pattern_timer -= dt;
+        self.wave_timer -= dt;
         // Boss set-piece: while a boss is on the field, hold the herd back so the encounter becomes
         // a focused duel instead of another crab lost in the crowd. The pattern timer keeps counting
         // down (clamped so it doesn't run away), so the instant the boss is caught the next wave
         // arms immediately and the run resumes without a dead beat. `boss_active` is the same
         // single-pass tally computed above (still valid — no crab was caught/removed since).
         if boss_active {
-            self.pattern_timer = self.pattern_timer.max(-1.0);
+            self.wave_timer = self.wave_timer.max(-1.0);
         }
         if self.tutorial.is_none()
             && !self.wave_armed
             && !boss_active
-            && (self.crabs.iter().all(|c| c.caught) || self.pattern_timer <= 0.0)
+            && (self.crabs.iter().all(|c| c.caught) || self.wave_timer <= 0.0)
         {
             self.wave_armed = true;
             self.wave_telegraph = 0.0;
@@ -1188,7 +1203,7 @@ impl MainState {
             if self.wave_telegraph > self.beat_interval * 8.0 {
                 self.wave_armed = false;
                 self.wave_telegraph = 0.0;
-                self.advance_pattern();
+                self.advance_wave();
             }
         }
 

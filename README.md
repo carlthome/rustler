@@ -11,6 +11,17 @@ A toy game created to explore and learn Rust.
 - Fun and engaging mechanics for the entire family
 - ~~Multiplayer support~~
 
+## Game terminology
+
+- **Campaign map:** the screen for selecting a destination.
+- **Arena:** a physical destination with a biome, terrain rules, music, objective, and wave set.
+- **Wave:** one timed crab encounter inside an arena. A wave chooses a formation, herd size,
+  duration, and location.
+- **Wave formation:** the geometric arrangement used to place a wave's crabs.
+- **Stage:** reserved for the arcade-style wave roles planned for the encounter loop: familiar
+  waves, escalating riffs on them, then a Challenge miniboss wave. It is not another name for
+  an arena.
+
 ## Run
 
 To run the game just build and launch it from the repo root:

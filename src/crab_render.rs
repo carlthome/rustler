@@ -29,9 +29,13 @@ thread_local! {
 /// conga trains — all batched into the shared deferred leg/body/ring buffers. Split out of
 /// overlays.rs so that file holds only the HUD banners and full-screen menus.
 impl MainState {
-    pub(crate) fn draw_crabs_with_shake(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
+    pub(crate) fn draw_crabs_with_shake(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+    ) -> GameResult {
         let mut rng = crate::rng::rng();
-        // Level-of-detail hint for draw_crab: the more crabs on the beach (wild herd + conga train
+        // Arena-of-detail hint for draw_crab: the more crabs on the beach (wild herd + conga train
         // + NPC trains drawn in this same pass), the cheaper each crab renders, so a big train stays
         // smooth. Full articulation is reserved for calm fields and hero-sized crabs; tiny/distant
         // crabs are always cheap regardless. Set once per pass. Must include NPC train followers
@@ -58,7 +62,8 @@ impl MainState {
         // large maps every frame. CULL_MARGIN is wider than any aura anchored on the crab (Magnet's
         // 240px ring is the widest), so nothing actually visible is ever skipped.
         let view_min = self.camera_origin - Vec2::splat(CULL_MARGIN);
-        let view_max = self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
+        let view_max =
+            self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
         for (i, crab) in self.crabs.iter().enumerate() {
             if !crab.caught {
                 if crab.pos.x < view_min.x

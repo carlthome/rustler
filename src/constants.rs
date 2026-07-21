@@ -24,7 +24,7 @@ pub const LASSO_ONBEAT_BONUS: f32 = 1.35; // 35% extra range+speed when released
 
 pub const CRAB_SIZE: f32 = 36.0;
 // Draw-time visibility culling margin (world px) around the camera viewport. The world can be up
-// to 4x the viewport per axis (MapSize::Large), so a large fraction of the free-crab herd and any
+// to 4x the viewport per axis (ArenaSize::Large), so a large fraction of the free-crab herd and any
 // ambient NPC train can sit fully off-screen every frame; skipping their per-crab draw work saves
 // real CPU there. Must stay wider than the largest aura/ring drawn centered on a crab's own
 // position that could otherwise pop in/out at the frame edge — the widest is the Magnet field aura
@@ -83,7 +83,7 @@ pub const ACTION_BEAT_WINDOW: f32 = 0.11;
 
 pub const DRUM_ROLL_MAX: u32 = 4;
 
-pub const INTENSITY_STAGES: &[(f32, &str, f32, f32)] = &[
+pub const INTENSITY_TIERS: &[(f32, &str, f32, f32)] = &[
     (0.0, "WARM-UP", 1.0, 1.0),
     (45.0, "BUILDING", 1.25, 1.08),
     (100.0, "HEATED", 1.55, 1.16),
@@ -91,8 +91,8 @@ pub const INTENSITY_STAGES: &[(f32, &str, f32, f32)] = &[
     (260.0, "OVERDRIVE", 2.3, 1.38),
 ];
 
-pub const STAGE_DURATION_SCALE: f32 = 0.92;
-pub const STAGE_DURATION_FLOOR: f32 = 0.6;
+pub const INTENSITY_TIER_DURATION_SCALE: f32 = 0.92;
+pub const INTENSITY_TIER_DURATION_FLOOR: f32 = 0.6;
 pub const BOSS_MAX_HEALTH: f32 = 3.0;
 pub const BOSS_DRAIN_RATE: f32 = 1.0;
 pub const BOSS_SCORE_INTERVAL: usize = 40;

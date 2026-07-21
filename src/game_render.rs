@@ -8,36 +8,35 @@
 
 use ggez::audio::SoundSource;
 use ggez::glam::Vec2;
-use ggez::graphics::{
-    BlendMode, Canvas, Color, DrawParam, Rect, Sampler, Text,
-};
+use ggez::graphics::{BlendMode, Canvas, Color, DrawParam, Rect, Sampler, Text};
 use ggez::input::keyboard::KeyCode;
 use ggez::winit::keyboard::PhysicalKey;
 use ggez::{Context, GameResult};
 
 use crate::constants::*;
 use crate::enemies::CrabType;
-use crate::hud_cache::*;
-use crate::state::*;
-use crate::{how_to_play_body_text, menu, panic_snap_links};
 use crate::graphics::{
-    LassoDrawPhase, draw_ambient_motes, draw_beat_hit_punch, draw_beat_wave_ring,
-    draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring, draw_catch_shockwaves, draw_catch_trails,
-    draw_beat_keeper_ring, draw_chain_rings, draw_cleave_slash, draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_deliver_beam, draw_delivery_pen,
-    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings,
-    draw_floating_texts, draw_groove_call_ring, draw_haul_worth, draw_kelp_snag_warning, draw_lasso,
-    draw_lasso_windup, draw_particles, draw_pen_guide, draw_penned_marchers,
-    draw_puddle_ripples, draw_rustler, draw_sky_overlay, draw_slam_ring,
-    draw_speed_lines, draw_sprint_whoosh, draw_stomp_ring, draw_tail_run_badge, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_whistle_ring, draw_world_edge, draw_world_map, draw_world_zones, unit_circle, unit_line, unit_square,
+    LassoDrawPhase, draw_ambient_motes, draw_beat_hit_punch, draw_beat_keeper_ring,
+    draw_beat_wave_ring, draw_boss_fissures, draw_call_ring, draw_catch_bloom_ring,
+    draw_catch_shockwaves, draw_catch_trails, draw_chain_rings, draw_cleave_slash,
+    draw_cleave_stakes, draw_combo_meter, draw_conga_rope, draw_deliver_beam, draw_delivery_pen,
+    draw_delivery_streak, draw_downbeat_pulse_ring, draw_fear_rings, draw_floating_texts,
+    draw_groove_call_ring, draw_haul_worth, draw_kelp_snag_warning, draw_lasso, draw_lasso_windup,
+    draw_particles, draw_pen_guide, draw_penned_marchers, draw_puddle_ripples, draw_rustler,
+    draw_sky_overlay, draw_slam_ring, draw_speed_lines, draw_sprint_whoosh, draw_stomp_ring,
+    draw_tail_run_badge, draw_tide_pools, draw_tide_pulses, draw_train_at_risk, draw_whistle_ring,
+    draw_world_edge, draw_world_map, draw_world_zones, unit_circle, unit_line, unit_square,
 };
 use crate::graphics::{
     draw_beam_fast_pin, draw_beam_golden_spotlight, draw_beam_hermit_match, draw_beam_sneaky_pin,
-    draw_lasso_big_match, draw_lasso_magnet_match,
-    draw_lasso_shell_deflect, draw_lasso_thief_match, draw_magnet_cluster_pull,
-    draw_stomp_armored_crack, draw_stomp_dancer_match, draw_whistle_dancer_match,
-    draw_whistle_golden_pull, draw_whistle_shell_deflect, draw_whistle_sneaky_match,
-    draw_whistle_thief_match,
+    draw_lasso_big_match, draw_lasso_magnet_match, draw_lasso_shell_deflect,
+    draw_lasso_thief_match, draw_magnet_cluster_pull, draw_stomp_armored_crack,
+    draw_stomp_dancer_match, draw_whistle_dancer_match, draw_whistle_golden_pull,
+    draw_whistle_shell_deflect, draw_whistle_sneaky_match, draw_whistle_thief_match,
 };
+use crate::hud_cache::*;
+use crate::state::*;
+use crate::{how_to_play_body_text, menu, panic_snap_links};
 
 impl MainState {
     fn draw_startup_logo(
@@ -298,13 +297,13 @@ impl MainState {
         let world_h = self.world_height;
 
         // Select texture for current level.
-        let _texture = match self.level_textures[self.current_level] {
-            LevelTexture::Grass => &self.textures.grass,
-            LevelTexture::Sand => &self.textures.sand,
+        let _texture = match self.level_textures[self.current_arena] {
+            ArenaTexture::Grass => &self.textures.grass,
+            ArenaTexture::Sand => &self.textures.sand,
         };
 
         // Biome for the current zone (clamped so a finished run doesn't index past the end).
-        let biome = self.levels[self.current_level.min(self.levels.len() - 1)].biome;
+        let biome = self.arenas[self.current_arena.min(self.arenas.len() - 1)].biome;
         let (tr, tg, tb) = biome.tint;
 
         // Fold the day/night grade into the ground tint so the whole world shifts together with the
@@ -412,7 +411,7 @@ impl MainState {
         // go transparent (ggez 0.10), delete this fill so the player's REAL desktop shows through the
         // frame here instead of a painted wallpaper — the drawn window panels (graphics::terrain)
         // then become handles over the actual OS windows behind the transparent game window.
-        if biome.terrain == crate::levels::TerrainKind::Desktop {
+        if biome.terrain == crate::arenas::TerrainKind::Desktop {
             // Use the raw biome tint (not the day/night-graded ground color) so the wallpaper stays
             // constant like a real screen, indifferent to the beach's dawn/dusk cycle.
             canvas.draw(
@@ -431,7 +430,7 @@ impl MainState {
         let native_pool_count = self.tide_pools.len().saturating_sub(self.boss_flood_pools);
         // Only the Water biome's native pools carry the Tide Pool current, so only they draw the flow
         // streaks — matching exactly where the sim applies the drift (see update_crabs).
-        let native_has_current = biome.terrain == crate::levels::TerrainKind::Water;
+        let native_has_current = biome.terrain == crate::arenas::TerrainKind::Water;
         draw_tide_pools(
             ctx,
             canvas,
@@ -451,7 +450,7 @@ impl MainState {
                 self.time_elapsed,
                 self.beat_intensity,
                 self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0),
-                crate::levels::TerrainKind::Water,
+                crate::arenas::TerrainKind::Water,
                 // Flood pools render as water but carry no current — never streak them.
                 false,
                 // Flood pools draw as water, not rock, so the tide level is irrelevant here.
@@ -915,7 +914,11 @@ impl MainState {
             }
             // The splice aims ~2/3 down the chain (cached_steal_target_pos); on a short chain it falls
             // back to the tail. Match that so the heat band centers on the link actually threatened.
-            let splice_center_frac = if self.chain_count >= 4 { 2.0 / 3.0 } else { 1.0 };
+            let splice_center_frac = if self.chain_count >= 4 {
+                2.0 / 3.0
+            } else {
+                1.0
+            };
             draw_conga_rope(
                 ctx,
                 canvas,
@@ -1030,8 +1033,12 @@ impl MainState {
             }
         });
 
-        let sprinting = (ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
-            || ctx.keyboard.is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight)))
+        let sprinting = (ctx
+            .keyboard
+            .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftLeft))
+            || ctx
+                .keyboard
+                .is_physical_key_pressed(&PhysicalKey::Code(KeyCode::ShiftRight)))
             && self.sprint_stamina > 0.0
             && self.boost_timer <= 0.0;
 

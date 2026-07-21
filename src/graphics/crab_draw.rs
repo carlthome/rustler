@@ -6,7 +6,7 @@
 use super::crab_style::{self, ShellPattern};
 use super::*;
 
-/// Level of detail for a crab. Ordered cheap→rich so `min()` picks the cheaper of two caps.
+/// Arena of detail for a crab. Ordered cheap→rich so `min()` picks the cheaper of two caps.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Detail {
     /// Swarm / tiny-on-screen: sculpted shell + simple claws + femur-only legs. Silhouette,
@@ -143,7 +143,17 @@ fn push_claw(
 // batches by flush_crab_legs()/flush_crab_bodies() (called once per drawing pass by the caller).
 // Kept in the signature so call sites don't need to change and so a future direct-draw effect
 // (e.g. a one-off overlay) has it on hand without threading it through again.
-pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw_pos: Vec2, beat_phase: f32, join_pulse: f32, y_lift: f32, rotation: f32, time: f32) -> ggez::GameResult {
+pub fn draw_crab(
+    ctx: &mut Context,
+    _canvas: &mut Canvas,
+    crab: &EnemyCrab,
+    draw_pos: Vec2,
+    beat_phase: f32,
+    join_pulse: f32,
+    y_lift: f32,
+    rotation: f32,
+    time: f32,
+) -> ggez::GameResult {
     // Crabs previously rebuilt ~13 fresh GPU meshes every frame (shadow, body, 6 legs,
     // 2 claws, 4 eye parts) via Mesh::new_circle/new_line/new_ellipse. With a long conga
     // train this was easily 100+ mesh allocations per frame. Instead reuse the same cached
@@ -180,7 +190,7 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     let beat_bounce = 1.0 + 0.06 * beat_phase;
     let size = base_size * pulse_scale * beat_bounce;
 
-    // Level of detail: a calm field renders fully articulated hero crabs; a big swarm or a tiny/
+    // Arena of detail: a calm field renders fully articulated hero crabs; a big swarm or a tiny/
     // distant crab drops to a cheaper form so the two instanced batches stay small and the [perf]
     // frame time doesn't regress on long trains. Silhouette + accent + pattern survive every tier.
     let detail = crab_detail(size);
@@ -199,7 +209,12 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     } else {
         0.0
     };
-    let crab_color = Color::new((r + flash).min(1.0), (g + flash).min(1.0), (b + flash).min(1.0), 1.0);
+    let crab_color = Color::new(
+        (r + flash).min(1.0),
+        (g + flash).min(1.0),
+        (b + flash).min(1.0),
+        1.0,
+    );
     // Secondary colour for shell pattern / claw tips / eye rims — the archetype's accent.
     let accent = Color::new(style.accent[0], style.accent[1], style.accent[2], 1.0);
 
@@ -222,8 +237,18 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     // Carapace squash-and-stretch on the beat: the shell flattens and widens right on the downbeat.
     let shell_squash = 1.0 + 0.16 * beat_phase; // wider along the shell
     let shell_stretch = 1.0 - 0.11 * beat_phase; // flatter top-to-bottom
-    let rim_color = Color::new(crab_color.r * 0.32, crab_color.g * 0.28, crab_color.b * 0.30, 0.92);
-    let belly_color = Color::new(crab_color.r * 0.60, crab_color.g * 0.53, crab_color.b * 0.56, 0.55);
+    let rim_color = Color::new(
+        crab_color.r * 0.32,
+        crab_color.g * 0.28,
+        crab_color.b * 0.30,
+        0.92,
+    );
+    let belly_color = Color::new(
+        crab_color.r * 0.60,
+        crab_color.g * 0.53,
+        crab_color.b * 0.56,
+        0.55,
+    );
 
     // Shell half-extents actually drawn (the ellipse radii). Everything mounted on the rim — legs,
     // claws, eyes — is placed against these, so a wide Big crab's legs sit wider, a narrow Fast
@@ -267,13 +292,20 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     let mut leg_n = 0usize;
     for side in [-1.0_f32, 1.0] {
         // Left legs radiate toward -x (PI), right toward +x (0), each fanned front-to-back.
-        let center = if side < 0.0 { std::f32::consts::PI } else { 0.0 };
+        let center = if side < 0.0 {
+            std::f32::consts::PI
+        } else {
+            0.0
+        };
         for j in 0..leg_pairs {
             let frac = (j as f32 + 0.5) / leg_pairs as f32;
             let spread = 0.95 * style.leg_splay;
             let root_ang_body = center + (frac - 0.5) * 2.0 * spread;
             // Leg root on the shell rim, in body space then rotated to world.
-            let rb = Vec2::new(root_ang_body.cos() * sw * 0.95, root_ang_body.sin() * sh * 0.95);
+            let rb = Vec2::new(
+                root_ang_body.cos() * sw * 0.95,
+                root_ang_body.sin() * sh * 0.95,
+            );
             let root = draw_pos + rotate_offset(rb.x, rb.y);
             // Contralateral tripod-ish phasing so neighbours step out of sync.
             let leg_i = j + if side < 0.0 { 0 } else { leg_pairs };
@@ -352,7 +384,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
     let (pdx, pdy) = if !crab.caught {
         let vl = crab.vel.length();
         if vl > 1.0 {
-            (crab.vel.x / vl * eye_radius * 0.4, crab.vel.y / vl * eye_radius * 0.4)
+            (
+                crab.vel.x / vl * eye_radius * 0.4,
+                crab.vel.y / vl * eye_radius * 0.4,
+            )
         } else {
             (0.0, 0.0)
         }
@@ -384,14 +419,20 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
             params.push(
                 DrawParam::default()
                     .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
-                    .scale(Vec2::new(size * shadow_scale_x * 0.82, size * shadow_scale_y * 0.82))
+                    .scale(Vec2::new(
+                        size * shadow_scale_x * 0.82,
+                        size * shadow_scale_y * 0.82,
+                    ))
                     .color(Color::from_rgba(0, 0, 0, shadow_alpha / 2)),
             );
         }
         params.push(
             DrawParam::default()
                 .dest(draw_pos + Vec2::new(shadow_offset_x, shadow_offset_y))
-                .scale(Vec2::new(size * shadow_scale_x * 0.55, size * shadow_scale_y * 0.55))
+                .scale(Vec2::new(
+                    size * shadow_scale_x * 0.55,
+                    size * shadow_scale_y * 0.55,
+                ))
                 .color(Color::from_rgba(0, 0, 0, shadow_alpha)),
         );
         // Dark tinted rim just behind the shell — a subtle outline that lifts the crab off busy
@@ -399,7 +440,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         params.push(
             DrawParam::default()
                 .dest(draw_pos)
-                .scale(Vec2::new(sw * shell_squash * 1.15, sh * shell_stretch * 1.15))
+                .scale(Vec2::new(
+                    sw * shell_squash * 1.15,
+                    sh * shell_stretch * 1.15,
+                ))
                 .rotation(rotation)
                 .color(rim_color),
         );
@@ -417,7 +461,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
             params.push(
                 DrawParam::default()
                     .dest(draw_pos - light_dir * size * 0.13)
-                    .scale(Vec2::new(sw * shell_squash * 0.86, sh * shell_stretch * 0.86))
+                    .scale(Vec2::new(
+                        sw * shell_squash * 0.86,
+                        sh * shell_stretch * 0.86,
+                    ))
                     .rotation(rotation)
                     .color(belly_color),
             );
@@ -426,7 +473,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         params.push(
             DrawParam::default()
                 .dest(draw_pos + light_dir * size * 0.15)
-                .scale(Vec2::new(sw * 0.62 * shell_squash, sh * 0.62 * shell_stretch))
+                .scale(Vec2::new(
+                    sw * 0.62 * shell_squash,
+                    sh * 0.62 * shell_stretch,
+                ))
                 .rotation(rotation)
                 .color(dome_color),
         );
@@ -435,7 +485,10 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
             params.push(
                 DrawParam::default()
                     .dest(draw_pos + light_dir * size * 0.30)
-                    .scale(Vec2::new(sw * shell_squash * 0.72, sh * shell_stretch * 0.34))
+                    .scale(Vec2::new(
+                        sw * shell_squash * 0.72,
+                        sh * shell_stretch * 0.34,
+                    ))
                     .rotation(rotation)
                     .color(rim_light),
             );
@@ -464,7 +517,12 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                     }
                 }
                 ShellPattern::Plates => {
-                    let seam = Color::new(crab_color.r * 0.35, crab_color.g * 0.33, crab_color.b * 0.38, 0.85);
+                    let seam = Color::new(
+                        crab_color.r * 0.35,
+                        crab_color.g * 0.33,
+                        crab_color.b * 0.38,
+                        0.85,
+                    );
                     for ry in [-0.34_f32, 0.0, 0.34] {
                         params.push(
                             DrawParam::default()
@@ -475,7 +533,12 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                         );
                     }
                     if detail == Detail::Full {
-                        for (rx, ry) in [(-0.55_f32, -0.4_f32), (0.55, -0.4), (-0.55, 0.4), (0.55, 0.4)] {
+                        for (rx, ry) in [
+                            (-0.55_f32, -0.4_f32),
+                            (0.55, -0.4),
+                            (-0.55, 0.4),
+                            (0.55, 0.4),
+                        ] {
                             params.push(
                                 DrawParam::default()
                                     .dest(draw_pos + rotate_offset(rx * sw, ry * sh))
@@ -486,7 +549,12 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                     }
                 }
                 ShellPattern::Spots => {
-                    for (rx, ry) in [(-0.4_f32, -0.35_f32), (0.35, -0.15), (0.0, 0.35), (-0.2, 0.6)] {
+                    for (rx, ry) in [
+                        (-0.4_f32, -0.35_f32),
+                        (0.35, -0.15),
+                        (0.0, 0.35),
+                        (-0.2, 0.6),
+                    ] {
                         params.push(
                             DrawParam::default()
                                 .dest(draw_pos + rotate_offset(rx * sw, ry * sh))
@@ -536,7 +604,11 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                     );
                 }
                 ShellPattern::Shine => {
-                    for (rx, ry, s) in [(-0.3_f32, -0.35_f32, 0.09_f32), (0.25, -0.1, 0.06), (0.1, 0.3, 0.05)] {
+                    for (rx, ry, s) in [
+                        (-0.3_f32, -0.35_f32, 0.09_f32),
+                        (0.25, -0.1, 0.06),
+                        (0.1, 0.3, 0.05),
+                    ] {
                         params.push(
                             DrawParam::default()
                                 .dest(draw_pos + rotate_offset(rx * sw, ry * sh))
@@ -571,8 +643,28 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
 
         // Articulated claws — a big crusher and a smaller (or matched, per claw_sym) pincer, both
         // snapping shut on the downbeat. Full detail hinges two fingers; Mid/Low simplify.
-        push_claw(&mut params, wrist_l, claw_dir_l, crusher_r, gape, crab_color, dome_color, light_dir, detail);
-        push_claw(&mut params, wrist_r, claw_dir_r, pincer_r, gape, crab_color, dome_color, light_dir, detail);
+        push_claw(
+            &mut params,
+            wrist_l,
+            claw_dir_l,
+            crusher_r,
+            gape,
+            crab_color,
+            dome_color,
+            light_dir,
+            detail,
+        );
+        push_claw(
+            &mut params,
+            wrist_r,
+            claw_dir_r,
+            pincer_r,
+            gape,
+            crab_color,
+            dome_color,
+            light_dir,
+            detail,
+        );
 
         // Eyes. When blinking (Full only) the whites become closed lid-slits; otherwise draw the
         // white, a tracking pupil, and (Mid+) a catch-light so the crab reads bright-eyed.
@@ -608,7 +700,12 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
                 for ep in [eye_pos_l, eye_pos_r] {
                     params.push(
                         DrawParam::default()
-                            .dest(ep + rotate_offset(pdx - eye_radius * 0.25, pdy - eye_radius * 0.25))
+                            .dest(
+                                ep + rotate_offset(
+                                    pdx - eye_radius * 0.25,
+                                    pdy - eye_radius * 0.25,
+                                ),
+                            )
                             .scale(Vec2::splat(catch))
                             .color(Color::new(1.0, 1.0, 1.0, 0.9)),
                     );
@@ -619,12 +716,19 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         // Planted feet (Full): a small dark bead at each leg tip, shrinking as the leg lifts off
         // the ground mid-step — the read that sells the scuttle.
         if detail == Detail::Full {
-            let foot_c = Color::new(tibia_color.r * 0.8, tibia_color.g * 0.8, tibia_color.b * 0.8, 1.0);
+            let foot_c = Color::new(
+                tibia_color.r * 0.8,
+                tibia_color.g * 0.8,
+                tibia_color.b * 0.8,
+                1.0,
+            );
             for lg in legs.iter().take(leg_n) {
                 params.push(
                     DrawParam::default()
                         .dest(lg.tibia_tip)
-                        .scale(Vec2::splat(size * 0.05 * style.leg_thick * (1.0 - 0.3 * lg.lift)))
+                        .scale(Vec2::splat(
+                            size * 0.05 * style.leg_thick * (1.0 - 0.3 * lg.lift),
+                        ))
                         .color(foot_c),
                 );
             }
@@ -685,7 +789,11 @@ pub fn draw_crab(ctx: &mut Context, _canvas: &mut Canvas, crab: &EnemyCrab, draw
         let arm_root_r = draw_pos + rotate_offset(sw * 0.7, -sh * 0.35);
         for (root, wrist, thick) in [
             (arm_root_l, wrist_l, 4.0 * style.leg_thick),
-            (arm_root_r, wrist_r, (2.4 + 1.6 * style.claw_sym) * style.leg_thick),
+            (
+                arm_root_r,
+                wrist_r,
+                (2.4 + 1.6 * style.claw_sym) * style.leg_thick,
+            ),
         ] {
             let d = wrist - root;
             let len = d.length().max(0.0001);
