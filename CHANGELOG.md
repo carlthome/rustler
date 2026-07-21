@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.40.2 — 2026-07-21
+
+### Performance
+- Cache the Home menu's crab-preview panel and button meshes/text
+
+### Refactoring
+- Extract ggez EventHandler impl from main.rs into event_handler.rs
+
 ## v0.40.1 — 2026-07-21
 
 ### Performance
