@@ -769,8 +769,10 @@ fn synth_groove(
 
     // Fold release tails into the next phrase, then retain exactly the requested number
     // of bars. Otherwise each loop includes its tails after the final downbeat and drifts.
-    for i in loop_samples..mix.len() {
-        mix[i - loop_samples] += mix[i];
+    if mix.len() > loop_samples {
+        for i in loop_samples..mix.len() {
+            mix[i - loop_samples] += mix[i];
+        }
     }
     mix.truncate(loop_samples);
 

@@ -1294,7 +1294,11 @@ impl MainState {
         } else {
             0
         };
-        let bpm = (60.0 / self.beat_interval).round() as u32;
+        let bpm = if self.beat_interval > 0.0 {
+            (60.0 / self.beat_interval).round() as u32
+        } else {
+            0
+        };
         HUD_TEXT_CACHE.with(|c| {
             let mut cache = c.borrow_mut();
             let needs_rebuild = match &*cache {
