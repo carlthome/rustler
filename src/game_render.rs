@@ -264,6 +264,14 @@ impl MainState {
                         .scale(Vec2::new(width, height))
                         .color(Color::new(0.0, 0.0, 0.0, 1.0 - intro.menu_progress)),
                 );
+                if intro.menu_flash > 0.0 {
+                    canvas.draw(
+                        unit_square(ctx)?,
+                        DrawParam::default()
+                            .scale(Vec2::new(width, height))
+                            .color(Color::new(0.9, 0.95, 1.0, intro.menu_flash * 0.45)),
+                    );
+                }
             } else {
                 canvas.set_screen_coordinates(Rect::new(0.0, 0.0, width, height));
                 self.draw_startup_logo(ctx, canvas, width, height, intro.logo_alpha)?;
