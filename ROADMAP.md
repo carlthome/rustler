@@ -60,24 +60,22 @@ your back section (#32), the snap is telegraphed and lands on the beat (#34), an
 first slice of meta-progression + campaign scaffolding exists but stays parked in "Later" — the gate is Carl's explicit
 "core feels done" call, which hasn't come.
 
-**Signal (this cycle).** No new human signal — every #general post is an auto Dev Diary, no reactions, no replies to
-weigh; the one standing ask (Carl, 2026-07-07: "would be nice to see example videos here") is a Dev Diary *format*
-request, not a roadmap item. (Note: the latest Dev Diary (2026-07-20) still says "Next up: the core steal mechanic" — that's
-stale auto-generated text; git shows the steal verb *and* the skill-based steal fight both landed and green on main.)
-**The headline shipped in full.** Last cycle's Now headline — "turn the steal from a rule into a fight you win by skill" —
-*landed* this cycle, advancing on git evidence, not waiting for Carl to confirm work the plan already called for. All three
-sub-items are done (deliberate rival routing, on-beat defense, fun-not-punishing tuning — PRs detailed in *Where we are*
-above), so the steal is now a reactive, skill-based contest rather than a one-way tax. That closes the Now headline; the next
-one below promotes the ecology's third step (rivals steal from *each other*).
-**This cycle the steal became a *fight you win by skill* — the whole prior headline, landed in full.** Rivals now route
-*deliberately* to thread the back half of a loose train (#67); the defense is a real on-beat play — a telegraph ring on armed
-steals (#72), a **parry** (#76), a movement **dodge** (#80), each opening a **counter-steal window** (#83); and it's tuned to a
-tense back-and-forth, not a tax — a single steal is capped to a **recoverable bite** (#69) and losing crabs opens a **revenge
-duel** (#74). Alongside it: the conga risk/reward mechanics were split into `chain_mechanics.rs` and the King Crab audio into
-`king_crab_audio.rs` (structural, no behaviour change), and CI got leaner (apt caching #48, parallel playtest matrix #30).
-**With the steal fight in, the next frontier is making the beach a real *multi-train ecology* — rivals that steal from *each
-other*, not just you (agar.io + Rain World, path step 3) — before the BYO-music mashup (the other half of the thesis) gets
-wired.** That's the new headline in Now.
+**Signal (this cycle) — new human signal is in, via GitHub not Slack.** The #general channel is still only auto Dev Diary
+posts (no reactions, no replies to weigh), but on **2026-07-20 Carl filed eight `gameplay` issues directly** — his clearest
+direction in weeks, and it overrides the roadmap's own sequencing where it conflicts. Two themes dominate:
+- **(a) The moment-to-moment beat is too hard and too opaque to *play*.** #164: the on-beat windows feel **unforgiving** and
+  it's **not obvious what you're timing** (the keypress, or a later resolving event?) — the **clash** is the worst offender;
+  the **dash feels good, don't touch it**. #165: explore a simpler input model ("always tap SPACE on the beat + tool chords").
+  This is direct player-feel feedback and it **becomes the new Now headline** — a game that's frustrating and opaque to play
+  in the moment blocks everything else.
+- **(b) Make the campaign scaffolding actually function**, plus more depth/content: #182 per-level win conditions (nodes
+  never unlock today), #183 biome-tinted world-map nodes, #176 skip-ahead on the map; #160 smarter/scarier Rain-World rival
+  AI; #184 two new bosses.
+**Shipped since last update.** The prior Now headline — reworking the upgrade screen from a world-freeze into a live real-time
+overlay — **landed (#185)**. The defensive-steal parry got a wider on-beat window (**#190** — a first slice of #164). Release
+**0.30.0** cut (#189). A recurring steal-playtest flake was made deterministic (**#194**, with #188 pending to formally close
+#170). And **rival-vs-rival splicing is already in from earlier cycles (#144/#135)** — the ecology headline's first sub-step is
+done, so its remaining work is the *smarter/scarier hunting AI* (#160) and legibility, not the splice verb itself.
 
 ## Bugs (fix before anything else in Now)
 
@@ -88,6 +86,8 @@ item in "Now" below.
   (the core crab-catching verb) was re-enabled with a closed-loop autopilot (#20) and `campaign_tutorial`
   was fixed and re-enabled (#24). All three `run_script` lines in scripts/playtest.sh are live and the
   Playtest CI is green. **Keep it green — a red Playtest is an instant top-priority bug (AGENTS.md rule).**
+  The recurring `steal_dodge`/`revenge` frame-rate flake (#170) got a deterministic fix (#194, merged); PR #188 is the
+  dedicated close-out. That's a test-robustness flake, **not** a disabled test — every `run_script` line stays live.
 - Fixed this cycle: the two disabled playtests above (#20, #24). Previously fixed: the flashlight/wgpu crash
   (draw-order fix, a375f52 / 53b23c3); the upgrade screen firing at the wrong time / popping back-to-back
   (c01b922, 3b17573); the start-of-run `InstanceArray capacity > 0` crash; the windowed-instead-of-fullscreen
@@ -107,20 +107,35 @@ item in "Now" below.
   of playing the groove well. Each tool key is a drum pad. Ask of every mechanic: "does hitting this on the
   beat feel like a satisfying drum hit? Does the downbeat version feel like a fill?"
 
-- **[★ HEADLINE — CORE GAME] Make the beach a living *multi-train ecology*: rivals steal from *each other*, not just you.**
-  The steal fight against you is now solid — deliberate rival routing (#67), on-beat parry/dodge/reroute defense
-  (#72/#76/#80/#83), recoverable-bite + revenge-duel tuning (#69/#74), both directions playtested. That's a *two-body*
-  contest (you vs. one rival). The thesis (agar.io + Rain World) is a *whole beach* of competing conga leaders — so the
-  next depth step is turning the rivals loose on each other. Still one small slice at a time, still ruthlessly playtested,
-  reusing the splice verb we already have — no new verb:
-  1. **Rival-vs-rival splicing.** When two King Crab trains cross, the same crossing rule that lets a rival slice *your*
-     back half should let the bigger/faster one slice the *other rival's* back half. Reuse the #32 splice path; just widen
-     the "who can be stolen from" set to include NPC trains. Now the beach has multiple trains gaining and losing crabs
-     without the player — a genuine ecosystem, not a scripted duel.
+- **[★ NEW HEADLINE — PLAYABILITY: make the beat fair and legible before adding more systems].** Carl's freshest, strongest
+  signal (2026-07-20): the on-beat timing feels **too unforgiving**, and it's **not obvious what you're supposed to time** —
+  the keypress, or a later resolving event? The **clash** is the clearest offender. A game that's frustrating and opaque to
+  *play in the moment* blocks everything below it, so this is the top priority this cycle — ahead of more ecology depth. Two
+  sequenced slices, both Carl's own issues:
+  1. **Relax + clarify the ambiguous on-beat windows (#164).** Widen/soften the windows for the affected mechanics (clash and
+     friends) so a slightly-early/late press still reads on-beat, and **telegraph exactly what to hit** — a clear pre-beat cue
+     so the player knows whether to press on the keypress or on the resolving event. Keep on-beat meaningful (perfect timing
+     still pays more): this is forgiveness + legibility, not removing the skill. **The dash window feels good — do NOT touch
+     it** (Carl explicit). The parry widening (#190) already shipped as a first slice; the clash is next.
+  2. **Explore the simpler input model (#165) — only after #164 lands.** Prototype "always tap SPACE on the beat, sometimes
+     flavor it with a tool chord (SPACE+R/T/E…)" as an *additive, opt-in, reversible* step — keep the existing controls
+     working alongside. Goal: obvious to play while steering, deep to master. One coherent playtested slice; don't rip out
+     working controls in one pass.
+  Both must stay deterministic/headless-safe with all playtests green.
+
+- **[★ CORE GAME — next depth step, after the playability pass] Make the beach a living *multi-train ecology*: rivals that
+  hunt *each other*, not just you.** The steal fight against you is solid — deliberate rival routing (#67), on-beat
+  parry/dodge/reroute defense (#72/#76/#80/#83), recoverable-bite + revenge-duel tuning (#69/#74), both directions playtested —
+  and **rival-vs-rival splicing already landed (#144/#135)**. The thesis (agar.io + Rain World) is a *whole beach* of competing
+  conga leaders, so the remaining depth is making those rivals *smart* about the splice they can already do. Still one small
+  playtested slice at a time, reusing the splice verb — no new verb:
+  1. **Rival-vs-rival splicing — ✅ LANDED (#144/#135).** Two crossing King Crab trains already exchange crabs on the beat,
+     with a hunt telegraph (#135) so you can read the clash and swoop the spoils. The splice verb is multi-train; the work
+     below is making the rivals *smarter* about using it, not re-doing the verb.
   2. **A deliberate urge to hunt the weaker train (Rain World, not a path-planner).** Give each rival the same simple
      per-creature intent it already uses to thread *your* line (#67), pointed at the nearest *smaller* rival train — so the
      big trains visibly bully the small ones and the pecking order emerges from local rules, agar.io-style. Keep it a cheap
-     urge, not global planning.
+     urge, not global planning. **Carl's #160 (smarter, scarier Rain-World rival AI) is the open issue for this slice.**
   3. **Make it legible and swoopable — the player reads the fight and profits.** The contest has to be *watchable*: a rival
      that just grew from a steal should read as bigger (size/banner already tier-scale — lean on that), and the loser's
      scattered crabs should be catchable so the player can swoop into a rival-vs-rival collision and rustle the spoils.
@@ -130,10 +145,11 @@ item in "Now" below.
   This beats the polish lanes below. Keep each step small, safe, and green — overnight nobody's watching, so lean on the
   playtests and prefer the smaller reversible change.
 
-- **Rework the upgrade screen from a world-freeze into a real-time overlay.** The current implementation puts `pending_upgrade` in the same early-return guard as `game_over` — the entire game update loop is bypassed, crabs freeze, rivals freeze, the music keeps playing while nothing moves, and all input except 1/2/3 is swallowed. This is wrong in three ways: (1) *feel* — it kills momentum and breaks the groove at exactly the moment you earned something; (2) *rhythm* — the music/beat continues but the world stops, a jarring desync; (3) *architecture* — a shared-world pause can never work in multiplayer; a player's upgrade choice cannot halt a rival's train. The fix is to remove `pending_upgrade` from the early-return guard and render the cards as a live overlay instead.
-  Design directions to explore together: **transparent/blurred overlay** so the running game is visible behind the cards (player sees rivals moving, has an urge to pick fast); **HUD-anchored card strip** along the bottom or side rather than center-screen occlusion; **beat-synced reveal** — cards fly in on the next downbeat so the presentation feels like part of the groove; **no mandatory urgency but natural pressure** — no timer, cards persist until you choose, but since the world keeps running a rival can steal from you mid-decision, so there's real incentive to act fast (skill expression: the practiced player picks instantly, the learning player pays a cost for hesitating); **beat-locked selection bonus** — pressing 1/2/3 *on* the beat gives a small bonus (makes even the upgrade pick a rhythm action). Architecturally: each future player in multiplayer will see only their own overlay while the shared world runs unaffected. Implementation sketch: pull `pending_upgrade` out of the guard, keep the update loop running, gate new-crab-catching during the choice window if needed to avoid confusion, render the overlay in draw() on top of the live scene.
+- **✅ Reworked the upgrade screen from a world-freeze into a live real-time overlay (shipped #185).** The cards now render
+  as a live overlay while the world keeps running, instead of a shared-world pause — closes the feel/rhythm/multiplayer
+  problems the old `pending_upgrade` early-return guard caused. Kept here checked off for one cycle so the win is visible.
 
-- **[Next inner-loop target — after ecology lands] Make dash + parry/block feel like the primary rhythm of play, not supplementary mechanics.** Inspired by Darktide: in that game dodge and block aren't reactive afterthoughts — they're the *constant beat* you play to, timed and deliberate. In Crab Rustler the equivalent is: Groove Dash isn't a bonus you cash in when the meter fills — it's *how you move to crabs*, a rhythmic stride you'd naturally do every few beats to close distance and reposition. Parry isn't a defensive option when a rival attacks — it's the counterbeat you're always ready to land, a telegraph window that pulses on the downbeat when rivals are near, a satisfying drum-hit when you time it, opening the counter-steal. The target feel: **dash → catch → dash → parry → counter-steal → repeat**, each hit a drum pad, the whole inner loop playing like a groove you're locked into rather than a set of tools you pick from a menu.
+- **[Next inner-loop target — after the playability pass + ecology land] Make dash + parry/block feel like the primary rhythm of play, not supplementary mechanics.** Inspired by Darktide: in that game dodge and block aren't reactive afterthoughts — they're the *constant beat* you play to, timed and deliberate. In Crab Rustler the equivalent is: Groove Dash isn't a bonus you cash in when the meter fills — it's *how you move to crabs*, a rhythmic stride you'd naturally do every few beats to close distance and reposition. Parry isn't a defensive option when a rival attacks — it's the counterbeat you're always ready to land, a telegraph window that pulses on the downbeat when rivals are near, a satisfying drum-hit when you time it, opening the counter-steal. The target feel: **dash → catch → dash → parry → counter-steal → repeat**, each hit a drum pad, the whole inner loop playing like a groove you're locked into rather than a set of tools you pick from a menu.
   Concretely: (1) make the Groove Dash available and encouraged more freely — consider a per-beat cooldown rather than meter-gated, so the player is naturally dashing on every other downbeat; (2) give the parry a visible rhythmic telegraph that appears when a rival is threatening (a pulsing ring on the beat, like the steal-arm ring already exists — let the parry window pulse *with* the BPM so the player learns to watch for it); (3) tune the counter-steal window so a clean parry → counter-steal feels as satisfying as a Doom Eternal glory kill — brief, visceral, clearly rewarding the timing. Nothing here is a new verb; it's all existing mechanics elevated to first-class rhythm status. Sequence: don't start until the ecology work (rival-vs-rival) is solid; these are meaningless without rivals pressuring you.
 
 - **Sharpen archetype-tool matchups into a readable soft RPS system.** *(Polish lane — do the ecology slice above first.)*
@@ -175,6 +191,11 @@ item in "Now" below.
   the campaign exists to funnel people toward it. *A skeleton has landed (world-map node list +
   navigation, player-skin slots) — treat it as scaffolding parked here, NOT as license to build out
   the campaign; it stays deferred until the "core feels done" call and meta-progression are settled.*
+  **Exception — Carl filed concrete slices that make the *existing* skeleton actually function (2026-07-20):** #182 per-level
+  win conditions (nodes never unlock today — `complete_selected()` is never called), #176 skip-ahead on the map (locked nodes
+  are un-navigable, blocking playtesting), #183 biome-tinted node visuals. These are *fixes to a half-built system*, buildable
+  now on Carl's direct ask — distinct from the broad campaign build-out above, which stays gated. Do #182 first (it's the one
+  that makes the campaign traversable at all); keep the playability-pass headline ahead of all three.
 
 - **Desktop level — fourth-wall terrain.** A special level with a transparent/borderless window
   where the game reads the user's desktop pixels as terrain and treats their OS window borders as
@@ -236,10 +257,11 @@ item in "Now" below.
   stealing (the reverse-Snake crossing rule in INSPIRATION) — **✅ SHIPPED and deepened into a skill-based fight: splice
   verb (#32/#34), deliberate rival routing (#67), on-beat parry/dodge/reroute defense (#72/#76/#80/#83), recoverable-bite +
   revenge-duel tuning (#69/#74), both directions playtested**; (3) ecology from simple per-creature rules à la Rain World —
-  **now the Now headline: rivals steal from *each other*, not just you (rival-vs-rival splicing + a hunt-the-weaker urge),
-  turning the two-body duel into a whole-beach ecosystem the player can swoop into**; (4) human-vs-human Rustlers competing
-  for the largest, best-arranged train.
-  Steps (1) and (2) have landed; making (2)'s ecology multi-train (step 3) is the active work in Now.
+  **rival-vs-rival splicing has landed (#144/#135); the remaining depth is a hunt-the-weaker urge / smarter-scarier rival AI
+  (#160), turning the two-body duel into a whole-beach ecosystem the player can swoop into** (the second Now item, sequenced
+  *after* the playability pass); (4) human-vs-human Rustlers competing for the largest, best-arranged train.
+  Steps (1), (2), and the splice half of (3) have landed; making the rivals *smart* about it (#160) is the next core-game
+  depth step, behind the playability headline.
 
 - **★ THE CORE GAME — BYO-music mashup + spatialized audio.** The other half of the thesis, inseparable from
   the ecology above: the *dominant* train's music dominates the mix, losing trains fade. Each rival train is
