@@ -667,17 +667,6 @@ impl MainState {
                 self.fire_drum_roll();
             }
 
-            #[cfg(test)]
-            mod tests {
-                use super::treasure_groove_level;
-
-                #[test]
-                fn treasure_fills_groove_only_on_beat() {
-                    assert_eq!(treasure_groove_level(0.0, true), 1.0);
-                    assert_eq!(treasure_groove_level(0.0, false), 0.5);
-                    assert_eq!(treasure_groove_level(0.8, false), 0.8);
-                }
-            }
             self.drum_roll_hits = 0;
         }
         self.drum_roll_held = t_held;
@@ -707,6 +696,18 @@ impl MainState {
                     .spawn_dash_burst(center, self.groove_dash_dir, rng);
                 self.particle_system
                     .spawn_beat_pulse(&[center], 2.0, self.chain_count, rng);
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::treasure_groove_level;
+
+            #[test]
+            fn treasure_fills_groove_only_on_beat() {
+                assert_eq!(treasure_groove_level(0.0, true), 1.0);
+                assert_eq!(treasure_groove_level(0.0, false), 0.5);
+                assert_eq!(treasure_groove_level(0.8, false), 0.8);
             }
         }
 
