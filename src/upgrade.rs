@@ -81,7 +81,12 @@ impl MainState {
     /// score can overshoot the threshold in one banked jump (combo-multiplier steps). Call this
     /// after any score increase; it's the single knob for upgrade cadence.
     pub fn check_upgrade_unlock(&mut self, ctx: &mut Context) {
-        if self.score >= self.next_upgrade_score {
+        // The upgrade choice is now a LIVE overlay — the world keeps running while the player
+        // deliberates — so a big combo can still push the score past the next threshold before they
+        // pick. Guard on `!pending_upgrade` so we never re-roll the offer (swapping the cards out
+        // from under the player) or stack a second screen; the next upgrade simply waits until this
+        // one is resolved.
+        if self.score >= self.next_upgrade_score && !self.pending_upgrade {
             // Queue exactly ONE upgrade, then advance the threshold past the *current* score so a
             // single banked jump can never trigger back-to-back screens. Score rises by the combo
             // multiplier per catch (often several points at once) and a fast cluster catch can
