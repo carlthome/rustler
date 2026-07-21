@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.30.2 — 2026-07-21
+
+### Performance
+- Cache flashlight HUD label instead of rebuilding it every frame
+
 ## v0.30.1 — 2026-07-21
 
 ### Fixes
