@@ -148,6 +148,7 @@ fn treat_intro_recording(left: &mut [f32], right: &mut [f32], sample_rate: u32) 
         1.0 - (-std::f32::consts::TAU * cutoff_hz / sample_rate as f32).exp();
     let mut soft_left = 0.0_f32;
     let mut soft_right = 0.0_f32;
+    // Arbitrary fixed seed: the texture varies over time but is reproducible across launches.
     let mut noise_state = 0x51EA_BEEFu32;
     let mut wind_l = 0.0_f32;
     let mut wind_r = 0.0_f32;
@@ -190,6 +191,7 @@ pub fn synth_intro_menu(ctx: &mut Context, ogg_bytes: &[u8]) -> GameResult<Sourc
             "intro track has no audio channels".to_owned(),
         ));
     }
+    // Duplicate mono recordings before treatment; stereo recordings use their first two channels.
     let right_channel = usize::from(channels > 1);
     let mut left = Vec::new();
     let mut right = Vec::new();
@@ -223,13 +225,19 @@ mod intro_tests {
         let mut right = vec![0.0; 50];
         left[0] = 1.0;
         right[0] = -1.0;
+        let mut repeat_left = left.clone();
+        let mut repeat_right = right.clone();
 
         treat_intro_recording(&mut left, &mut right, sample_rate);
+        treat_intro_recording(&mut repeat_left, &mut repeat_right, sample_rate);
 
         assert!(left[0] > 0.9);
         assert!(right[0] < -0.9);
+        // The opposite-channel reflection arrives at exactly 190 ms.
         assert!(left[19] < 0.0);
         assert!(right[19] > 0.0);
+        assert_eq!(left, repeat_left);
+        assert_eq!(right, repeat_right);
     }
 }
 
