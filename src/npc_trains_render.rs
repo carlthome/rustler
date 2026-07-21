@@ -22,6 +22,17 @@ impl MainState {
         // behind the previous one (history is sampled ~every 6px, so ~84px spacing between crabs).
         const STEPS: usize = 14;
 
+        // Cull margin for the crab body draw only — the halo/telegraph/name-banner overlays below
+        // stay unconditional (they're cheap and some intentionally reach toward the player from an
+        // off-screen rival), so this only skips the expensive per-crab geometry when it's fully
+        // off camera. A rival train can grow unboundedly by stealing crabs, so this matters more
+        // the longer a session runs.
+        let view_min = self.camera_origin - Vec2::splat(CULL_MARGIN);
+        let view_max = self.camera_origin + Vec2::new(self.width, self.height) + Vec2::splat(CULL_MARGIN);
+        let in_view = |p: Vec2| {
+            p.x >= view_min.x && p.x <= view_max.x && p.y >= view_min.y && p.y <= view_max.y
+        };
+
         for npc in &self.npc_trains {
             // Draw followers back-to-front so the leader renders on top.
             for i in (0..npc.follower_types.len()).rev() {
@@ -30,6 +41,9 @@ impl MainState {
                     Some(&p) => p,
                     None => continue,
                 };
+                if !in_view(pos) {
+                    continue;
+                }
                 let bob = (t * 5.5 + i as f32 * 0.85).sin() * 3.5;
                 let crab_type = npc.follower_types[i];
                 let fake = EnemyCrab {
@@ -88,53 +102,55 @@ impl MainState {
             } else {
                 0.0
             };
-            let king = EnemyCrab {
-                pos: npc.leader_pos,
-                vel: npc.leader_vel,
-                speed: 88.0,
-                caught: false,
-                chain_index: None,
-                scale: npc.leader_scale,
-                spawn_time: 999.0,
-                crab_type: CrabType::Boss,
-                spooked_timer: 0.0,
-                beat_phase_offset: 0.0,
-                join_pulse: 0.0,
-                fleeing: false,
-                facing_angle: facing,
-                in_flashlight: false,
-                startle_timer: 0.0,
-                charm_timer: 0.0,
-                answering_call: 0.0,
-                boss_health: 0.0,
-                boss_max_health: 0.0001,
-                enraged: false,
-                charge_state: BossCharge::Idle,
-                charge_cooldown: 0.0,
-                latch_timer: 0.0,
-                panic_amp: 1.0,
-                magnet_snared: 0.0,
-                magnet_lured: 0.0,
-                thief_lured: 0.0,
-                magnet_charged: 0.0,
-                slingshot_spent: 0.0,
-                stun_timer: 0.0,
-                host_swap_timer: 0.0,
-                surge_timer: 0.0,
-                entranced: 0.0,
-            };
-            let king_beat = (t * 4.0).sin().abs();
-            draw_crab(
-                ctx,
-                canvas,
-                &king,
-                npc.leader_pos + Vec2::new(0.0, -leader_bob),
-                king_beat,
-                0.0,
-                leader_bob.max(0.0),
-                facing,
-                t,
-            )?;
+            if in_view(npc.leader_pos) {
+                let king = EnemyCrab {
+                    pos: npc.leader_pos,
+                    vel: npc.leader_vel,
+                    speed: 88.0,
+                    caught: false,
+                    chain_index: None,
+                    scale: npc.leader_scale,
+                    spawn_time: 999.0,
+                    crab_type: CrabType::Boss,
+                    spooked_timer: 0.0,
+                    beat_phase_offset: 0.0,
+                    join_pulse: 0.0,
+                    fleeing: false,
+                    facing_angle: facing,
+                    in_flashlight: false,
+                    startle_timer: 0.0,
+                    charm_timer: 0.0,
+                    answering_call: 0.0,
+                    boss_health: 0.0,
+                    boss_max_health: 0.0001,
+                    enraged: false,
+                    charge_state: BossCharge::Idle,
+                    charge_cooldown: 0.0,
+                    latch_timer: 0.0,
+                    panic_amp: 1.0,
+                    magnet_snared: 0.0,
+                    magnet_lured: 0.0,
+                    thief_lured: 0.0,
+                    magnet_charged: 0.0,
+                    slingshot_spent: 0.0,
+                    stun_timer: 0.0,
+                    host_swap_timer: 0.0,
+                    surge_timer: 0.0,
+                    entranced: 0.0,
+                };
+                let king_beat = (t * 4.0).sin().abs();
+                draw_crab(
+                    ctx,
+                    canvas,
+                    &king,
+                    npc.leader_pos + Vec2::new(0.0, -leader_bob),
+                    king_beat,
+                    0.0,
+                    leader_bob.max(0.0),
+                    facing,
+                    t,
+                )?;
+            }
 
             // A gentle golden halo so the King reads as the leader from across the world.
             let dot = unit_circle(ctx)?;
