@@ -551,6 +551,7 @@ thread_local! {
     static WORLD_MAP_NODE_LABELS: RefCell<Vec<Option<((bool, bool), Text, f32)>>> = RefCell::new(Vec::new());
     static WORLD_MAP_TITLE_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     static WORLD_MAP_HINT_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
+    static WORLD_MAP_SKIP_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
     // Per-node biome tint for the world map, built once (the node list is stable for the session).
     // Campaign nodes take their level's `biome.tint`; tutorial nodes get a warm amber on-ramp colour.
     // Cached so we never rebuild the (String-allocating) `get_levels()` list per frame.
@@ -7118,6 +7119,33 @@ pub fn draw_world_map(
         }
         Ok(())
     })?;
+
+    // Soft "skip ahead" warning — shown while a skip confirm is armed (locked node, one Confirm
+    // pressed). A brief, non-judgmental inline line just above the controls hint; press Confirm
+    // again to go, or move/Esc to back out. Alpha eases in so it doesn't pop.
+    if map.skip_warn_timer > 0.0 {
+        WORLD_MAP_SKIP_CACHE.with(|c| -> ggez::GameResult {
+            let mut cache = c.borrow_mut();
+            if cache.is_none() {
+                let mut warn =
+                    Text::new("Skipping ahead — earlier nodes will be marked complete. Confirm again to go.");
+                warn.set_scale(16.0);
+                let w = warn.measure(ctx)?.x;
+                *cache = Some((warn, w));
+            }
+            if let Some((warn, w)) = cache.as_ref() {
+                // Fade in over the first ~0.25s of the 2s window, then hold full.
+                let a = ((2.0 - map.skip_warn_timer) * 4.0).min(1.0);
+                canvas.draw(
+                    warn,
+                    DrawParam::default()
+                        .dest(Vec2::new((sx - w) * 0.5, sy * 0.82))
+                        .color(Color::new(1.0, 0.8, 0.35, a)),
+                );
+            }
+            Ok(())
+        })?;
+    }
 
     Ok(())
 }
