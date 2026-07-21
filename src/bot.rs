@@ -125,6 +125,13 @@ pub struct BotState {
     pub failed: Option<String>,
     pub done: bool,
     pub seek_catch: bool,                  // closed-loop autopilot toward the nearest catchable crab
+    // Set for the frame a Force*Cross helper teleports the player head onto a rival's follower slot to
+    // stage a steal-back. handle_player_movement runs AFTER the force fires but BEFORE the steal
+    // detection in update_npc_trains, so without this the seek-catch autopilot re-steers the head off
+    // the staged slot the same frame — and on a slow frame the drift exceeds the ~54 px steal range,
+    // making the forced steal-back intermittently miss. Holding the head still for that one frame lets
+    // the detection see it exactly where it was placed. Cleared right after it's consumed.
+    pub hold_position: bool,
 }
 
 impl BotState {
@@ -139,6 +146,7 @@ impl BotState {
             failed: None,
             done: false,
             seek_catch: false,
+            hold_position: false,
         }
     }
 }

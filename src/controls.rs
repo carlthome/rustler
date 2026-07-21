@@ -16,6 +16,18 @@ pub fn handle_player_movement(
 ) {
     let (width, height) = area;
 
+    // Bot steal-back hold: a Force*Cross helper teleported the head onto a rival's follower slot this
+    // frame to stage a steal-back, and the detection that reads it (update_npc_trains) hasn't run yet.
+    // Freeze the head for exactly this frame — consuming the one-shot flag — so the seek-catch autopilot
+    // can't re-steer it off the staged slot before the steal detection sees it (see BotState.hold_position).
+    if let Some(bot) = state.bot.as_mut() {
+        if bot.hold_position {
+            bot.hold_position = false;
+            state.player_vel = Vec2::ZERO;
+            return;
+        }
+    }
+
     // Overlay bot synthetic key state if a bot script is running.
     let bot_up = state
         .bot

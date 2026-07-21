@@ -17,6 +17,58 @@ use crate::spawnings::{spawn_scattered_crab, spawn_stolen_crab};
 use crate::state::MainState;
 
 impl MainState {
+    /// Bot-test helper: deterministically top the player's conga chain up to `target` links so the
+    /// forced-steal helpers below always have a stealable chain to act on this frame. The staged
+    /// steal scenarios grow their chain with the seek-catch autopilot, but each forced splice drives
+    /// the chain back down to 1–2 links, and on a slow/loaded headless run RNG catches can't always
+    /// regrow it before the next 0.9 s force fires — so a whole run's forces can no-op with the chain
+    /// stuck below 2, the source of the intermittent StolenAtLeast / RevengeStealAtLeast flakes (CI
+    /// went red on `revenge` + `steal_dodge`; `npc_steal` flaked locally). Enlisting the nearest wild
+    /// catchable crabs — the same caught / chain_index / chain_count bump a real catch does — removes
+    /// that variance without touching the splice/detach/transfer path the tests actually exercise
+    /// (chain *building* is already covered by menu_to_game). Bot-only: only ever reached from the
+    /// Force* bot actions. The primed links are tucked in a short row behind the player so the staged
+    /// train reads with clean mid/tail geometry rather than teleporting a link across the world.
+    fn bot_prime_chain(&mut self, target: usize) {
+        let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
+        while self.chain_count < target {
+            let next = self
+                .crabs
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.is_catchable())
+                .min_by(|(_, a), (_, b)| {
+                    a.pos
+                        .distance_squared(player_center)
+                        .partial_cmp(&b.pos.distance_squared(player_center))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(i, _)| i);
+            let Some(i) = next else {
+                break; // no wild crabs to enlist — leave the chain as-is (the caller no-ops)
+            };
+            let idx = self.chain_count;
+            // Drop the fresh link straight onto the conga slot update_crabs lerps chain crab `idx`
+            // toward (position_history[(idx+1)*CHAIN_LINK_FRAMES]); placing it anywhere else lets the
+            // very next update_crabs yank it a long way toward that slot in one frame, moving it out
+            // from under the rival leader the force helper just parked on it and making the detection
+            // miss. Sitting it on the slot keeps the staged train stable so the splice lands reliably.
+            let slot = self
+                .position_history
+                .get((idx + 1) * CHAIN_LINK_FRAMES)
+                .copied()
+                .unwrap_or_else(|| player_center - Vec2::new(0.0, (idx as f32 + 1.0) * CRAB_SIZE));
+            let crab = &mut self.crabs[i];
+            crab.caught = true;
+            crab.chain_index = Some(idx);
+            crab.fleeing = false;
+            crab.startle_timer = 0.0;
+            crab.latch_timer = 0.0;
+            crab.pos = slot;
+            self.chain_count += 1;
+        }
+    }
+
     /// Bot-test helper (see BotAction::ForceNpcCross): deterministically stage the reverse-Snake
     /// steal. Teleport the nearest rival NPC King Crab train's leader onto a mid-chain link of the
     /// player's conga line and clear its steal cooldown, so `update_npc_trains`' splice fires this
@@ -24,7 +76,13 @@ impl MainState {
     /// exercises the real detection + detachment + follower-transfer path; only the rival's pathing
     /// (which is RNG-timed and can't be counted on inside a headless budget) is shortcut.
     pub fn force_npc_cross(&mut self) {
-        if self.npc_trains.is_empty() || self.chain_count < 2 {
+        if self.npc_trains.is_empty() {
+            return;
+        }
+        // Guarantee a stealable chain regardless of the autopilot's RNG catch timing (see
+        // bot_prime_chain); no-op if there were no wild crabs to enlist.
+        self.bot_prime_chain(6);
+        if self.chain_count < 2 {
             return;
         }
         // Aim for a mid-chain link (never the head, index 0 — the head can't be spliced). Collect the
@@ -66,6 +124,8 @@ impl MainState {
     /// split_off + stolen-crab transfer path; only the head's threading (RNG-timed against a wandering
     /// rival) is shortcut.
     pub fn force_player_cross(&mut self) {
+        // Guarantee the player has a train regardless of the autopilot's RNG catch timing.
+        self.bot_prime_chain(3);
         if self.chain_count < 1 {
             return;
         }
@@ -83,10 +143,22 @@ impl MainState {
             return;
         };
         // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab.
+        // Walk down from the mid slot to the first follower whose slot is actually recorded in
+        // path_history — a rival that hasn't wandered far enough to have sampled its deep mid slot yet
+        // still gets threaded at a shallower one, instead of the whole cross silently no-oping.
         let mid_fi = self.npc_trains[ni].follower_types.len() / 2;
-        if let Some(&fpos) = self.npc_trains[ni].path_history.get((mid_fi + 1) * STEPS) {
-            self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
-            self.player_steal_cooldown = 0.0;
+        for fi in (0..=mid_fi).rev() {
+            if let Some(&fpos) = self.npc_trains[ni].path_history.get((fi + 1) * STEPS) {
+                self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
+                self.player_steal_cooldown = 0.0;
+                // Hold the head on this slot for the frame — the seek-catch autopilot in
+                // handle_player_movement runs before the steal detection and would otherwise drift it
+                // off (see BotState.hold_position). Guards against a slow-frame drift past steal range.
+                if let Some(bot) = self.bot.as_mut() {
+                    bot.hold_position = true;
+                }
+                break;
+            }
         }
     }
 
@@ -94,20 +166,21 @@ impl MainState {
     /// steal-back — thread the player's head through the line of the rival whose revenge marker is
     /// live (it just spliced your tail) so the steal-back fires with the revenge bonus this frame.
     /// Mirrors force_player_cross but targets the marked rival specifically, so the revenge path is
-    /// exercised without racing which rival the nearest-with-followers heuristic happens to pick.
-    /// A no-op when no rival is currently revenge-marked with followers, or the player has no train.
+    /// exercised without racing which rival a nearest heuristic happens to pick. A no-op only when no
+    /// rival is currently revenge-marked at all (the marker's followers are topped up here so an empty
+    /// culprit can't silently no-op the steal-back).
     pub fn force_player_revenge(&mut self) {
+        // Guarantee the player has a train to thread back with (the revenge marker + rival followers
+        // come from the preceding ForceNpcCross/Dodge, not from here).
+        self.bot_prime_chain(3);
         if self.chain_count < 1 {
             return;
         }
         const STEPS: usize = 14; // must match update_npc_trains / draw_npc_conga_train spacing
-        // Pick the rival with the most time left on its revenge marker (the freshest culprit) that
-        // still has followers to rustle back.
+        // Pick the freshest revenge-marked rival (most time left on its marker) — the culprit whose
+        // counter-steal window is widest open.
         let ni = (0..self.npc_trains.len())
-            .filter(|&i| {
-                self.npc_trains[i].revenge_timer > 0.0
-                    && !self.npc_trains[i].follower_types.is_empty()
-            })
+            .filter(|&i| self.npc_trains[i].revenge_timer > 0.0)
             .max_by(|&a, &b| {
                 self.npc_trains[a]
                     .revenge_timer
@@ -117,11 +190,32 @@ impl MainState {
         let Some(ni) = ni else {
             return;
         };
+        // Guarantee the marked rival has followers to rustle back at the moment the steal-back fires.
+        // A landed steal (the `revenge` scenario) fattens the culprit so it always has spoils, but a
+        // dodge (the `steal_dodge` scenario) doesn't — and the ambient rival-vs-rival churn can empty a
+        // marked rival in the fraction of a second between the dodge and this cross. Topping it up here,
+        // in the same frame the cross fires, closes that gap for good (mirrors bot_prime_chain on the
+        // player side); the real steal-back/split_off/transfer path stays fully exercised.
+        while self.npc_trains[ni].follower_types.len() < 4 {
+            self.npc_trains[ni].follower_types.push(CrabType::Normal);
+        }
         // Aim the head at a mid-follower so the splice takes a meaningful tail section, not one crab.
+        // Walk down from the mid slot to the first follower whose slot is actually recorded in
+        // path_history — a rival that hasn't wandered far enough to have sampled its deep mid slot yet
+        // still gets threaded at a shallower one, instead of the whole cross silently no-oping.
         let mid_fi = self.npc_trains[ni].follower_types.len() / 2;
-        if let Some(&fpos) = self.npc_trains[ni].path_history.get((mid_fi + 1) * STEPS) {
-            self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
-            self.player_steal_cooldown = 0.0;
+        for fi in (0..=mid_fi).rev() {
+            if let Some(&fpos) = self.npc_trains[ni].path_history.get((fi + 1) * STEPS) {
+                self.player_pos = fpos - Vec2::splat(PLAYER_SIZE / 2.0);
+                self.player_steal_cooldown = 0.0;
+                // Hold the head on this slot for the frame — the seek-catch autopilot in
+                // handle_player_movement runs before the steal detection and would otherwise drift it
+                // off (see BotState.hold_position). Guards against a slow-frame drift past steal range.
+                if let Some(bot) = self.bot.as_mut() {
+                    bot.hold_position = true;
+                }
+                break;
+            }
         }
     }
 
@@ -132,7 +226,11 @@ impl MainState {
     /// (no NPC trains, or a chain shorter than 2). Exercises the real arm → on-beat cancel path; only
     /// the player's tool timing (RNG-fragile headless) is shortcut.
     pub fn force_steal_defense(&mut self) {
-        if self.npc_trains.is_empty() || self.chain_count < 2 {
+        if self.npc_trains.is_empty() {
+            return;
+        }
+        self.bot_prime_chain(6);
+        if self.chain_count < 2 {
             return;
         }
         // Aim for a mid-chain link (never the head, index 0) — same target the rival's real splice
@@ -177,7 +275,11 @@ impl MainState {
     /// counter-steal window (marks the juked rival for revenge), so a following ForceRevengeCross can
     /// assert the dodge flipped into offense.
     pub fn force_steal_dodge(&mut self) {
-        if self.npc_trains.is_empty() || self.chain_count < 2 {
+        if self.npc_trains.is_empty() {
+            return;
+        }
+        self.bot_prime_chain(6);
+        if self.chain_count < 2 {
             return;
         }
         let mid = self.chain_count / 2;
@@ -191,11 +293,12 @@ impl MainState {
             return;
         };
         let player_center = self.player_pos + Vec2::splat(PLAYER_SIZE / 2.0);
-        let ni = (0..self.npc_trains.len()).min_by(|&a, &b| {
-            let da = self.npc_trains[a].leader_pos.distance_squared(player_center);
-            let db = self.npc_trains[b].leader_pos.distance_squared(player_center);
+        let nearest = |a: &usize, b: &usize| {
+            let da = self.npc_trains[*a].leader_pos.distance_squared(player_center);
+            let db = self.npc_trains[*b].leader_pos.distance_squared(player_center);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        };
+        let ni = (0..self.npc_trains.len()).min_by(nearest);
         let Some(ni) = ni else {
             return;
         };
@@ -206,29 +309,22 @@ impl MainState {
         self.npc_trains[ni].idle_timer = 0.0;
         // ...then place the leader well clear of the threaded link (>ESCAPE_RANGE=145), as if the
         // player had juked the tail away — the next update sees the thread broken and fizzles it.
-        // Try four diagonals and keep the one that lands farthest after world-edge clamping, so a
-        // link near a wall can't leave the leader clamped back on top of it.
+        // Push the leader *toward the world centre* by a guaranteed margin over ESCAPE_RANGE: pushing
+        // inward always has room (the world is far bigger than the push), so unlike the old fixed
+        // diagonals it can't clamp back on top of a link sitting near a wall — which left the dodge
+        // occasionally not firing (thread never broke) and flaked DodgedAtLeast red. 265 px keeps a
+        // comfortable cushion over the 145 px escape threshold even after the next update nudges the
+        // link a little.
+        let center = Vec2::new(self.world_width / 2.0, self.world_height / 2.0);
+        let inward = {
+            let d = (center - target_pos).normalize_or_zero();
+            if d == Vec2::ZERO { Vec2::new(1.0, 0.0) } else { d }
+        };
         let margin = 80.0;
-        let pushed = [
-            Vec2::splat(220.0),
-            Vec2::new(220.0, -220.0),
-            Vec2::new(-220.0, 220.0),
-            Vec2::splat(-220.0),
-        ]
-        .iter()
-        .map(|off| {
-            (target_pos + *off).clamp(
-                Vec2::splat(margin),
-                Vec2::new(self.world_width - margin, self.world_height - margin),
-            )
-        })
-        .max_by(|a, b| {
-            a.distance_squared(target_pos)
-                .partial_cmp(&b.distance_squared(target_pos))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .unwrap();
-        self.npc_trains[ni].leader_pos = pushed;
+        self.npc_trains[ni].leader_pos = (target_pos + inward * 265.0).clamp(
+            Vec2::splat(margin),
+            Vec2::new(self.world_width - margin, self.world_height - margin),
+        );
     }
 
     /// Bot-test helper (see BotAction::ForceRivalCross): deterministically stage the rival-vs-rival
