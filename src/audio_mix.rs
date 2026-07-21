@@ -389,6 +389,7 @@ impl MainState {
                     let _ = src_l.play();
                     let _ = src_r.play();
                 } else if !want_play && motif_volume < 0.008 && playing {
+                    // Pause instead of stopping so an audible train can resume in phase.
                     src_l.pause();
                     src_r.pause();
                 }

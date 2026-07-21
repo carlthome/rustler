@@ -606,7 +606,7 @@ fn rival_motif_mono_samples(
             }
         }
         1 => {
-            // Wanderer — a jaunty mid-register concertina phrase on the offbeat pulse only, leaving
+            // Wanderer — a jaunty mid-register concertina phrase on quarter-note pulses, leaving
             // space for the player's hook instead of doubling its fast 16th-note movement.
             let pat = [
                 (0usize, 4usize),
