@@ -209,6 +209,25 @@ pub fn script_campaign_tutorial() -> Vec<BotEvent> {
     ]
 }
 
+pub fn script_campaign_escape() -> Vec<BotEvent> {
+    // Campaign Escape must return to the world map from an active regular level instead of quitting
+    // the application. Select the first regular campaign node, confirm the soft skip warning, then
+    // leave the started level with Escape.
+    vec![
+        BotEvent { at: 0.1, action: BotAction::Log("Starting campaign Escape test") },
+        BotEvent { at: 0.5, action: BotAction::TapKey(KeyCode::KeyC) },
+        BotEvent { at: 1.0, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.1, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.2, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.3, action: BotAction::TapKey(KeyCode::ArrowRight) },
+        BotEvent { at: 1.6, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 2.0, action: BotAction::TapKey(KeyCode::Enter) },
+        BotEvent { at: 2.5, action: BotAction::Assert(BotAssert::InGame) },
+        BotEvent { at: 3.0, action: BotAction::TapKey(KeyCode::Escape) },
+        BotEvent { at: 3.5, action: BotAction::Assert(BotAssert::ShowWorldMap) },
+    ]
+}
+
 pub fn script_npc_steal() -> Vec<BotEvent> {
     // Guards the reverse-Snake train-vs-train steal — the core conga-ecology mechanic (see ROADMAP.md
     // headline and INSPIRATION.md "The core steal mechanic"). The steal path (rival NPC King Crab

@@ -328,6 +328,8 @@ pub fn handle_key_down_event(
                             return true;
                         }
                     }
+                    use ggez::audio::SoundSource;
+                    state.sounds.world_map_pad.pause();
                     state.show_world_map = false;
                     state.show_instructions = true;
                     state.show_how_to_play_text = false;
@@ -444,7 +446,7 @@ pub fn handle_key_down_event(
                 }
             }
         } else if state.game_over {
-            if key == KeyCode::Space || key == KeyCode::Enter {
+            if matches!(key, KeyCode::Space | KeyCode::Enter | KeyCode::Escape) {
                 if state.in_campaign {
                     state.return_to_world_map();
                 } else {
@@ -586,7 +588,9 @@ pub fn handle_key_down_event(
                 let _ = state.sounds.hihat.play();
             }
             if key == KeyCode::Escape {
-                if state.tutorial.is_some() {
+                if state.in_campaign {
+                    state.return_to_world_map();
+                } else if state.tutorial.is_some() {
                     // In a tutorial, Escape backs out to the title screen (opt-in exit) rather than
                     // quitting the game — and never through game_over, so career stats stay clean.
                     state.tutorial = None;
