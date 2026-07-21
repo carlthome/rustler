@@ -247,7 +247,9 @@ impl MainState {
                     // screen. Either way we never touch game_over, so the career is untouched.
                     self.tutorial = None;
                     if self.in_campaign {
-                        self.return_to_world_map();
+                        // Reached only when the tutorial was PASSED (tutorials have no game-over),
+                        // so this is a genuine win — complete the node and unlock the next.
+                        self.return_to_world_map(true);
                     } else {
                         self.show_instructions = true;
                         self.show_how_to_play_text = false;
@@ -1606,7 +1608,8 @@ impl MainState {
             if self.level_complete {
                 self.level_complete_timer = (self.level_complete_timer - dt).max(0.0);
                 if self.level_complete_timer <= 0.0 {
-                    self.return_to_world_map();
+                    // The WinCondition was met — complete the node and unlock the next level.
+                    self.return_to_world_map(true);
                 }
             } else if let Some(cond) = self
                 .world_map

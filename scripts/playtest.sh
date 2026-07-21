@@ -53,6 +53,7 @@ else
     run_script groove_dash
     run_script menu_to_game
     run_script campaign_escape
+    run_script campaign_loss
     run_script campaign_tutorial
     run_script npc_steal
     run_script player_steal

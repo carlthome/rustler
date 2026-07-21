@@ -376,11 +376,17 @@ impl MainState {
         self.in_campaign = true;
     }
 
-    /// Called when a campaign run ends — marks the level done, unlocks the next, and returns to
-    /// the world map screen. Career stats are NOT updated here (that path stays in `record_run`).
-    pub(crate) fn return_to_world_map(&mut self) {
-        if let Some(map) = &mut self.world_map {
-            map.complete_selected();
+    /// Called when a campaign run ends — returns to the world map screen. `won` gates progression:
+    /// on a genuine win (the level's `WinCondition` was met, or a tutorial node was passed) the node
+    /// is marked complete and the next one unlocks; on a loss (dismissing the game-over screen) the
+    /// node stays incomplete so the win condition still gates the campaign and the player can retry
+    /// it. Without this gate a loss also unlocked the next level, defeating the point of #182.
+    /// Career stats are NOT updated here (that path stays in `record_run`).
+    pub(crate) fn return_to_world_map(&mut self, won: bool) {
+        if won {
+            if let Some(map) = &mut self.world_map {
+                map.complete_selected();
+            }
         }
         self.game_over = false;
         self.show_world_map = true;

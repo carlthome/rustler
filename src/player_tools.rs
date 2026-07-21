@@ -734,6 +734,9 @@ impl MainState {
                 BotAction::ForceRivalHunt => {
                     self.force_rival_hunt();
                 }
+                BotAction::ForceGameOver => {
+                    self.game_over = true;
+                }
                 BotAction::Log(msg) => {
                     println!("[BOT t={:.1}] {}", self.time_elapsed, msg);
                 }
@@ -753,6 +756,11 @@ impl MainState {
                         BotAssert::RivalSpillAtLeast(n) => self.rival_spill_crabs >= *n,
                         BotAssert::RivalHuntTelegraphAtLeast(n) => self.rival_hunt_telegraphs >= *n,
                         BotAssert::ScoreAtLeast(n) => self.score >= *n,
+                        BotAssert::SelectedNextUnlocked(want) => {
+                            self.world_map.as_ref().map_or(false, |m| {
+                                m.nodes.get(m.selected + 1).map_or(false, |n| n.unlocked)
+                            }) == *want
+                        }
                         BotAssert::ShowWorldMap => self.show_world_map,
                         BotAssert::MainMenu => self.show_instructions && !self.show_world_map,
                         BotAssert::TutorialActive => self.tutorial.is_some(),
