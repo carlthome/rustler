@@ -22,7 +22,7 @@ jobs:
       # continue-on-error: labeling is a nicety, never a merge gate. If it ever
       # fails (e.g. a label can't be created), the check still passes so it can't
       # block auto-merge.
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v7
         continue-on-error: true
         with:
           sync-labels: false
