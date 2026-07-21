@@ -20,15 +20,14 @@ mod music;
 // Synthesis / SFX voices.
 pub use audio::{
     synth_ambient_pad, synth_coin_chime, synth_flashlight_toggle, synth_hihat, synth_lasso_throw,
-    synth_perfect_sparkle, synth_rival_steal, synth_steal_gain, synth_steal_loss, synth_stomp,
-    synth_whistle, BeatSynth,
-    PadPreset, Waveform,
+    synth_perfect_sparkle, synth_rival_steal, synth_startup_pling, synth_steal_gain,
+    synth_steal_loss, synth_stomp, synth_whistle, BeatSynth, PadPreset, Waveform,
 };
 // Musical structure.
 pub use music::{
-    detect_bpm_from_ogg, synth_action_groove, synth_theme_deus_ambient, synth_theme_deus_tense,
-    synth_intro_menu, synth_theme_duck_bounce, synth_theme_duck_funky, synth_theme_duck_golden,
-    ACTION_KEY_ROOT_MIDI, GROOVE_SWING,
+    detect_bpm_from_ogg, synth_action_groove, synth_intro_menu, synth_theme_deus_ambient,
+    synth_theme_deus_tense, synth_theme_duck_bounce, synth_theme_duck_funky,
+    synth_theme_duck_golden, ACTION_KEY_ROOT_MIDI, GROOVE_SWING,
 };
 
 // --- Crate-internal helpers (were `pub(crate)` in the flat `sounds.rs`) ----------------------
