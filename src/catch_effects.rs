@@ -423,60 +423,6 @@ impl MainState {
             }
         }
 
-        /// Capturing a King Crab is a live arcade power-up: its shell color joins the conga and its
-        /// archetype deepens one tool lane. Repeated Kings blend their colors and compound the lane,
-        /// making the boss choice matter beyond its score payout.
-        fn apply_king_crab_power(&mut self, pos: Vec2, crab_type: CrabType) {
-            let (label, tint) = match crab_type {
-                CrabType::Boss => ("FIRE KING — BEAM UP!", [1.0, 0.28, 0.08]),
-                CrabType::TideBoss => ("TIDE KING — WHISTLE UP!", [0.12, 0.72, 1.0]),
-                CrabType::RhythmBoss => ("RHYTHM KING — STOMP UP!", [0.72, 0.24, 1.0]),
-                CrabType::HermitKing => ("HERMIT KING — LASSO UP!", [0.88, 0.46, 0.16]),
-                CrabType::DancerKing => ("DANCER KING — GROOVE UP!", [1.0, 0.42, 0.62]),
-                _ => return,
-            };
-
-            match crab_type {
-                CrabType::Boss => {
-                    self.rank_beam_lane();
-                    self.flashlight.range_upgrade += 35.0;
-                }
-                CrabType::TideBoss => self.whistle_rank += 1,
-                CrabType::RhythmBoss => self.stomp_rank += 1,
-                CrabType::HermitKing => {
-                    self.lasso_rank += 1;
-                    self.catch_radius_upgrade += 16.0;
-                }
-                CrabType::DancerKing => {
-                    self.whistle_rank += 1;
-                    self.speed_mult = (self.speed_mult + 0.12).min(2.2);
-                }
-                _ => {}
-            }
-
-            self.conga_tint = if self.king_crab_count == 0 {
-                tint
-            } else {
-                [
-                    (self.conga_tint[0] + tint[0]) * 0.5,
-                    (self.conga_tint[1] + tint[1]) * 0.5,
-                    (self.conga_tint[2] + tint[2]) * 0.5,
-                ]
-            };
-            self.king_crab_count += 1;
-            for crab in &mut self.crabs {
-                if crab.caught {
-                    crab.chain_color = Some(self.conga_tint);
-                }
-            }
-            self.floating_texts.spawn(
-                label.to_string(),
-                pos - Vec2::new(150.0, 92.0),
-                30.0,
-                [self.conga_tint[0], self.conga_tint[1], self.conga_tint[2], 1.0],
-            );
-            self.spawn_catch_shockwave(pos, self.conga_tint);
-        }
         self.boss_fissures.clear();
         self.boss_fissure_erupt = 0.0;
         if self.boss_flood_pools > 0 {
@@ -485,6 +431,61 @@ impl MainState {
             self.tide_pools.truncate(new_len);
             self.boss_flood_pools = 0;
         }
+    }
+
+    /// Capturing a King Crab is a live arcade power-up: its shell color joins the conga and its
+    /// archetype deepens one tool lane. Repeated Kings blend their colors and compound the lane,
+    /// making the boss choice matter beyond its score payout.
+    fn apply_king_crab_power(&mut self, pos: Vec2, crab_type: CrabType) {
+        let (label, tint) = match crab_type {
+            CrabType::Boss => ("FIRE KING — BEAM UP!", [1.0, 0.28, 0.08]),
+            CrabType::TideBoss => ("TIDE KING — WHISTLE UP!", [0.12, 0.72, 1.0]),
+            CrabType::RhythmBoss => ("RHYTHM KING — STOMP UP!", [0.72, 0.24, 1.0]),
+            CrabType::HermitKing => ("HERMIT KING — LASSO UP!", [0.88, 0.46, 0.16]),
+            CrabType::DancerKing => ("DANCER KING — GROOVE UP!", [1.0, 0.42, 0.62]),
+            _ => return,
+        };
+
+        match crab_type {
+            CrabType::Boss => {
+                self.rank_beam_lane();
+                self.flashlight.range_upgrade += 35.0;
+            }
+            CrabType::TideBoss => self.whistle_rank += 1,
+            CrabType::RhythmBoss => self.stomp_rank += 1,
+            CrabType::HermitKing => {
+                self.lasso_rank += 1;
+                self.catch_radius_upgrade += 16.0;
+            }
+            CrabType::DancerKing => {
+                self.whistle_rank += 1;
+                self.speed_mult = (self.speed_mult + 0.12).min(2.2);
+            }
+            _ => {}
+        }
+
+        self.conga_tint = if self.king_crab_count == 0 {
+            tint
+        } else {
+            [
+                (self.conga_tint[0] + tint[0]) * 0.5,
+                (self.conga_tint[1] + tint[1]) * 0.5,
+                (self.conga_tint[2] + tint[2]) * 0.5,
+            ]
+        };
+        self.king_crab_count += 1;
+        for crab in &mut self.crabs {
+            if crab.caught {
+                crab.chain_color = Some(self.conga_tint);
+            }
+        }
+        self.floating_texts.spawn(
+            label.to_string(),
+            pos - Vec2::new(150.0, 92.0),
+            30.0,
+            [self.conga_tint[0], self.conga_tint[1], self.conga_tint[2], 1.0],
+        );
+        self.spawn_catch_shockwave(pos, self.conga_tint);
     }
 
     /// King Crab enrage set-piece: the boss slams the seabed and CRACKS THE FLOOR, splitting the

@@ -645,8 +645,11 @@ impl MainState {
                         let mut vel = toward * 230.0;
                         vel.y -= 80.0; // brief upward arc before snapping into line
                         let ci = self.chain_count;
-                        self.crabs
-                            .push(spawn_stolen_crab(old_pos, vel, ct, ci, &mut rng));
+                        let mut stolen_crab = spawn_stolen_crab(old_pos, vel, ct, ci, &mut rng);
+                        if self.king_crab_count > 0 {
+                            stolen_crab.chain_color = Some(self.conga_tint);
+                        }
+                        self.crabs.push(stolen_crab);
                         self.chain_count += 1;
                     }
                     self.player_steal_cooldown = 2.2;
