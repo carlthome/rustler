@@ -291,6 +291,20 @@ pub struct NpcCongaTrain {
     /// 0..1 commitment behind `rival_hunt_target_pos` — the blend the hunt urge applied this frame,
     /// used to fade the gold telegraph up as the predator commits harder to the closing prey.
     pub rival_hunt_intensity: f32,
+    /// 0..1 commit meter for the two-phase player hunt (#160 "smarter, scarier rival AI"). While a
+    /// rival is stalking the player — shadowing at a lurk ring instead of beelining — patience builds
+    /// deterministically: faster when the player is exposed (low groove), the chain is a juicy prize
+    /// (long), and this tier is bold (elders over scouts). At 1.0 the rival COMMITS to the strike
+    /// (see `hunt_committed`). Resets after every steal attempt (snap, dodge fizzle, or lost hunt) so
+    /// the predator falls back to lurking between strikes — a stalk→strike rhythm, not a constant chase.
+    pub stalk_patience: f32,
+    /// Latched while this rival is in the committed strike phase of the player hunt: instead of
+    /// aiming at where the vulnerable back half *is*, it leads its aim by the player's velocity and
+    /// cuts off where the train is *heading* — an interception, the "it read my routing" scare.
+    /// Fully legible: commitment drives `hunt_intent` to 1.0 so the existing red marching-dot
+    /// telegraph burns at full intensity (a stalking rival shows the same tell faint), and the
+    /// commit moment itself is called out by name. Cleared when the hunt ends or the strike resolves.
+    pub hunt_committed: bool,
 }
 
 /// Generate a King Crab name. Leans hard into pirate swagger and crab-rave energy, with the
@@ -458,6 +472,8 @@ impl NpcCongaTrain {
             hunt_intent: 0.0,
             rival_hunt_target_pos: None,
             rival_hunt_intensity: 0.0,
+            stalk_patience: 0.0,
+            hunt_committed: false,
         }
     }
 }
@@ -618,6 +634,12 @@ pub struct MainState {
     /// and pre-position to swoop the spoils. Never drops, so the bot playtest can assert the anticipatory
     /// tell fired without racing the live hunt state, which flickers as trains close and separate.
     pub(crate) rival_hunt_telegraphs: usize,
+    /// Monotonic count of frames a COMMITTED rival applied intercept steering against the player's
+    /// train (#160 "smarter, scarier rival AI"): the strike phase of the stalk→strike player hunt,
+    /// where the rival leads its aim by the player's velocity to cut off the vulnerable back half
+    /// instead of chasing where it currently is. Never drops, so the bot playtest can assert the
+    /// interception path fired without racing the live hunt state, which resets after each strike.
+    pub(crate) hunt_intercepts: usize,
     /// One-frame flag: a rival spliced crabs off your tail this frame — play the "loss" steal sting.
     /// Set inside `update_npc_trains` (which has no `ctx`), consumed with `ctx` right after the call.
     pub(crate) steal_loss_sfx: bool,
@@ -1742,6 +1764,7 @@ impl MainState {
             rival_vs_rival_steals: 0,
             rival_spill_crabs: 0,
             rival_hunt_telegraphs: 0,
+            hunt_intercepts: 0,
             steal_loss_sfx: false,
             steal_gain_sfx: false,
             rival_steal_sfx: None,

@@ -153,60 +153,138 @@ impl MainState {
             let dist_to_player = self.npc_trains[i].leader_pos.distance(self.player_pos);
             self.npc_trains[i].target_vol = ((800.0 - dist_to_player) / 600.0).clamp(0.0, 1.0);
 
-            // --- Pursuit: when the player has a train, deliberately route to thread the back half --
+            // --- Pursuit: a two-phase stalk→strike hunt of the player's train (#160) ---------
             // The NPC behaves like a rival player with intent (INSPIRATION.md "Rivals route
-            // deliberately"): it wants to get INTO the body of the player's chain and slice the back
-            // half, not just nip the tail or charge the head where the player is watching. It aims at
-            // the same ~2/3-down thread point the boss uses (cached_steal_target_pos), falling back to
-            // the tail on a short chain. The longer the train, the juicier the prize — so the rival
-            // commits harder, which naturally means a lazy sprawling spiral gets sliced while a tight
-            // line trailing straight behind keeps the reachable links bunched at the far tail (small cut).
+            // deliberately") — but a smart predator doesn't beeline. The hunt has two phases:
+            //
+            //   STALK — shadow the player at a lurk ring, matching pace from the edge of the fight
+            //   (the agar.io "watch the big one creep toward you" dread), while a commit meter
+            //   (`stalk_patience`) builds. It builds faster when you're exposed (low groove — off
+            //   the beat), when the prize is juicy (a long train), and for bolder tiers (elders
+            //   commit sooner than skittish scouts). Staying in the pocket literally keeps the
+            //   hunters circling at arm's length; lapsing invites the strike.
+            //
+            //   STRIKE — at full patience the rival COMMITS: it stops chasing where your vulnerable
+            //   back half *is* and intercepts where it's *heading*, leading its aim by your velocity
+            //   toward the same ~2/3-down thread point the boss uses (cached_steal_target_pos,
+            //   falling back to the tail on a short chain). That's the "it read my routing" scare:
+            //   a lazy sprawling spiral gets cut off mid-arc, while tight defensive routing keeps
+            //   the reachable links bunched at the far tail (small cut). After the strike resolves
+            //   (splice snaps, or you dodge it) patience resets and the predator falls back to
+            //   lurking — a stalk→strike rhythm, not a constant chase.
+            //
+            // Legible and fair, per the issue's hard requirement: stalking drives hunt_intent to
+            // ~0.55 (the red marching-dot telegraph burns faint — "it's watching you"), committing
+            // drives it to 1.0 (full-intensity dots + reddened name banner) and calls the hunter
+            // out by name, and the close-range arm/DEFEND/dodge fight is untouched. Deterministic:
+            // pure function of game state + dt — no RNG, no wall clock — so the headless bots stay
+            // byte-stable.
             const PURSUIT_RANGE: f32 = 550.0;
-            // Opportunism (#160 "smarter, scarier rival AI"): a rival reads when you're exposed and
-            // presses in from farther, like a Rain-World predator that senses weakness. The clearest
-            // "exposed" signal is a LOW GROOVE — you've fallen out of the pocket, off the beat — so
-            // staying on-beat literally keeps the hunters at arm's length and lapsing invites the
-            // steal. That folds the scare back into the rhythm contract (INSPIRATION "steal to win",
-            // "keys as drum pads"): playing the groove well IS the defense. This only ever *extends*
-            // reach and commitment (floored at the on-beat baseline via `exposure >= 0`), so a
-            // grooving player sees exactly today's behavior and an off-beat one gets stalked sooner
-            // and harder — it never makes rivals gentler than before, so the guarded steal playtests
-            // can't regress. It's legible for free: the wider reach trips the existing hunt-intent
-            // telegraph (the marching-dots warning) sooner, so you *see* a rival commit the moment
-            // you slip, in time to tighten your line or reroute.
+            // Opportunism: a rival reads when you're exposed and presses in from farther, like a
+            // Rain-World predator that senses weakness. The clearest "exposed" signal is a LOW
+            // GROOVE — you've fallen out of the pocket, off the beat — so staying on-beat keeps the
+            // hunters at arm's length and lapsing invites the steal (INSPIRATION "steal to win",
+            // "keys as drum pads": playing the groove well IS the defense). The wider reach trips
+            // the hunt-intent telegraph sooner, so you *see* a rival commit the moment you slip.
             let exposure = (1.0 - self.groove).clamp(0.0, 1.0); // 0 in the pocket, 1 fully off-beat
             let pursuit_range = PURSUIT_RANGE + exposure * 180.0;
-            // Hunt intent smooths toward 1 while this rival is committed to a steal route and back
+            // Boldness by tier: 0 for the skittish scout (base 1.2) up to 1 for the elder (2.4).
+            let boldness =
+                ((self.npc_trains[i].base_scale - 1.2) / 1.2).clamp(0.0, 1.0);
+            // Hunt intent smooths toward its phase goal while this rival is on a steal route and back
             // toward 0 otherwise, so the early-warning tell fades in/out instead of popping. Updated
             // every non-idle frame (goal 0 when not hunting) so it always relaxes once the chase ends.
             let hunting = self.chain_count >= 2
                 && dist_to_player < pursuit_range
                 && self.cached_steal_target_pos.or(self.cached_tail_pos).is_some();
-            let hunt_goal = if hunting { 1.0 } else { 0.0 };
+            if !hunting {
+                // Hunt lost (player banked, escaped range, or the chain snapped): drop any commit
+                // and bleed patience so the next hunt starts from a fresh stalk, not a hair trigger.
+                self.npc_trains[i].hunt_committed = false;
+                self.npc_trains[i].stalk_patience =
+                    (self.npc_trains[i].stalk_patience - dt * 0.35).max(0.0);
+            }
+            let hunt_goal = if !hunting {
+                0.0
+            } else if self.npc_trains[i].hunt_committed {
+                1.0 // strike phase — the telegraph burns at full intensity
+            } else {
+                0.55 // stalk phase — the same tell, faint: "it's watching you"
+            };
             let hunt_rate = if hunting { 1.4 } else { 2.4 };
             self.npc_trains[i].hunt_intent +=
                 (hunt_goal - self.npc_trains[i].hunt_intent) * (hunt_rate * dt).min(1.0);
-            if self.chain_count >= 2
-                && dist_to_player < pursuit_range
-                && self.npc_trains[i].idle_timer <= 0.0
-            {
-                // Route toward the back-half thread point when the chain is long enough to have one,
-                // else the tail. Both are cached once per frame in update_crabs — no O(n_crabs) scan.
+            if hunting && self.npc_trains[i].idle_timer <= 0.0 {
+                // Both phases route off the back-half thread point when the chain is long enough to
+                // have one, else the tail. Both are cached once per frame in update_crabs — no
+                // O(n_crabs) scan.
                 if let Some(steal_pos) = self.cached_steal_target_pos.or(self.cached_tail_pos) {
-                    // Base blend ramps as the rival closes in; a longer train adds up to +0.4 commit so
-                    // big trains get pursued with real intent instead of a lazy drift. An exposed
-                    // (off-beat, low-groove) player adds up to +0.3 more (opportunism, above): the
-                    // rival commits harder the moment you slip out of the pocket — floored so an
-                    // on-beat player sees exactly the old, gentler pursuit.
+                    // Base blend ramps as the rival closes in; a longer train adds up to +0.4 commit
+                    // so big trains get pursued with real intent instead of a lazy drift; an exposed
+                    // (off-beat) player adds up to +0.3 more.
                     let length_urge = ((self.chain_count as f32 - 2.0) / 8.0).clamp(0.0, 0.4);
                     let pursuit_blend =
                         (((pursuit_range - dist_to_player) / pursuit_range)
                             + length_urge
                             + exposure * 0.3)
                             .clamp(0.0, 1.0);
-                    self.npc_trains[i].target = self.npc_trains[i]
-                        .target
-                        .lerp(steal_pos, pursuit_blend * dt * 3.0);
+                    if !self.npc_trains[i].hunt_committed {
+                        // STALK: build patience — exposure is the loudest signal, then the prize
+                        // and this tier's boldness. Even a flawless player eventually gets tested
+                        // (the base term), but slowly enough that the read always comes first:
+                        // scout-vs-grooving-player takes ~10s to commit, elder-vs-exposed ~1.5s.
+                        let build =
+                            0.10 + boldness * 0.10 + exposure * 0.35 + length_urge * 0.5;
+                        self.npc_trains[i].stalk_patience =
+                            (self.npc_trains[i].stalk_patience + build * dt).min(1.0);
+                        if self.npc_trains[i].stalk_patience >= 1.0 {
+                            // COMMIT — the strike begins. Call the hunter out by name so the scare
+                            // is legible from across the field, matching the "on your tail!" arm
+                            // warning's threat language (only fires once per stalk cycle, since
+                            // patience must rebuild from 0 after every strike).
+                            self.npc_trains[i].hunt_committed = true;
+                            let npc_name = self.npc_trains[i].name.clone();
+                            self.floating_texts.spawn(
+                                format!("⚠ {} is hunting you!", npc_name),
+                                self.npc_trains[i].leader_pos - Vec2::new(90.0, 60.0),
+                                24.0,
+                                [0.95, 0.25, 0.18, 1.0],
+                            );
+                        }
+                        // Shadow point: hold the lurk ring on this rival's side of the player,
+                        // drifting with the train — menace expressed through movement. Bolder
+                        // tiers lurk closer; everyone edges nearer as the strike ripens, so the
+                        // creep itself telegraphs how close the commit is.
+                        let away = (self.npc_trains[i].leader_pos - steal_pos).normalize_or_zero();
+                        let away = if away == Vec2::ZERO { Vec2::X } else { away };
+                        let stalk_radius = (300.0 - boldness * 60.0)
+                            * (1.0 - 0.4 * self.npc_trains[i].stalk_patience);
+                        let shadow = steal_pos + away * stalk_radius;
+                        self.npc_trains[i].target = self.npc_trains[i]
+                            .target
+                            .lerp(shadow, pursuit_blend * dt * 3.0);
+                    } else {
+                        // STRIKE: intercept. Lead the aim by the player's velocity, scaled by the
+                        // time this rival needs to cover the gap — cutting off where the routing
+                        // player is heading, not trailing where they've been. Clamped tight so the
+                        // predicted point stays readable (never more than ~a second of lead) and
+                        // inside the world, and the existing full-intensity marching dots still
+                        // point at the actual threatened link — the tell shows what's at risk, the
+                        // movement shows the cutoff.
+                        let gap = self.npc_trains[i].leader_pos.distance(steal_pos);
+                        let lead_time = (gap / speed.max(1.0)).clamp(0.0, 1.1);
+                        let margin = 80.0;
+                        let intercept = (steal_pos + self.player_vel * lead_time * 0.8).clamp(
+                            Vec2::splat(margin),
+                            Vec2::new(self.world_width - margin, self.world_height - margin),
+                        );
+                        self.npc_trains[i].target = self.npc_trains[i]
+                            .target
+                            .lerp(intercept, (pursuit_blend + 0.3).min(1.0) * dt * 3.6);
+                        // Monotonic tally for the bot guard: a committed rival applied intercept
+                        // steering this frame, so the "rival intercepts a routing player" path is live.
+                        self.hunt_intercepts = self.hunt_intercepts.saturating_add(1);
+                    }
                 }
             }
 
@@ -382,6 +460,10 @@ impl MainState {
                             // downbeat reroute holds it off a beat longer (the "big save" version).
                             self.npc_trains[i].steal_threat = 0.0;
                             self.npc_trains[i].steal_cooldown = if downbeat { 2.0 } else { 1.4 };
+                            // Strike resolved (you won it): the predator falls back to lurking —
+                            // patience rebuilds from zero before it can commit another intercept.
+                            self.npc_trains[i].hunt_committed = false;
+                            self.npc_trains[i].stalk_patience = 0.0;
                             self.steals_dodged += 1;
                             // Flip the reroute into offense, mirroring the tool parry (try_defend_steal):
                             // a clean juke leaves the rival strung out and exposed, so mark it for revenge
@@ -481,6 +563,10 @@ impl MainState {
                             self.steal_loss_sfx = true; // play the descending loss sting (has no ctx here)
                             self.npc_trains[i].follower_types.extend(stolen_types);
                             self.npc_trains[i].steal_cooldown = 2.2;
+                            // Strike resolved (it won it): sated, the predator falls back to lurking —
+                            // patience rebuilds from zero before the next stalk→strike cycle.
+                            self.npc_trains[i].hunt_committed = false;
+                            self.npc_trains[i].stalk_patience = 0.0;
                             // Mark the culprit for revenge: chase it down and rustle the crabs back
                             // inside the window for a bonus, so losing crabs opens a duel (ROADMAP
                             // "you steal, they steal back") rather than a flat tax.
