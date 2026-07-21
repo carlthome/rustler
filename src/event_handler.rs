@@ -110,7 +110,7 @@ impl EventHandler for MainState {
                 screen_height: self.height,
                 title_card_t: title_t,
                 menu_bloom: if self.show_instructions && self.menu_page == 0 {
-                    1.0
+                    crate::menu_intro::presentation(self.menu_intro_time).moon_bloom
                 } else {
                     0.0
                 },

@@ -22,6 +22,7 @@ pub fn draw_menu(
     height: f32,
 ) -> GameResult {
     let t = state.menu_time;
+    let intro = crate::menu_intro::presentation(state.menu_intro_time);
 
     // --- Moonlit-beach gradient backdrop ------------------------------------------------
     let strips = 28;
@@ -81,10 +82,15 @@ pub fn draw_menu(
     }
 
     // --- Soft moon with a glowing halo --------------------------------------------------
-    let moon_pos = Vec2::new(width * 0.82, height * 0.2);
+    let grass_start = height - 66.0;
+    let horizon_moon_y = grass_start + 28.0;
+    let moon_pos = Vec2::new(
+        width * 0.82,
+        horizon_moon_y + (height * 0.2 - horizon_moon_y) * intro.moon_rise,
+    );
     for ring in (0..6).rev() {
         let rr = 34.0 + ring as f32 * 16.0;
-        let a = 0.05 + (5 - ring) as f32 * 0.03;
+        let a = (0.05 + (5 - ring) as f32 * 0.03) * intro.moon_bloom;
         canvas.draw(
             dot,
             DrawParam::default()
@@ -98,11 +104,10 @@ pub fn draw_menu(
         DrawParam::default()
             .dest(moon_pos)
             .scale(Vec2::splat(30.0))
-            .color(Color::new(0.98, 0.96, 0.86, 1.0)),
+            .color(Color::new(0.98, 0.96, 0.86, 0.35 + intro.moon_rise * 0.65)),
     );
 
     // --- Grass ground at the bottom so crabs have a surface to walk on ------------------
-    let grass_start = height - 66.0;
     let grass_h = 66.0;
     let grass_square = unit_square(ctx)?;
     // Darker grass base layer
