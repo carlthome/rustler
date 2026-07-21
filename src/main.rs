@@ -31,6 +31,7 @@ mod npc_trains_render;
 mod overlays;
 mod player_tools;
 mod rng;
+mod rival_taunts;
 mod skins;
 mod sounds;
 mod spawnings;

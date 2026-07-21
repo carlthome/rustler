@@ -896,6 +896,18 @@ impl MainState {
                         }
                     }
                     self.chain_count = self.chain_count.saturating_sub(released);
+                    let taunt = crate::rival_taunts::clash_taunt(
+                        &npc_name,
+                        released,
+                        self.chain_count,
+                        &mut crate::rng::rng(),
+                    );
+                    self.floating_texts.spawn(
+                        format!("{}: \"{}\"", npc_name, taunt),
+                        npc_pos - Vec2::new(110.0, 78.0),
+                        22.0,
+                        [1.0, 0.82, 0.28, 1.0],
+                    );
                     // NPC loses its last 1–2 followers — they scatter as free crabs (Sonic rings)
                     let npc_lose = 2.min(self.npc_trains[ni].follower_types.len());
                     for k in 0..npc_lose {
