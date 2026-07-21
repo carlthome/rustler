@@ -7,6 +7,12 @@ use std::{cell::RefCell, collections::HashMap};
 thread_local! {
     pub static LEVEL_LABEL_CACHE: RefCell<HashMap<usize, (Text, f32, f32)>> = RefCell::new(HashMap::new());
 
+    /// Single-slot label cache for the endless arcade stage counter — a HashMap keyed by stage
+    /// (like LEVEL_LABEL_CACHE, which is fine for campaign's small fixed level count) would grow
+    /// one Text entry per stage forever, since arcade progression never wraps or revisits a stage.
+    /// A single slot holds exactly the current stage's shaped Text and gets overwritten on advance.
+    pub static ARCADE_STAGE_LABEL_CACHE: RefCell<Option<(usize, Text, f32, f32)>> = RefCell::new(None);
+
     pub static FRENZY_BANNER_CACHE: RefCell<Option<(Text, Vec2)>> = RefCell::new(None);
     pub static STAGE_BANNER_CACHE: RefCell<Option<(&'static str, Text, Vec2)>> = RefCell::new(None);
 
