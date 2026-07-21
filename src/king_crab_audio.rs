@@ -167,7 +167,7 @@ fn synth_king_crab_rumble_panned(ctx: &mut Context, pan: f32) -> GameResult<Sour
     let left: Vec<f32> = samples.iter().map(|&s| s * gain_l).collect();
     let right: Vec<f32> = samples.iter().map(|&s| s * gain_r).collect();
     let wav = encode_wav_stereo16(&left, &right);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     Ok(src)
@@ -222,7 +222,7 @@ fn synth_king_crab_rumble_soft(ctx: &mut Context) -> GameResult<Source> {
     // Centered stereo (equal L/R).
     let left = samples.clone();
     let wav = encode_wav_stereo16(&left, &samples);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     Ok(src)
@@ -245,7 +245,7 @@ pub fn synth_king_crab_rumble(ctx: &mut Context) -> GameResult<Source> {
     // detail that heavy crushing would smear.
     let pcm = samples_to_pcm(&mut samples, 8, 1);
     let wav = encode_wav_mono16(&pcm);
-    let data = SoundData::from_bytes(&wav);
+    let data = SoundData::from_bytes(&wav)?;
     let mut src = Source::from_data(ctx, data)?;
     src.set_repeat(true);
     Ok(src)
@@ -433,8 +433,8 @@ pub fn synth_king_crab_ambient_spatial(ctx: &mut Context) -> GameResult<(Source,
     let silence = vec![0.0_f32; mono.len()];
     let left_wav = encode_wav_stereo16(&mono, &silence);
     let right_wav = encode_wav_stereo16(&silence, &mono);
-    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
-    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav)?)?;
+    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav)?)?;
     left.set_repeat(true);
     right.set_repeat(true);
     Ok((left, right))
@@ -475,8 +475,8 @@ pub fn synth_rival_motif(ctx: &mut Context, bpm: f32, tier: usize) -> GameResult
     let silence = vec![0.0_f32; mono.len()];
     let left_wav = encode_wav_stereo16(&mono, &silence);
     let right_wav = encode_wav_stereo16(&silence, &mono);
-    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav))?;
-    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav))?;
+    let mut left = Source::from_data(ctx, SoundData::from_bytes(&left_wav)?)?;
+    let mut right = Source::from_data(ctx, SoundData::from_bytes(&right_wav)?)?;
     left.set_repeat(true);
     right.set_repeat(true);
     Ok((left, right))

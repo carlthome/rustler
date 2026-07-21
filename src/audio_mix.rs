@@ -93,7 +93,7 @@ impl MainState {
                 (&mut self.sounds.king_crab_soft, new_s),
             ] {
                 if vol > 0.01 && !src.playing() {
-                    let _ = src.play(ctx);
+                    let _ = src.play();
                 } else if vol <= 0.01 && src.playing() {
                     src.pause();
                 }
@@ -137,7 +137,7 @@ impl MainState {
             };
             layer.set_volume(vol);
             if !layer.playing() && vol > 0.01 {
-                let _ = layer.play(ctx);
+                let _ = layer.play();
             }
         }
     }
@@ -152,11 +152,11 @@ impl MainState {
         // reads in the audio too (INSPIRATION.md "Audio IS the scoreboard" / "Steal to win").
         if self.steal_loss_sfx {
             self.steal_loss_sfx = false;
-            let _ = self.sounds.steal_loss_sfx.play_detached(ctx);
+            let _ = self.sounds.steal_loss_sfx.play();
         }
         if self.steal_gain_sfx {
             self.steal_gain_sfx = false;
-            let _ = self.sounds.steal_gain_sfx.play_detached(ctx);
+            let _ = self.sounds.steal_gain_sfx.play();
         }
         // Rival-vs-rival theft clack (ROADMAP whole-beach ecology): a third-party steal happened out
         // on the field, so place it in the mix — pan by the collision's bearing and fade by distance
@@ -183,8 +183,8 @@ impl MainState {
                 let angle = (pan + 1.0) * std::f32::consts::FRAC_PI_4;
                 self.sounds.rival_steal_l.set_volume(angle.cos() * vol);
                 self.sounds.rival_steal_r.set_volume(angle.sin() * vol);
-                let _ = self.sounds.rival_steal_l.play_detached(ctx);
-                let _ = self.sounds.rival_steal_r.play_detached(ctx);
+                let _ = self.sounds.rival_steal_l.play();
+                let _ = self.sounds.rival_steal_r.play();
             }
         }
 
@@ -219,9 +219,9 @@ impl MainState {
                 let v = (cur + (tgt - cur) * (dt * 2.0).min(1.0)).clamp(0.0, 1.0);
                 src.set_volume(v);
                 if v > 0.02 && !src.playing() {
-                    let _ = src.play(ctx);
+                    let _ = src.play();
                 } else if v <= 0.02 && src.playing() {
-                    src.stop(ctx);
+                    src.stop();
                 }
             };
             smooth(&mut self.sounds.king_crab_rumble_l, target_l);
@@ -308,11 +308,11 @@ impl MainState {
                 let want_play = ducked[i] > 0.03;
                 let playing = src_l.playing() || src_r.playing();
                 if want_play && !playing && on_beat {
-                    let _ = src_l.play(ctx);
-                    let _ = src_r.play(ctx);
+                    let _ = src_l.play();
+                    let _ = src_r.play();
                 } else if !want_play && ducked[i] < 0.008 && playing {
-                    src_l.stop(ctx);
-                    src_r.stop(ctx);
+                    src_l.stop();
+                    src_r.stop();
                 }
             }
         }
@@ -354,9 +354,9 @@ impl MainState {
                 let smoothed = (cur + (target - cur) * (dt_audio * 2.5).min(1.0)).clamp(0.0, 0.2);
                 theme.set_volume(smoothed);
                 if smoothed > 0.01 && !theme.playing() {
-                    let _ = theme.play(ctx);
+                    let _ = theme.play();
                 } else if smoothed <= 0.01 && theme.playing() {
-                    theme.stop(ctx);
+                    theme.stop();
                 }
             }
         }

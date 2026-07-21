@@ -8,6 +8,7 @@
 
 use ggez::conf::FullscreenType;
 use ggez::glam::Vec2;
+use ggez::winit::keyboard::PhysicalKey;
 use rand::Rng;
 
 use crate::*;
@@ -173,7 +174,7 @@ impl MainState {
                 if self.whistle_cooldown <= 0.0 {
                     if let Some(target) = self.nearest_catchable_crab_pos() {
                         if center.distance(target) < 260.0 {
-                            controls::handle_key_down_event(self, ctx, Some(KeyCode::E));
+                            controls::handle_key_down_event(self, ctx, Some(KeyCode::KeyE));
                         }
                     }
                 }
@@ -183,7 +184,7 @@ impl MainState {
                 if self.stomp_cooldown <= 0.0 {
                     if let Some(target) = self.nearest_seek_target_pos() {
                         if center.distance(target) < STOMP_MAX_RADIUS {
-                            controls::handle_key_down_event(self, ctx, Some(KeyCode::R));
+                            controls::handle_key_down_event(self, ctx, Some(KeyCode::KeyR));
                         }
                     }
                 }
@@ -590,7 +591,7 @@ impl MainState {
             && !self.game_over
             && ctx
                 .keyboard
-                .is_key_pressed(ggez::input::keyboard::KeyCode::T);
+                .is_physical_key_pressed(&PhysicalKey::Code(ggez::input::keyboard::KeyCode::KeyT));
         if !t_held && self.drum_roll_held {
             // Release edge: fire if we banked any roll hits, otherwise drop the (empty) charge.
             if self.drum_roll_hits > 0 {

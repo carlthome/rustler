@@ -267,7 +267,7 @@ impl MainState {
             Vec2::new(kick_angle.cos(), kick_angle.sin()) * 18.0 * intensity * 60.0;
         self.on_beat_flash = if perfect { 0.85 } else { 0.6 };
         self.groove = (self.groove + if perfect { 0.5 } else { 0.35 }).min(1.0);
-        let _ = self.sounds.success2.play_detached(ctx);
+        let _ = self.sounds.success2.play();
 
         // Move the pen so the next bank is a fresh routing decision, not a treadmill loop.
         self.pen_pos = pick_pen_pos(self.world_width, self.world_height, player_center, &mut rng);

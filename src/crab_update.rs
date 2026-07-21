@@ -383,7 +383,7 @@ impl MainState {
                 }
                 let distance = self.player_pos.distance(crab.pos);
                 let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
-                let angle_to_crab = flashlight_dir.angle_between(to_crab).abs();
+                let angle_to_crab = flashlight_dir.angle_to(to_crab).abs();
                 let crab_in_light = self.flashlight.on
                     && distance < flashlight_range
                     && angle_to_crab < flashlight_cone_angle;
@@ -680,7 +680,7 @@ impl MainState {
                 // lit, fleeing, or mid-surge and so need the linear value.
                 let distance_sq = self.player_pos.distance_squared(crab.pos);
                 let to_crab = (crab.pos - self.player_pos).normalize_or_zero();
-                let angle_to_crab = flashlight_dir.angle_between(to_crab).abs();
+                let angle_to_crab = flashlight_dir.angle_to(to_crab).abs();
 
                 // Check if crab is within flashlight light.
                 let crab_in_light = self.flashlight.on
