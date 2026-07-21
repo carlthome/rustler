@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.40.3 — 2026-07-21
+
+### Audio
+- Add crisp woodblock drum-pad accent to on-beat tool casts
+
+### Fixes
+- Clash only fires on a deliberate ram, not an incidental King-Crab graze
+
 ## v0.40.2 — 2026-07-21
 
 ### Performance
