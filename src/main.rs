@@ -921,6 +921,8 @@ impl MainState {
         self.next_upgrade_score = UPGRADE_FIRST_AT;
         self.speed_mult = 1.0;
         self.spawn_timer = 0.0;
+        self.treasure_chest = None;
+        self.treasure_chest_timer = TREASURE_CHEST_ROLL_INTERVAL;
         self.time_elapsed = 0.0;
         self.game_over = false;
         self.run_recorded = false;

@@ -37,6 +37,11 @@ pub const SPRINT_SPEED_MULT: f32 = 10.0;
 pub const CHAIN_LINK_FRAMES: usize = 12;
 pub const BEAT_INTERVAL: f32 = 0.5; // 120 BPM, crab rave tempo
 pub const BEAT_WINDOW: f32 = 0.08; // seconds around a beat that count as "on beat"
+// Pirate treasure is an occasional high-value rhythm opportunity. A roll happens once per
+// interval while no chest is active, so the average wait is roughly a minute and a half.
+pub const TREASURE_CHEST_ROLL_INTERVAL: f32 = 18.0;
+pub const TREASURE_CHEST_SPAWN_CHANCE: f64 = 0.2;
+pub const TREASURE_CHEST_PICKUP_RADIUS: f32 = 44.0;
 pub const PERFECT_WINDOW: f32 = 0.032; // seconds around a beat that count as a PERFECT hit (tighter than BEAT_WINDOW)
 // Wider on-beat window for the *defensive* steal parry only (Stomp/Wave save against an armed
 // rival splice). The parry is reactive — you're tracking the rival's telegraph AND the beat at
