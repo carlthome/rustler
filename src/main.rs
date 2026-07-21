@@ -28,6 +28,7 @@ mod sounds;
 mod spawnings;
 mod startle;
 mod state;
+mod state_init;
 mod tutorial;
 mod upgrade;
 mod world_map;
