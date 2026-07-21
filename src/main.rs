@@ -16,6 +16,7 @@ mod event_handler;
 mod floating_text;
 mod game_lifecycle;
 mod game_render;
+mod game_render_backdrop;
 mod game_render_hud;
 mod game_update;
 mod graphics;
