@@ -423,7 +423,7 @@ impl MainState {
             arcade_stage: 1,
             current_pattern: 0,
             pattern_timer: 0.0,
-            debug_mode: true,
+            debug_mode: false,
             pending_upgrade: false,
             offered_upgrades: [0, 1, 2],
             king_crab_count: 0,
