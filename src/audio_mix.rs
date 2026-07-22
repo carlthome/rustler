@@ -432,7 +432,9 @@ impl MainState {
                     (0.05 + (counts[i] as f32 - 1.0) * 0.01).min(0.13)
                 };
                 let cur = theme.volume();
-                let smoothed = (cur + (target - cur) * (dt_audio * 2.5).min(1.0)).clamp(0.0, 0.2);
+                // TODO Re-enable once the theme loops are beat and key synced to the player.
+                //let smoothed = (cur + (target - cur) * (dt_audio * 2.5).min(1.0)).clamp(0.0, 0.2);
+                let smoothed = 0.0;
                 theme.set_volume(smoothed);
                 let downbeat_started =
                     downbeat_started(self.beat_count, self.beat_timer, self.beat_interval);
