@@ -1449,11 +1449,8 @@ impl MainState {
     pub(crate) fn draw_scene(&mut self, ctx: &mut Context) -> GameResult {
         let width = self.width;
         let height = self.height;
-        let mut canvas = Canvas::from_image(
-            ctx,
-            self.scene_image.clone(),
-            Color::from_rgb(100, 200, 100),
-        );
+        let mut canvas =
+            Canvas::from_image(ctx, self.scene_image.clone(), Color::from_rgb(0, 0, 0));
         let shake_ox = self.screen_shake_offset.x;
         let shake_oy = self.screen_shake_offset.y;
         // Zoom punch: shrink the visible world rect (magnify) around the player so they stay
