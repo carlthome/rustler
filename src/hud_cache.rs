@@ -55,7 +55,7 @@ thread_local! {
 
     pub static MENU_TUTORIAL_CACHE: RefCell<Option<(Text, f32)>> = RefCell::new(None);
 
-    /// Startup-cinematic labels ("CARLTHOME", "P R E S E N T S", "SPACE TO SKIP") — fully static
+    /// Startup-cinematic labels — fully static
     /// strings drawn every frame for the ~2.85s logo/reveal sequence at launch. Build and measure
     /// once, then reuse for the rest of the intro instead of re-shaping glyphs every frame (same
     /// pattern as MENU_TITLE_CACHE and friends).

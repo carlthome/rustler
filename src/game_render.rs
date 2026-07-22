@@ -67,7 +67,7 @@ impl MainState {
             let logo_width = STARTUP_LOGO_TEXT_CACHE.with(|c| -> GameResult<f32> {
                 let mut cache = c.borrow_mut();
                 if cache.is_none() {
-                    let mut logo = Text::new("CARLTHOME");
+                    let mut logo = Text::new("carlthome");
                     logo.set_scale(LOGO_SCALE);
                     let w = logo.measure(ctx)?.x;
                     *cache = Some((logo, w));
