@@ -241,7 +241,7 @@ pub fn boss_label(boss: CrabType) -> &'static str {
 pub fn get_levels() -> Vec<Level> {
     vec![
         Level {
-            title: "First Landing".to_string(),
+            title: "Tutorial".to_string(),
             description: "Learn the full catch, train, and bank loop on open sand.".to_string(),
             difficulty: 0,
             map_size: MapSize::Tutorial,
